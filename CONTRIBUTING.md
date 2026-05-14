@@ -136,26 +136,6 @@ passing CI.
   work.
 - **Feedback is constructive.** We review code, not people.
 
-## Template override convention
-
-This organization uses a shared `.github` repository for default
-issue templates, PR templates, and community health files. GitHub's
-inheritance model works as follows:
-
-- **Standalone files** (CONTRIBUTING.md, SECURITY.md, etc.) inherit
-  on a per-file basis. A repo with its own CONTRIBUTING.md uses that;
-  everything else falls through to the org default.
-- **Template directories** (ISSUE_TEMPLATE/) inherit on a
-  per-directory basis — **all or nothing**. If a repo has any file in
-  its own `.github/ISSUE_TEMPLATE/` directory, it loses all org
-  defaults for that directory. To customize templates, the repo must
-  provide the complete set.
-- **LICENSE** files do not inherit. Each repo must have its own.
-
-If you need custom templates for a specific repo, add the full
-template directory to that repo. Do not add individual files expecting
-to inherit the rest from the org.
-
 ## License
 
 All VERGIL repositories are licensed under
