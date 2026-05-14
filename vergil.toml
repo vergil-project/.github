@@ -13,4 +13,4 @@ versions = ["latest"]
 integration-tests = false
 
 [dependencies]
-vergil = "v2.0.10"
+vergil = "v2.0.9"
