@@ -4,6 +4,13 @@ This repository holds org-level default configuration for the
 [vergil-project](https://github.com/vergil-project) GitHub
 organization.
 
+## Table of Contents
+
+- [What lives here](#what-lives-here)
+- [How inheritance works](#how-inheritance-works)
+- [The `.github/.github/` nesting](#the-githubgithub-nesting)
+- [Related](#related)
+
 ## What lives here
 
 | Path | Purpose |
