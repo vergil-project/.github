@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    uses: vergil-project/vergil-actions/.github/workflows/ci-quality.yml@v2.0
+    with:
+      language: none
+      versions: '["latest"]'
+      container-suffix: base
