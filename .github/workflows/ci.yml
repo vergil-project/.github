@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  common:
+    name: common
+    runs-on: ubuntu-latest
+    container: ghcr.io/vergil-project/prod-base:latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install vergil-tooling
+        uses: vergil-project/vergil-actions/actions/shared/setup/vergil@v2.0
+
+      - name: Run common quality checks
+        run: vrg-validate --check common
