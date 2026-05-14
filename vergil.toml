@@ -1,0 +1,16 @@
+[project]
+repository-type = "documentation"
+versioning-scheme = "semver"
+branching-model = "library-release"
+release-model = "tagged-release"
+primary-language = "none"
+
+[project.co-authors]
+wphillipmoore-agent = "Co-Authored-By: wphillipmoore-agent <284101533+wphillipmoore-agent@users.noreply.github.com>"
+
+[ci]
+versions = ["latest"]
+integration-tests = false
+
+[dependencies]
+vergil = "v2.0.10"
