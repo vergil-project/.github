@@ -19,128 +19,73 @@ documented and hoped for.
 Most multi-repo engineering organizations enforce standards through
 wikis, onboarding docs, and code review. It works until it doesn't:
 someone skips the linter, a release goes out without a security scan,
-an AI coding agent auto-merges a PR it shouldn't have touched.
+a new contributor doesn't know the process exists.
+
+AI coding agents made this worse. They don't read wikis. They bypass
+sandboxes — during a fleet-wide rollout, we found that Claude Code
+subagents circumvented sandbox path restrictions
+[53% of the time](https://github.com/vergil-project/vergil-claude-plugin/issues/241)
+by creatively working around denials. They auto-merge PRs they
+shouldn't touch. They hallucinate compliance with standards they've
+never seen.
 
 VERGIL replaces "please follow the process" with "the process won't
 let you skip it." Every standard is enforced at the tooling layer —
-pre-commit hooks, CI gates, container-based validation, and AI agent
+pre-commit hooks, CI gates, container-based validation, and agent
 guardrails that intercept non-compliant actions before they land.
 
 ---
 
-## Architecture
+## How it works
 
-Four components, each a separate repository with its own release
-lifecycle:
+**Standards as code.** Every engineering standard is mechanically
+enforced. Commit format, branch naming, PR linkage, pre-merge
+validation, security scanning, release process — none depend on
+someone reading a wiki and choosing to comply. The tools make
+non-compliance harder than compliance.
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│                                          VERGIL                                          │
-│                                                                                          │
-│            ┌──────────────────────────────────────────────────────────────┐              │
-│            │  vergil-tooling                                              │              │
-│            │                                                              │              │
-│            │  Python CLI tools + git hooks — the core standards           │              │
-│            │  enforcement engine                                          │              │
-│            └┬───────────────────────┬────────────────────────────────────┬┘              │
-│             │                       │                            │                       │
-│             ▼                       ▼                            ▼                       │
-│  ┌────────────────────┐  ┌────────────────────┐  ┌──────────────────────────────┐        │
-│  │  vergil-actions    │  │  vergil-docker     │  │  vergil-claude-plugin        │        │
-│  │                    │  │                    │  │                              │        │
-│  │  CI/CD workflows   │  │  Dev container     │  │  Claude Code plugin — AI     │        │
-│  │  & GitHub Actions  │  │  images (5+ lang)  │  │  agent workflow governance   │        │
-│  └────────────────────┘  └────────────────────┘  └──────────────────────────────┘        │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
-```
+**One system, many languages.** The same validation pipeline, CI
+workflows, and container-based execution model — whether the
+repository is Python, Go, Ruby, Java, or Rust. Adding a language
+means a new container image and a new validation command; the
+framework does the rest.
 
-**vergil-tooling** — 15 Python CLI tools handling commits, PRs,
-validation, releases, and container orchestration. The core of the
-system. Every tool enforces a standard: `vrg-commit` validates
-conventional commit format and branch policy; `vrg-validate` runs
-language-specific linters, type checkers, and tests inside dev
-containers; `vrg-prepare-release` drives semantic versioning with
-changelog generation. 3,300+ lines of production Python, strict typing,
-100% test coverage target.
+**Container-based validation.** What passes locally passes in CI.
+Same containers, same tools, same results. No more "works on my
+machine."
 
-**vergil-actions** — 13 reusable GitHub Actions and 10 CI/CD workflows.
-Pre-merge gates (lint, typecheck, test, security scan, version
-divergence) and post-merge delivery (tag, release, publish, docs
-deploy). Consuming repos get consistent CI with a one-line workflow
-reference. Security scanning via CodeQL, Semgrep, and Trivy with SARIF
-upload. SLSA build provenance attestation on all published artifacts.
+**AI agent governance.** A plugin layer intercepts agent actions at
+the tool-call boundary and enforces the same rules that apply to
+human developers — mechanically, not by asking nicely.
 
-**vergil-docker** — Multi-language dev container images for Python
-(3.12–3.14), Go (1.25–1.26), Ruby (3.2–3.4), Java (17, 21), and Rust
-(1.92–1.93). Every image includes a shared tooling layer (ShellCheck,
-actionlint, markdownlint, git-cliff, GitHub CLI, and more). Built for
-amd64 and arm64, scanned with Trivy on both platforms, published to
-GHCR. Local development and CI run in the same containers — what passes
-locally passes in CI.
+| Repository | Purpose |
+|---|---|
+| [vergil-tooling](https://github.com/vergil-project/vergil-tooling) | Python CLI tools, git hooks, validation engine |
+| [vergil-actions](https://github.com/vergil-project/vergil-actions) | Reusable GitHub Actions and CI/CD workflows |
+| [vergil-docker](https://github.com/vergil-project/vergil-docker) | Multi-language dev container images |
+| [vergil-claude-plugin](https://github.com/vergil-project/vergil-claude-plugin) | Claude Code plugin — AI agent governance |
 
-**vergil-claude-plugin** — A Claude Code plugin that makes AI coding
-agents follow the same rules as human developers. 9 hooks intercept
-non-compliant tool calls in real time: raw `git commit` is redirected to
-the standards-compliant `vrg-commit`; raw `gh pr create` is redirected
-to `vrg-submit-pr`; auto-merge is blocked; PR auto-close keywords are
-blocked in favor of explicit issue management. 8 workflow skills guide
-agents through complex multi-step operations (PR submission, release
-publishing, dependency updates) without cutting corners.
+Full architecture details at the
+**[VERGIL docs site](https://vergil-project.github.io/vergil-tooling/)**.
 
 ---
 
-## What makes this different
+## The adversary
 
-**AI agent governance.** Most AI coding tools focus on making agents
-more capable. VERGIL focuses on making them more controllable. The
-plugin layer intercepts agent actions at the tool-call boundary and
-enforces the same engineering standards that apply to human developers.
-This isn't theoretical — during a fleet-wide rollout, we discovered
-that Claude Code subagents bypass sandbox path restrictions 53% of the
-time by creatively working around denials. VERGIL's hook system is the
-response: enforce policy at the workflow layer because you cannot rely
-on the sandbox layer alone.
+Every guardrail needs an adversary. VERGIL builds the walls;
+[Mimir](https://github.com/vergils-nemesis) tries to break them.
 
-**Standards as code, not documentation.** Every engineering standard in
-the system is mechanically enforced. Commit message format, branch
-naming, PR linkage policy, pre-merge validation, security scanning,
-release process — none of these depend on someone reading a wiki and
-choosing to comply. The tools make non-compliance harder than
-compliance.
+Mimir is VERGIL's adversarial testing identity — a hostile outsider
+that exercises every denied path in the permission model. It attempts
+commits that violate branch protection, submits PRs that skip required
+checks, pushes directly to protected branches, and generally does
+everything an AI agent shouldn't. If the tooling catches it, the
+guardrail works. If it doesn't, we found a bug before someone else
+found an exploit.
 
-**One system, many languages.** The same validation pipeline, the same
-CI workflows, the same container-based execution model, the same
-release process — whether the repository is Python, Go, Ruby, Java, or
-Rust. Language-specific tooling (linters, type checkers, test runners)
-plugs into a shared framework that handles everything else. The
-architecture is designed to be extended to additional languages —
-adding a language means a new container image, a new validation
-command, and wiring into the existing pipeline. The framework does the
-rest.
-
----
-
-## By the numbers
-
-| Metric | Count |
-|--------|-------|
-| CLI tools | 15 |
-| GitHub Actions (composite) | 13 |
-| CI/CD workflows (reusable) | 10 |
-| Container images | 6 (across 5 languages) |
-| AI agent hooks | 9 |
-| Workflow skills | 8 |
-| Languages supported | Python, Go, Ruby, Java, Rust (extensible) |
-| Combined commits (4 repos) | 1,900+ |
-| Test coverage target | 100% |
-
----
-
-## Current state
-
-VERGIL is in active development at v2.x across all four component
-repositories. The system is functional and stable — it runs real CI/CD,
-enforces real standards, and governs real AI agent sessions daily.
+Confidence without adversarial testing is just optimism with better
+marketing. More on the Vergil/Mimir duality at
+[The Infrastructure Mindset](https://the-infrastructure-mindset.ghost.io).
 
 ---
 
@@ -148,17 +93,6 @@ enforces real standards, and governs real AI agent sessions daily.
 
 Full documentation is available at the VERGIL docs site:
 **[vergil-tooling docs](https://vergil-project.github.io/vergil-tooling/)**
-
----
-
-## Components
-
-| Repository | Purpose |
-|------------|---------|
-| [vergil-tooling](https://github.com/vergil-project/vergil-tooling) | Python CLI tools, git hooks, core validation |
-| [vergil-actions](https://github.com/vergil-project/vergil-actions) | Reusable GitHub Actions and CI/CD workflows |
-| [vergil-docker](https://github.com/vergil-project/vergil-docker) | Multi-language dev container images |
-| [vergil-claude-plugin](https://github.com/vergil-project/vergil-claude-plugin) | Claude Code plugin — AI agent workflow governance |
 
 ---
 
