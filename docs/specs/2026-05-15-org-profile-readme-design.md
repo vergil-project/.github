@@ -53,7 +53,11 @@ Problem-first. Three beats:
    They bypass sandboxes, auto-merge things they shouldn't,
    hallucinate compliance. The pace of AI-assisted development
    means the gap between "standard exists" and "standard is
-   enforced" gets wider, faster.
+   enforced" gets wider, faster. Ground this with the 53%
+   sandbox bypass stat
+   ([vergil-claude-plugin#241](https://github.com/vergil-project/vergil-claude-plugin/issues/241))
+   — one concrete example that signals the depth of evidence
+   behind the project.
 
 3. **VERGIL's thesis.** Replace "please follow the process"
    with "the process won't let you skip it." Every standard
@@ -130,7 +134,11 @@ Brief paragraph linking to the
 
 ### 7. Author
 
-One line. Name, GitHub link, blog link. No bio paragraph.
+Keep the current author section: two sentences ("Built by…
+35 years of infrastructure engineering" + "VERGIL is the system
+I built to solve the problem I kept hitting") plus GitHub and
+blog links. The bio establishes credibility and closes the page
+with the same seriousness the 53% stat opens it with.
 
 ## What Gets Cut
 
