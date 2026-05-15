@@ -36,6 +36,26 @@ guardrails that intercept non-compliant actions before they land.
 
 ---
 
+## The adversary
+
+Every guardrail needs an adversary. VERGIL builds the walls;
+[MIMIR](https://github.com/vergils-nemesis) tries to break them.
+
+**Methodical Infiltration Model for Identifying Resilience** —
+MIMIR is VERGIL's adversarial testing identity, a hostile outsider
+that exercises every denied path in the permission model. It attempts
+commits that violate branch protection, submits PRs that skip required
+checks, pushes directly to protected branches, and generally does
+everything an AI agent shouldn't. If the tooling catches it, the
+guardrail works. If it doesn't, we found a bug before someone else
+found an exploit.
+
+Confidence without adversarial testing is just optimism with better
+marketing. More on the VERGIL/MIMIR duality at
+[The Infrastructure Mindset](https://the-infrastructure-mindset.ghost.io).
+
+---
+
 ## How it works
 
 **Standards as code.** Every engineering standard is mechanically
@@ -67,26 +87,6 @@ human developers — mechanically, not by asking nicely.
 
 Full architecture details at the
 **[VERGIL docs site](https://vergil-project.github.io/vergil-tooling/)**.
-
----
-
-## The adversary
-
-Every guardrail needs an adversary. VERGIL builds the walls;
-[MIMIR](https://github.com/vergils-nemesis) tries to break them.
-
-**Methodical Infiltration Model for Identifying Resilience** —
-MIMIR is VERGIL's adversarial testing identity, a hostile outsider
-that exercises every denied path in the permission model. It attempts
-commits that violate branch protection, submits PRs that skip required
-checks, pushes directly to protected branches, and generally does
-everything an AI agent shouldn't. If the tooling catches it, the
-guardrail works. If it doesn't, we found a bug before someone else
-found an exploit.
-
-Confidence without adversarial testing is just optimism with better
-marketing. More on the VERGIL/MIMIR duality at
-[The Infrastructure Mindset](https://the-infrastructure-mindset.ghost.io).
 
 ---
 
