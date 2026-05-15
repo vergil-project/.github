@@ -2,7 +2,7 @@
 repository-type = "documentation"
 versioning-scheme = "semver"
 branching-model = "library-release"
-release-model = "tagged-release"
+release-model = "none"
 primary-language = "none"
 
 [project.co-authors]

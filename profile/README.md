@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Vergil-Banner.png" alt="VERGIL" width="100%">
+</p>
+
 # VERGIL
 
 **Validation Engine for Repository Governance, Integration & Lifecycle**
