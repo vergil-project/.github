@@ -26,8 +26,3 @@ jobs:
     with:
       language: shell
       run-codeql: false
-
-  version:
-    uses: vergil-project/vergil-actions/.github/workflows/ci-version-bump.yml@v2.0
-    with:
-      language: shell
