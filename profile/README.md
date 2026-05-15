@@ -75,7 +75,8 @@ Full architecture details at the
 Every guardrail needs an adversary. VERGIL builds the walls;
 [Mimir](https://github.com/vergils-nemesis) tries to break them.
 
-Mimir is VERGIL's adversarial testing identity — a hostile outsider
+**Methodical Infiltration Model for Identifying Resilience** —
+Mimir is VERGIL's adversarial testing identity, a hostile outsider
 that exercises every denied path in the permission model. It attempts
 commits that violate branch protection, submits PRs that skip required
 checks, pushes directly to protected branches, and generally does
