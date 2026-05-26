@@ -39,15 +39,11 @@ uv tool install --python 3.14 \
 This installs the `vrg-*` CLI tools (`vrg-commit`, `vrg-submit-pr`,
 `vrg-validate`, `vrg-docker-run`, and others) on your host.
 
-### Enable git hooks
+### Claude Code hook guard
 
-Each repo includes a `.githooks/` directory with a pre-commit gate
-that enforces the use of `vrg-commit` over raw `git commit`. Enable
-it once per clone:
-
-```bash
-git config core.hooksPath .githooks
-```
+Each repo includes a `.claude/hooks/guard.sh` PreToolUse hook that
+blocks raw `git` and `gh` commands in AI agent sessions — all
+operations must go through the `vrg-git` / `vrg-gh` wrappers.
 
 ## Workflow
 
