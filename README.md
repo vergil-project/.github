@@ -41,7 +41,7 @@ for that directory. To customize, the repo must provide the complete
 set of templates.
 
 **Files that do not inherit**: LICENSE (each repo must have its own),
-`.githooks/`, `CLAUDE.md`, `vergil.toml`, and CI workflows.
+`.claude/`, `CLAUDE.md`, `vergil.toml`, and CI workflows.
 
 ## The `.github/.github/` nesting
 
