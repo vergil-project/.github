@@ -19,3 +19,6 @@ Thumbs.db
 
 # Worktrees (parallel AI agent sessions)
 .worktrees/
+
+# Retired hook mechanism (replaced by .claude/hooks/guard.sh)
+.githooks/
