@@ -33,7 +33,7 @@ the cross-cutting concern — the maintainer will help route the work.
 
 ```bash
 uv tool install --python 3.14 \
-  'vergil-tooling @ git+https://github.com/vergil-project/vergil-tooling@v2.0'
+  'vergil-tooling @ git+https://github.com/vergil-project/vergil-tooling@v2.1'
 ```
 
 This installs the `vrg-*` CLI tools (`vrg-commit`, `vrg-submit-pr`,

@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   quality:
-    uses: vergil-project/vergil-actions/.github/workflows/ci-quality.yml@v2.0
+    uses: vergil-project/vergil-actions/.github/workflows/ci-quality.yml@v2.1
     with:
       language: shell
       versions: '["latest"]'
@@ -20,7 +20,7 @@ jobs:
       container-tag: 'latest'
 
   security:
-    uses: vergil-project/vergil-actions/.github/workflows/ci-security.yml@v2.0
+    uses: vergil-project/vergil-actions/.github/workflows/ci-security.yml@v2.1
     permissions:
       contents: read
       security-events: write
