@@ -39,8 +39,8 @@ whether anyone asked for them or not. I understand why people have
 soured on it. Terrain like that is exactly where you want a guide you
 can trust.
 
-MIMIR is the **Methodical Infiltration Model for Identifying
-Resilience**. Every guide needs something to guide you away from, and
+[MIMIR](https://github.com/vergils-nemesis) is the **Methodical
+Infiltration Model for Identifying Resilience**. Every guide needs something to guide you away from, and
 that foil is MIMIR: everything we hope AI never becomes — the
 hallucination, the sycophancy, the confident slop. When Tony Stark
 and Bruce Banner got careless, they built Ultron; MIMIR is our
@@ -209,8 +209,8 @@ and if it sounds like a betrayal of the craft, I'd only say that the
 code was always a means to an end, never the end itself. The end, for
 me, was never the code, and it was never about who writes it. The end
 is what the code is *for*: durable, scalable systems that solve real
-problems and are built to outlast me. That is the work I spent forty
-years acquiring the skills to do, and the whole purpose of this
+problems and are built to outlast me. That is the work I spent four
+decades acquiring the skills to do, and the whole purpose of this
 tooling is to let me finally spend my time *there* — by trusting what
 it produces enough that I no longer need to read it. There is a real
 class of work that no longer demands the skills I spent a career
@@ -223,9 +223,9 @@ I know that will trigger a lot of people. I want it to.
 
 ## Author
 
-Built by [Phillip Moore](https://github.com/wphillipmoore) — 35 years
-of infrastructure engineering, currently working as an AI-assisted
-engineer. VERGIL is the system I built to solve the problem I kept
+Built by [Phillip Moore](https://github.com/wphillipmoore) — four
+decades of infrastructure engineering, currently working as an
+AI-assisted engineer. VERGIL is the system I built to solve the problem I kept
 hitting: engineering standards that exist in documentation but not in
 practice. More at
 [The Infrastructure Mindset](https://the-infrastructure-mindset.ghost.io).
