@@ -20,5 +20,8 @@ Thumbs.db
 # Worktrees (parallel AI agent sessions)
 .worktrees/
 
+# VERGIL tooling working files (PR template handoff, validate logs)
+.vergil/
+
 # Retired hook mechanism (replaced by .claude/hooks/guard.sh)
 .githooks/
