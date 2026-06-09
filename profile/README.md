@@ -206,9 +206,8 @@ the keyboard.
 
 If you write code for a living, I understand why that threatens you —
 and if it sounds like a betrayal of the craft, I'd only say that the
-code was always a means to an end, never the end itself. The end, for
-me, was never the code, and it was never about who writes it. The end
-is what the code is *for*: durable, scalable systems that solve real
+code was always a means to an end, never the end itself. The end is
+what the code is *for*: durable, scalable systems that solve real
 problems and are built to outlast me. That is the work I spent four
 decades acquiring the skills to do, and the whole purpose of this
 tooling is to let me finally spend my time *there* — by trusting what
@@ -224,8 +223,7 @@ I know that will trigger a lot of people. I want it to.
 ## Author
 
 Built by [Phillip Moore](https://github.com/wphillipmoore) — four
-decades of infrastructure engineering, currently working as an
-AI-assisted engineer. VERGIL is the system I built to solve the problem I kept
-hitting: engineering standards that exist in documentation but not in
-practice. More at
+decades of infrastructure engineering, now an AI-assisted engineer
+working out in public how to build real software with AI agents:
+safely, accountably, and at scale. More at
 [The Infrastructure Mindset](https://the-infrastructure-mindset.ghost.io).
