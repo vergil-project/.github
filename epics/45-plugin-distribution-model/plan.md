@@ -2,85 +2,60 @@
 
 Epic: vergil-project/.github#45 · Spec: `./spec.md`
 
-Tasks are ordered. Task 1 is a **gate** — do not roll out settings changes until
-it passes.
+The design collapsed to a single released channel (`main`), so implementation is
+small: point every consumer at `main`, document the model, and confirm it works.
 
-## Target settings shape
+## Target settings shape (every repo)
 
-**Inside vergil-project** (dev channel) — every vergil-project repo's
-`.claude/settings.json`:
-
-```jsonc
-"extraKnownMarketplaces": {
-  "vergil-dev": {
-    "source": { "source": "github", "repo": "vergil-project/vergil-claude-plugin", "ref": "develop" }
-  }
-},
-"enabledPlugins": { "vergil@vergil-dev": true }
-```
-
-**Outside vergil-project** (released channel) — other orgs' repos:
+`.claude/settings.json` — keep the existing `vergil-marketplace` registration,
+change only the **ref** to `main`:
 
 ```jsonc
 "extraKnownMarketplaces": {
-  "vergil": {
+  "vergil-marketplace": {
     "source": { "source": "github", "repo": "vergil-project/vergil-claude-plugin", "ref": "main" }
   }
 },
-"enabledPlugins": { "vergil@vergil": true }
+"enabledPlugins": { "vergil@vergil-marketplace": true }
 ```
 
-The old single `vergil-marketplace` registration is removed.
+No new marketplace, no name change — only `ref: develop|v2.1 → main`.
 
-## Task 1 (GATE): Validate the two-marketplace mechanic — closes #540
+## Task 1: Point every repo at `main`
 
-Confirm on the machine, before touching any repo en masse:
+`.claude/settings.json` ref → `main` in each repo (one PR per repo, each a task
+under this epic):
 
-- Two registrations of the **same repo** under two local names (`vergil` @ `main`,
-  `vergil-dev` @ `develop`) resolve to **two separate clones**, each on its own
-  ref — i.e. the local marketplace name is free-form and does not have to match
-  `marketplace.json`'s `name`.
-- Each clone **re-fetches when its branch advances** (`/plugin marketplace
-  update` then a fresh session): merge to `develop` → `vergil-dev` picks it up;
-  cut a release to `main` → `vergil` picks it up.
+- `vergil-claude-plugin` (currently `develop`)
+- `vergil-tooling`, `vergil-vm`, `vergil-containers` (currently `v2.1`)
+- `vergil-actions` (currently unset → defaults to develop)
+- `.github` (align)
 
-If both hold → the recommended mechanism works; proceed. If either fails →
-**stop and revisit** a `vrg`-side refresh tool (spec §5); do not roll out.
+## Task 2: Document the model
 
-## Task 2: vergil-claude-plugin → dev channel
+- `vergil-claude-plugin/CLAUDE.md`: a "Plugin distribution" section — single
+  released channel on `main`; **no SemVer/channels**; to run unreleased
+  behavior, tell the agent to read the `develop` file and follow it; releasing
+  to `main` is what makes a skill a real slash command. Link this spec.
+- `README.md` "Update" section: update to the single-channel model; drop any
+  tag-pinning / two-channel language.
 
-`.claude/settings.json`: replace the `vergil-marketplace` registration with the
-`vergil-dev` block above; set `enabledPlugins` to `vergil@vergil-dev`.
+## Task 3: Review & update site documentation
 
-## Task 3: Each vergil-project member repo → dev channel
+Review `vergil-claude-plugin`'s published site docs; update anything describing
+the old marketplace/versioning/refresh approach to the single-channel model.
+Scope to this change; flag unrelated staleness.
 
-For `vergil-tooling`, `vergil-vm`, `vergil-containers`, `vergil-actions`,
-`.github`: same `.claude/settings.json` change as Task 2. One PR per repo (each a
-task under this epic).
+## Task 4: Validate + close #540
 
-## Task 4: External-org consumption → released channel
-
-Document the released-channel block (`vergil` @ `main`) and apply it where other
-orgs (e.g. `logical-minds-foundry`) consume the plugin. Where those repos are
-out of reach from here, deliver as documentation + the exact snippet.
-
-## Task 5: Document the paradigm + SemVer deviation
-
-- `vergil-claude-plugin/CLAUDE.md`: a "Plugin distribution" section — two
-  channels, branch-tracked, **no SemVer**, with the §2 rationale in brief and a
-  link to this spec.
-- Any canonical distribution/refresh docs (e.g. the README "Update" section):
-  update to the two-channel model; stop instructing tag-pinning.
-
-## Task 6: Review & update site documentation
-
-Review `vergil-claude-plugin`'s published site docs for the new model; update
-anything describing the old marketplace/versioning approach. (Docs are broadly
-stale; scope this task to the distribution-model change, flag the rest.)
+Confirm a clean `vergil-marketplace`@`main` setup re-fetches when a release
+advances `main` (`/plugin marketplace update` + fresh session). With the
+collision gone this is the simple documented case. If it ever fails, the
+"agent reads the file" path (spec §2) is the fallback — do **not** build a
+refresh tool now. Closes #540.
 
 ## Definition of done
 
-Every vergil-project repo consumes `vergil-dev@develop`; the released channel
-(`vergil@main`) is documented for external orgs; the paradigm + SemVer-deviation
-rationale is captured in CLAUDE.md, the README, and this spec; site docs reflect
-it; #540 closed on Task 1 passing.
+Every repo's `settings.json` points the plugin at `main`; the single-channel
+model + the SemVer/channel-rejection rationale is captured in CLAUDE.md, the
+README, this spec; site docs reflect it; #540 closed on Task 4.
