@@ -59,3 +59,19 @@ refresh tool now. Closes #540.
 Every repo's `settings.json` points the plugin at `main`; the single-channel
 model + the SemVer/channel-rejection rationale is captured in CLAUDE.md, the
 README, this spec; site docs reflect it; #540 closed on Task 4.
+
+## Evolution during execution
+
+_Append-only. New, dropped, or rescoped tasks discovered while implementing this
+plan are logged here with the reasoning — the planned task list above is left as
+written, so a reader can see what was foreseen up front versus adapted in
+flight. The epic's GitHub sub-issues are the authoritative live task list._
+
+- **2026-06-30 — Added `vergil-tooling#1974` (repo-config audit bridge).** Not
+  foreseen up front. Flipping `vergil-claude-plugin` to `main`
+  (`vergil-claude-plugin#551`) tripped the `vrg-release` preflight audit, which
+  still enforced the old marketplace-ref model (source repo → `develop`,
+  consumers → version). The new model needs the audit to accept `main`,
+  deprecate/warn the old refs during the sweep, then enforce `main`. Surfaced at
+  release time and routed cleanly into a linked task — the dependency was real
+  but invisible until the first repo flipped.
