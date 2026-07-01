@@ -273,6 +273,18 @@ produces two views, both regenerated nightly, neither hand-edited:
 Both are pure functions of issue/PR metadata. The `.github/epics/` directory is
 merely backing store and carries no dynamic state.
 
+### 3.8 Plans evolve append-only
+
+A plan is **frozen at execution start** (when its first task ships).
+Mid-execution additions, drops, and rescopes are **not** edited into the planned
+task list — that hides how the plan actually evolved. They go in an append-only
+`## Evolution during execution` section at the bottom of `plan.md`: dated entries
+of *what* changed and *why*. The epic's GitHub sub-issues remain the
+authoritative live task list; the addendum carries the *reasoning* for deltas, so
+a reader sees what was foreseen up front versus adapted in flight. Log meaningful
+deviations only — a new or dropped task, a discovered dependency, a scope shift —
+not trivial mechanics. (Surfaced and adopted during epic #45.)
+
 ## 4. Mechanics and enforcement
 
 **Parent→child link mechanism (defined abstractly for portability).** The
