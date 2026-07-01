@@ -14,6 +14,10 @@ its foundation: code lives on **GitHub**, agents run in **Claude
 Code**, and development happens on **macOS**. These three couplings
 are where VERGIL stands today, not where it intends to stay.
 
+<p align="center">
+  <strong><a href="https://vergil-project.github.io/docs/">📖 Read the full project documentation, roadmap &amp; activity →</a></strong>
+</p>
+
 ---
 
 ## Who are VERGIL and MIMIR?
