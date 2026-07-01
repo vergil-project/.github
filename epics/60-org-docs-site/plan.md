@@ -49,3 +49,22 @@ unchanged. Lives in this repo's convention docs / the `docs` site itself.
 the generated roadmap/activity, refreshed nightly and on release; each content
 repo surfaces its filtered Planning section; the recipe is documented and
 portable to the other orgs.
+
+## Evolution during execution
+
+_Append-only. New/dropped/rescoped tasks discovered while implementing this plan
+are logged here; the planned tasks above are left as written, and the epic's
+GitHub sub-issues are the authoritative live list._
+
+- **2026-07-01 — Added `.github#62`: prominent docs-site link in the org profile
+  README.** Not foreseen up front. The published `docs` site is standalone, so
+  the org's landing page (the `.github` profile README) needs a prominent
+  pointer to it — otherwise the site is only discoverable if you already know
+  the URL.
+- **2026-07-01 — Phase 1 note: generated pages vs. markdownlint.** The
+  `vrg-roadmap` / `vrg-activity-log` output violates markdownlint (long URLs,
+  trailing blanks); exempted via `docs/vergil.toml [markdownlint].ignore`. For
+  portability this exemption must become automatic in every org's `docs` repo
+  (wizard-scaffolded or generator-self-exempt) — folds into the portability
+  task. Also surfaced scaffold bug `vergil-tooling#1993` (trailing-space
+  `language:` for no-language repos).
