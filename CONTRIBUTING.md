@@ -134,7 +134,7 @@ passing CI.
 
 ## License
 
-All VERGIL repositories are licensed under
-[GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html). By
+All VERGIL repositories are licensed under the
+[MIT License](https://opensource.org/licenses/MIT). By
 contributing, you agree that your contributions will be licensed under
 the same terms.
