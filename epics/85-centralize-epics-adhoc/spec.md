@@ -4,7 +4,9 @@
 - **Status:** Reviewed design (2026-07-03) — post-pushback
 - **Docs task:** vergil-project/.github#86
 - **Brainstorm source:** superpowers brainstorming session, 2026-07-03
-- **Review:** paad pushback, 2026-07-03 (4 issues resolved — see §13)
+- **Review:** paad pushback (4 issues, §13) + paad alignment, 2026-07-03 — alignment
+  added the four-stage interaction doctrine and default-entry-point (§7.1–§7.2)
+  and the `memory-audit` intake-routing coverage gap (plan T8)
 
 ## 1. Summary
 
@@ -215,6 +217,42 @@ handoff points:
 This workstream rewrites the `epic-create` plugin skill accordingly (PR lands in
 `vergil-claude-plugin`). It is the point where the superpowers/paad workflow and
 the Vergil epic tooling become one integrated pipeline.
+
+### 7.1 `epic-create` is the default entry point
+
+Going forward, `epic-create` — not `superpowers:brainstorming` — is the default
+starting move for non-trivial work. The reasoning: a solution worth thinking
+through is worth recording as work, so there is little value in brainstorming a
+design and then walking away from it un-tracked. `epic-create` opens *into*
+brainstorming and lets the process play out. If the design collapses to a
+trivial, single-PR change, it drops onto the target repo's **ad-hoc epic**
+instead of minting a finite epic. At the scale this system now operates,
+most work is a significant feature or change — so "start at `epic-create`" is the
+right default, with the ad-hoc task as the small-work escape hatch.
+
+### 7.2 The four-stage interaction doctrine
+
+`epic-create`'s core *is* this front-loaded analytical pipeline. The skill must
+document the interaction contract for each stage, because getting the
+agent↔human interaction right here is what makes downstream implementation
+near-bulletproof:
+
+| Stage | Mode | Contract |
+|---|---|---|
+| `superpowers:brainstorming` | **interactive** | Explore intent, one question at a time. |
+| `paad:pushback` | **interactive** | The agent guides the human through suspicious findings; the human makes the judgment calls. |
+| `superpowers:writing-plans` | **automated** | The agent cranks through and produces the plan; no gating. |
+| `paad:alignment` | **interactive** | The agent and human review the plan against the spec and correct it. |
+
+**Human-judgment principle (applies to every interactive stage):** stop and ask
+*only* for ambiguities or judgment calls that **materially affect** the outcome
+or success of the task/epic. Handle minor, obvious corrections by **batching
+them to the end** as a single "here are the no-brainers — correct me if I'm
+wrong" review, rather than gating each one. The goal is to front-load the
+analysis so that implementation-time execution is as close to bulletproof and
+automated as possible (target: 90–99% of tasks green on first implementation).
+Real-world misses still happen and get patched — but the more upfront refinement,
+the higher the first-time success rate.
 
 ## 8. This epic embodies the convention
 

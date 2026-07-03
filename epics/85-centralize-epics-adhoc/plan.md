@@ -210,21 +210,28 @@ Run → FAIL.
 
 ## Phase 1 (skills — separate repo `vergil-claude-plugin`)
 
-### Task 7: `epic-create` skill — bookend convention + orchestrator inversion
+### Task 7: `epic-create` skill — orchestrator inversion, bookends, entry point, interaction doctrine
 
-**Repo:** vergil-claude-plugin. **Depends on:** conceptually on this spec; may land independently. **May split into 7a (bookend convention) + 7b (orchestrator) if one PR grows too large.**
+**Repo:** vergil-claude-plugin. **Depends on:** conceptually on this spec. **Kept as one task per the epic's scope decision; it decomposes into the four concrete parts below as commits within one PR, not separate issues — unless a part grows large enough to warrant its own PR.**
 
-**Deliverable:** Rewrite `skills/epic-create/SKILL.md` so `epic-create` is the **outer** workflow (spec §7): it runs `superpowers:brainstorming`, then initializes the epic + seeds the two bookend tasks (docs-first, review-last), then drives spec → `paad:pushback` → human review → `superpowers:writing-plans` → `paad:alignment` → single docs PR (closing the docs task) → file implementation tasks. Document the **epic-bookend convention** (§6): every epic ≥ 2 tasks; the review task gates closure via the existing rollup.
+**Deliverable:** Rewrite `skills/epic-create/SKILL.md` so `epic-create` is the **outer** orchestrating workflow, covering four concrete parts:
 
-- [ ] **Step 1:** Draft the inverted workflow and bookend prose; name the exact handoff points and which skill runs at each. **Step 2:** Add a worked example (this epic #85). **Step 3:** Verify with the plugin's skill-doc checks (e.g. `--help` coverage / markdownlint via `vrg-validate` in that repo). **Step 4:** Commit; PR against `vergil-claude-plugin`.
+- **7-A — Orchestration sequence (spec §7):** epic-create runs `superpowers:brainstorming` → initialize epic + seed bookend tasks → write spec → `paad:pushback` → human review → `superpowers:writing-plans` → `paad:alignment` → single docs PR (closes the docs task) → file implementation tasks. Name the exact handoff points and which skill runs at each.
+- **7-B — Bookend convention (spec §6):** every epic ≥ 2 tasks (docs-first, review-last); the review task gates closure via the existing rollup.
+- **7-C — Default entry point (spec §7.1):** epic-create is the default start for non-trivial work (not brainstorming directly); a trivial single-PR design drops onto the target repo's ad-hoc epic instead of minting a finite epic.
+- **7-D — Four-stage interaction doctrine (spec §7.2):** document which stages are interactive (brainstorm, pushback, alignment) vs automated (writing-plans), and the human-judgment principle — gate only material judgment calls; batch minor no-brainers into a single end-of-stage review.
 
-### Task 8: `triage-capture` skill — route intake to `.github` with `--kind`
+- [ ] **Step 1:** Draft 7-A (sequence + handoff points). **Step 2:** Add 7-B bookend prose. **Step 3:** Add 7-C default-entry and 7-D interaction doctrine (the stage table + human-judgment principle). **Step 4:** Add a worked example (this epic #85 — brainstorm→pushback→plans→alignment→docs-PR). **Step 5:** Verify via the plugin's skill-doc checks (markdownlint / `vrg-validate` in that repo). **Step 6:** Commit; PR against `vergil-claude-plugin`.
+
+### Task 8: Intake-creating skills — route intake to `.github` with `--kind`
 
 **Repo:** vergil-claude-plugin. **Depends on:** Task 4 (tool must accept `--kind`, default `.github`).
 
-**Deliverable:** Update `skills/triage-capture/SKILL.md` to always file intake into `<org>/.github` (never the most-relevant member repo), choosing `--kind {triage,idea,research}` by the captured shape, calling `vrg-triage-create --kind ... ` (default repo now `.github`). Remove "most-relevant repo" routing.
+**Deliverable:** Update every skill that creates intake so it files into `<org>/.github` (never a member repo), choosing `--kind {triage,idea,research}` by the captured shape:
+- `skills/triage-capture/SKILL.md` — remove the "most-relevant repo" routing; always target `.github`; add `--kind` selection guidance.
+- `skills/memory-audit/SKILL.md` — surfaced in alignment (it also calls `vrg-triage-create`). Update its intake creation to the same `.github` + `--kind` routing so it doesn't silently file into the current repo.
 
-- [ ] **Step 1:** Rewrite routing section + `--kind` selection guidance. **Step 2:** Validate + PR.
+- [ ] **Step 1:** Rewrite `triage-capture` routing + `--kind` guidance. **Step 2:** Update `memory-audit`'s intake call to `.github` + `--kind`. **Step 3:** Validate + PR (one PR covering both skill edits).
 
 ### Task 9: `migrate-repo` skill — align to ad-hoc model + intake routing
 
