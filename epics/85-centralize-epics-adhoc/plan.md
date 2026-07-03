@@ -54,6 +54,7 @@
 {"name": "ad-hoc", "color": "5319e7", "description": "Perpetual umbrella for ad-hoc work; never auto-closes"},
 ```
 Leave `standing` in place (retired in Task 11). Add/extend `test_labels.py` to assert `ad-hoc` is present.
+**Precondition for live use:** `gh issue create --label ad-hoc` fails unless the label already exists in the target repo, so `ensure_adhoc_epic` cannot mint an epic in `.github` until `ad-hoc` is **synced into `<org>/.github`** via the label-sync path (`vrg-ensure-label` / the labels.json apply). This sync must land before Task 10; it is the real-world gate on Phase 2.
 
 - [ ] **Step 2: Write failing tests for `ensure_adhoc_epic`** in `test_epics.py`:
 ```python
@@ -202,6 +203,8 @@ Run → FAIL.
 **Files:** `CLAUDE.md`, `docs/**` references to "standing epic"; note `docs` is a normal repo.
 
 - [ ] **Step 1:** Grep `grep -rin "standing epic\|standing" CLAUDE.md docs/`; rewrite to "ad-hoc epic" (note `standing` is a deprecated alias until Task 11). **Step 2:** Add a one-line note that `docs` is an ordinary member repo (no catch-all role). **Step 3:** Validate + commit (`--type docs`).
+
+> **Coverage note (alignment):** spec §5 says "audit tooling/skills for docs-as-catch-all assumptions and remove them." The catch-all was **never implemented in code** — it was an aspirational idea dropped during brainstorming — so there is nothing to remove; this docs-only task is full coverage of §5. If a grep for `docs` special-casing in `src/` does surface real code, file it as a follow-up task rather than expanding this one.
 
 ---
 
