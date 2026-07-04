@@ -142,28 +142,51 @@ legacy body ever carries two keyworded linkages.
 The epic-vs-task keyword decision (`_task_linkage` / `_resolve_linkage`) and the
 epic-link rejection (`_reject_if_epic_link`) in `vrg-submit-pr` are unaffected.
 
+## Branch-protection ruleset (execution finding)
+
+Branch protection is managed **as code**, not by hand: `desired_ci_gates_ruleset`
+in `vergil-tooling/src/vergil_tooling/lib/github_config.py` asserts
+`security / standards` as a **required status check** on `main`/`develop` for
+every managed repo, applied by `vrg-github-repo-config`. Retiring the `standards`
+job (Task B) while that check is still required leaves a required check that never
+reports — which blocks **all merges fleet-wide**, not just this epic's PRs. This
+was missed in the original plan and surfaced when `vergil-actions` PR #747 (Task
+B) could not merge.
+
+The fix is code, not a manual GitHub-UI edit: drop the `security / standards`
+line from the derived ruleset (**Task R**) and have a human reconcile live
+rulesets with `vrg-github-repo-config apply`. Removing the required check while
+the job still runs is safe — the check simply becomes non-required but still
+reports green — so Task R lands and is applied *before* Task B releases.
+
 ## Tasks
 
 Implementation tasks are filed in their member repos at implementation time and
 linked to this epic with
 `vrg-epic-link --epic vergil-project/.github#82 --task vergil-project/<repo>#<TASK>`.
 The staging is additive-then-subtractive so no consuming repo's CI ever calls a
-missing command:
+missing command — and so no required check is ever left unreported:
 
 - **Task A — `vergil-tooling` (add the guard).** Add `find_linkage_keyword` to
   `lib/linkage.py`; call it in `report-ready` (agent feedback) and
   `build_pr_body` (chokepoint), rejecting linkage keywords in
   `--notes`/`--summary` with the lossless-redirect message. Purely additive;
-  safe to ship first.
+  safe to ship first. *(vergil-tooling#2117 — done)*
+- **Task R — `vergil-tooling` (drop the required check).** Remove
+  `security / standards` from `desired_ci_gates_ruleset` in `lib/github_config.py`
+  (+ the two tests asserting it), then reconcile every repo's live ruleset with
+  `vrg-github-repo-config apply`. **Gates Task B:** without this, retiring the
+  job blocks merges fleet-wide. *(vergil-tooling#2140)*
 - **Task B — `vergil-actions` (remove the gate).** Remove the now-redundant
-  `standards-compliance` action, the `standards` job in `ci-security.yml`, the
-  `run-standards` input plumbing, and the `run-standards` passthrough at
-  `ci.yml:48` in `vergil-tooling`. Release/tag so consumers stop calling the
-  script.
+  `standards-compliance` action, the `standards` job in `ci-security.yml`, and
+  neutralize the `run-standards` input (keep it *accepted-but-ignored* so
+  consumers do not break; `container-suffix`/`container-tag` go vestigial too).
+  Land **only after Task R is applied** to the fleet. *(vergil-actions#746)*
 - **Task C — `vergil-tooling` (delete the script).** Delete
   `bin/vrg_pr_issue_linkage.py`, its `vrg-pr-issue-linkage` entry point in
-  `pyproject.toml`, and `tests/.../test_vrg_pr_issue_linkage.py` — **only after
-  B has propagated** to consumers.
+  `pyproject.toml`, `tests/.../test_vrg_pr_issue_linkage.py`, and the
+  `run-standards` passthrough at `ci.yml:48` — **only after B has propagated**
+  to consumers. *(vergil-tooling#2116)*
 
 `lib/linkage.py` stays (it hosts the shared regexes, `normalize_linkage`, the
 extractors, and now `find_linkage_keyword`).
