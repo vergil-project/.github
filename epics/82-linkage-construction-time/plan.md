@@ -25,10 +25,11 @@
 The tasks are **order-dependent**; ship each and let it propagate before the next:
 
 1. **Task A → release a `vergil-tooling` 2.1.x.** The guard goes live; PRs get immediate feedback. The old CI gate still runs (now redundant, harmless).
-2. **Task B → release/tag `vergil-actions`.** The standards job is removed org-wide; `vrg-pr-issue-linkage` is no longer invoked anywhere. **Non-breaking:** the `run-standards` input stays *accepted-but-ignored*, so no consumer's reusable-workflow call errors.
-3. **Task C → release a `vergil-tooling` 2.1.x.** Delete the now-dead script/entry/test and the local `ci.yml` passthrough. Safe because no CI calls the script after B, and the vestigial input means removing our passthrough cannot error.
+2. **Task R → release a `vergil-tooling` 2.1.x, then run `vrg-github-repo-config apply` across the fleet.** Drops the `security / standards` **required status check** from the code-managed CI-gates ruleset. Do this before Task B: retiring the job while its check is still required leaves a check that never reports and blocks **all merges fleet-wide**. Safe now — while the job still runs, the check is just non-required-but-green.
+3. **Task B → release/tag `vergil-actions`.** The standards job is removed org-wide; `vrg-pr-issue-linkage` is no longer invoked anywhere. **Non-breaking:** the `run-standards` input stays *accepted-but-ignored*, so no consumer's reusable-workflow call errors.
+4. **Task C → release a `vergil-tooling` 2.1.x.** Delete the now-dead script/entry/test and the local `ci.yml` passthrough. Safe because no CI calls the script after B, and the vestigial input means removing our passthrough cannot error.
 
-**Why this order:** A before C so there is never a window with *no* enforcement; B before C so the script is never deleted while a workflow still calls it (`command not found`).
+**Why this order:** R before B so no required check is ever left unreported (this was missed originally — `vergil-actions` PR #747 stalled on it); A before C so there is never a window with *no* enforcement; B before C so the script is never deleted while a workflow still calls it (`command not found`).
 
 **Assumption to verify (maintainer):** `ci.yml` pins `vergil-actions@v2.1` (a moving major.minor tag), and consumers pass `run-standards`. If that holds, keeping the input vestigial in Task B is mandatory to avoid breaking every consumer. If consumers instead pin exact patch tags and none pass the input, the input *could* be removed outright — but the vestigial path is safe either way, so the plan takes it unconditionally.
 
@@ -309,9 +310,27 @@ vrg-commit --type feat --scope pr-body \
 
 ---
 
+## Task R: Drop the `security / standards` required check from the CI-gates ruleset (`vergil-tooling#2140`)
+
+**Prerequisite:** Task A can be in flight in parallel. **Gates:** Task B (must land + be applied before B releases). **Files:**
+- Modify: `src/vergil_tooling/lib/github_config.py` (`desired_ci_gates_ruleset`)
+- Test: `tests/vergil_tooling/test_github_config_lib.py`
+
+Branch protection is code: `desired_ci_gates_ruleset` lists `security / standards` as a required status check on `main`/`develop` for every managed repo, applied by `vrg-github-repo-config`. Removing the `standards` job (Task B) while this check is required blocks all merges fleet-wide.
+
+- [ ] **Step 1 — flip the two assertions red.** In `test_github_config_lib.py`, in `test_ci_gates_always_includes_common_and_security` and `test_ci_gates_without_ghas_drops_alert_checks`, change `assert "security / standards" in …` → `assert "security / standards" not in …`.
+
+Run: `vrg-container-run -- uv run pytest tests/vergil_tooling/test_github_config_lib.py -k "always_includes_common_and_security or without_ghas_drops_alert_checks" -v` → FAIL.
+
+- [ ] **Step 2 — remove the source line (green).** In `desired_ci_gates_ruleset`, delete `checks.append(_make_check("security / standards"))` from the "Always present" block; leave `quality / common`, `security / trivy`, `security / semgrep`. Re-run → PASS.
+
+- [ ] **Step 3 — validate + commit.** `vrg-container-run -- vrg-validate` → PASS; then `vrg-commit --type fix --scope github-config … Ref #2140`.
+
+- [ ] **Step 4 — reconcile the fleet (human ops, after release).** After this releases, a human runs `vrg-github-repo-config apply` for each managed repo (or fleet-wide) so live rulesets drop the required check. Verify with `vrg-github-repo-config diff` that `security / standards` is gone before proceeding to Task B.
+
 ## Task B: Remove the redundant CI standards gate (`vergil-actions#746`)
 
-**Prerequisite:** Task A released. **Files** (in `vergil-actions`):
+**Prerequisite:** Task A released **and Task R applied to the fleet** (`security / standards` no longer a required check anywhere — else this PR and every other repo's PRs stall on the unreported check). **Files** (in `vergil-actions`):
 - Delete: `actions/ci/security/standards-compliance/action.yml` (and the now-empty `standards-compliance/` dir)
 - Modify: `.github/workflows/ci-security.yml` (remove the `standards` job; keep the `run-standards` input, marked vestigial)
 - Modify: `.github/workflows/README.md` (drop the standards-compliance mention if present)
