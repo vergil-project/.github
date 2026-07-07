@@ -3,9 +3,11 @@
 **Status:** approved design (brainstorm output).
 **Epic:** `vergil-project/.github#115`
 **Date:** 2026-07-07
-**Origin:** `vergil-project/.github#114`; live incident on the mqweb lab epic
-(a verification task auto-closed on its runbook PR — `.github#550` is the
-re-gating template).
+**Origin:** `vergil-project/.github#114`; the **originating incident** was a lab
+epic where a verification task auto-closed on its runbook PR (`.github#550`,
+re-gated by hand). That is history that motivated the pattern — a bespoke
+anecdote, not the template. This spec designs the feature **generically**, tied
+to no particular target.
 
 ## Problem
 
@@ -31,6 +33,12 @@ post-merge / post-deploy.
 
 The mental model: a validation task behaves like a pull request that cannot be
 merged until it is green. Passing closes it; failing holds it open.
+
+**Incidental benefit — forensic history.** Because each run records its PASS/FAIL
+and evidence as issue comments, validation tasks also accrue as durable
+forensic/audit data we can mine later. Where and how we extract that is not yet
+decided; for now the value is simply in *capturing* it, which this pattern does
+by construction.
 
 ## Invariants
 
@@ -89,32 +97,25 @@ must understand it:
 
 The issue body is a self-contained, executable scaffold with these sections:
 
-1. **Preconditions (self-check).** Cheap, machine-runnable assertions the runner
-   checks *first*. Canonically two probes:
-   - **Lab/target is up and running** — a status probe (e.g. an MQLab CLI
-     status command).
-   - **Commit floor** — the deployed target is running code at or past the
-     dependency change. This is the more important probe: it catches "you are
-     asking me to validate something that is not merged / not deployed yet."
-     Two parts, both required to keep it honest:
-     - **Floor value is symbolic, not a literal SHA** — expressed as
-       "dependency task #N is merged to develop," resolved at run time. The
-       author cannot backfill a merge SHA that does not exist yet at
-       creation time.
-     - **The check reads the *deployed* version, not local git.** "develop
-       contains #N's merge" verifies the *source*, not the *deployment* — a
-       stale lab would still read green. The probe must query the deployed
-       target's own reported version/commit (e.g. an MQLab CLI
-       `status`/`version` command). Where a target cannot report its deployed
-       version, the body says so and the check falls back to an **explicit
-       human-attested precondition**, never a silent git-only check.
-   If a precondition fails, the runner records *"blocked: preconditions not
-   met"* and stops. It never fabricates or partially fakes results.
+1. **Preconditions (self-check).** The task **declares its own preconditions**
+   in its body, and the runner checks them *first*. If any precondition is
+   unmet, the runner records *"blocked: preconditions not met"* and stops — it
+   never fabricates or partially fakes results. That behavioral rule is the only
+   firm requirement here.
+   The precondition set is **generic and author-defined; the framework does not
+   prescribe a mechanism.** A precondition may be a machine-checkable probe (a
+   health/status command, a check that the dependency change is actually
+   deployed) *or*, commonly today, a **human-attested statement** ("the target
+   has been rebuilt to include #N"). Expressing preconditions in a uniform,
+   universally machine-checkable form is deliberately **left open** — that shape
+   is not settled, still leans on the human interface, and this spec does not
+   force it. Keep this section generic: no tool, environment, or git-vs-deploy
+   mechanism is baked into the framework.
 2. **Commands to run** — the concrete validation checklist.
 3. **Acceptance criteria** — explicit pass/fail conditions.
 4. **Results template** — PASS/FAIL plus evidence, to be posted as a comment.
 
-Symmetry worth noting: `blocked-by` is the *issue-graph* gate; the commit-floor
+Symmetry worth noting: `blocked-by` is the *issue-graph* gate; the preconditions
 self-check is the *runtime* gate for the same dependency.
 
 ## FAIL semantics
@@ -126,25 +127,26 @@ self-check is the *runtime* gate for the same dependency.
 
 ## Provisioning boundary (human-driven now)
 
-The heavy provisioning step — standing up / cold-rebuilding the live lab —
-**remains human-driven and out-of-band for now**, deliberately. It is genuinely
-interactive: rebuilding the local-box lab tears down the cloud-code agent
-sessions running inside it, so a session cannot cleanly rebuild the lab it is
-running in. We are not mechanizing or formalizing that interface in this epic.
+Some validation targets require **heavy, out-of-band setup** — a full
+environment rebuild or provision — before the check can run. For now that setup
+**remains human-driven and deliberately un-mechanized**, sometimes necessarily
+so (a rebuild can tear down the very session that would run it). This is a
+generic boundary, not tied to any particular target.
 
 Concretely, for now:
 
-- There is **no rebuild/provisioning task and no `blocked-by` to one**.
-- The human performs the rebuild, updates the branch, and bootstraps the target
-  (e.g. Native HA RHEL / Native HA Ubuntu) out-of-band.
-- `issue-validate` **assumes** the human met that precondition, but **cheaply
-  verifies** it via the precondition self-check (lab-up + commit-floor) before
-  running anything.
+- There is **no provisioning task and no `blocked-by` to one** in this epic.
+- The human performs the setup out-of-band and the validation **assumes** it was
+  done.
+- `issue-validate` then runs the task's declared precondition self-check before
+  the checklist — which today is frequently a human-attested precondition (see
+  anatomy). The framework does not prescribe how that check is mechanized.
 
-**Forward-looking (documented, not built).** The mechanized version is an
-intermediate "stand-up" task that completes when the lab is up, which the
-validation is `blocked-by`. The `blocked-by` model and the runnable-vs-blocked
-rollup below already accommodate it when we are ready; that is a later epic.
+**Forward-looking (documented, not built).** A mechanized version would model
+the setup as its own "stand-up" task that the validation is `blocked-by`; the
+`blocked-by` model and the runnable-vs-blocked rollup below already accommodate
+it when we are ready. That is a later epic — the shape of the generic
+machine-checkable precondition is not settled, and this epic does not force it.
 
 ## Tooling changes (`vergil-tooling`)
 
@@ -250,8 +252,11 @@ The plan sizes tasks by true weight, not as equal bullets:
     runnable-vs-blocked classification; asserts `vrg-epic-rollup` holds an epic
     **open** while a validation child is open; asserts the report-only invariant
     flags a validation task closed without a PASS comment.
-- **Skills:** prose doctrine, dogfooded against the mqweb lab epic that surfaced
-  this — the canonical worked example (`.github#550`).
+- **Skills:** prose doctrine. This epic's own validation is a **lab-free tooling
+  dogfood** (plan Task 10) — it exercises the PR-workability guard,
+  `--kind validation`, and the runnable-vs-blocked rollup end-to-end with no live
+  target. The lab incident (`.github#550`) is the originating anecdote, not a
+  required dependency for closing this epic.
 
 ## Non-goals
 

@@ -352,7 +352,7 @@ def test_validation_kind_applies_label_and_scaffold():
     assert "validation" in captured["labels"]
     body = captured["body"]
     assert "Blocked-by: o/r#5" in body
-    assert "## Preconditions" in body and "Commit floor" in body
+    assert "## Preconditions" in body  # generic, author-defined self-check
     assert "## Results" in body  # PASS/FAIL template present
 ```
 
@@ -369,16 +369,18 @@ Expected: FAIL (`--kind` unrecognized).
 
 ## Preconditions (self-check — run first, do not fabricate)
 
-- **Target is up:** <status probe, e.g. `mqlab status`>
-- **Commit floor:** the deployed target reports a version at or past the
-  dependency change below. Verify against the *deployed* system, not local git.
-  Where the target cannot report its deployed version, treat this as a
-  human-attested precondition and say so.
+Declare this task's preconditions here. They are **author-defined and generic** —
+a machine-checkable probe (a health/status command, a check that the dependency
+change is deployed) *or* a human-attested statement (e.g. "the target has been
+rebuilt to include the dependency below"). The framework prescribes no mechanism.
+
+- <precondition 1 — probe or human-attested>
+- <precondition 2 — optional>
 
 {blocked_by}
 
 If any precondition fails: comment "blocked: preconditions not met — <which>"
-and stop. Do not run the checklist.
+and stop. Do not run the checklist. Never fabricate a result.
 
 ## Commands to run
 
@@ -575,7 +577,7 @@ vrg-commit --type docs --scope issue-implement --message "discover/create valida
 **Deliverable:** a complete new skill with its own design. This is the heaviest skill task.
 
 - [ ] **Step 1:** Frontmatter (`name: issue-validate`, description with triggers: "validate issue", "run the validation task", picking up a `validation`-labelled issue).
-- [ ] **Step 2:** **Preflight / reachability gate** — run the body's preconditions self-check first (target-up probe + deployed-version commit-floor). If unmet: comment `blocked: preconditions not met — <which>` and STOP. Never fabricate, never partial-fake.
+- [ ] **Step 2:** **Preflight / reachability gate** — run the body's *declared* preconditions first, whatever form they take (a machine probe or a human-attested statement — the framework prescribes no mechanism). If any is unmet: comment `blocked: preconditions not met — <which>` and STOP. Never fabricate, never partial-fake.
 - [ ] **Step 3:** **Run** the recorded commands; capture evidence.
 - [ ] **Step 4:** **Record** PASS/FAIL as an issue comment from the results template.
 - [ ] **Step 5:** **Close semantics** — PASS ⇒ comment then close (`vrg-gh issue close`). FAIL ⇒ comment evidence, file follow-on fix task(s) via `vrg-issue-create`, and **leave the task and epic OPEN**. Triage-discovered problems are out-of-band new issues, not edits here.
@@ -604,6 +606,15 @@ vrg-issue-create --epic vergil-project/.github#115 --repo vergil-project/.github
 - [ ] **Step 3:** Run it via `issue-validate` (Task 9); post PASS/FAIL; close on PASS only.
 
 ---
+
+## Documentation
+
+Human-facing **site docs** (`vergil-tooling/docs/site/…`) for the validation
+task type are **authored-and-verified by the doc-review closing bookend
+(`.github#118`)**, not a separate task. That bookend is a reminder/sanity gate —
+"before you're done, make sure the docs reflect what changed, authoring what's
+missing" — a judgment call between agent and human, not a hard separate
+deliverable.
 
 ## Task ordering / dependencies
 
