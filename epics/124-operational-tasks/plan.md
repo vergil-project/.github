@@ -35,17 +35,17 @@
 
 In `tests/vergil_tooling/test_epics.py`, rename the three `is_validation_task` tests to `is_operational_task`, keeping identical behavior (patch `epics.is_validation`):
 ```python
-def test_is_operational_task_true_for_validation() -> None:
-    with patch("vergil_tooling.lib.epics.is_validation", return_value=True) as mock:
+def test_is_operational_task_true_for_operational() -> None:
+    with patch("vergil_tooling.lib.epics.is_operational", return_value=True) as mock:
         assert epics.is_operational_task("org/repo#7", default_repo="org/repo") is True
     mock.assert_called_once_with(IssueRef("org", "repo", 7))
 
 def test_is_operational_task_false_for_plain_task() -> None:
-    with patch("vergil_tooling.lib.epics.is_validation", return_value=False):
+    with patch("vergil_tooling.lib.epics.is_operational", return_value=False):
         assert epics.is_operational_task("#42", default_repo="org/repo") is False
 
 def test_is_operational_task_false_for_unparseable_ref() -> None:
-    with patch("vergil_tooling.lib.epics.is_validation") as mock:
+    with patch("vergil_tooling.lib.epics.is_operational") as mock:
         assert epics.is_operational_task("#42", default_repo="") is False
     mock.assert_not_called()
 ```
@@ -57,11 +57,22 @@ Expected: FAIL (`is_operational_task` undefined).
 
 - [ ] **Step 3: Implement the rename in `epics.py`**
 
-Replace `is_validation_task` with a set-based `is_operational_task` (keep `is_validation` as-is):
+Add **public** operational predicates (so `epic_audit` never pokes `_labels`),
+and have `is_operational_task` delegate. Rename `is_validation` → `is_operational`
+(behavior-preserving: `validation` is the only operational label at this step):
 ```python
 # Labels that mark a not-PR-workable operational task (run, don't merge).
 # Extended as new operational kinds are added (e.g. deployment).
 _OPERATIONAL_LABELS: set[str] = {"validation"}
+
+def is_operational(ref: IssueRef) -> bool:
+    """True if *ref* carries any operational label (validation, deployment, …)."""
+    return bool(_labels(ref) & _OPERATIONAL_LABELS)
+
+def operational_kind(ref: IssueRef) -> str | None:
+    """The operational label on *ref* ('validation' / 'deployment'), or None."""
+    kinds = _labels(ref) & _OPERATIONAL_LABELS
+    return next(iter(kinds)) if kinds else None
 
 def is_operational_task(ref: str, *, default_repo: str) -> bool:
     """True if *ref* is an operational task, so PR tooling must refuse it.
@@ -76,9 +87,11 @@ def is_operational_task(ref: str, *, default_repo: str) -> bool:
         issue = parse_issue_ref(ref, default_repo=default_repo)
     except ValueError:
         return False
-    return bool(_labels(issue) & _OPERATIONAL_LABELS)
+    return is_operational(issue)
 ```
-(Delete `is_validation_task`. Keep `is_validation`.)
+(Delete `is_validation_task` and `is_validation`; `is_operational` /
+`operational_kind` subsume them. Update the two `is_validation` tests in
+`test_epics.py` to `is_operational`.)
 
 - [ ] **Step 4: Rename the two guard call sites**
 
@@ -139,18 +152,22 @@ class OperationalStatus:
     def pending(self) -> tuple[epics.IssueRef, ...]:
         return self.runnable + self.blocked
 
-def _is_operational(ref: epics.IssueRef) -> bool:
-    return bool(epics._labels(ref) & epics._OPERATIONAL_LABELS)
-
 def operational_status(epic: epics.IssueRef) -> OperationalStatus:
     runnable, blocked = [], []
     for child in epics.child_states(epic):
-        if child.state != "OPEN" or not _is_operational(child.ref):
+        if child.state != "OPEN" or not epics.is_operational(child.ref):
             continue
         (runnable if epics.all_blockers_closed(child.ref) else blocked).append(child.ref)
     return OperationalStatus(epic=epic, runnable=tuple(runnable), blocked=tuple(blocked))
 ```
-Rename `validation_pending` → `operational_pending` (calls `operational_status`); `closed_validation_without_pass` → `closed_operational_without_success`, searching every label in `_OPERATIONAL_LABELS` (loop the set) and keeping `_OPERATIONAL_SUCCESS_RE = re.compile(r"^\s*[-*]?\s*Outcome:\s*PASS\s*$", re.MULTILINE | re.IGNORECASE)` for now (SUCCESS added in Task 3). Rename the render section to "Operational tasks pending".
+Use the **public** `epics.is_operational` (added in Task 1) — do not reach into
+`epics._labels` / `epics._OPERATIONAL_LABELS`. Rename `validation_pending` →
+`operational_pending` (calls `operational_status`); `closed_validation_without_pass`
+→ `closed_operational_without_success`, searching every label in
+`epics._OPERATIONAL_LABELS` (loop the set) and keeping `_OPERATIONAL_SUCCESS_RE =
+re.compile(r"^\s*[-*]?\s*Outcome:\s*PASS\s*$", re.MULTILINE | re.IGNORECASE)` for
+now (SUCCESS added in Task 3). Rename the render section to "Operational tasks
+pending".
 
 - [ ] **Step 4: Update `vrg_epic_audit.py` call sites + render params**
 
@@ -355,21 +372,27 @@ def test_operational_status_tags_kind() -> None:
     epic = epics.IssueRef("org", ".github", 124)
     val = epics.IssueRef("org", "repo", 7); dep = epics.IssueRef("org", "repo", 8)
     children = [epics.ChildState(val, "OPEN"), epics.ChildState(dep, "OPEN")]
-    def labels(ref): return {"validation"} if ref.number == 7 else {"deployment"}
+    def kind(ref): return "validation" if ref.number == 7 else "deployment"
     with (
         patch.object(epic_audit.epics, "child_states", return_value=children),
-        patch.object(epic_audit.epics, "_labels", side_effect=labels),
+        patch.object(epic_audit.epics, "is_operational", return_value=True),
+        patch.object(epic_audit.epics, "operational_kind", side_effect=kind),
         patch.object(epic_audit.epics, "all_blockers_closed", return_value=True),
     ):
         status = epic_audit.operational_status(epic)
-    assert status.by_kind[7] == "validation" and status.by_kind[8] == "deployment"
+    # keyed by IssueRef (cross-repo safe), not bare number
+    assert status.by_kind[val] == "validation" and status.by_kind[dep] == "deployment"
 ```
 
 - [ ] **Step 2: Run, verify fail.**
 
 - [ ] **Step 3: Implement**
 
-Add `by_kind: dict[int, str]` (issue number → kind) to `OperationalStatus`, populated in `operational_status` by intersecting `_labels(child.ref)` with `_OPERATIONAL_LABELS` (take the single operational label as the kind). Update `render` to annotate each pending item with its kind, e.g. `- {ref.slug} (deployment) — runnable`.
+Add `by_kind: dict[IssueRef, str]` (**keyed by ref** — cross-repo safe, since
+`IssueRef` is a frozen/hashable dataclass) to `OperationalStatus`, populated in
+`operational_status` via the public `epics.operational_kind(child.ref)`. Update
+`render` to annotate each pending item with its kind, e.g. `- {ref.slug}
+(deployment) — runnable`.
 
 - [ ] **Step 4: Run, verify green.**
 
@@ -457,7 +480,15 @@ vrg-issue-create --epic vergil-project/.github#124 --repo vergil-project/.github
   --blocked-by vergil-project/vergil-tooling#<TASK4> \
   --blocked-by vergil-project/vergil-tooling#<TASK5>
 ```
-- [ ] **Step 2:** Preconditions: attest the release is published (human). Deploy steps (agent-safe): `vrg-ensure-label --sync` provisions the `deployment` label to the org repos; confirm `vrg-issue-create --kind deployment` works against a provisioned repo.
+- [ ] **Step 2:** Preconditions: attest the release is published (human). Deploy
+  steps (agent-safe, **non-circular** — the `.github` label already exists to
+  create this task, so target the **member repos**): confirm `deployment` is
+  *absent* in a member repo (e.g. `vergil-tooling`), run `vrg-ensure-label --sync
+  --repo vergil-project/vergil-tooling` to provision it, confirm it is now
+  *present* (observable before/after), then smoke-check that `vrg-issue-create
+  --kind deployment --repo vergil-project/vergil-tooling …` succeeds against the
+  now-provisioned repo. That is a real idempotent deploy with an observable
+  effect — not a no-op.
 - [ ] **Step 3:** Run via `issue-deploy`; on SUCCESS record `Outcome: SUCCESS` and close; confirm `vrg-epic-audit` showed it **runnable** (blockers closed) beforehand and stops listing it after close.
 
 ---
