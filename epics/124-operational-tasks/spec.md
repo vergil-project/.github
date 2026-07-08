@@ -90,7 +90,8 @@ already known from the label, so the word needn't re-encode it:
 
 Deployment differs from validation in what it *does* and how it fails:
 
-- **It changes state** (releases/installs/deploys), where validation observes.
+- **It changes state** (installs/syncs/deploys the merged change into the
+  environment), where validation observes.
 - **It is idempotent and retriable.** A failure is often transient (network, a
   not-yet-ready target).
 - **Failure handling — retry first.** On failure the deployment task stays open
@@ -99,6 +100,18 @@ Deployment differs from validation in what it *does* and how it fails:
   deployment; only if it cannot succeed without a code change does it file a fix
   task (an impl task), then re-deploy once that lands. It closes only on
   `Outcome: SUCCESS`.
+
+### Autonomy boundary — release is a precondition, not part of the deploy
+
+A deployment task owns only the **agent-safe** deploy steps (install, sync,
+restart, and the like). Where deploying requires a **release** first
+(bump → main → tag → publish), that release is a **human-gated action** under the
+same policy that makes agents hand off `vrg-submit-pr` and never merge or
+finalize. So a required release is a **precondition** of the deployment task —
+human-attested today (or its own prior step later) — exactly like validation's
+human-attested preconditions. `issue-deploy` never cuts a release; it runs the
+agent-safe deploy once the release precondition is met. No new autonomy is
+granted to agents by this epic.
 
 ## Tooling changes (`vergil-tooling`) — generalize validation → operational
 
@@ -128,10 +141,12 @@ Deployment differs from validation in what it *does* and how it fails:
 ## Skills (`vergil-project/vergil-claude-plugin`)
 
 - **`issue-deploy`** *(new)* — the deployment run skill: preflight (USER +
-  deployment label) → preconditions gate (block, don't fabricate) → run the
-  recorded deploy commands → record `Outcome:` → **close on SUCCESS / retry-first,
-  then fix-task-if-needed, on FAILURE**. Emphasizes idempotency, retriability,
-  and "you *are* changing the environment."
+  deployment label) → preconditions gate (block, don't fabricate; a required
+  release is one such precondition — see the Autonomy boundary) → run the
+  recorded **agent-safe** deploy steps → record `Outcome:` → **close on SUCCESS /
+  retry-first, then fix-task-if-needed, on FAILURE**. Emphasizes idempotency,
+  retriability, and "you *are* changing the environment." It never cuts a
+  release.
 - **Shared operational-task lifecycle** — the common lifecycle (preflight →
   preconditions gate → run → record → close-on-success / hold-open-on-failure)
   lives in **one** referenced place that both `issue-validate` and `issue-deploy`
@@ -166,8 +181,15 @@ Generalize the GitHub Issue Standards site doc's "Validation tasks" section to
 
 - **Tooling (unit tests, existing patterns):** the generalized guard/audit/creation;
   a **regression pass** proving the validation→operational rename does not change
-  the just-shipped validation behavior; the deployment scaffold; the marker
-  migration and legacy-`PASS` recognition.
+  the just-shipped, *deployed* validation behavior; the deployment scaffold; the
+  marker migration and legacy-`PASS` recognition.
+- **Landing the rename.** The `validation*` → `operational*` rename is
+  **behavior-preserving and atomic**: the existing validation unit tests (guard
+  fires, audit classifies runnable/blocked, invariant flags a closed-without-
+  success task) must pass **unchanged** through the rename — *then* the
+  `deployment` label is added to the matched operational set. No back-compat
+  aliases are kept; all callers are ours (`vrg-submit-pr`, `vrg-pr-workflow`,
+  `vrg-epic-audit`) and are updated in the same change.
 - **Skills:** prose doctrine; dogfooded with a real deployment task in the
   framework (the impl→deploy→validate chain exercised end-to-end).
 
