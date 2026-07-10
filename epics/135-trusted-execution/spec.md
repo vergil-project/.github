@@ -46,7 +46,8 @@ driver is both the motivating capability and the first exemplar of the new rule.
 - **Encourage sub-agents** as a first-class efficiency mechanism wherever they
   help (research fan-out, parallel implementation), removing the categorical ban.
 - **Ship `epic-implement`**, a thin driver above the `issue-*` skills that
-  resumes an epic purely from GitHub state, works the runnable frontier
+  resumes an epic from the GitHub epic issue and its referenced plan, works the
+  runnable frontier
   (sub-agents encouraged), batches human-gated actions, and escalates on
   problems.
 - **Preserve every hard gate.** PR submission, merge, and release stay
@@ -70,6 +71,10 @@ driver is both the motivating capability and the first exemplar of the new rule.
   the plan, during execution.
 - **No fleet/session-grouping mechanism.** Naming a session after its epic stays
   the human's manual act (paste the emitted rename line). No tooling for it.
+- **The driver does not orchestrate `pr-watch` / CI reconciliation.** Taking a
+  submitted PR through CI to merge is the human's path (normally green in one
+  shot); `pr-watch` stays a rare, human-triggered exception, outside the driver's
+  loop.
 
 ## The invariant reversal (old → new)
 
@@ -93,14 +98,26 @@ contradicted it is brought into line.
 
 `/vergil:epic-implement <epic-ref>` — a thin layer above the `issue-*` skills.
 
-### 1. Resume from GitHub, always
+### 1. Resume from GitHub, starting at the epic issue
 
-State is reconstructed from `vrg-epic-audit`: closed / runnable / blocked tasks
-and the dependency graph. **No session state is load-bearing.** Re-invoking
-after a lost or compacted session simply re-derives position and continues.
-In-session accumulated context (richer judgment, spotted follow-ups, notes for
-the closing brainstorm) is a *bonus*, never a requirement — its loss under
-compaction is acceptable by design.
+State is reconstructed by **starting at the GitHub epic issue** and following its
+references: the sub-issues (with their plain open/closed status) and — most
+importantly — the **aligned plan**, which is the authoritative execution driver
+(the spec and plan live in GitHub as the repo's docs). The driver reconciles the
+plan's intended sequence against live issue open/closed status to locate the
+current frontier; bookend terminality (the closing brainstorm is the plan's last
+step) comes from the plan, a first-class driving document. `vrg-epic-audit` is a
+sanity/linking check, **not** the resume engine — it may be consulted for
+consistency but is never depended on for position.
+
+Formal dependency encoding (`Blocked-by` links between plain tasks) is **not yet
+fully fleshed out**, so the driver **infers** ordering from the plan plus issue
+state — a known, acknowledged area, not a hidden mechanism.
+
+**No session state is load-bearing.** Re-invoking after a lost or compacted
+session simply re-derives position and continues. In-session accumulated context
+(richer judgment, spotted follow-ups, notes for the closing brainstorm) is a
+*bonus*, never a requirement — its loss under compaction is acceptable by design.
 
 ### 2. Emit a paste-ready rename line
 
@@ -120,13 +137,30 @@ gate, **parallel sub-agents encouraged where efficient**, routing by label:
 | `validation` | `issue-validate` |
 | `deployment` | `issue-deploy` |
 
+Parallel efforts are dispatched as sub-agents using the existing **Agent prompt
+contract** in `CLAUDE.md` (the worktree convention): each sub-agent receives one
+issue and its worktree instruction, runs the routed skill, and reports its
+`report-ready` result back for the batch. Per-issue worktrees
+(`.worktrees/issue-<N>-<slug>`) and branches (`feature/<N>-<slug>`) are naturally
+unique, so parallel sub-agents never collide.
+
 ### 4. Batch at the gate
 
-When the frontier is worked, present a single consolidated human-gated set:
-PRs ready to submit/merge, operational tasks needing a human-gated release, and
-any problems the driver got stuck on. The human acts out of band, returns, and
-says continue (or re-invokes) → the driver re-derives state and advances to the
-next frontier.
+The **gate** is the general boundary where the agent can no longer proceed on a
+task or workflow without human interaction — not merely "a PR is ready." The
+driver does everything the current dependencies allow, then presents a **single
+consolidated set of everything needing the human**: PRs ready to submit,
+operational tasks needing a human-gated release, and any problems it got stuck
+on. It batches once and stops. The human acts out of band, returns, and says
+continue (or re-invokes) → the driver re-derives state and advances to the next
+frontier.
+
+The driver's responsibility **ends at the batched hand-off.** The human takes the
+batch through `vrg-submit-pr` → merge/finalize, which — given the front-loaded
+spec quality — normally sails straight through green. **`pr-watch` is not part of
+the driver's loop:** it is a rare, human-triggered exception the human invokes
+only when a gate actually goes red (used roughly twice in a week against hundreds
+of PRs). The driver never routinely drives CI reconciliation.
 
 ### 5. Escalate on problems, don't thrash
 
@@ -197,10 +231,12 @@ Tasks 2–5 are **mutually independent** — a deliberate first exercise of
   in-flight branches/worktrees at once. This is consistent with the existing
   parallel-agent worktree convention (one worktree per issue); the driver must
   honor it rather than stacking issues in one tree.
-- **`vrg-epic-audit` is now load-bearing for resume.** The driver's correctness
-  depends on the audit accurately reporting runnable-vs-blocked. Any gap there
-  surfaces as the driver picking the wrong frontier — worth verifying against a
-  real multi-task epic (this epic itself is a candidate).
+- **Resume correctness depends on the plan + issue state, not a single tool.**
+  The driver locates the frontier by reconciling the aligned plan against live
+  issue open/closed status; `vrg-epic-audit` is only a consistency check. The
+  main risk is *inferred* ordering where formal `Blocked-by` links are absent —
+  worth verifying against a real multi-task epic (this epic itself is a
+  candidate).
 
 ## Open questions (for pushback / alignment)
 
