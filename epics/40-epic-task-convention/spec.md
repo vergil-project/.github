@@ -76,6 +76,11 @@ observable, and then **migrates the existing backlog into the new framework**.
   different mechanism, out of scope. Orgs may share code and conventions, and a
   change developed in one org may serve another, but they remain independent at
   the epic/issue level.
+- **A private `.github` fronting public member repos.** A private `.github` is
+  read as "the whole org is private," so everything routes to `.github`. The
+  mixed topology — a private `.github` with public normal repos — is
+  deliberately unsupported; it is what keeps the visibility-based home rule a
+  simple three-row table (epic #130).
 - **Autonomous task implementation.** Making tasks discrete enough that
   `issue-implement` can run them unattended is an *aspiration* the
   task-granularity discipline serves; it is not delivered here.
@@ -122,15 +127,32 @@ a human scannability affordance. **Labels are the machine source of truth.**
 
 ### 3.2 Two-layer placement
 
-**Project layer — the org's `.github` repo (the roadmap).** Every finite epic
-lives in **its own org's** `.github` repo — the "virtual project" is one org, and
-this epic's home is `vergil-project/.github`. Going there shows every active
+**Project layer — the resolved epic home (the roadmap).** A finite epic's *home*
+— where its issue and `spec.md`/`plan.md` live — is derived automatically from
+repository visibility (`epics.resolve_epic_home`, epic #130):
+
+| `.github` | target repo | epic home |
+| --- | --- | --- |
+| public | public | `<org>/.github` |
+| public | **private** | **the target repo itself** |
+| private | (any) | `<org>/.github` |
+
+The default is the org's `.github` repo: a **public** repo's epics live centrally
+in **its own org's** `<org>/.github`, so going there shows every active *public*
 initiative across that org, regardless of how many of *its* repos the work
 touches. Rationale: cross-repo (within-org) work is the practical default — an
 epic that *looks* single-repo usually grows a cross-repo change, so uniform
 placement avoids a mid-flight migration — and it makes the org's `.github` the
-single source for the derived roadmap (§3.7). Epics never span orgs (see
-non-goals).
+single source for the derived roadmap (§3.7).
+
+A **private** member repo (with a public `.github`) instead **self-homes** its
+epics in its own issue list, so nothing about private work — issue titles, spec
+text, roadmap rows — ever reaches the public `.github`. Such an epic is
+self-contained: its epics, tasks, roadmap, and audit stay scoped to that repo,
+and the org-level roadmap omits them by design. The home is chosen automatically
+by visibility with no configuration; the creating and reporting commands take an
+explicit `--repo` target (defaulting to the current repo) and echo the resolved
+home before acting. Epics never span orgs (see non-goals).
 
 **Repo layer — each member repo.** Each repo's issue list becomes a **task
 queue**: tasks (1:1 PRs) plus the repo's one standing `Ad-hoc maintenance` epic.
@@ -151,6 +173,21 @@ epic did the planning upfront*.
   docs/specs|plans/              ad-hoc / standing work only
   (issues: tasks + one standing `Ad-hoc maintenance` epic)
 ```
+
+(A **private** member repo additionally holds its own `epics/<N>-<slug>/` and its
+own epic issues — the project layer folded into the repo.)
+
+**Cross-visibility linkage is asymmetric (epic #130).** A task may hard-link
+(native sub-issue / `Parent:` reflink) to an epic only if the task's repo is **no
+more publicly visible than the epic's home** (order: `PUBLIC` > `INTERNAL` >
+`PRIVATE` — the task must be ≤ the home). A private child under a public parent is
+fine; a **public** task under a **private** epic is refused by `vrg-epic-link` —
+it would leak the private repo's name into a public issue and break
+cross-boundary roll-up. Express that dependency instead as a soft
+`Blocked-by: <org>/<public-repo>#<N>` line in the **private** epic's body: the
+reference lives in the private repo and points *at* a public thing, so nothing
+leaks. This generalizes the cross-org non-goal from the org boundary to the
+visibility boundary.
 
 ### 3.3 Lifecycle and mechanical closing
 
