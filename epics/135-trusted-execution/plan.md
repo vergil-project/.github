@@ -389,8 +389,9 @@ vrg-pr-workflow report-ready --issue <TASK_D_N> \
 **Files:**
 - Modify: `CLAUDE.md` (add a doctrine section)
 - Modify: `README.md`, `docs/site/docs/agents/index.md`, `docs/site/docs/index.md` (audit + align any oversight-model prose)
+- Modify: `skills/pr-watch/SKILL.md` (one-line clarifier so its "foreground" header does not read as the old doctrine)
 
-**Acceptance:** `vrg-validate` green; `CLAUDE.md` carries one canonical positive statement of the new invariant; no doc still states the old "tune for oversight / never spawn sub-agents" model as a principle.
+**Acceptance:** `vrg-validate` green; `CLAUDE.md` carries one canonical positive statement of the new invariant; no doc still states the old "tune for oversight / never spawn sub-agents" model as a principle; `pr-watch`'s foreground note is clarified as being about the blocking `vrg-pr-await` call, not oversight.
 
 - [ ] **Step 1: Worktree**
 
@@ -428,16 +429,25 @@ grep -nE "foreground|sub-?agent|oversight|transparen|visible progress|never spaw
 
 For each hit that states the *old invariant as a principle*, rewrite it to the new doctrine (link to the `CLAUDE.md` section). Leave incidental/mechanical uses (e.g. a blocking-call "don't poll" note) untouched. Record what you changed in the PR notes.
 
+- [ ] **Step 3b: Clarify `pr-watch`**
+
+`pr-watch`'s "`vrg-pr-await` is a blocking wait — run it in the foreground, don't poll" header is about correct use of the blocking call, not oversight. Add a one-line clarifier so it does not read as the retired doctrine, e.g. append to that section:
+
+```markdown
+(This is about correctly consuming the blocking `vrg-pr-await` call — not the
+retired continuous-oversight framing. Sub-agents remain fine elsewhere.)
+```
+
 - [ ] **Step 4: Validate** — `vrg-container-run -- vrg-validate` → PASS.
-- [ ] **Step 5: Acceptance check** — `CLAUDE.md` has the canonical section; the grep in Step 3 shows no remaining *principle-level* statement of the old model.
+- [ ] **Step 5: Acceptance check** — `CLAUDE.md` has the canonical section; the grep in Step 3 shows no remaining *principle-level* statement of the old model; `pr-watch` carries the clarifier.
 - [ ] **Step 6: Commit + report-ready**
 
 ```bash
 vrg-commit --type docs --scope doctrine --message "state Front-Loaded Judgment, Trusted Execution as canonical invariant"
 vrg-pr-workflow report-ready --issue <TASK_E_N> \
   --title "docs(doctrine): canonical Front-Loaded Judgment, Trusted Execution statement" \
-  --summary "Add the canonical invariant statement to CLAUDE.md and align README/site docs; retire the Continuous Oversight framing." \
-  --notes "Part of epic #135."
+  --summary "Add the canonical invariant statement to CLAUDE.md, align README/site docs, and clarify pr-watch; retire the Continuous Oversight framing." \
+  --notes "Part of epic #135. Includes the pr-watch one-line clarifier."
 ```
 
 ---

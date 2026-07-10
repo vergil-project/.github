@@ -238,12 +238,15 @@ Tasks 2–5 are **mutually independent** — a deliberate first exercise of
   worth verifying against a real multi-task epic (this epic itself is a
   candidate).
 
-## Open questions (for pushback / alignment)
+## Open questions — resolved at alignment
 
-- Where exactly the canonical invariant statement lives (CLAUDE.md vs a site-docs
-  doctrine page vs both).
-- Whether `epic-implement` should itself run parallel `issue-implement`
-  sub-agents, or fan out lighter research sub-agents while implementing tasks
-  sequentially — i.e. how aggressive the default parallelism should be.
-- Whether the driver should proactively *file* newly-discovered follow-on issues
-  mid-epic (via `triage-capture`) or only surface them in the batch report.
+- **Canonical invariant statement lives in `CLAUDE.md`**; `README` and the site
+  docs reference/align to it (not a separate doctrine page).
+- **`epic-implement` runs parallel `issue-implement` sub-agents** for independent
+  tasks — aggressive frontier parallelism, the showcase behavior.
+- **The driver surfaces newly-discovered follow-ups, it does not auto-file them.**
+  They appear in the batch report and the closing-brainstorm seed; the human
+  decides. (No `triage-capture` from inside the driver.)
+- **`pr-watch` gets a one-line clarifier** (its "foreground" note is about the
+  blocking `vrg-pr-await` call, not oversight) — folded into the doctrine-
+  statement task, not a separate task.
