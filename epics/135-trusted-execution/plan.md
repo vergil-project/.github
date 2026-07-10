@@ -55,8 +55,8 @@
 
 ```bash
 cd /Users/pmoore/dev/projects/vergil-project/vergil-claude-plugin
-vrg-git worktree add -b feature/<TASK_A_N>-epic-implement .worktrees/issue-<TASK_A_N>-epic-implement origin/develop
-cd .worktrees/issue-<TASK_A_N>-epic-implement
+vrg-git worktree add -b feature/626-epic-implement .worktrees/issue-626-epic-implement origin/develop
+cd .worktrees/issue-626-epic-implement
 ```
 
 - [ ] **Step 2: Write `skills/epic-implement/SKILL.md`**
@@ -185,7 +185,7 @@ Confirm the file contains: the `/rename` line; the routing table; "Agent prompt 
 
 ```bash
 vrg-commit --type feat --scope epic-implement --message "add epic-implement driver skill"
-vrg-pr-workflow report-ready --issue <TASK_A_N> \
+vrg-pr-workflow report-ready --issue 626 \
   --title "feat(epic-implement): add the epic-implement driver skill" \
   --summary "New epic-level driver that resumes from the epic issue + plan, works the runnable frontier with sub-agents, batches human gates, and hands off the closing brainstorm." \
   --notes "First exemplar of the Front-Loaded Judgment, Trusted Execution invariant."
@@ -206,8 +206,8 @@ Then tell the human: *"Ready — run `vrg-submit-pr`."*
 
 ```bash
 cd /Users/pmoore/dev/projects/vergil-project/vergil-claude-plugin
-vrg-git worktree add -b feature/<TASK_B_N>-issue-implement-doctrine .worktrees/issue-<TASK_B_N>-issue-implement-doctrine origin/develop
-cd .worktrees/issue-<TASK_B_N>-issue-implement-doctrine
+vrg-git worktree add -b feature/627-issue-implement-doctrine .worktrees/issue-627-issue-implement-doctrine origin/develop
+cd .worktrees/issue-627-issue-implement-doctrine
 ```
 
 - [ ] **Step 2: Replace the block**
@@ -245,7 +245,7 @@ never suppress a validation gate.
 
 ```bash
 vrg-commit --type docs --scope issue-implement --message "reverse oversight doctrine — encourage sub-agents, trust and escalate"
-vrg-pr-workflow report-ready --issue <TASK_B_N> \
+vrg-pr-workflow report-ready --issue 627 \
   --title "docs(issue-implement): reverse oversight doctrine" \
   --summary "Replace the foreground/no-sub-agent mandate with Front-Loaded Judgment, Trusted Execution; preserve never-suppress-a-gate." \
   --notes "Part of epic #135."
@@ -264,8 +264,8 @@ vrg-pr-workflow report-ready --issue <TASK_B_N> \
 
 ```bash
 cd /Users/pmoore/dev/projects/vergil-project/vergil-claude-plugin
-vrg-git worktree add -b feature/<TASK_C_N>-issue-localize-doctrine .worktrees/issue-<TASK_C_N>-issue-localize-doctrine origin/develop
-cd .worktrees/issue-<TASK_C_N>-issue-localize-doctrine
+vrg-git worktree add -b feature/628-issue-localize-doctrine .worktrees/issue-628-issue-localize-doctrine origin/develop
+cd .worktrees/issue-628-issue-localize-doctrine
 ```
 
 - [ ] **Step 2: Replace the block**
@@ -300,7 +300,7 @@ or run validation, say so and stop.
 
 ```bash
 vrg-commit --type docs --scope issue-localize --message "reverse oversight doctrine — encourage sub-agents, trust and escalate"
-vrg-pr-workflow report-ready --issue <TASK_C_N> \
+vrg-pr-workflow report-ready --issue 628 \
   --title "docs(issue-localize): reverse oversight doctrine" \
   --summary "Drop the foreground/no-sub-agent mandate; keep never-fabricate on reconstructed metadata." \
   --notes "Part of epic #135."
@@ -320,8 +320,8 @@ vrg-pr-workflow report-ready --issue <TASK_C_N> \
 
 ```bash
 cd /Users/pmoore/dev/projects/vergil-project/vergil-claude-plugin
-vrg-git worktree add -b feature/<TASK_D_N>-operational-doctrine .worktrees/issue-<TASK_D_N>-operational-doctrine origin/develop
-cd .worktrees/issue-<TASK_D_N>-operational-doctrine
+vrg-git worktree add -b feature/629-operational-doctrine .worktrees/issue-629-operational-doctrine origin/develop
+cd .worktrees/issue-629-operational-doctrine
 ```
 
 - [ ] **Step 2: Edit `issue-validate`**
@@ -376,7 +376,7 @@ transcript (the **Front-Loaded Judgment, Trusted Execution** doctrine; see
 
 ```bash
 vrg-commit --type docs --scope operational-skills --message "reverse oversight doctrine in issue-validate/issue-deploy; keep never-fabricate"
-vrg-pr-workflow report-ready --issue <TASK_D_N> \
+vrg-pr-workflow report-ready --issue 629 \
   --title "docs(operational): reverse oversight doctrine, keep never-fabricate" \
   --summary "Drop foreground-for-oversight framing in issue-validate/issue-deploy; preserve the never-fabricate rule prominently." \
   --notes "Part of epic #135."
@@ -397,8 +397,8 @@ vrg-pr-workflow report-ready --issue <TASK_D_N> \
 
 ```bash
 cd /Users/pmoore/dev/projects/vergil-project/vergil-claude-plugin
-vrg-git worktree add -b feature/<TASK_E_N>-invariant-statement .worktrees/issue-<TASK_E_N>-invariant-statement origin/develop
-cd .worktrees/issue-<TASK_E_N>-invariant-statement
+vrg-git worktree add -b feature/630-invariant-statement .worktrees/issue-630-invariant-statement origin/develop
+cd .worktrees/issue-630-invariant-statement
 ```
 
 - [ ] **Step 2: Add the canonical section to `CLAUDE.md`**
@@ -444,7 +444,7 @@ retired continuous-oversight framing. Sub-agents remain fine elsewhere.)
 
 ```bash
 vrg-commit --type docs --scope doctrine --message "state Front-Loaded Judgment, Trusted Execution as canonical invariant"
-vrg-pr-workflow report-ready --issue <TASK_E_N> \
+vrg-pr-workflow report-ready --issue 630 \
   --title "docs(doctrine): canonical Front-Loaded Judgment, Trusted Execution statement" \
   --summary "Add the canonical invariant statement to CLAUDE.md, align README/site docs, and clarify pr-watch; retire the Continuous Oversight framing." \
   --notes "Part of epic #135. Includes the pr-watch one-line clarifier."
@@ -456,7 +456,7 @@ vrg-pr-workflow report-ready --issue <TASK_E_N> \
 
 **Spec coverage:** Deliverable 1 → Task A; 2 → Task B; 3 → Task C; 4 → Task D; 5 → Task E. Bookends (#136 docs, #137 closing brainstorm, #625 doc-review) exist. All spec sections mapped.
 
-**Placeholder scan:** The only placeholders are `<TASK_?_N>` issue numbers — filled at task-filing time (epic-create step 9). All content (skill body, replacement prose, canonical statement) is complete and literal.
+**Placeholder scan:** None. Task issue numbers are filled (A→626, B→627, C→628, D→629, E→630). All content (skill body, replacement prose, canonical statement) is complete and literal.
 
 **Consistency:** The invariant name "Front-Loaded Judgment, Trusted Execution" is used identically across Tasks A–E. Each cleanup preserves its paired load-bearing rule (B: never-suppress-a-gate; C/D: never-fabricate). The `epic-implement` skill's behavior matches the spec (resume from epic issue+plan; no `vrg-epic-audit` engine; batch-once gate; no `pr-watch`; hybrid terminal handoff).
 
