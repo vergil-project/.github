@@ -2,7 +2,10 @@
 
 - **Epic:** vergil-project/.github#140
 - **Status:** Approved design (2026-07-12) — superpowers brainstorming, hardened
-  via paad pushback (7 issues resolved) the same day
+  via paad pushback (7 issues resolved) the same day. Amended 2026-07-13: the
+  gate deploys in **warning mode** first and is promoted to enforcing via a
+  human-gated flip after a bake-in (§9.2, §14.1) — a staged deployment of a hard
+  gate, not a change to the all-hard-gates requirement.
 - **Related work:** `vrg-release` idempotency/retriability epic (forthcoming) —
   this epic is engineered to be forward-compatible with it (§12.1)
 - **Origin issue:** vergil-project/vergil-tooling#120 (was filed under the
@@ -279,12 +282,26 @@ configuration code" constraint.
   different real profile — no GHAS (CodeQL not required), a non-Python stack, a
   gate legitimately disabled — demands evidence for exactly the gates it actually
   gates on. It cannot spuriously hard-fail for a gate it never ran. This is what
-  makes enforce-everywhere (§14) safe across a heterogeneous fleet.
+  makes fleet-wide rollout (§14) safe across a heterogeneous fleet.
 
 The guiding principle: **any gate that can block the build is evidence worth
 keeping** — quality (lint/typecheck) sits alongside security, test, and audit as
 first-class evidence. Adding a future required gate automatically pulls it into
 the evidence set via the shared config; the harvester never changes.
+
+### 7.2 Producer prerequisite — gates must *emit* real report files
+
+The gates do not write machine-readable report files today: the check registry
+runs `pytest --cov ... --cov-fail-under=100` (no `--cov-report=xml`/`--junitxml`)
+and `pip-audit`/license checks with no `--output`. An evidence bundle whose
+`test`/`audit`/`quality` entries contain only an `evidence.json` envelope is an
+**empty report — and there is no point publishing empty reports.** Closing this is
+therefore **in scope and blocking**: the check registry must be changed to emit
+machine-readable report files (`coverage.xml`, `junit.xml`, `pip-audit.json`,
+`licenses.json`, and any quality-tool output) at the workspace-root paths the
+producer composite (§7 / T8) globs for. **No bundle is attached until its reports
+carry real data**, so this producer change lands *before* the first real bundle
+(it is a dependency of the cd-release wiring, T9).
 
 ## 8. Bundle and manifest format
 
@@ -346,8 +363,11 @@ archive; both are written by the bundle assembler.
 
 ## 9. Publish invariant and `cd-release` restructuring
 
-**Invariant: a published release always has complete, attested evidence.** If the
-pipeline cannot prove it, it does not publish.
+**Invariant (the enforcing end state): a published release always has complete,
+attested evidence.** If the pipeline cannot prove it, it does not publish. This is
+the gate's permanent target state — but it is *reached through a staged
+deployment*, not switched on the day the code lands (§9.2). Sections 9–12 describe
+**enforcing mode**; §9.2 defines the warning-mode deployment that precedes it.
 
 To make this true by construction rather than after the fact, `cd-release.yml` is
 restructured so **evidence harvest + completeness validation runs first**, before
@@ -378,9 +398,47 @@ reflects a *passing* scan with no unremediated findings to expose. There is no
 dedicated secret-scanning gate emitting secret locations (only CodeQL/Trivy/
 Semgrep), and on a public repo the code and dependency inventory are already
 public. **This safety property is load-bearing on the all-hard-gates model:**
-introducing any soft/report-only gate in the future would let a passing release
-carry non-fatal findings into a public bundle, and would require revisiting this
-boundary. That model is itself a foundational principle worth codifying (§14).
+introducing any *permanent* soft/report-only gate in the future would let a
+passing release carry non-fatal findings into a public bundle, and would require
+revisiting this boundary. That model is itself a foundational principle worth
+codifying (§14).
+
+Note that warning-mode deployment (§9.2) does **not** weaken this: warning mode
+governs only the *evidence step's own* fatality, not the underlying gates. The
+bundle is still generated only from releases whose hard gates all passed, so its
+contents are as safe in warning mode as in enforcing mode.
+
+### 9.2 Deployment lifecycle — warning mode first, then enforcing
+
+**The requirement that all gates are hard is unchanged. What is staged is the
+*deployment* of this new hard gate.** A new hard gate is introduced in **warning
+mode** and promoted to **enforcing mode** only once it is proven reliable in
+production:
+
+- **Warning mode (initial).** The evidence step runs the full path — harvest →
+  bundle → attest → attach — but on **any** failure (transient error, substantive
+  incompleteness, upload/attest failure, or timeout) it emits a **loud warning and
+  the release proceeds**, attaching whatever evidence it did gather. It never
+  aborts a release. The step is **timeout-bounded** so it can never hang the
+  pipeline.
+- **Bake-in.** Warning mode runs across normal release cadence (a couple releases
+  per day) for ~1–2 weeks, accumulating reliability data; defects are worked out
+  as they surface.
+- **Enforcing mode (end state).** Once stable, a **single flag flip** promotes the
+  gate to the §9 invariant: evidence-first, substantive incompleteness is
+  terminal, nothing publishes without complete attested evidence.
+
+**Warning mode is a temporary deployment state of a hard gate — not a permanent
+soft gate.** A permanent soft/report-only gate remains rejected (§9.1, §14). The
+end state of this gate is always enforcing; warning mode is the on-ramp, bounded
+in time and closed by a human-gated flip (§14.1).
+
+**Mechanism.** An `enforce` flag on the `cd-release` evidence step (composite
+input), default `false` (warning) at introduction. The flip to `true` is a
+single, global, human-gated change (§14.1) made after the bake, on the strength of
+the collected reliability data. In warning mode the step's failure handling
+collapses the §12 transient/substantive distinction — *all* failures are
+non-fatal; that distinction only takes effect once enforcing.
 
 ## 10. Attestation — chain of custody
 
@@ -408,10 +466,14 @@ build time — the presence of the asset is the source of truth.
 
 ## 12. Error handling and edge cases
 
-Consistent with the fleet's no-silent-failure rule:
+Consistent with the fleet's no-silent-failure rule. **The fatality of each case
+below is mode-dependent (§9.2): in warning mode every failure is loud but
+non-fatal; the terminal behavior described here applies once enforcing.**
 
-- **Missing/partial evidence** → recorded in `manifest.json → missing_gates`,
-  printed loudly, and (per §9) **fails the release**. Not hidden, not tolerated.
+- **Missing/partial evidence** → recorded in `manifest.json → missing_gates` and
+  printed loudly in every mode. In **enforcing mode** this (per §9) **fails the
+  release**; in **warning mode** it is reported and the release proceeds with a
+  partial bundle. Never hidden.
 - **Release PR unresolvable** → **hard failure, no fallback.** Every legitimate
   path to `main` goes through a PR: standard releases merge a release PR, and the
   hotfix policy requires the `hotfix/*` branch be merged into `main` (i.e. via
@@ -478,29 +540,40 @@ time).
    meaningless; deprecation warnings especially are early signal of a future
    outage and are treated as errors. This principle is what makes the public
    evidence bundle safe (§9.1); it deserves its own home in the docs.
-5. **Wire + attest** (`vergil-actions`): add `actions/cd/release/ci-evidence`,
-   grant `actions: read` (§5.2), restructure `cd-release.yml` (evidence-first),
-   add attestation. First real bundle on the next `vergil-tooling` release.
+5. **Wire + attest, in warning mode** (`vergil-actions`): add
+   `actions/cd/release/ci-evidence`, grant `actions: read` (§5.2), restructure
+   `cd-release.yml` (evidence-first), add attestation, and expose the `enforce`
+   flag **defaulting to `false` (warning, §9.2)** — non-fatal, timeout-bounded.
+   First real bundle on the next `vergil-tooling` release.
 6. **Doc-site link** (`vergil-tooling`): `vrg-docs-stage` evidence-link emission.
+7. **Promote to enforcing** (human-gated, after the bake): flip the `enforce`
+   default to `true`. Gated on the reliability data collected in warning mode; the
+   human decides when. This is the closing step of the deployment lifecycle (§9.2).
 
-### 14.1 Enforcement posture — enforce everywhere on day one
+### 14.1 Enforcement posture — warning mode first, then a human-gated flip
 
-There is **no per-repo enable flag and no gradual rollout.** When phase 5 ships,
-the invariant is live for every release-publishing repo at once. This is a
-deliberate, sole-maintainer risk acceptance, justified by a cheap, fast rollback:
+The gate is deployed in **warning mode** (§9.2) — non-fatal, timeout-bounded — for
+a ~1–2 week bake across normal release cadence, then promoted to **enforcing** by a
+single global flag flip once the reliability data justifies it. This replaces the
+earlier "enforce on day one" posture: the release pipeline is the fleet's most
+fragile surface and this epic adds to it, so a bake-in window that cannot break or
+delay a release is the responsible way to introduce a new hard gate. It does **not**
+change the requirement that the gate's end state is hard/enforcing.
 
-- The change ships as a single isolated **`vergil-tooling` patch release**.
-- Consumers pin the rolling **`2.1` major-minor tag**, so a broken release is
-  backed out by **demoting that tag to the prior patch with `vrg-promote`** — the
-  versioning indirection makes rollback trivial and near-instant.
-- `vergil-actions` is currently stable/low-churn, so the blast surface is small.
+Two independent safety nets back the rollout:
 
-The accepted trade for skipping gradual rollout is the **robustness mandate**
-(phase 2) plus **immediate dogfooding**: the harvester is exercised on real
-release work from day one, and any issue found (e.g. during the MQ-Rest admin
-work) stops the line and is fixed before proceeding. Full-fleet enforcement is
-acceptable *because* rollback is a one-command tag demotion, not because failures
-are expected to be rare.
+- **Warning mode** means the evidence step cannot abort a release during the bake,
+  regardless of harvester defects or GitHub flakiness.
+- **Rollback** remains available for the enforcing phase: the change ships as a
+  single isolated **`vergil-tooling` patch release**, and consumers pin the rolling
+  **`2.1` major-minor tag**, so a bad enforcing release is backed out by demoting
+  that tag to the prior patch with **`vrg-promote`** — trivial and near-instant.
+
+The flip to enforcing (phase 7) is **global and human-gated**, not per-repo: the
+human promotes once, on the strength of fleet-wide warning-mode data, having worked
+out the defects that surface during the bake (e.g. during the MQ-Rest admin work).
+The robustness mandate (phase 2) and immediate dogfooding still apply — warning
+mode is the on-ramp to a robust hard gate, not a substitute for building it well.
 
 Task linkage template:
 
