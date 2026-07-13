@@ -58,10 +58,14 @@ T4 completeness validator  (needs T1,T3)
 T5 vrg-ci-evidence CLI     (needs T2,T3,T4)
 T6 docs-stage link
 T7 convention doc
-                                       T9 cd-release wiring (needs T5 + T8)
+                                       T9 cd-release wiring, WARNING mode
+                                          (needs T5 + T8)
+                                       T11 promote to enforcing, human-gated
+                                          (needs T9 + ~1-2 week bake)
 ```
 
-Dogfood: first real bundle lands on the next `vergil-tooling` release after T9.
+Dogfood: first real bundle lands on the next `vergil-tooling` release after T9,
+in warning mode. The gate goes fatal only at T11, after the bake (spec §9.2).
 
 ---
 
@@ -559,34 +563,43 @@ YAML).
   on it), `.github/workflows/cd.yml` **in each consuming repo** to add
   `actions: read` permission (spec §5.2)
 
-**Composite `ci-evidence/action.yml`:**
+**Composite `ci-evidence/action.yml`** — ships in **warning mode** (spec §9.2):
+- Input `enforce` (default `false`). Input `timeout-minutes` (bounded run).
 1. `vrg-ci-evidence bundle --repo ${{ github.repository }} --version <v>
    --merge-sha ${{ github.sha }} --generated-at <now> --out-dir evidence-out
-   [--sbom-file <path-to-already-built-SBOM>]` (non-zero exit fails the job —
-   the publish precondition). The SBOM is already produced in the CD workspace
-   for its own Release asset; pass its path so the bundle is self-contained.
+   [--sbom-file <path-to-already-built-SBOM>]`. The SBOM is already produced in
+   the CD workspace for its own Release asset; pass its path so the bundle is
+   self-contained.
 2. `actions/attest-build-provenance` over the bundle digest.
 3. `gh release upload <tag> evidence-out/*.tar.gz evidence-out/*-manifest.json
    --clobber` (idempotent).
+- **Mode handling:** when `enforce == false` (warning), the whole step is wrapped
+  so that **any** failure/timeout in steps 1–3 emits a loud `::warning::` and the
+  job succeeds (release proceeds, partial bundle attached if any). When
+  `enforce == true`, a non-zero `vrg-ci-evidence` exit (substantive
+  incompleteness) fails the job — the publish precondition.
 
-**Reorder:** evidence step runs before build-and-publish and tag-and-release so
-nothing is published unless evidence is complete (spec §9).
+**Reorder:** evidence step runs before build-and-publish and tag-and-release. In
+warning mode it cannot block; in enforcing mode nothing publishes unless evidence
+is complete (spec §9). Position is identical in both modes so the promotion
+(Task 11) is a pure flag flip, no restructuring.
 
 **Steps:**
-- [ ] Step 1: Add the composite action; call it as the first step in
-  `cd-release.yml`.
+- [ ] Step 1: Add the composite action with the `enforce` (default `false`) and
+  `timeout-minutes` inputs and the warning-mode wrapper; call it as the first step
+  in `cd-release.yml`.
 - [ ] Step 2: Add `actions: read` to `cd.yml` permissions in `vergil-tooling`
   (the dogfood repo) and confirm harvest can list the release PR's artifacts.
-- [ ] Step 3: Trigger a real `vergil-tooling` release; confirm the bundle +
-  manifest attach to the Release and `gh attestation verify` passes.
-- [ ] Step 4: Confirm the negative path: a deliberately withheld gate artifact
-  fails the release with a clear "missing evidence for required gates" message
-  and publishes nothing.
-- [ ] Step 5: commit
-  `feat(cd): harvest, attest, and attach CI evidence before publish`.
+- [ ] Step 3: Trigger a real `vergil-tooling` release in **warning mode**; confirm
+  the bundle + manifest attach and `gh attestation verify` passes, and that an
+  induced evidence failure produces a warning **without** aborting the release.
+- [ ] Step 4: commit
+  `feat(cd): harvest, attest, and attach CI evidence (warning mode)`.
 
-**Deliverable:** the live publish invariant. This is the enforce-everywhere
-switch (spec §14.1); rollback is `vrg-promote` demotion of the `2.1` tag.
+**Deliverable:** the evidence gate live in warning mode across every
+release-publishing repo — non-fatal, timeout-bounded, attaching bundles on every
+release while reliability data accrues (spec §9.2, §14.1). Promotion to enforcing
+is Task 11.
 
 ---
 
@@ -598,11 +611,15 @@ switch (spec §14.1); rollback is `vrg-promote` demotion of the `2.1` tag.
 - Create: a foundational-principles doc under `vergil-actions` docs
 
 **Content (spec §14 phase 4):** every check that matters is a hard, asserting
-gate; there are no report-only/warning gates, because an unheeded warning is
-meaningless (reviewers optimize for "can I merge?" and never revisit warnings);
-deprecation warnings are early signal of a future outage and are treated as
-errors; avoid the five-page warning-exception list — if it matters, assert it and
-fail on it. Cross-reference the CI-evidence publish-safety property (spec §9.1).
+gate; there are no *permanent* report-only/warning gates, because an unheeded
+warning is meaningless (reviewers optimize for "can I merge?" and never revisit
+warnings); deprecation warnings are early signal of a future outage and are
+treated as errors; avoid the five-page warning-exception list — if it matters,
+assert it and fail on it. **Also document the gate deployment lifecycle (spec
+§9.2):** a new hard gate ships in warning mode (non-fatal, bounded bake-in) and is
+promoted to enforcing — warning mode is a *temporary deployment state of a hard
+gate*, never a permanent soft gate. Use the CI-evidence gate as the example.
+Cross-reference the publish-safety property (spec §9.1).
 
 **Steps:**
 - [ ] Step 1: Write the doc.
@@ -611,6 +628,35 @@ fail on it. Cross-reference the CI-evidence publish-safety property (spec §9.1)
 
 **Deliverable:** the principle that makes public evidence bundles safe, on the
 record.
+
+---
+
+## Task 11: Promote the evidence gate to enforcing (human-gated)
+
+**Repo:** vergil-actions · **Depends on:** Task 9 shipped + a ~1–2 week
+warning-mode bake with reliability data reviewed. **Opened only when the human
+judges the gate stable** (spec §9.2, §14.1).
+
+**Files:**
+- Modify: the `enforce` default (`false` → `true`) at its single source — the
+  `cd-release` evidence step / composite input default.
+
+**This is deliberately a pure flag flip** — the evidence step's position and code
+are identical between modes (Task 9), so promotion changes only fatality.
+
+**Steps:**
+- [ ] Step 1: Review accumulated warning-mode data — bundle-success rate across
+  releases, every warning emitted, any defects — and confirm the gate is reliable
+  enough to make fatal. (Human judgment; this is the gate.)
+- [ ] Step 2: Flip the `enforce` default to `true`; `vrg-validate`.
+- [ ] Step 3: Trigger a `vergil-tooling` release and confirm the **negative path**
+  now fails closed: a deliberately withheld required-gate artifact fails the
+  release with a clear "missing evidence for required gates" message and publishes
+  nothing.
+- [ ] Step 4: commit `feat(cd): promote CI evidence gate to enforcing`.
+
+**Deliverable:** the §9 publish invariant, live. Rollback if needed: `vrg-promote`
+demotion of the `2.1` tag (spec §14.1).
 
 ---
 
@@ -625,14 +671,16 @@ record.
 - §8 bundle/manifest, incl. `checks.json`, `README.md`, and `gates/sbom/` →
   T2 (manifest, checks.json, README, SBOM copy) + T5 (staging wiring) + T9
   (SBOM path). ✔ *(alignment gap closed)*
-- §9 publish invariant + §9.1 publish safety → T4 (validator), T9 (enforcement),
-  T10 (safety principle). ✔
+- §9 publish invariant + §9.1 publish safety + §9.2 deployment lifecycle →
+  T4 (validator), T9 (warning-mode wiring + `enforce` flag), T11 (promotion to
+  enforcing), T10 (safety principle + lifecycle doc). ✔
 - §10 attestation → T9. ✔
 - §11 doc-site link → T6. ✔
 - §12 error handling / §12.1 forward-compat → T3 (`NoQualifyingRunError`), T4/T5
-  (substantive vs transient via retry in `lib.github`). ✔
-- §14 rollout/rollback → task ordering + T9 (enforce-everywhere, `vrg-promote`
-  rollback). ✔
+  (substantive vs transient via retry in `lib.github`), T9 (warning-mode collapses
+  both to non-fatal). ✔
+- §14 rollout / §14.1 warning-then-enforcing + rollback → task ordering, T9
+  (warning-mode deploy), T11 (human-gated flip), `vrg-promote` rollback. ✔
 - §15 future work → intentionally excluded. ✔
 
 **Placeholder scan:** no TBD/TODO; every logic task carries real test code and
