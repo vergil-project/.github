@@ -51,15 +51,16 @@ workflows (`vergil-actions`), `gh` CLI, `actions/attest-build-provenance`,
 ```
 vergil-tooling                         vergil-actions
 ──────────────                         ──────────────
-T1 evidence-gate derivation            T8 producer uploads  ─┐ (parallel, early)
-T2 manifest + bundle (pure)            T10 all-hard-gates doc ┘ (independent)
-T3 harvest layer (gh)
-T4 completeness validator  (needs T1,T3)
-T5 vrg-ci-evidence CLI     (needs T2,T3,T4)
-T6 docs-stage link
-T7 convention doc
+T1  evidence-gate derivation           T8 producer uploads  ─┐ (parallel, early)
+T2  manifest + bundle (pure)           T10 all-hard-gates doc ┘ (independent)
+T3  harvest layer (gh)
+T4  completeness validator  (needs T1,T3)
+T5  vrg-ci-evidence CLI     (needs T2,T3,T4)
+T6  docs-stage link
+T7  convention doc
+T12 real report files       (no deps; BLOCKS T9 — no empty bundles)
                                        T9 cd-release wiring, WARNING mode
-                                          (needs T5 + T8)
+                                          (needs T5 + T8 + T12)
                                        T11 promote to enforcing, human-gated
                                           (needs T9 + ~1-2 week bake)
 ```
@@ -553,9 +554,55 @@ YAML).
 
 ---
 
+## Task 12: Emit real report files from the check registry
+
+**Repo:** vergil-tooling · **Depends on:** none (runnable now) · **Blocks:** T9
+(no bundle is attached until its reports carry real data — spec §7.2)
+
+**Problem:** the check registry produces pass/fail only — `pytest --cov ...
+--cov-fail-under=100` writes no `coverage.xml`/`junit.xml`, and
+`pip-audit`/license checks write no JSON. So `test`/`audit`/`quality` evidence
+would be an `evidence.json` envelope with **no actual report** inside. There is no
+point publishing empty reports (spec §7.2).
+
+**Files:**
+- Modify: the check-command registry in `src/vergil_tooling/` (per T8's finding,
+  `languages.py`) so the evidence-producing gates emit machine-readable reports at
+  **workspace-root paths that match the T8 composite's globs**:
+  - `test`: add `--cov-report=xml:coverage.xml` (keep `--cov-fail-under=100`) and
+    `--junitxml=junit.xml` to the pytest command.
+  - `audit`: `pip-audit ... --format=json --output=pip-audit.json`; license check
+    → `licenses.json`.
+  - `quality`: emit the linter/type-checker machine-readable output where the tool
+    supports it (e.g. a JSON report); if a tool has none, its `evidence.json`
+    (tool + version + zero findings) is a complete statement, not an empty report.
+- Test: `tests/vergil_tooling/` — assert the constructed command strings include
+  the report-output flags and the agreed output paths.
+
+**Path contract (shared with T8):** `coverage.xml`, `junit.xml`, `pip-audit.json`,
+`licenses.json` at the workspace root. Both the emitter (here) and the composite
+glob (T8) reference this one list — keep them in sync.
+
+**Steps:**
+- [ ] Step 1 (RED): failing tests asserting each evidence-producing check command
+  contains its report-output flag/path.
+- [ ] Step 2: Run — expect FAIL.
+- [ ] Step 3 (GREEN): add the flags/paths to the registry command definitions.
+- [ ] Step 4: Run — expect PASS; `vrg-container-run -- vrg-validate` green and
+  confirm the report files actually appear after a check run.
+- [ ] Step 5 (REFACTOR): define the report-path constants once and reference them
+  from every command; keep the list aligned with the T8 glob list.
+- [ ] Step 6: commit `feat(checks): emit machine-readable report files for evidence`.
+
+**Deliverable:** every evidence-producing gate writes a real, machine-readable
+report — so bundles contain data, not empty envelopes. Prerequisite for T9.
+
+---
+
 ## Task 9: `cd-release` wiring, attestation, and evidence-first reorder
 
-**Repo:** vergil-actions · **Depends on:** Task 5 (command), Task 8 (artifacts)
+**Repo:** vergil-actions · **Depends on:** Task 5 (command), Task 8 (artifacts),
+Task 12 (real report files — no empty bundles, spec §7.2)
 
 **Files:**
 - Create: `actions/cd/release/ci-evidence/action.yml`
@@ -667,7 +714,8 @@ demotion of the `2.1` tag (spec §14.1).
 - §5.2 preconditions (`actions: read`, run selection) → T3 (selection), T9
   (permission). ✔
 - §6 components → T1–T9 map 1:1 to the five units + producers. ✔
-- §7 convention + §7.1 derived set → T1 (derivation), T8 (emission), T7 (doc). ✔
+- §7 convention + §7.1 derived set + §7.2 producer prerequisite → T1 (derivation),
+  T8 (artifact emission), T12 (real report files — no empty reports), T7 (doc). ✔
 - §8 bundle/manifest, incl. `checks.json`, `README.md`, and `gates/sbom/` →
   T2 (manifest, checks.json, README, SBOM copy) + T5 (staging wiring) + T9
   (SBOM path). ✔ *(alignment gap closed)*

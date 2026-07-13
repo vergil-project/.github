@@ -282,12 +282,26 @@ configuration code" constraint.
   different real profile — no GHAS (CodeQL not required), a non-Python stack, a
   gate legitimately disabled — demands evidence for exactly the gates it actually
   gates on. It cannot spuriously hard-fail for a gate it never ran. This is what
-  makes enforce-everywhere (§14) safe across a heterogeneous fleet.
+  makes fleet-wide rollout (§14) safe across a heterogeneous fleet.
 
 The guiding principle: **any gate that can block the build is evidence worth
 keeping** — quality (lint/typecheck) sits alongside security, test, and audit as
 first-class evidence. Adding a future required gate automatically pulls it into
 the evidence set via the shared config; the harvester never changes.
+
+### 7.2 Producer prerequisite — gates must *emit* real report files
+
+The gates do not write machine-readable report files today: the check registry
+runs `pytest --cov ... --cov-fail-under=100` (no `--cov-report=xml`/`--junitxml`)
+and `pip-audit`/license checks with no `--output`. An evidence bundle whose
+`test`/`audit`/`quality` entries contain only an `evidence.json` envelope is an
+**empty report — and there is no point publishing empty reports.** Closing this is
+therefore **in scope and blocking**: the check registry must be changed to emit
+machine-readable report files (`coverage.xml`, `junit.xml`, `pip-audit.json`,
+`licenses.json`, and any quality-tool output) at the workspace-root paths the
+producer composite (§7 / T8) globs for. **No bundle is attached until its reports
+carry real data**, so this producer change lands *before* the first real bundle
+(it is a dependency of the cd-release wiring, T9).
 
 ## 8. Bundle and manifest format
 
