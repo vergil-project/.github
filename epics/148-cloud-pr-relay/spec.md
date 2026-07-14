@@ -197,7 +197,9 @@ PR CI is the gate. Merge + finalize on Mac (unchanged);
   runs `report-ready` and pushes the ref; the Mac runs `vrg-submit-pr <branch>`,
   fetches the ref, and opens the PR. Unit tests cannot prove the ref traverses
   GitHub with the cloud agent's real permissions; this closes on a recorded
-  `Outcome: SUCCESS`.
+  `Outcome: SUCCESS`. It is gated on the impl tasks being **released** (a
+  human-gated release, never agent-performed) and **deployed** onto the cloud VM
+  and the Mac — the canonical impl → deploy → validate shape.
 
 ## 7. Non-goals
 

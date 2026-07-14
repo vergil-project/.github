@@ -44,6 +44,15 @@ Tasks 3+4+5 merged ─▶ human release ─▶ Task 7 (deploy) ─▶ Task 8 (li
 Bookends: #149 (this spec+plan PR), #2364 (doc-review), #150 (follow-on brainstorm)
 ```
 
+**Bookend ownership — doc split (per alignment).** Task 6 owns the **plugin-side**
+docs (remove `issue-localize`, plugin `CLAUDE.md` cloud contract). The
+**`vergil-tooling`-side** doc/contract rewrite — the CLAUDE.md cloud-session
+contract that today reads "cloud is triage-only, no PR-development" (Deliverable A)
+and the site docs — is owned by the **doc-review bookend #2364**, which
+*rewrites* those to match the relay (cloud can do PR-dev; submission stays
+human-on-Mac), not merely verifies them. Naming it here so the tooling-side
+contract change cannot be dropped between Task 6 and the bookend.
+
 ---
 
 ## Task 1: Feasibility spike — prove `refs/vergil/*` is pushable cloud→Mac
