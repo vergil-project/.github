@@ -48,16 +48,25 @@ A new `GitHubTransport` implementing the existing `Transport` ABC
 handoff via a reserved ref `refs/vergil/pr-workflow/<branch>` — a single-file
 commit whose tree contains `pr-workflow.json`.
 
-- `write(state)` — serialize the `WorkflowState`, create a single-file commit
-  bearing it, and push it to `refs/vergil/pr-workflow/<branch>` on origin
-  (force-update: the ref is a mailbox, last write wins, mirroring
-  `report-ready`'s idempotency).
+- `write(state)` — serialize the `WorkflowState`, build a **single-file commit
+  object out-of-band via git plumbing** (`hash-object` → `mktree`/`commit-tree`),
+  and push it to `refs/vergil/pr-workflow/<branch>` on origin (force-update: the
+  ref is a mailbox, last write wins, mirroring `report-ready`'s idempotency).
+  **Invariant: `write()` never mutates HEAD, the index, or the working tree** — it
+  must not `git commit` on the branch. A normal commit would advance the feature
+  branch just as the #146 freeze is arming (both happen inside `report-ready`);
+  the out-of-band build makes the push a pure ref write, freeze-neutral. A test
+  asserts the branch tip and working tree are unchanged after a `write()`.
 - `read()` — fetch `refs/vergil/pr-workflow/<branch>` from origin and return the
   `WorkflowState`; `None` when the ref does not exist.
 
-The ref namespace `refs/vergil/*` is neither `refs/heads/*` nor `refs/tags/*`, so
-branch/tag protection rules do not apply and the standard `contents: write` push
-permission the agent already uses for the branch covers it.
+**Feasibility (load-bearing).** The design assumes `refs/vergil/*` — neither
+`refs/heads/*` nor `refs/tags/*` — is pushable with the `contents: write`
+permission the agent already uses for the branch, unblocked by branch/tag
+protections or org rulesets. This is **verified up front by a feasibility spike
+(§6) before the transport is built**, not asserted blind: if an org ruleset
+restricts `refs/*` creation or the cloud identity's token cannot push a non-branch
+ref, the whole design must change, so it is proven first.
 
 ### 3.2 `report-ready` — always push
 
@@ -71,28 +80,48 @@ fallback carrier.
 
 ### 3.3 `vrg-submit-pr` — branch-list relay mode
 
-`vrg-submit-pr` gains an optional positional **branch list**:
+`vrg-submit-pr` gains an optional positional **branch list**. This is a real
+refactor, not a small add: today the command is built around *"I am running inside
+the worktree of the branch I am submitting"* — it reads `git.current_branch()`,
+enumerates `worktrees.list_worktrees(root)`, checks `is_main_worktree()`, and
+**force-pushes the branch itself**. The relay path submits a branch with **no
+local worktree and nothing to push** (the cloud already pushed it).
+
+The change factors out a **shared PR-open core** — "open the PR from
+`(branch, base, metadata)`" — that both paths call:
 
 - **No args** → unchanged: iterate local ready worktrees
-  (`worktrees.list_worktrees`) and submit each (the Lima local batch).
-- **`<branch> …`** → for each branch: resolve the ready-state — prefer a local
-  worktree's `pr-workflow.json` if one exists, else `GitHubTransport.read()` —
-  then open the PR from the metadata against the branch already on origin,
-  **batched** exactly like the local path.
+  (`worktrees.list_worktrees`), keep the existing worktree/branch-push behavior,
+  and submit each (the Lima local batch).
+- **`<branch> …`** → the **relay path**: for each branch, resolve the ready-state
+  — prefer a local worktree's `pr-workflow.json` if one exists, else
+  `GitHubTransport.read()` — then drive the shared core from **origin + the GitHub
+  API only**: no `current_branch`, no worktree lookup, **no branch push** (the
+  branch is already on origin). Provenance and standards checks run against GitHub
+  data, so they need no local checkout. Branches are **batched** exactly like the
+  local path.
 
 Branches, not issue numbers, are the identifier: deterministic, and they sidestep
 the corner case where a discarded-then-redone issue owns two branch names. A
-passed branch that happens to have a local worktree flows through the same code as
-the no-arg path (one unified resolution).
+passed branch that happens to have a local worktree flows through the local-file
+resolution (one unified resolution seam feeding the shared core).
 
 This replaces "`/issue-localize <issue-numbers>` then `vrg-submit-pr`" with
 "`vrg-submit-pr <branch> …`". The batch power (2–3+ at a time) is preserved.
 
 ### 3.4 `vrg-finalize-pr` — relay-ref cleanup
 
-When `vrg-finalize-pr` deletes a merged branch, it also deletes
-`refs/vergil/pr-workflow/<branch>` on origin, so relay refs do not accumulate.
-Deleting a nonexistent ref is a no-op, never an error.
+Relay refs must not become the next class of stranded cruft. Cleanup covers every
+way a branch ends, not just merge:
+
+- **Idempotent overwrite** — `report-ready` force-overwrites the ref, so a reused
+  branch of the same name self-heals (already in §3.2).
+- **Finalize** — `vrg-finalize-pr` deletes `refs/vergil/pr-workflow/<branch>` on
+  origin when it cleans up a branch on **both** the merged and the closed-PR
+  paths. Deleting a nonexistent ref is a no-op, never an error.
+- **Swept safety net** — finalize's existing straggler sweep also prunes a relay
+  ref whose branch no longer exists (an abandoned branch, or one deleted
+  out-of-band), so a truly orphaned ref cannot linger.
 
 ### 3.5 Plugin — retire `issue-localize`, reconcile the cloud boundary
 
@@ -107,9 +136,12 @@ Deleting a nonexistent ref is a no-op, never an error.
 
 - `GitHubTransport` — the only genuinely new unit; a self-contained
   `Transport` implementation testable in isolation against a throwaway repo.
-- `report-ready` gains one call; `vrg-submit-pr` gains one argument and one
-  resolution branch; `vrg-finalize-pr` gains one cleanup call. Each is a small,
-  local change with a clear seam.
+- `report-ready` gains one call (the always-push); `vrg-finalize-pr` gains ref
+  deletion on its existing cleanup paths — both small, local changes with a clear
+  seam.
+- `vrg-submit-pr` is the substantial change: extracting a shared PR-open core and
+  adding a worktree-free, push-free relay path around it (§3.3). It is its own
+  task with its own tests, not a one-line add.
 
 ## 4. Data flow
 
@@ -139,11 +171,21 @@ PR CI is the gate. Merge + finalize on Mac (unchanged);
 - **No silent failures.** A failed ref push in `report-ready` surfaces loudly
   (the local write still succeeded, so the Lima path is unaffected, but an
   off-platform run must know the relay did not land).
+- **Data exposure.** On a public repo the relay ref is world-readable.
+  `pr-workflow.json` carries only title, summary, notes, issue number, branch, and
+  commit SHAs — no secrets — so this is acceptable. The `--notes` field must not
+  carry secrets (already true for the PR body it becomes); note it in the docs.
 
 ## 6. Testing
 
+- **Feasibility spike (first task, before any implementation).** A throwaway
+  probe from a cloud VM: push a dummy `refs/vergil/probe/x`, fetch it from the
+  Mac, delete it. Proves the load-bearing `refs/vergil/*` push assumption (§3.1)
+  before real code depends on it. A `validation`-kind task, sequenced first; if it
+  fails, the design is revisited before building.
 - Unit: `GitHubTransport` round-trip (write→read), missing ref → `None`, force
-  re-write, ref delete; against a throwaway git repo.
+  re-write, ref delete; against a throwaway git repo. Includes the **out-of-band
+  invariant** test: HEAD, index, and working tree unchanged after `write()`.
 - Unit: `report-ready` always-push (ref written on both Lima and off-platform
   paths); push-failure surfacing.
 - Unit: `vrg-submit-pr` no-arg local batch unchanged; branch-list relay batch;
