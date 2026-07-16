@@ -81,6 +81,13 @@ def test_extractor_excludes_major_only_matrix():
     tools = {p.tool for p in extract_pins.extract(DOCKER)}
     # NODE_MAJOR=22 and language matrix are least-specific, not exact pins
     assert "node" not in tools
+
+def test_extractor_finds_conditional_shell_pin():
+    # go-test-coverage's version lives in GTC_VERSION="v2.18.8", not inline @vX —
+    # the shell-assignment pattern + _ALIASES must still surface it, or check_pins
+    # would false-flag its pins.yml entry as stale and fail CI.
+    tools = {p.tool for p in extract_pins.extract(DOCKER)}
+    assert "go-test-coverage" in tools
 ```
 
 - [ ] **Step 2: Run it, verify it fails**
@@ -118,10 +125,16 @@ _PATTERNS = [
     (re.compile(r"cargo install\s+([a-z0-9-]+)@(\d+\.\d+\.\d+)\b"), 1, 2),
     # npm install -g markdownlint-cli@0.48.0
     (re.compile(r"npm install -g\s+([a-z0-9@/-]+)@(\d+\.\d+\.\d+)\b"), 1, 2),
+    # shell var assignment: GTC_VERSION="v2.18.8" (conditional/looped installs)
+    (re.compile(r'([A-Z0-9_]+)_VERSION="?v?(\d+\.\d+\.\d+)"?'), 1, 2),
 ]
 
+# Some tools carry their version in an abbreviated shell var; map it to the tool.
+_ALIASES = {"gtc": "go-test-coverage"}
+
 def _normalize(tool: str) -> str:
-    return tool.lower().replace("_", "-").removesuffix("-version")
+    slug = tool.lower().replace("_", "-").removesuffix("-version")
+    return _ALIASES.get(slug, slug)
 
 def extract(root: Path) -> list[Pin]:
     files = list((root / "common").glob("*.dockerfile"))
@@ -248,6 +261,8 @@ Note: the seed entries make the gate pass immediately (documented, if unaudited)
 
 Run: `cd docker/pins && python3 -m pytest test_pins.py -v`
 Expected: PASS (extractor + check tests). If `test_check_passes...` fails, a real pin is missing from the seed — add it.
+
+**Acceptance (idiom coverage):** the extractor must surface **every** exact pin in spec Appendix A when run against the real templates+fragments — including `go-test-coverage` via the shell-assignment pattern. Print the extracted set (`python3 -c "import extract_pins,pathlib; print(sorted(p.tool for p in extract_pins.extract(pathlib.Path('.').resolve().parent)))"`) and diff against Appendix A; extend `_PATTERNS`/`_ALIASES` until none are missing. A missed pin means `check_pins` would either wave through an undocumented pin or false-flag a `pins.yml` entry as stale.
 
 - [ ] **Step 9: Add the CI gate job**
 
@@ -598,9 +613,10 @@ vrg-commit --type feat --scope pins --message "free security scanners now that r
 
 **Files:**
 - Create: `docker/pins/report_exposure.py`
+- Create: `docker/pins/harvest_installed.py`
 - Create: `docker/pins/test_report.py`
 
-**Interfaces:** Consumes `pins.yml` + a per-tool latest-version lookup. Produces a markdown report; headline section = pins whose `inducing_release` is no longer the leading edge (**due for re-evaluation**).
+**Interfaces:** Consumes `pins.yml`, a per-tool latest-version lookup, and a per-image **installed-version map**. Produces a markdown report with (1) a **due for re-evaluation** headline (pins whose `inducing_release` is no longer leading edge), (2) an **installed tool versions per image** section covering pinned *and* floating tools, and (3) a pointer to the pin-lifecycle doc (§4.3). `harvest_installed.harvest(images, tools, probe=…) -> dict[str, dict[str, str]]` probes each image for resolved versions; the probe is injected so unit tests never run Docker.
 
 - [ ] **Step 1: Write the failing test (pure logic, injected latest-version map)**
 
@@ -648,12 +664,21 @@ def due_for_reevaluation(pins: dict, latest: dict[str, str]) -> list[str]:
             out.append(tool)
     return sorted(out)
 
-def render(root: Path, latest: dict[str, str]) -> str:
+def render(root: Path, latest: dict[str, str], installed: dict[str, dict[str, str]]) -> str:
     pins = check_pins.load_pins(root)
     due = due_for_reevaluation(pins, latest)
-    lines = ["# Pin exposure report\n", "## Due for re-evaluation\n"]
+    lines = ["# Pin exposure report\n",
+             "> Re-evaluation procedure: see the pin lifecycle (spec §4.3), published "
+             "in the site docs under epic #155's docs-review gate (#414).\n",
+             "## Due for re-evaluation\n"]
     lines += [f"- **{t}** — inducing release {pins[t]['inducing_release']} is no "
               f"longer leading edge ({latest.get(t)}); re-evaluate per lifecycle." for t in due] or ["- none\n"]
+    lines.append("\n## Installed tool versions per image\n")
+    for image in sorted(installed):
+        lines.append(f"### {image}")
+        for tool, ver in sorted(installed[image].items()):
+            state = pins.get(tool, {}).get("state", "floating")
+            lines.append(f"- {tool}: {ver} [{state}]")
     lines.append("\n## All pins\n")
     for t, m in sorted(pins.items()):
         lines.append(f"- {t} [{m['state']}] {m['constraint']} — {m['reason']}")
@@ -665,16 +690,66 @@ def render(root: Path, latest: dict[str, str]) -> str:
 Run: `cd docker/pins && python3 -m pytest test_report.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Wire a CLI entry that reads latest versions (best-effort) and writes the report**
+- [ ] **Step 5: Write the failing test for the installed-version harvest (injected probe)**
 
-Add an `if __name__ == "__main__"` that builds `latest` from whatever cheap sources exist (GitHub releases API for the binary tools; leave unknowns absent — absent = not flagged). Keep network calls optional so the unit tests never hit the network.
+```python
+# append to docker/pins/test_report.py
+import harvest_installed
+def test_harvest_joins_into_report():
+    installed = {"prod-go:1.26": {"golangci-lint": "2.12.2", "goimports": "0.45.0"}}
+    md = r.render(DOCKER, latest={}, installed=installed)
+    assert "prod-go:1.26" in md and "golangci-lint: 2.12.2" in md
+def test_harvest_parses_probe_output():
+    probe = lambda image, tool: "shellcheck 0.11.0" if tool == "shellcheck" else ""
+    got = harvest_installed.harvest(["prod-base:latest"], ["shellcheck"], probe=probe)
+    assert got["prod-base:latest"]["shellcheck"] == "0.11.0"
+```
 
-- [ ] **Step 6: Validate and commit**
+- [ ] **Step 6: Run it, verify fail** — `cd docker/pins && python3 -m pytest test_report.py -k harvest -v` → FAIL (`harvest_installed` missing).
+
+- [ ] **Step 7: Implement the harvest (Docker probe injected, tests stay hermetic)**
+
+```python
+# docker/pins/harvest_installed.py
+"""Harvest resolved tool versions actually installed in each image. The probe is
+injected so unit tests never run Docker; the CLI default shells out to
+`docker run --rm <image> <tool> --version` and extracts the first x.y.z."""
+from __future__ import annotations
+import re, subprocess
+
+_VER = re.compile(r"(\d+\.\d+\.\d+)")
+
+def _docker_probe(image: str, tool: str) -> str:
+    try:
+        out = subprocess.run(
+            ["docker", "run", "--rm", f"ghcr.io/vergil-project/{image}", tool, "--version"],
+            capture_output=True, text=True, timeout=60)
+        return out.stdout + out.stderr
+    except Exception:
+        return ""
+
+def harvest(images, tools, probe=_docker_probe) -> dict[str, dict[str, str]]:
+    result: dict[str, dict[str, str]] = {}
+    for image in images:
+        found = {}
+        for tool in tools:
+            m = _VER.search(probe(image, tool))
+            if m:
+                found[tool] = m.group(1)
+        result[image] = found
+    return result
+```
+
+- [ ] **Step 8: Run tests, verify pass** — `python3 -m pytest test_report.py -v` → PASS.
+
+- [ ] **Step 9: Wire the CLI** — an `if __name__ == "__main__"` that builds `latest` best-effort (GitHub releases for binaries; unknowns absent = not flagged), harvests installed versions across the image matrix, and writes the report. All network/Docker calls stay out of the unit tests (they inject `probe`/`latest`).
+
+- [ ] **Step 10: Validate and commit**
 
 Run: `vrg-container-run -- vrg-validate`
 ```bash
-vrg-commit --type feat --scope pins --message "add pin exposure report (due-for-re-evaluation headline)" \
-  --body "Reports pins whose inducing_release is no longer leading edge. Internal-state only; upstream drift is the Dependabot follow-on."
+vrg-commit --type feat --scope pins --message "add pin exposure report: due-for-re-evaluation + installed versions per image" \
+  --body "Reports pins whose inducing_release is no longer leading edge, plus resolved installed versions per image (pinned AND floating), and links the §4.3 lifecycle. Internal-state only; upstream drift is the Dependabot follow-on."
 ```
 
 ---

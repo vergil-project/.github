@@ -290,7 +290,9 @@ epics, cross-referenced.
 - [ ] **Closing bookend (#158):** report-only Dependabot brainstormed; follow-on
       epic created.
 - [ ] **Docs-review gate (#414):** docs (site docs + CLAUDE.md pin inventory)
-      reflect all of the above; per-repo doc tasks spawned as needed.
+      reflect all of the above, including the §4.3 pin re-evaluation lifecycle as
+      an operator-facing page (linked from the WS4 report); per-repo doc tasks
+      spawned as needed.
 
 ## 15. Open questions (for plan)
 
