@@ -152,17 +152,20 @@ rewrite.
 onto the volume; nothing currently projects the per-repo `memory/` directory or
 `MEMORY.md` to the cloud.
 
-**Refresh is coupled to `vrg-vm` cloud-session start, not (only) build time.** A
-`vrg-vm` session is always tied to one repo, and we already ensure that repo is
-checked out. Before SSHing out to a cloud VM to open a session, incrementally
-`rsync` *that repo's* memory subset — `~/.claude/projects/<host-slug>/memory/`
-and its `MEMORY.md` — plus the global `CLAUDE.md`, from the host to the guest,
-then (re-)apply read-only. This is cheap because memory is small and per-repo. A
-build seeds the initial state; bulk-copying all memory at build is overkill since
-a cloud VM is per-repo anyway. The read-only re-apply happens after each sync.
+**Refresh is coupled to `vrg-vm` cloud-session start.** A `vrg-vm` session is
+always tied to one repo, and we already ensure that repo is checked out. Before
+SSHing out to a cloud VM to open a session, sync *that repo's* memory subset —
+`~/.claude/projects/<host-slug>/memory/` and its `MEMORY.md` — plus the global
+`CLAUDE.md` from the host to the guest, file-by-file over the established
+`transport.pipe` idiom (the same `cat > <file>` mechanism `copy_claude_config`
+uses; there is no `rsync` over the transport), then (re-)apply read-only. This is
+cheap because memory is small and per-repo. The **first
+session** on a freshly built box performs the initial projection; there is no
+separate build-time seed — a cloud VM is not used until a session opens, so
+seeding earlier would only go stale before first use. The read-only re-apply
+happens after each sync.
 
-Hook points: the **cloud-session start path** (primary refresh) and the **build
-path** (initial seed).
+Hook point: the **cloud-session start path**.
 
 **Copy-then-lock, applying the governing rule** (including the runtime-writer
 disqualifier). Expected locked set: global `CLAUDE.md`, the per-repo `memory/`
@@ -198,22 +201,21 @@ store. No new machinery.
 
 The one silent-degradation risk is a broken path indirection (Component 2a): if
 the host path does not resolve, the slug diverges and memory reads empty with no
-error. Both the session-start sync and the build therefore verify, after the
-sync/copy, that the host project path resolves in the guest and that the expected
-slug memory directory exists and is non-empty, and **fail loudly** otherwise —
-turning the silent risk into a loud failure consistent with the
-no-silent-failures policy.
+error. The session-start sync therefore verifies, after the sync/copy, that the
+host project path resolves in the guest and that the expected slug memory
+directory exists and is non-empty, and **fails loudly** otherwise — turning the
+silent risk into a loud failure consistent with the no-silent-failures policy.
 
 ## Data flow
 
-- **Cloud-session start (primary refresh):** the host resolves the session's
-  repo and its memory slug → incrementally `rsync`s that repo's `memory/` +
-  `MEMORY.md` and the global `CLAUDE.md` to the guest → re-applies read-only →
-  verifies the host path resolves and the slug memory dir is non-empty (fail
-  loudly otherwise) → opens the session.
-- **Cloud build (initial seed):** builds the path indirection (Component 2a),
-  seeds the canonical set read-only, and the resolver's empirical detection makes
-  the box report `cloud-vm`.
+- **Cloud-session start (the projection hook):** the host resolves the session's
+  repo and its memory slug → builds the path indirection (Component 2a) so the
+  host project path resolves in the guest → syncs that repo's `memory/` +
+  `MEMORY.md` and the global `CLAUDE.md` to the guest via the `transport.pipe`
+  idiom → re-applies read-only → verifies the host path resolves and the slug
+  memory dir is
+  non-empty (fail loudly otherwise) → opens the session at the host path. The
+  resolver's empirical detection independently makes the box report `cloud-vm`.
 - **Cloud read:** Claude starts at the host-equivalent project path → the slug
   matches the host → it reads the read-only memory and `CLAUDE.md` (including the
   cloud clause).

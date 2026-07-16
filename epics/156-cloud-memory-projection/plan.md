@@ -6,9 +6,9 @@
 
 **Goal:** Make the physical host the single source of truth for agent memory and project it into cloud VMs as a read-only cache, refreshed at every `vrg-vm` cloud-session start, so cloud sessions read canonical memory and can never silently lose a write.
 
-**Architecture:** A new empirical, fail-closed platform resolver (`vrg-whoami --platform`) tells code which of `physical-host` / `local-vm` / `cloud-vm` it is on. On a cloud session, `vrg-vm` aligns the guest working directory to the host project path (so Claude derives the host's memory slug), incrementally `rsync`s that repo's memory subset plus the global `CLAUDE.md` from the host, verifies the projection resolved, then applies read-only permissions surgically. Cloud change requests are filed via `triage-capture`; there is no automated write-back.
+**Architecture:** A new empirical, fail-closed platform resolver (`vrg-whoami --platform`) tells code which of `physical-host` / `local-vm` / `cloud-vm` it is on. On a cloud session, `vrg-vm` aligns the guest working directory to the host project path (so Claude derives the host's memory slug), copies that repo's memory subset plus the global `CLAUDE.md` from the host over the established `transport.pipe` idiom, verifies the projection resolved, then applies read-only permissions surgically. Cloud change requests are filed via `triage-capture`; there is no automated write-back.
 
-**Tech Stack:** Python 3.12+ (`vergil_tooling` package), `pytest`, bash-over-transport (`Transport.run`/`pipe`) as used throughout `vm_cloud.py`/`vm_guest.py`, `rsync` over the IAP/SSH transport.
+**Tech Stack:** Python 3.12+ (`vergil_tooling` package), `pytest`, bash-over-transport (`Transport.run`/`pipe`) as used throughout `vm_cloud.py`/`vm_guest.py`; file projection uses the `transport.pipe` (`cat > <dest>`) idiom (no `rsync` over the IAP/SSH transport).
 
 ## Global Constraints
 
@@ -28,13 +28,13 @@
 |------|----------------|
 | `src/vergil_tooling/lib/platform_env.py` *(new)* | Pure resolver: derive `physical-host`/`local-vm`/`cloud-vm` from empirical signals; fail-closed; expose a `Resolution`-style dataclass mirroring `identity_mode.py`. |
 | `src/vergil_tooling/bin/vrg_whoami.py` *(modify)* | Add `--platform` token + `--explain` platform section, reusing the existing signal-disagreement idiom. |
-| `src/vergil_tooling/lib/vm_memory.py` *(new)* | Host→guest memory projection: compute host slug + host memory path, `rsync` the per-repo `memory/`+`MEMORY.md` and global `CLAUDE.md`, apply surgical read-only, and verify (fail loudly). Pure-ish helpers + transport-driven ops. |
+| `src/vergil_tooling/lib/vm_memory.py` *(new)* | Host→guest memory projection: compute host slug + host memory path, copy the per-repo `memory/`+`MEMORY.md` and global `CLAUDE.md` file-by-file via `transport.pipe`, apply surgical read-only, and verify (fail loudly). Pure-ish helpers + transport-driven ops. |
 | `src/vergil_tooling/lib/vm_cloud.py` *(modify)* | Add the host-path indirection helper (Component 2a) used by the cloud session/build. |
 | `src/vergil_tooling/bin/vrg_vm.py` *(modify)* | In `_cloud_session`: create the host-path symlink, set `workdir` to the host path, call the memory projection + verification before `exec_session`. |
 | `docs/site/docs/guides/agent-vm-claude-share-set.md` *(modify)* | Document the read-only cloud-memory projection model (feeds the doc-review bookend #2405). |
 | `tests/vergil_tooling/test_platform_env.py` *(new)* | Resolver unit tests incl. fail-closed + disagreement. |
 | `tests/vergil_tooling/test_vrg_whoami.py` *(modify)* | `--platform` token + explain output. |
-| `tests/vergil_tooling/test_vm_memory.py` *(new)* | Slug/path computation, rsync command shape, surgical-lock command shape, verification-fails-loudly. |
+| `tests/vergil_tooling/test_vm_memory.py` *(new)* | Slug/path computation, pipe-copy command shape, surgical-lock command shape, verification-fails-loudly. |
 | `tests/vergil_tooling/test_vm_cloud.py` *(modify)* | Host-path indirection command shape; `_cloud_session` wiring (workdir + projection call order). |
 
 ## Task dependency graph
@@ -150,14 +150,17 @@ def test_agent_identity_on_physical_host_flags_disagreement(monkeypatch):
 
 ```python
 # tests/vergil_tooling/test_vm_cloud.py
+from unittest.mock import MagicMock
 from vergil_tooling.lib import vm_cloud
 
-def test_ensure_host_path_symlinks_onto_volume(fake_transport):
-    path = vm_cloud.ensure_host_path(fake_transport, "/Users/me/dev/projects", "vergil-project", "vergil-tooling")
+def test_ensure_host_path_symlinks_onto_volume():
+    transport = MagicMock()
+    path = vm_cloud.ensure_host_path(transport, "/Users/me/dev/projects", "vergil-project", "vergil-tooling")
     assert path == "/Users/me/dev/projects/vergil-project/vergil-tooling"
-    cmd = fake_transport.last_bash()
-    assert "mkdir -p /Users/me/dev/projects/vergil-project" in cmd
-    assert "ln -sfn /vergil/projects/vergil-project/vergil-tooling /Users/me/dev/projects/vergil-project/vergil-tooling" in cmd
+    # transport.run("bash", "-c", <script>) — the script is the last positional arg
+    script = transport.run.call_args.args[-1]
+    assert "mkdir -p /Users/me/dev/projects/vergil-project" in script
+    assert "ln -sfn /vergil/projects/vergil-project/vergil-tooling /Users/me/dev/projects/vergil-project/vergil-tooling" in script
 ```
 
 - [ ] **Step 2: Run** → FAIL (no `ensure_host_path`).
@@ -170,7 +173,7 @@ def test_ensure_host_path_symlinks_onto_volume(fake_transport):
 
 ---
 
-### Task 4: Memory projection sync (`vm_memory.py`) — session refresh + build seed
+### Task 4: Memory projection sync (`vm_memory.py`) — per cloud-session refresh
 
 **Files:**
 - Create: `src/vergil_tooling/lib/vm_memory.py`
@@ -181,7 +184,7 @@ def test_ensure_host_path_symlinks_onto_volume(fake_transport):
 - Produces:
   - `def host_slug(host_workdir: str) -> str` — the Claude memory slug for an absolute path (leading `-`, `/`→`-`), matching how Claude derives `~/.claude/projects/<slug>`.
   - `def host_memory_dir(claude_dir: Path, slug: str) -> Path` — `claude_dir/"projects"/slug/"memory"`.
-  - `def project_memory(transport, *, claude_dir: Path, host_workdir: str) -> None` — rsync the per-repo `memory/`+`MEMORY.md` and the global `CLAUDE.md` from host to guest at the matching slug, over the transport. Read-only is applied by Task 5's `lock_projection`, called at the end here.
+  - `def project_memory(transport, *, claude_dir: Path, host_workdir: str) -> None` — copy the per-repo `memory/`+`MEMORY.md` and the global `CLAUDE.md` from host to guest at the matching slug, file-by-file over `transport.pipe` (the `copy_claude_config` idiom). Read-only is applied by Task 5's `lock_projection`, called at the end here.
 - Consumes: `ensure_host_path`'s returned `host_workdir` (Task 3); `Path.home()/".claude"`.
 
 **Why:** net-new logic — nothing copies the per-repo `memory/` today. Refresh is per cloud-session (spec §Component 3).
@@ -207,23 +210,26 @@ def test_host_memory_dir():
 - [ ] **Step 5: Write failing test for `project_memory` command shape.**
 
 ```python
-def test_project_memory_rsyncs_memory_and_claude_md(fake_transport, tmp_path, monkeypatch):
+def test_project_memory_copies_memory_and_claude_md(tmp_path):
+    transport = MagicMock()
     claude = tmp_path / ".claude"
     (claude / "projects/-Users-me-dev-projects-org-repo/memory").mkdir(parents=True)
+    (claude / "projects/-Users-me-dev-projects-org-repo/memory/MEMORY.md").write_text("m")
     (claude / "CLAUDE.md").write_text("global")
-    vm_memory.project_memory(fake_transport, claude_dir=claude, host_workdir="/Users/me/dev/projects/org/repo")
-    ops = fake_transport.ops()
-    assert any("rsync" in o and "/memory" in o for o in ops)
-    assert any("CLAUDE.md" in o for o in ops)
+    vm_memory.project_memory(transport, claude_dir=claude, host_workdir="/Users/me/dev/projects/org/repo")
+    # copy_claude_config idiom: transport.pipe("cat > <dest>", content)
+    piped = [c.args[0] for c in transport.pipe.call_args_list]
+    assert any("cat > " in cmd and "/memory/" in cmd for cmd in piped)
+    assert any("cat > " in cmd and "CLAUDE.md" in cmd for cmd in piped)
 ```
 
 - [ ] **Step 6: Run** → FAIL.
-- [ ] **Step 7: Implement `project_memory`** — resolve slug from `host_workdir`, `rsync` the host memory dir → guest `~/.claude/projects/<slug>/memory/` (guest path is volume-linked) and the global `CLAUDE.md` → guest `~/.claude/CLAUDE.md`, over the transport (write to a temp then move, chmod +w before overwrite as needed), then call `lock_projection` (Task 5). If the host memory dir is absent, `rsync` an empty set (no error — a repo may have no memory yet) but still create the slug dir.
+- [ ] **Step 7: Implement `project_memory`** — resolve slug from `host_workdir`; `transport.run("mkdir", "-p", <guest memory dir>)`; then for each file under the host `memory/` dir (including `MEMORY.md`) and the global `CLAUDE.md`, `transport.pipe(f"chmod u+w <dest> 2>/dev/null; cat > <dest>", content)` to the matching guest path under `~/.claude/projects/<slug>/memory/` and `~/.claude/CLAUDE.md` (guest paths are volume-linked) — the `chmod u+w` clears a prior read-only lock before overwrite. Memory files are text, so the `cat >` idiom applies directly. Then call `lock_projection` (Task 5). If the host memory dir is absent, create the slug dir and skip the memory copy (no error — a repo may have no memory yet).
 - [ ] **Step 8: Run** → PASS.
 - [ ] **Step 9: Wire into `_cloud_session`** — after `ensure_host_path`, call `vm_memory.project_memory(transport, claude_dir=claude_dir, host_workdir=host_workdir)` before `exec_session`. Add a wiring test.
 - [ ] **Step 10: Run** → PASS.
 - [ ] **Step 11: `vrg-container-run -- vrg-validate`** → PASS.
-- [ ] **Step 12: Commit.** `vrg-commit --type feat --scope vm-memory --message "project host memory into cloud session at matching slug (per-session rsync)"`
+- [ ] **Step 12: Commit.** `vrg-commit --type feat --scope vm-memory --message "project host memory into cloud session at matching slug (per-session pipe copy)"`
 
 ---
 
@@ -240,21 +246,22 @@ def test_project_memory_rsyncs_memory_and_claude_md(fake_transport, tmp_path, mo
 - [ ] **Step 1: Write failing test — surgical scope.**
 
 ```python
-def test_lock_projection_locks_memory_not_transcripts(fake_transport):
-    vm_memory.lock_projection(fake_transport, claude_dir_guest="$HOME/.claude",
+def test_lock_projection_locks_memory_not_transcripts():
+    transport = MagicMock()
+    vm_memory.lock_projection(transport, claude_dir_guest="$HOME/.claude",
                               slug="-Users-me-dev-projects-org-repo",
                               locked_set=["$HOME/.claude/CLAUDE.md"])
-    cmd = fake_transport.last_bash()
-    assert "chmod -R a-w \"$HOME/.claude/projects/-Users-me-dev-projects-org-repo/memory\"" in cmd
-    assert "chmod a-w \"$HOME/.claude/CLAUDE.md\"" in cmd
+    script = transport.run.call_args.args[-1]
+    assert "chmod -R a-w \"$HOME/.claude/projects/-Users-me-dev-projects-org-repo/memory\"" in script
+    assert "chmod a-w \"$HOME/.claude/CLAUDE.md\"" in script
     # never a blanket chmod of the projects/<slug> dir itself
-    assert "projects/-Users-me-dev-projects-org-repo\"" not in cmd.replace("/memory", "")
+    assert "projects/-Users-me-dev-projects-org-repo\"" not in script.replace("/memory", "")
 ```
 
 - [ ] **Step 2: Run** → FAIL.
 - [ ] **Step 3: Implement `lock_projection`** — a single `bash -c` that chmods exactly the memory subtree, `MEMORY.md`, `CLAUDE.md`, and audited extras read-only; guarded with `[ -e ]` tests so a missing optional file is a no-op, not an error.
 - [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Call `lock_projection` from `project_memory`** (end of Task 4's function) with the audited `locked_set`. Update `test_project_memory_*` to assert a lock op follows the rsync.
+- [ ] **Step 5: Call `lock_projection` from `project_memory`** (end of Task 4's function) with the audited `locked_set`. Update `test_project_memory_*` to assert a lock op follows the pipe copy.
 - [ ] **Step 6: Run** → PASS.
 - [ ] **Step 7: `vrg-container-run -- vrg-validate`** → PASS.
 - [ ] **Step 8: Commit.** `vrg-commit --type feat --scope vm-memory --message "apply surgical read-only lock to projected memory and CLAUDE.md"`
@@ -276,10 +283,15 @@ def test_lock_projection_locks_memory_not_transcripts(fake_transport):
 - [ ] **Step 1: Write failing test.**
 
 ```python
-def test_verify_projection_raises_when_host_path_missing(fake_transport):
-    fake_transport.fail_on("test -d /Users/me/dev/projects/org/repo")
+import subprocess
+import pytest
+from unittest.mock import MagicMock
+
+def test_verify_projection_raises_when_host_path_missing():
+    transport = MagicMock()
+    transport.run.side_effect = subprocess.CalledProcessError(1, "test")
     with pytest.raises(vm_memory.ProjectionError):
-        vm_memory.verify_projection(fake_transport, host_workdir="/Users/me/dev/projects/org/repo",
+        vm_memory.verify_projection(transport, host_workdir="/Users/me/dev/projects/org/repo",
                                     slug="-Users-me-dev-projects-org-repo")
 ```
 
@@ -330,6 +342,6 @@ def test_verify_projection_raises_when_host_path_missing(fake_transport):
 - Testing §, Validation § → per-task tests + #2406. ✅
 - Data-residency, already-lost-writes → Task 1 Step 4 + docs (Task 7). ✅
 
-**Placeholder scan:** the audit (Task 1) is a deliberate investigation, not a placeholder; the exact `locked_set` and 2b rewrites are its typed outputs consumed by Tasks 4–5. Build-time seed is noted as reusing the same `vm_memory` entry points on the cloud build path.
+**Placeholder scan:** the audit (Task 1) is a deliberate investigation, not a placeholder; the exact `locked_set` and 2b rewrites are its typed outputs consumed by Tasks 4–5. The projection has a single hook — cloud-session start — and the first session on a fresh box performs the initial projection (no separate build-seed path). Files are moved via the `transport.pipe` (`cat >`) idiom; there is no `rsync` over the transport.
 
 **Type consistency:** `host_workdir` (str) flows Task 3 → Task 4 → Task 6; `slug` (str) from `host_slug` used in Tasks 4/5/6; `locked_set` (Sequence[str]) from Task 1 into `lock_projection`; `Platform`/`is_cloud` from Task 2 consumed by the Task-7 clause condition and any gate. Names consistent across tasks.
