@@ -45,7 +45,7 @@ Each task below is scoped to become a single GitHub implementation task filed un
 **Interfaces:**
 - Produces:
   - `@dataclass(frozen=True) AuxCheck(name: str, probe: list[str], remediation: list[str] | None)`
-  - `@dataclass(frozen=True) HostPin(constraint: str, inducing_release: str, deterministic: bool, reason: str, state: str, tracking_issue: str | None)`
+  - `@dataclass(frozen=True) HostPin(constraint: str, inducing_release: str, deterministic: bool, reason: str, state: str, tracking_issue: str | None, pinned_date: str)` — `pinned_date` (ISO `YYYY-MM-DD`) is the one deliberate host extension to #155's schema, so `status` can render pin age (spec §5, §9).
   - `@dataclass(frozen=True) HostDependency(name: str, why: str, method: str, upgrade: str, latest: str, probes: dict[str, list[str]], checks: tuple[AuxCheck, ...], pin: HostPin | None)` where `upgrade ∈ {"auto","manual"}`, `latest ∈ {"probe","unmanaged"}`, `method ∈ {"brew-formula","brew-cask","uv-tool","custom"}`.
   - `load_manifest() -> tuple[HostDependency, ...]`
   - `ManifestError(Exception)`
@@ -69,6 +69,26 @@ def test_unknown_method_raises(tmp_path, monkeypatch):
     import pytest
     with pytest.raises(host_deps.ManifestError, match="unknown method"):
         host_deps.load_manifest()
+
+def test_manifest_read_only_from_package_not_cwd(tmp_path, monkeypatch):
+    """Security invariant (spec §10): the manifest is never repo/CWD-overridable.
+
+    Plant a hostile manifest in the CWD; loading must ignore it entirely and
+    still read the packaged data. This test is the regression tripwire — if a
+    future change adds a repo-override path, it breaks and forces the security
+    decision back into the open.
+    """
+    (tmp_path / "host_dependencies.toml").write_text(
+        '[[dependency]]\nname="evil"\nwhy="x"\nmethod="custom"\n'
+    )
+    monkeypatch.chdir(tmp_path)
+    names = {d.name for d in host_deps.load_manifest()}
+    assert "evil" not in names            # CWD file ignored
+    assert "uv" in names                  # packaged manifest still used
+    # And the resolved source is inside the package, never a loose path:
+    from importlib import resources
+    ref = resources.files("vergil_tooling.data").joinpath("host_dependencies.toml")
+    assert "vergil_tooling/data" in str(ref)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -112,6 +132,7 @@ class HostPin:
     reason: str
     state: str
     tracking_issue: str | None
+    pinned_date: str  # ISO YYYY-MM-DD; host extension to #155 for age rendering
 
 
 @dataclass(frozen=True)
@@ -144,6 +165,7 @@ def _parse_pin(raw: dict) -> HostPin:
         reason=raw["reason"],
         state=state,
         tracking_issue=raw.get("tracking_issue"),
+        pinned_date=raw["pinned_date"],
     )
 
 
@@ -668,7 +690,7 @@ def test_reevaluation_due_when_leading_past_inducing():
 
 - [ ] **Step 2: Run to verify it fails.** → FAIL (module missing).
 
-- [ ] **Step 3: Implement** `host_pins.make_pin` (raises `ValueError` on empty reason — the justification gate), `write_pin`/`clear_pin` (load TOML, splice the `[dependency.pin]` table for the named dep, write back), `is_reevaluation_due`. Wire `pin`/`unpin` subcommands (`pin` requires `--reason`; argparse enforces, and `make_pin` re-checks). Extend `render` to show active pins as debt lines and mark re-evaluation-due pins loudly.
+- [ ] **Step 3: Implement** `host_pins.make_pin` (raises `ValueError` on empty reason — the justification gate; **stamps `pinned_date`** with today's date in ISO `YYYY-MM-DD`), `write_pin`/`clear_pin` (load TOML, splice the `[dependency.pin]` table for the named dep, write back), `is_reevaluation_due`. Wire `pin`/`unpin` subcommands (`pin` requires `--reason`; argparse enforces, and `make_pin` re-checks). Extend `render` to show active pins as debt lines — including **age** derived from `pinned_date` — and mark re-evaluation-due pins loudly.
 
 - [ ] **Step 4: Run to verify it passes.** → PASS. Add a round-trip test: `write_pin` then `load_manifest` returns the pin; `clear_pin` removes it.
 
@@ -687,10 +709,10 @@ vrg-commit --type feat --scope host --message "add vrg-host pin/unpin with #155 
 - Modify: `src/vergil_tooling/lib/host_methods.py` (real brew/uv/gcloud output parsers + fixtures)
 - Test: `tests/vergil_tooling/test_host_methods.py` (parser tests against recorded fixtures)
 
-This is the investigative task. For each candidate host tool, determine and record in the manifest: Virgil-critical (in/out per spec §4)? `method`? `auto`/`manual`? `latest = probe` or `unmanaged`? which `check`s? The working set: gcloud (done T4), Docker (engine/Desktop — `manual`, note the OSS-runtime opportunity per spec §4), Lima, uv, gh, shellcheck, hadolint, yamllint, actionlint, the `vrg-*` tools, and macOS itself (`manual`, `latest = probe` via `softwareupdate -l` parsing, no upgrade). Harden the T2 handler parsers against **recorded real output fixtures** for each `method` (a captured `brew info --json=v2`, `uv tool list`, `gcloud components list`), so version extraction is tested without a live host.
+This is the investigative task. For each candidate host tool, determine and record in the manifest: Virgil-critical (in/out per spec §4)? `method`? `auto`/`manual`? `latest = probe` or `unmanaged`? which `check`s? The working set: gcloud (done T4), Docker (engine/Desktop — `manual`, note the OSS-runtime opportunity per spec §4), Lima, uv, gh, shellcheck, hadolint, yamllint, actionlint, the `vrg-*` tools, and macOS itself (`manual`, `latest = probe` via `softwareupdate -l` parsing, no upgrade). Harden the T2 handler parsers against **recorded real output fixtures** for each `method` (a captured `brew info --json=v2`, `uv tool list`, `gcloud components list`), so version extraction is tested without a live host. Each handler must **normalize** installed and latest to a bare, comparable version (spec §8): a fixture test must prove `"gh version 2.40.0"` and `"2.40.0"` compare **equal** (no false `behind`), and that an install *newer* than latest classifies `current`, not `behind`. Replace the T3 `_behind` "differs" stand-in with the normalized comparator per method; "differs" remains only the fallback when no comparator is registered.
 
 - [ ] **Step 1:** Capture real command output fixtures under `tests/vergil_tooling/fixtures/host/` (one per method).
-- [ ] **Step 2:** Write parser tests asserting the bare installed/latest version is extracted from each fixture.
+- [ ] **Step 2:** Write parser + normalization tests: the bare installed/latest version is extracted from each fixture, `"gh version 2.40.0"` normalizes equal to `"2.40.0"` (no false `behind`), and installed-newer-than-latest classifies `current`.
 - [ ] **Step 3:** Implement the parsers to pass; fill the manifest entry per enumerated tool.
 - [ ] **Step 4:** Run the full host test suite: `uv run pytest tests/vergil_tooling/test_host_*.py -v` → PASS.
 - [ ] **Step 5:** Commit: `vrg-commit --type feat --scope host --message "enumerate and curate the host-dependency manifest"`.

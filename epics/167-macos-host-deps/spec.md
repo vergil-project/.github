@@ -116,7 +116,10 @@ technical debt, applied to host tools. Restated for reference (canonical text in
 Pin **states** (`active` / `under-evaluation` / `freed`) and the **re-evaluation
 algorithm** (deterministic pin → re-test then free-or-re-anchor; non-deterministic
 pin → suppress-and-observe under a tracking issue) are inherited verbatim from
-#155 §4. Host-specific mechanics are in §9.
+#155 §4. Host-specific mechanics are in §9. The **one deliberate extension** to
+#155's schema is a `pinned_date` field (§9), added so `status` can render how long
+a pin has stood; the core fields and semantics remain #155's, and #155 may adopt
+the same field for parity.
 
 ## 6. The tool: `vrg-host`
 
@@ -212,23 +215,36 @@ check's remediation when its `upgrade` capability permits.
 `vrg-host status` classifies each dependency on two axes — its **version state**
 and its **auxiliary-check results** — and reports the worst.
 
+Severity is a **3-level** scale — `OK` (0) / `WARN` (1) / `ERROR` (2) — because
+that is the exit-code contract. "Debt" and "info" are *display* distinctions
+`status` renders (a pinned dep is shown as tracked debt, an unmanaged-latest dep
+as info), not separate severities; they carry `OK` severity for exit purposes.
+
 Version state:
 
-| State | Meaning | Severity |
-|---|---|---|
-| missing | required tool not installed / not on PATH | **ERROR** |
-| current | installed == latest (or == pin constraint) | OK |
-| behind | installed < latest, unpinned | WARN (drift) |
-| pinned | held at a constraint below latest | INFO (tracked debt) |
-| latest-unmanaged | tool has no programmatic latest feed (declared) | INFO |
-| latest-unknown | a latest probe that should work failed this run | WARN |
+| State | Meaning | Severity | Display |
+|---|---|---|---|
+| missing | required tool not installed / not on PATH | **ERROR** | — |
+| current | installed == latest (or == pin constraint) | OK | — |
+| behind | installed behind latest, unpinned | WARN | drift |
+| pinned | held at a constraint below latest | OK | tracked debt |
+| latest-unmanaged | tool has no programmatic latest feed (declared) | OK | info |
+| latest-unknown | a latest probe that should work failed this run | WARN | — |
+
+**Version comparison.** `behind` means installed is *older* than latest, not
+merely different: each method handler must **normalize** its installed/latest
+strings to a bare comparable version before classification (so
+`"gh version 2.40.0"` and `"2.40.0"` compare equal), and an install *newer* than
+latest (a pre-release/HEAD) classifies as `current`, not `behind`. Where no
+comparator is registered, "differs" is the fallback (§7.3, and the plan's
+enumeration task).
 
 Auxiliary-check result: each declared check (§7.4) is **satisfied** (OK) or
 **unsatisfied** (**ERROR** — present but misconfigured).
 
 - **Explicit degradation, honestly labeled.** A transient probe failure yields
   `latest-unknown` (WARN); a tool that structurally cannot report latest is
-  `latest-unmanaged` (INFO) — never conflated, so WARN stays rare and actionable
+  `latest-unmanaged` (OK, shown as info) — never conflated, so WARN stays rare and actionable
   and chronic cases don't erode trust. Neither is ever silently treated as
   `current`.
 - **Exit code = worst severity across both axes:** `0` all-OK, `1` warnings
@@ -240,9 +256,11 @@ Auxiliary-check result: each declared check (§7.4) is **satisfied** (OK) or
 
 - **Storage.** A pinned dependency carries a pin block in the manifest with the
   #155 schema: `constraint`, `inducing_release`, `deterministic` (bool), `reason`,
-  `state`, `tracking_issue`. The manifest is the host analog of #155's `pins.yml`;
-  keeping pins beside their descriptor (rather than in a separate file) is a
-  host-side simplification, but the **fields and their semantics are #155's**.
+  `state`, `tracking_issue`, plus the one host extension `pinned_date` (set at
+  `vrg-host pin` time, so `status` can render pin age — see §5). The manifest is
+  the host analog of #155's `pins.yml`; keeping pins beside their descriptor
+  (rather than in a separate file) is a host-side simplification, but the **core
+  fields and their semantics are #155's**.
 - **A pin is a real hold.** `vrg-host upgrade` treats an unpinned dependency's
   target as *latest* and a pinned dependency's target as *the constraint*; it will
   not cross the constraint without `unpin` or an explicit override.
