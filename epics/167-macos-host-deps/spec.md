@@ -69,7 +69,8 @@ health, upgrade what can be upgraded, and pin-as-debt.
 - **Migrating the container runtime off Docker Desktop** — a headless/OSS runtime
   (Colima, podman, docker-engine over Lima) would make Docker `auto`-upgradeable
   and drop the macOS GUI dependency (§4), but that is a separate dev-environment
-  decision, not this epic's work. Noted as an opportunity, filed separately.
+  decision, not this epic's work. It is a designated topic for this epic's closing
+  follow-on brainstorm (#169, §12).
 - **Managing personal, non-Virgil tools** (e.g. Superwhisper) — out of scope by
   definition (§4).
 - **Report-only upstream-security alerting (Dependabot-equivalent)** — as in
@@ -91,8 +92,8 @@ health, upgrade what can be upgraded, and pin-as-debt.
 is an artifact of the Docker Desktop choice, not of Docker: migrating to a
 headless/OSS runtime (Colima / podman / docker-engine over the Lima we already
 run) would remove the GUI dependency and let Docker become `auto`. That migration
-is out of scope here (§3) and filed as a separate opportunity; the manifest
-records Docker's reality as it is today.
+is out of scope here (§3) and is a designated topic for the closing follow-on
+brainstorm (#169); the manifest records Docker's reality as it is today.
 
 ## 5. Pinning philosophy — inherited from #155
 
@@ -292,7 +293,9 @@ problem larger than this audit (for code-resident recurring tasks a GitHub Actio
 would suffice; the host cannot use one). The closing follow-on-brainstorm bookend
 (#169) reviews what shipped and brainstorms the macOS / human-environment
 scheduling problem into the next epic. This epic ships the tool; you run it
-manually until that epic delivers the reminder.
+manually until that epic delivers the reminder. That same closing brainstorm
+(#169) also takes up the Docker Desktop → headless/OSS-runtime migration (§4) as a
+candidate follow-on epic.
 
 ## 13. Disposition of existing issues
 
@@ -311,7 +314,8 @@ manually until that epic delivers the reminder.
 Per the epic-create convention, this epic carries:
 
 - **#168** (docs) — this spec + the plan; published into `.github`.
-- **#169** (follow-on brainstorm) — the §12 scheduling problem → next epic.
+- **#169** (follow-on brainstorm) — the §12 scheduling problem **and** the Docker
+  Desktop → headless/OSS-runtime migration (§4) → next epic(s).
 - **vergil-tooling#2450** (documentation review) — final gate; a multi-repo sweep
   ensuring `vrg-host` and the host-pinning workflow are reflected in the human
   docs (especially the versioned site docs), spawning per-repo doc tasks as
