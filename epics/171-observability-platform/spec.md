@@ -78,9 +78,11 @@ These were settled during the brainstorm and frame everything below.
 Value-first sequence; each brick after this epic is its own follow-on epic.
 
 1. **Brick 1 — state-map foundation (this epic).** The fleet-state JSON
-   contract + a collector that correlates sessions ↔ worktrees ↔ GitHub epics
-   across the Mac and enumerable VMs + the `vrg-fleet` CLI as its first
-   renderer.
+   contract + a collector that correlates sessions ↔ worktrees ↔ GitHub epics +
+   the `vrg-fleet` CLI as its first renderer. **MVP hosts are the Mac and local
+   Lima VMs** (both readable without a network transport); **cloud-VM
+   collection is a droppable later phase that rides the relay pattern** (see
+   §"The collector" and the phased path), not a hard dependency of the brick.
 2. **Brick 2 — per-VM metrics layer.** Generalize the forge #1661
    Prometheus/Grafana pattern from "the forge" to *any* lab/service VM
    (node/cadvisor + domain metrics). Answers "how busy/idle is each VM."
@@ -151,7 +153,19 @@ The join that turns raw facts into the map:
    with first-seen positions); it is the seed for the future archival /
    "Mem-Palace" layer and must not be discarded.
 
-3. **Never lie; never silently swallow.** Per repo policy, a host that cannot be
+3. **Host attribution for shared-home sessions is resolved positively or marked
+   ambiguous — never guessed.** A local Lima VM can share `~/.claude` *and*
+   identical `cwd` paths (`/Users/pmoore/…`) with the Mac, so a session read
+   from the Mac's `~/.claude` may actually have run *inside the VM*. `uuid`
+   de-duplication stops double-counting, but "which host" is undecidable from
+   the shared file alone. The collector resolves `host` from a **positive VM
+   signal** (a marker the VM writes into its session/environment, or the
+   platform axis recorded in the session) and, absent one, sets
+   `host: "ambiguous"` rather
+   than attributing to the Mac by default. This is a named correctness
+   constraint on par with the tail-read.
+
+4. **Never lie; never silently swallow.** Per repo policy, a host that cannot be
    reached, a file that cannot be parsed, or a GitHub query that fails is
    surfaced as an **explicit error/unknown state in the contract and the
    render** — never omitted, never rendered as "nothing here." A silently
@@ -233,7 +247,8 @@ Design commitments for the contract:
   guess. Ambiguity is data, not something to paper over.
 - **Host-tagged throughout**, so the same contract describes the Mac and every
   VM uniformly — the mechanism that lets a VM (local or cloud) slot in without a
-  schema change.
+  schema change. A session's `host` is a host `id` **or the sentinel
+  `"ambiguous"`** (constraint 3) — never a defaulted guess.
 - **Additive-extensible** for later planes: bricks 2–4 add top-level keys
   (e.g. `metrics`, `activity`) rather than reshaping these.
 
@@ -245,18 +260,34 @@ never know or care whether a host is the Mac or a VM.
 
 - **Mac (local).** Read `~/.claude/projects` directly; enumerate `.worktrees`
   under the known `dev/projects/<org>/<repo>` tree; read git state locally.
-- **VMs (local Lima and cloud).** Enumerate the VM fleet (`limactl list` for
-  Lima; the cloud-VM registry for the rest). Reach each VM's data — its
-  `~/.claude`/`/vergil` volume — over `limactl shell` / SSH, running the *same*
-  collector logic remotely (or reading the same files over the transport). A VM
-  that is stopped or unreachable is a **reachable:false host with an error**,
-  never a silent omission. *(Note: a local Lima VM whose home is shared with the
-  Mac may surface its sessions via the Mac's `~/.claude` already — the collector
-  must de-duplicate by session `uuid` across hosts to avoid double-counting.)*
-- **GitHub.** Pull open epics and their tasks/PRs/CI per org `.github` (and
-  self-homed private repos) via `vrg-gh`. This is what lets the map show
-  epics that are *active in GitHub but idle locally*, and flag *local branches
-  with no epic*.
+  Enumeration is bounded to `.worktrees/` and does **not** descend into `.git/`,
+  build, or validation-output directories.
+- **Local Lima VMs (MVP).** Enumerate via `limactl list`; read each VM's data
+  over `limactl shell`, running the *same* collector logic. A local VM whose
+  home is shared with the Mac already surfaces via the Mac's `~/.claude`; the
+  collector **de-duplicates by session `uuid`** and applies the host-attribution
+  rule (constraint 3) so a shared session is counted once and attributed
+  correctly or marked `ambiguous`.
+- **Cloud VMs (droppable later phase — rides the relay, not live SSH).** A cloud
+  VM is frequently **stopped** exactly when the map is needed (e.g. post-reboot,
+  to save cost), so live SSH is the wrong primary transport. Instead, cloud
+  fleet-state is delivered **cloud→Mac over a relay ref**, reusing the
+  **GitHubTransport pattern epic #148 already shipped** — the state rides GitHub
+  and is readable with the VM powered off. Live SSH collection, if added, is a
+  secondary path for a running VM. This phase is **cut-able from brick 1**
+  without losing the Mac+Lima value.
+- **GitHub — and the fallback source of truth.** Pull open epics and their
+  tasks/PRs/CI per org `.github` (and self-homed private repos) via `vrg-gh`.
+  This shows epics *active in GitHub but idle locally*, flags *local branches
+  with no epic*, and — critically — is the **fallback truth for any unreachable
+  host**: an off VM's *pushed* branches/PRs still appear via GitHub even when
+  its local session/worktree data cannot be read. Epic resolution
+  (`feature/<N>-slug → issue N → parent epic`) uses a **single batched GraphQL
+  query** resolving many issues→parents at once (not one round-trip per branch)
+  plus a short-TTL cache; with no GitHub reachable, `epic` degrades to `null`
+  shown as *unresolved*, never dropped.
+- Any host that is genuinely unreachable with no relay/GitHub coverage is a
+  **`reachable:false` host with an explicit error**, never a silent omission.
 
 The collector is **read-only** with respect to the environment: it observes,
 never mutates sessions, worktrees, or GitHub.
@@ -338,34 +369,43 @@ Corral:
   live board the corrected prototype produced.
 - **Phase 1 — GitHub correlation.** Join local facts to GitHub epics/tasks/PRs;
   show idle-but-open epics and orphan branches; resolve the `epic` field.
-- **Phase 2 — VM hosts.** Enumerate the VM fleet; collect each VM as a host over
-  `limactl`/SSH; de-duplicate shared-home sessions by `uuid`; render
-  unreachable VMs as faults.
-- **Phase 3 — polish.** Scoping flags, the "live only" reconstruction view,
-  non-zero-exit-on-partial, docs.
+- **Phase 2 — local Lima hosts (completes the MVP).** Enumerate via `limactl
+  list`; collect each local VM over `limactl shell`; de-duplicate shared-home
+  sessions by `uuid` and apply the host-attribution rule (`ambiguous` fallback);
+  render stopped VMs as faults. **This is the MVP ceiling — brick 1 is shippable
+  and valuable here.**
+- **Phase 3 — cloud hosts via relay (droppable).** Deliver cloud fleet-state
+  cloud→Mac over a relay ref (reusing #148's GitHubTransport) so an off VM still
+  appears. Cut this phase if the relay/registry isn't ready without blocking the
+  brick.
+- **Phase 4 — polish.** Scoping flags, the "live only" reconstruction view,
+  the active-recency threshold + default, non-zero-exit-on-partial, docs.
 
 ## Out of scope (this epic)
 
 Bricks 2–4 (per-VM metrics, standing platform, activity ingestion), the GUI
 (#1532), Forgejo migration (#1653/#1521), and the archival/Mem-Palace analysis
-layer. Each is a follow-on epic or its own track. Brick 1 is designed so each
-slots in additively (host abstraction, versioned additive contract, captured
-lineage).
+layer. Each is a follow-on epic or its own track. **If brick 1's cloud phase
+(Phase 3) is cut**, cloud-VM collection becomes a small follow-on task/epic
+riding the same relay — the Mac+Lima MVP still ships. Brick 1 is designed so
+each later piece slots in additively (host abstraction, versioned additive
+contract, captured lineage).
 
 ## Open questions (settle in plan or defer to the named brick)
 
-- **Remote collection mechanism:** run the collector binary *inside* each VM
-  over `limactl shell` (needs the tool present in the VM) vs read the VM's raw
-  files over the transport and correlate on the Mac. Trade-off: tool-presence vs
-  transport chattiness. *Settle in the plan.*
-- **VM fleet enumeration source of truth:** `limactl list` for Lima; what is the
-  authoritative registry for cloud VMs, and is it already enumerable? *Confirm
-  in the plan.*
-- **Shared-home de-duplication:** confirm exactly which local-VM configurations
-  share `~/.claude` with the Mac vs keep it on `/vergil`, so the `uuid`
-  de-dup is correct in every case. *Confirm in the plan.*
-- **Metrics-plane transport (Prometheus-scrape vs OTLP):** *deferred to the
-  brick-2 epic; recorded here so the fork is not forgotten.*
+- **Positive VM signal for host attribution:** what exact marker distinguishes
+  a shared-home session that ran *inside* a local VM from one that ran on the
+  Mac — a file the VM writes, the platform axis in the session records, or
+  something else? Needed to keep constraint 3 from over-marking `ambiguous`.
+  *Settle in the plan.*
+- **Local collector presence in Lima VMs:** running the collector over `limactl
+  shell` assumes the tool is present in the VM image; confirm, or fall back to
+  reading raw files over the transport. *Confirm in the plan.*
+- **Cloud relay producer:** what writes the cloud-VM fleet-state relay ref, and
+  is the cloud-VM registry enumerable on the Mac side? (Rides #148's transport;
+  cloud phase is droppable if not ready.) *Confirm in the plan.*
+- **Metrics-plane transport (Prometheus-scrape vs OTLP-push vs OTel Collector):**
+  *deferred to the brick-2 epic; recorded here so the fork is not forgotten.*
 
 ## Success criteria
 
@@ -378,11 +418,13 @@ lineage).
 3. Each session/worktree shows its resolved epic where unambiguous, `null`
    (never a guess) otherwise; idle-but-open epics and orphan branches are both
    visible and labelled.
-4. VMs appear as first-class hosts; a stopped/unreachable VM renders as an
-   explicit fault, and `vrg-fleet` exits non-zero on a partial snapshot — it
-   never silently omits a host.
+4. **Local Lima VMs appear as first-class hosts (MVP ceiling).** A stopped VM
+   renders as an explicit fault (or, where a relay/GitHub covers it, as
+   idle-with-pushed-work), and `vrg-fleet` exits non-zero on a partial snapshot
+   — it never silently omits a host. Cloud-host collection is a droppable phase.
 5. Sessions shared between a local VM and the Mac are counted once (`uuid`
-   de-dup).
+   de-dup) and attributed by the host-attribution rule — resolved to a host or
+   marked `ambiguous`, never defaulted to the Mac.
 6. Session lineage (the `vergil-user:NN → epic-N` rename point) is captured in
    the contract.
 7. The whole surface is documented in the site docs and passes `vrg-validate`.
