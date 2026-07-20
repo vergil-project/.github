@@ -351,6 +351,8 @@ def read_session_title(path: Path) -> tuple[str | None, list[tuple[str, int]]]:
 **Files:** Modify `render.py`, `github_rollup.py`; Test `test_vrg_fleet.py`
 - [ ] **Step 1:** Failing test: a GitHub rollup with an open epic that has **no** local worktree/session renders as an "idle" row; a local `feature/x` branch with **no** resolvable epic renders under an "orphan / ad-hoc" heading. **Step 2:** fail. **Step 3:** implement. **Step 4:** pass. **Step 5:** commit.
 
+- [ ] **Step 6 (GitHub-as-fallback-truth acceptance — spec finding ③):** Add a failing test asserting the reconstruction promise: given a **host that is down** (a `reachable:false` Host, so its sessions/worktrees are absent) whose branch/PR nonetheless exists in the GitHub rollup, that work still renders as an **"idle — pushed work"** row attributed to the down host, proving an off VM's pushed branches remain visible via GitHub. Assert it appears **and** that `Snapshot.partial` is still `True` (the host itself was not reachable). **Step 7:** run — fail. **Step 8:** implement the join (a down host + a GitHub task/PR on its branch → idle-pushed row). **Step 9:** pass. **Step 10:** commit `feat(fleet): show pushed work for an unreachable host via the GitHub fallback`.
+
 ---
 
 ## Phase 2 — Local Lima hosts = MVP ceiling
@@ -422,6 +424,7 @@ def read_session_title(path: Path) -> tuple[str | None, list[tuple[str, int]]]:
 | Mac collector + tree/`--json` | 5, 6, 7 |
 | Batched GraphQL epic-join + cache + offline degrade | 8, 9 |
 | Idle-but-open epics / orphan branches shown | 10 |
+| GitHub as fallback truth (off host's pushed work visible) | 10 (Steps 6–10) |
 | Host attribution (positive signal else `ambiguous`) | 0 (D1), 11 |
 | `uuid` de-dup | 12 |
 | Local Lima hosts (MVP) | 11–14 |
