@@ -142,9 +142,15 @@ dev tree uses plain `.venv` like every consumer. Remove the dual-venv concept:
 
 - **`CLAUDE.md`** "Environment Setup": collapse the `.venv` vs `.venv-host`
   explanation to a plain `uv sync --group dev` against `.venv`.
-- **`repo_init` `.gitignore` template**: drop the `.venv-host/` line injected into
-  consuming repos; update the corresponding test
+- **`repo_init` `.gitignore` template**: **replace** the `.venv-host/` line with
+  `.venv/` (not just delete it). The baseline template ignored `.venv-host/` but
+  **never `.venv/`**, leaving every consumer's host venv untracked — a latent gap
+  this closes. Update the corresponding test
   (`tests/vergil_tooling/test_repo_init.py`, which asserts `.venv-host/`).
+- **vergil-tooling's own `.gitignore`**: add `.venv/` (currently missing) and
+  `.superpowers/` (throwaway superpowers-skill scratch that has been polluting
+  branches). These belong to the same "protect the host venv / keep throwaway out
+  of git" theme.
 - **validate skip-dirs**: remove `.venv-host` from the skip list
   (`tests/vergil_tooling/test_validate_common.py:422` and its source constant).
 - **docs**: remove the "Why `.venv-host`" rationale from
@@ -229,6 +235,11 @@ operational tasks are filed from the plan so their `Blocked-by` links resolve.
 - **Documentation review** (`vergil-project/vergil-tooling#2477`): the closing
   gate; sweep human-facing docs (especially versioned site docs) and spawn
   per-repo doc tasks.
+- **`.gitignore` management brainstorm** (closing): reevaluate how `.gitignore` is
+  managed across the fleet — whether to centralize/template a baseline that "goes
+  everywhere" and run a fleet sweep to reconcile every repo. Surfaced by this
+  epic's `.venv/`/`.superpowers/` gaps; scoped as its own brainstorm because the
+  systemic answer is bigger than this epic.
 
 ## 8. Out of scope
 
@@ -238,6 +249,12 @@ operational tasks are filed from the plan so their `Blocked-by` links resolve.
   of this epic.
 - **Lima agent-VM setup docs** — a distinct concern from the Python venv.
 - **How consuming repos declare or install vergil-tooling** — unchanged.
+- **Systemic `.gitignore` management across the fleet.** The `.venv/` gap and the
+  `.superpowers/` pollution are symptoms of drifted, per-repo, hand-maintained
+  `.gitignore` files. This epic fixes only the venv-adjacent entries it touches;
+  reevaluating how `.gitignore` is managed org-wide (centralize/template a
+  baseline that "goes everywhere," then a fleet sweep to reconcile every repo) is
+  spun out as a **closing brainstorm task** on this epic (§7.4).
 
 ## 9. Risks and edge cases
 
