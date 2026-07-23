@@ -86,23 +86,23 @@ labels, repo); the "attach" side effect is a separate step.
    (`vrg-issue-create` already requires `--epic`; `vrg-epic-create` makes epics;
    raw `gh` is hook-blocked; `vrg-gh issue create` is denied).
 
-2. **Safety net — a scheduled self-sweep (makes the invariant hold for every
-   other path).** A **scheduled GitHub Action** (`on: schedule`) in **each managed
-   repo** periodically sweeps that repo's own orphans and attaches each via the
-   shared resolver, leaving a comment that it was auto-homed and can be groomed.
-   Auto-heal, never reject. Rationale for the shape:
-   - **Per-repo, self-sweeping** — an Actions `on: issues` trigger only fires for
-     issues in its *own* repo, so a single workflow in `.github` could never see
-     member-repo issues; instead each repo heals itself, which also removes any
-     need for a central "list of managed repos" registry.
+2. **Safety net — extend the existing centralized org-wide sweep (makes the
+   invariant hold for every other path).** The fleet already runs a scheduled
+   reconciliation sweep: `vrg-epic-audit` scans the whole org (it auto-detects the
+   org and reconciles drift across every repo; automated closes are gated by
+   `VRG_EPIC_SWEEP=1`), driven on a schedule by the reusable `ops-epic-sweep`
+   workflow (`vergil-actions`), which mints an **org-wide app token**
+   (`create-github-app-token` with no `repositories` scope) and is called by
+   `.github/workflows/epic-sweep.yml`. We **extend that same sweep to also attach
+   orphans** via the shared resolver, healing them in the pass that already closes
+   drift. Auto-heal, never reject. Rationale:
+   - **Reuse, not rebuild** — the org-wide token + single central workflow already
+     solve "one sweep, all repos," so no per-repo workflow or repo registry is
+     needed. The "a `.github` Action can't see member repos" constraint is moot
+     because the sweep runs org-wide *as the app*, not as a repo-scoped Action.
    - **Scheduled, not event-driven** — the orphan hole is tiny (everything real
      goes through the tooling), so eventually-consistent healing on a schedule is
-     proportionate; there is no external cron infrastructure, only a workflow
-     managed as code.
-   - **Authenticates as the app** — the sweep runs as the same GitHub App
-     installation the tooling uses, because attaching a member-repo issue to its
-     epic in `.github` is a cross-repo write the repo-scoped default
-     `GITHUB_TOKEN` cannot perform.
+     proportionate.
 
 **Sweep domain.** The resolver and the sweep act only on **open** issues that are
 **not** pull requests, **not** labelled `epic`, and **not already** epic-parented.
@@ -118,22 +118,35 @@ refuses an operational-labelled one: `vrg-pr-workflow report-ready` and
 refuse with "groom this into a real task first." This directly answers and closes
 `vergil-project/.github#175`.
 
-Grooming is the sanctioned exit: `triage-review` converts an accepted intake
-issue into a real task — dropping the intake label and re-homing it under a finite
-epic — at which point the PR path accepts it. The refusal gates only *un-groomed*
-intake kinds.
+Grooming is the sanctioned exit: `intake-review` (renamed from `triage-review`
+and generalized to all three intake kinds) converts an accepted intake issue into
+a real task — dropping *whichever* intake label it carries and re-homing it under
+a finite epic — at which point the PR path accepts it. The refusal gates only
+*un-groomed* intake kinds.
+
+### Rename the intake tool family (fix the naming mistake)
+
+The tools that handle intake were named for just one of their three kinds. Rename
+the family to match the concept this epic establishes:
+`triage-review → intake-review`, `triage-capture → intake-capture`,
+`vrg-triage-create → vrg-intake-create`. The three **kind labels**
+(`triage`/`idea`/`research`) are unchanged — `triage` stays a legitimate kind;
+"intake" is the family/queue. `intake-review` is generalized to collect and groom
+all three kinds (both its listing query and its promote-in-place label removal).
+The console-script rename ships with a **one-release deprecated `vrg-triage-create`
+alias** that warns and forwards, so nothing in flight breaks.
 
 ### Migration — the same sweep, run once
 
-The migration is not a separate mechanism: it is the **same sweep command** run
-once for immediacy, after which the scheduled workflow maintains the invariant.
-Run against each managed repo, it enumerates that repo's open orphans (per the
-sweep domain above), attaches each via the shared resolver, is **idempotent and
-re-runnable** (already-parented issues are skipped), reports a per-repo tally, and
-never closes or relabels — it only attaches.
+The migration is not a separate mechanism: it is the **same `vrg-epic-audit`
+orphan-attach**, run once org-wide for immediacy, after which the scheduled
+`ops-epic-sweep` maintains the invariant. It attaches every open orphan (per the
+sweep domain above) via the shared resolver, is **idempotent and re-runnable**
+(already-parented issues are skipped), reports a tally, and never closes or
+relabels — it only attaches.
 
-Because it mutates live GitHub state across many repos, the one-shot run is proven
-by *running* it and recording the outcome, not by a code PR — see the operational
+Because it mutates live GitHub state across the org, the one-shot run is proven by
+*running* it and recording the outcome, not by a code PR — see the operational
 task in the breakdown.
 
 ## Data model — what varies and what does not
@@ -141,8 +154,8 @@ task in the breakdown.
 - **Varies (data-driven / extensible):** the set of intake kinds and their labels;
   the resolver's label→epic mapping; the standing-epic titles/labels. These live
   as constants beside the existing `_ADHOC_EPIC_*` definitions.
-- **Does not vary (the invariant):** every issue has an epic parent. No repo may
-  opt out; there is no "unlinked" terminal state.
+- **Does not vary (the invariant):** every issue is either an epic or has an epic
+  parent. No repo may opt out; there is no "unlinked" terminal state.
 
 ## Testing
 
@@ -150,15 +163,17 @@ task in the breakdown.
   perpetual/never-auto-close classification.
 - Resolver: intake-labelled → intake epic; everything else → ad-hoc; pure and
   deterministic; unknown/multiple labels resolve deterministically.
-- `vrg-triage-create`: new intake issues are born-linked under the intake epic;
+- `vrg-intake-create`: new intake issues are born-linked under the intake epic;
   no unlinked path remains.
 - PR-workability gate: `report-ready`/`vrg-submit-pr` refuse an intake-labelled
   issue with the grooming message; a groomed (re-kinded) issue is accepted.
-- Sweep: enumerates open orphans; excludes epics/PRs/closed/already-parented;
-  attaches via the resolver; idempotent re-run is a no-op; per-repo tally; never
-  closes/relabels.
-- Scheduled workflow: unit-test the resolver and sweep-domain predicate; the
-  workflow itself follows `vergil-actions` test conventions.
+- Orphan-attach in `vrg-epic-audit`: enumerates open orphans org-wide; excludes
+  epics/PRs/closed/already-parented; attaches via the resolver; idempotent re-run
+  is a no-op; never closes/relabels; automated attach gated by `VRG_EPIC_SWEEP`.
+- `ops-epic-sweep` extension: the workflow runs the orphan-attach; follows
+  `vergil-actions` workflow-test conventions (actionlint + a dispatch dry run).
+- Rename: the deprecated `vrg-triage-create` alias warns and forwards;
+  `intake-review` collects and re-kinds all three intake labels.
 
 ## Task breakdown (this epic)
 
@@ -166,26 +181,31 @@ Documentation and closing bookends are already seeded (`#177`, `#178`,
 `vergil-tooling#2474`). Implementation tasks, each filed in the repo where its PR
 lands and linked under this epic:
 
-1. **`lib/epics.py`** — `ensure_intake_epic` + the shared resolver
-   (`vergil-tooling`).
-2. **`vrg-triage-create`** — born-link intake issues under the intake epic
-   (`vergil-tooling`).
-3. **PR-workability gate** — refuse intake-labelled issues in
+1. **`lib/epics.py`** — `ensure_intake_epic`, the shared resolver, and the
+   sweep-domain predicate (open, non-PR, non-epic) (`vergil-tooling`).
+2. **`vrg-intake-create`** — born-link intake issues under the intake epic
+   (`vergil-tooling`; lands after task 7's rename).
+3. **PR-workability gate** — refuse un-groomed intake-labelled issues in
    `report-ready`/`vrg-submit-pr`; closes `#175` (`vergil-tooling`).
-4. **Sweep command** — a `vrg-*` command that sweeps a repo's open orphans and
-   attaches each via the shared resolver; serves both the one-shot migration and
-   the scheduled workflow (`vergil-tooling`).
-5. **Reusable scheduled-sweep workflow** — an `on: schedule` reusable workflow
-   that runs the sweep command authenticated as the app (`vergil-actions`), plus
-   its rollout into each managed repo's `.github/workflows/` via the standard
-   scaffold.
-6. **Operational: run the one-shot sweep** — a run task that executes the sweep
-   across all managed repos once (proven by an `Outcome: SUCCESS` comment with the
-   per-repo tally), blocked-by tasks 1 and 4 and their deployment.
+4. **Extend `vrg-epic-audit`** — add an org-wide orphan-attach pass
+   (`orphan_drift` + attach via the resolver) to the existing audit/sweep, gated
+   by `VRG_EPIC_SWEEP` like its `--close` (`vergil-tooling`).
+5. **Extend `ops-epic-sweep`** — the existing scheduled reusable workflow runs the
+   orphan-attach alongside the drift-close; no new workflow, no per-repo rollout
+   (`vergil-actions`).
+6. **Operational: run the one-shot org-wide sweep** — a `validation` task that
+   runs `vrg-epic-audit` orphan-attach once across the org and confirms no open,
+   non-PR, non-epic, unparented issue remains (proven by an `Outcome: SUCCESS`
+   comment), blocked-by tasks 1 and 4 and their deployment.
+7. **Rename the intake family** — `triage-review → intake-review` (generalized to
+   all three kinds), `triage-capture → intake-capture`,
+   `vrg-triage-create → vrg-intake-create` (with a one-release deprecated alias);
+   update all references and the `vrg-gh` denial message (`vergil-tooling` plus
+   the plugin/skills repo for the skill renames).
 
 ## Follow-ons
 
 - Whether the intake epic should ever *split* per kind if a single bucket grows
   unwieldy (deferred; start with one).
-- Grooming ergonomics: `triage-review` re-homing swept orphans out of the
+- Grooming ergonomics: `intake-review` re-homing swept orphans out of the
   catch-all epics is the ongoing counterpart to this one-shot invariant.

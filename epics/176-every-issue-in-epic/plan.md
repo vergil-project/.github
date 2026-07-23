@@ -14,7 +14,7 @@
 - **100% branch coverage is enforced.** Every new line and branch needs a test; avoid unreachable branches.
 - Git/GitHub only via `vrg-git` / `vrg-gh`; commits via `vrg-commit --type <t> --scope <s> --message <m> [--body <b>]`.
 - One PR per task; each task is filed and lands in the repo named in its heading (placement law). No PR `Closes` an issue across repos.
-- Reuse, don't duplicate: `ensure_adhoc_epic`, `add_child`, `parent_of`, `is_epic`, `_labels`, `resolve_epic_home`, `parse_issue_ref`, `IssueRef`, `github.create_issue`, and the `is_operational` / `_reject_if_operational_task` refusal pattern already exist.
+- Reuse, don't duplicate: `ensure_adhoc_epic`, `add_child`, `parent_of`, `is_epic`, `_labels`, `resolve_epic_home`, `parse_issue_ref`, `IssueRef`, `github.create_issue`, and the `is_operational` / `_reject_if_operational_task` refusal pattern already exist. The **org-wide reconciliation sweep already exists too**: `vrg-epic-audit` (org-scanning; automated writes gated by `VRG_EPIC_SWEEP`) driven by the reusable `ops-epic-sweep` workflow with an org-wide app token — extend these, do not build a parallel sweep.
 
 ---
 
@@ -184,10 +184,12 @@ vrg-commit --type feat --scope epics --message "add intake standing epic, orphan
 
 ---
 
-### Task 2: `vrg-triage-create` born-links intake issues [`vergil-tooling`]
+### Task 2: `vrg-intake-create` born-links intake issues [`vergil-tooling`]
+
+> Sequencing: Task 7 renames the module to `vrg_intake_create.py` first; this born-link edit applies there (the logic is filename-agnostic).
 
 **Files:**
-- Modify: `src/vergil_tooling/bin/vrg_triage_create.py`
+- Modify: `src/vergil_tooling/bin/vrg_intake_create.py` (post-Task-7 name)
 - Test: `tests/vergil_tooling/test_vrg_triage_create.py`
 
 **Interfaces:**
@@ -330,139 +332,147 @@ vrg-commit --type feat --scope pr --message "refuse PRs against un-groomed intak
 
 ---
 
-### Task 4: `vrg-epic-sweep` — the orphan sweep command [`vergil-tooling`]
+### Task 4: Extend `vrg-epic-audit` with an org-wide orphan-attach [`vergil-tooling`]
 
 **Files:**
-- Create: `src/vergil_tooling/bin/vrg_epic_sweep.py`
-- Modify: `pyproject.toml` (register the `vrg-epic-sweep` console script)
-- Test: `tests/vergil_tooling/test_vrg_epic_sweep.py`
+- Modify: `src/vergil_tooling/lib/epic_audit.py` (add `orphan_drift(org)` + `attach_orphans(...)`)
+- Modify: `src/vergil_tooling/bin/vrg_epic_audit.py` (run the orphan-attach in the sweep, gated by `VRG_EPIC_SWEEP`)
+- Test: `tests/vergil_tooling/test_epic_audit.py`, `tests/vergil_tooling/test_vrg_epic_audit.py`
+
+**Rationale (reuse, not rebuild):** `vrg-epic-audit` already scans the whole org (`task_drift(since, org=org)`, `epic_drift(org, home=home)`, `close_drift(...)`) and already carries the automated-write authorization `VRG_EPIC_SWEEP` that `ops-epic-sweep` sets. Folding orphan-attach here means the existing scheduled sweep heals orphans in the same pass it closes drift — no new command, no new workflow.
 
 **Interfaces:**
-- Consumes: `epics.is_sweepable`, `epics.parent_of`, `epics.resolve_orphan_epic`, `epics.add_child`, `epics.IssueRef`, `github.read_json`.
-- Produces: `main(argv) -> int`; `--repo owner/name` (required, repeatable) sweeps each named repo; prints a per-repo tally; idempotent.
+- Consumes: the existing org-issue listing the audit uses, `epics.is_sweepable`, `epics.parent_of`, `epics.resolve_orphan_epic`, `epics.add_child`, `epics.IssueRef`.
+- Produces: `epic_audit.orphan_drift(org: str) -> list[IssueRef]` (open, non-PR, non-epic, unparented issues org-wide); `epic_audit.attach_orphans(orphans: list[IssueRef]) -> int` (attaches each via the resolver, returns count).
 
-- [ ] **Step 1: Failing test — sweeps open orphans, skips already-parented, attaches via resolver**
+- [ ] **Step 1: Failing test — `orphan_drift` returns only sweepable, unparented issues**
 
 ```python
-# tests/vergil_tooling/test_vrg_epic_sweep.py
-from unittest.mock import patch
-from vergil_tooling.bin import vrg_epic_sweep as sweep
+# tests/vergil_tooling/test_epic_audit.py
+from vergil_tooling.lib import epic_audit
 from vergil_tooling.lib.epics import IssueRef
 
-def test_sweep_attaches_open_orphans():
+def test_orphan_drift_filters(monkeypatch):
     rows = [
-        {"number": 10, "state": "OPEN", "isPullRequest": False, "labels": []},  # orphan -> attach
-        {"number": 11, "state": "OPEN", "isPullRequest": False, "labels": [{"name": "epic"}]},  # epic -> skip
+        {"number": 10, "state": "OPEN", "isPullRequest": False, "labels": [],
+         "repository": {"nameWithOwner": "o/r"}},
+        {"number": 11, "state": "OPEN", "isPullRequest": False,
+         "labels": [{"name": "epic"}], "repository": {"nameWithOwner": "o/r"}},
     ]
-    def fake_parent(ref):
-        return None if ref.number == 10 else IssueRef("o", ".github", 1)
-    with (
-        patch.object(sweep.github, "read_json", return_value=rows),
-        patch.object(sweep.epics, "parent_of", side_effect=fake_parent),
-        patch.object(sweep.epics, "resolve_orphan_epic",
-                     return_value=IssueRef("o", ".github", 99)),
-        patch.object(sweep.epics, "add_child") as add_child,
-    ):
-        assert sweep.main(["--repo", "o/r"]) == 0
-    assert add_child.call_count == 1
-    (epic, task), _ = add_child.call_args
-    assert (epic.number, task.number) == (99, 10)
+    monkeypatch.setattr(epic_audit, "_org_open_issues", lambda org: rows)
+    monkeypatch.setattr(epic_audit.epics, "parent_of", lambda ref: None)
+    got = epic_audit.orphan_drift("o")
+    assert [r.number for r in got] == [10]  # epic row excluded by is_sweepable
 ```
 
-- [ ] **Step 2: Run — expect FAIL** (module does not exist).
+- [ ] **Step 2: Run — expect FAIL** (`orphan_drift` undefined).
 
-- [ ] **Step 3: Implement the sweep**
+- [ ] **Step 3: Implement `orphan_drift` + `attach_orphans`**
 
 ```python
-"""Sweep a repo's open orphan issues under their standing epic (issue #176).
-
-Enumerates open, non-PR, non-epic issues with no epic parent and attaches each
-via epics.resolve_orphan_epic. Idempotent and re-runnable; the one-shot migration
-and the scheduled workflow both call it. Never closes or relabels."""
-from __future__ import annotations
-import argparse, sys
-from vergil_tooling.lib import epics, github
-
-def _sweep_repo(repo: str) -> int:
-    rows = github.read_json(
-        "issue", "list", "--repo", repo, "--state", "open", "--limit", "1000",
-        "--json", "number,state,labels,isPullRequest",
-    ) or []
-    attached = 0
-    for row in rows:
+def orphan_drift(org: str) -> list[IssueRef]:
+    """Open, non-PR, non-epic issues org-wide with no epic parent."""
+    out: list[IssueRef] = []
+    for row in _org_open_issues(org):
         if not epics.is_sweepable(row):
             continue
-        owner, bare = repo.split("/", 1)
+        owner, bare = row["repository"]["nameWithOwner"].split("/", 1)
         ref = epics.IssueRef(owner=owner, repo=bare, number=int(row["number"]))
-        if epics.parent_of(ref) is not None:
-            continue
-        epic = epics.resolve_orphan_epic(ref)
-        epics.add_child(epic, ref)
-        print(f"  attached {ref.slug} -> {epic.slug}")
-        attached += 1
-    print(f"{repo}: attached {attached} orphan(s).")
-    return attached
+        if epics.parent_of(ref) is None:
+            out.append(ref)
+    return out
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="vrg-epic-sweep",
-        description="Attach a repo's open orphan issues under their standing epic.")
-    parser.add_argument("--repo", action="append", required=True,
-        help="Target repo owner/name (repeatable)")
-    args = parser.parse_args(argv)
-    for repo in args.repo:
-        _sweep_repo(repo)
-    return 0
-
-if __name__ == "__main__":
-    sys.exit(main())
+def attach_orphans(orphans: list[IssueRef]) -> int:
+    for ref in orphans:
+        epics.add_child(epics.resolve_orphan_epic(ref), ref)
+    return len(orphans)
 ```
 
-Register in `pyproject.toml` `[project.scripts]`: `vrg-epic-sweep = "vergil_tooling.bin.vrg_epic_sweep:main"`.
+(`_org_open_issues(org)` reuses the org-wide `gh issue list --owner <org> --state open --json number,state,labels,isPullRequest,repository` pattern the audit already uses for drift; if no such helper exists yet, extract one so drift and orphan scans share it.)
 
-- [ ] **Step 4: Add tests for idempotent re-run (all rows already parented → 0 attached) and multi-repo tally.** Run focused tests — expect PASS. Then `vrg-container-run -- vrg-validate` → green.
+- [ ] **Step 4: Wire into the sweep.** In `vrg_epic_audit.py` `main`, after `close_drift(...)` runs under the sweep authorization, call `attach_orphans(orphan_drift(org))` and add the count to the Markdown output. In read-only preview (no `VRG_EPIC_SWEEP`, no `--close`), *list* orphans without attaching — mirroring how `--close` previews drift.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Tests** — preview lists but does not attach; authorized sweep attaches; idempotent re-run attaches 0 (all parented). Then `vrg-container-run -- vrg-validate` → green.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-vrg-commit --type feat --scope epics --message "add vrg-epic-sweep orphan sweep command" --body "vrg-epic-sweep attaches a repo's open, non-PR, non-epic, unparented issues under their standing epic via resolve_orphan_epic. Idempotent; drives both the one-shot migration and the scheduled workflow. Ref <TASK-4-ISSUE>."
+vrg-commit --type feat --scope epics --message "attach orphaned issues in the epic-audit sweep" --body "vrg-epic-audit gains an org-wide orphan_drift + attach_orphans pass: open, non-PR, non-epic, unparented issues are attached under their standing epic via resolve_orphan_epic, in the same authorized sweep that closes drift (VRG_EPIC_SWEEP). Preview lists; sweep attaches; idempotent. Ref <TASK-4-ISSUE>."
 ```
 
 ---
 
-### Task 5: Reusable scheduled sweep workflow + rollout [`vergil-actions`]
+### Task 5: Extend `ops-epic-sweep` to run the orphan-attach [`vergil-actions`]
 
-**Files:**
-- Create: `.github/workflows/epic-sweep.yml` (reusable, `on: workflow_call` + a thin `on: schedule` caller pattern per `vergil-actions` conventions)
-- Modify: the standard repo scaffold so each managed repo gains a caller workflow `.github/workflows/epic-sweep.yml` invoking the reusable one on a daily schedule
-- Test: follow `vergil-actions` workflow-test conventions (lint via `actionlint`; a smoke job asserting `vrg-epic-sweep --repo ${{ github.repository }}` runs)
+The existing reusable `ops-epic-sweep.yml` already runs `vrg-epic-audit --close --window-days` with an org-wide app token and `VRG_EPIC_SWEEP=1`. Because Task 4 folds orphan-attach into that same authorized sweep, **the workflow needs no structural change** — the orphan-attach runs whenever the scheduled `vrg-epic-audit` sweep runs. There is **no new workflow and no per-repo rollout**; the sweep is already centralized and org-wide.
 
-**Interfaces:**
-- Consumes: `vrg-epic-sweep` (installed via the standard vergil-tooling install step used by other reusable workflows); the app credentials (same GitHub App installation the tooling uses) provided as workflow secrets, because attaching a member-repo issue to its epic in `.github` is a cross-repo write the default `GITHUB_TOKEN` cannot do.
-- Produces: a scheduled job that runs `vrg-epic-sweep --repo <this-repo>` daily.
+- [ ] **Step 1:** Update the run step's name/comment in `ops-epic-sweep.yml` to "reconcile drift + attach orphans" so the workflow's intent matches its new behavior.
+- [ ] **Step 2:** If Task 4 gates orphan-attach behind its own flag (optional), add that flag to the `vrg-epic-audit` run line; otherwise the YAML change is comment-only.
+- [ ] **Step 3:** `actionlint` clean; a `workflow_dispatch` dry run confirms it attaches a planted orphan and no-ops on a second run.
+- [ ] **Step 4:** Commit in `vergil-actions`.
 
-- [ ] **Step 1:** Author the reusable workflow: check out, install vergil-tooling (reuse the existing install action other `vergil-actions` workflows use), authenticate as the app (mint an installation token — reuse the org's existing app-token action/secret), then run `vrg-epic-sweep --repo "${{ github.repository }}"`.
-- [ ] **Step 2:** Author the per-repo caller (`on: schedule: - cron: "17 6 * * *"` + `on: workflow_dispatch`) that calls the reusable workflow; add it to the scaffold so new repos inherit it.
-- [ ] **Step 3:** `actionlint` clean (via that repo's validation) and a manual `workflow_dispatch` dry run against one repo confirms it attaches (or no-ops) correctly.
-- [ ] **Step 4:** Commit in `vergil-actions`; roll the caller into each managed repo (own small PRs, or the scaffold-sync mechanism).
-
-*(This task's runtime correctness — that the schedule actually heals a planted orphan — is proven by the operational task below, not by unit tests.)*
+*(Runtime correctness — the schedule actually heals a planted orphan — is proven by the operational task below, not by unit tests.)*
 
 ---
 
-### Task 6: Operational — run the one-shot sweep across all managed repos [`vergil-project/.github`, `--kind validation`]
+### Task 6: Operational — run the one-shot org-wide sweep [`vergil-project/.github`, `--kind validation`]
 
 Filed via: `vrg-issue-create --epic vergil-project/.github#176 --repo vergil-project/.github --kind validation --title "Validate: no orphaned issues remain org-wide after the sweep" --blocked-by <TASK-1> --blocked-by <TASK-4> --blocked-by <DEPLOY-TASK>`
 
-- [ ] **Step 1:** Precondition self-check: Tasks 1 and 4 merged and the updated `vergil-tooling` installed/deployed (attest or probe `vrg-epic-sweep --help`).
-- [ ] **Step 2:** Enumerate managed repos across every org; run `vrg-epic-sweep --repo <each>` (one invocation may list many `--repo`).
-- [ ] **Step 3:** Re-run once (idempotence check) and confirm 0 further attachments; confirm no open, non-PR, non-epic, unparented issue remains in any managed repo.
-- [ ] **Step 4:** Record `Outcome: SUCCESS` with the per-repo tally as a comment (closes this operational task; on any failure, record FAILURE and leave open).
+- [ ] **Step 1:** Precondition self-check: Tasks 1 and 4 merged and the updated `vergil-tooling` deployed (probe `vrg-epic-audit --help`).
+- [ ] **Step 2:** Run the org-wide sweep once with the sweep authorization (`VRG_EPIC_SWEEP=1 vrg-epic-audit --close` from inside a repo in each org, or trigger `ops-epic-sweep` via `workflow_dispatch`).
+- [ ] **Step 3:** Re-run (idempotence) → 0 further attachments; confirm no open, non-PR, non-epic, unparented issue remains org-wide.
+- [ ] **Step 4:** Record `Outcome: SUCCESS` with the tally as a comment (closes the task; on failure, record FAILURE and leave open).
+
+---
+
+### Task 7: Rename the intake tool family + generalize `intake-review` [`vergil-tooling` + plugin/skills repo]
+
+**Files:**
+- Rename: `src/vergil_tooling/bin/vrg_triage_create.py → vrg_intake_create.py`; in `pyproject.toml` register `vrg-intake-create` and keep a deprecated `vrg-triage-create` alias entry point for one release
+- Modify: the `vrg-gh` denial message that names `vrg-triage-create`; docs/CLAUDE.md references
+- Rename (plugin/skills repo): `triage-review → intake-review`, `triage-capture → intake-capture` skill dirs + SKILL.md; generalize `intake-review`'s listing query and promote-in-place label removal to all three kinds
+- Test: `tests/vergil_tooling/test_vrg_intake_create.py` (+ alias test)
+
+**Interfaces:**
+- Produces: console scripts `vrg-intake-create` (canonical) and `vrg-triage-create` (deprecated alias → warns on stderr, forwards to `vrg_intake_create.main`).
+
+- [ ] **Step 1: Failing test — the deprecated alias warns and forwards**
+
+```python
+from unittest.mock import patch
+from vergil_tooling.bin import vrg_intake_create as ic
+
+def test_deprecated_alias_warns_and_forwards(capsys):
+    with patch.object(ic, "main", return_value=0) as m:
+        rc = ic.deprecated_triage_create_main(["--title", "x"])
+    assert rc == 0
+    assert "deprecated" in capsys.readouterr().err.lower()
+    m.assert_called_once()
+```
+
+- [ ] **Step 2: Run — expect FAIL.**
+
+- [ ] **Step 3:** Move the module to `vrg_intake_create.py`; add `deprecated_triage_create_main(argv)` that prints a deprecation warning to stderr and returns `main(argv)`. Register both scripts in `pyproject.toml` (`vrg-intake-create = "…vrg_intake_create:main"`, `vrg-triage-create = "…vrg_intake_create:deprecated_triage_create_main"`). Update the `vrg-gh` denial string to name `vrg-intake-create`.
+
+- [ ] **Step 4:** Generalize `intake-review` (its SKILL.md): the listing query unions all three intake labels (`--label triage --label idea --label research`), and the promote-in-place step removes *whichever* intake label the issue carries (`vrg-gh issue edit <N> --remove-label <kind>`). Rename `triage-capture → intake-capture` and `triage-review → intake-review` dirs; update cross-references (CLAUDE.md skill listing, any skill naming them).
+
+- [ ] **Step 5:** Run tests — expect PASS; `vrg-container-run -- vrg-validate` → green.
+
+- [ ] **Step 6: Commit**
+
+```bash
+vrg-commit --type refactor --scope intake --message "rename the triage-* tool family to intake-* and generalize the grooming exit to all three kinds" --body "vrg-triage-create -> vrg-intake-create (one-release deprecated alias), triage-review -> intake-review (generalized to triage/idea/research), triage-capture -> intake-capture. The three kind labels are unchanged. Fixes the naming mistake and makes the grooming exit strip whichever intake label is present. Ref <TASK-7-ISSUE>."
+```
+
+*(Sequencing: Task 7's console-script rename lands before Task 2's born-link edit and Task 3's refusal, so those reference the command by its new name `vrg-intake-create`; Task 4's audit/resolver work is independent of the rename.)*
 
 ---
 
 ## Self-Review
 
-- **Spec coverage:** invariant/precision → Task 1 (`is_sweepable`, epic exclusion) + restated in spec; intake standing epic → Task 1; shared resolver → Task 1; client born-link → Task 2; non-PR-workable intake / closes #175 → Task 3; sweep command → Task 4; scheduled self-sweep authenticated as app → Task 5; one-shot migration → Task 6. All spec sections map to a task.
-- **Placeholders:** none — every code step shows real code grounded in existing signatures (`ensure_adhoc_epic`, `add_child`, `is_operational_task`).
-- **Type consistency:** `IssueRef` used uniformly; `ensure_intake_epic`/`resolve_orphan_epic`/`is_sweepable`/`is_intake_issue` names match across producer (Task 1/3) and consumers (Tasks 2/4). `resolve_orphan_epic` takes an `IssueRef`; `is_intake_issue` takes a `str` ref (str twin), matching the existing `is_operational`/`is_operational_task` split.
+- **Spec coverage:** invariant/precision → Task 1 (`is_sweepable`, epic exclusion) + restated in spec; intake standing epic → Task 1; shared resolver → Task 1; client born-link → Task 2; non-PR-workable intake / closes #175 → Task 3; org-wide orphan sweep → Task 4 (extend `vrg-epic-audit`); scheduled sweep → Task 5 (extend `ops-epic-sweep`); one-shot migration → Task 6; rename family + generalize `intake-review` (grooming exit for all three kinds) → Task 7. All spec sections map to a task.
+- **Reuse check (alignment finding [2]):** Tasks 4/5 extend the existing `vrg-epic-audit` / `ops-epic-sweep` rather than building a parallel command + per-repo workflow; the "per-repo self-sweep" earlier draft is dropped in favor of the existing org-wide-token central sweep.
+- **Placeholders:** none — every code step shows real code grounded in existing signatures (`ensure_adhoc_epic`, `add_child`, `is_operational_task`, `task_drift`/`epic_drift`/`close_drift`).
+- **Type consistency:** `IssueRef` used uniformly; `ensure_intake_epic`/`resolve_orphan_epic`/`is_sweepable`/`is_intake_issue`/`orphan_drift`/`attach_orphans` names match across producer (Tasks 1/3/4) and consumers (Tasks 2/4). `resolve_orphan_epic` takes an `IssueRef`; `is_intake_issue` takes a `str` ref (str twin), matching the existing `is_operational`/`is_operational_task` split.
 - **Coverage note:** each new branch has a paired test; `is_sweepable`'s four exclusion branches are covered by the parametrized Task 1 Step 5 test.
