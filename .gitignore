@@ -23,5 +23,11 @@ Thumbs.db
 # VERGIL tooling working files (PR template handoff, validate logs)
 .vergil/
 
+# Throwaway superpowers-skill scratch (must never reach a branch)
+.superpowers/
+
+# Python venv (host dev tree / ad-hoc uv runs)
+.venv/
+
 # Retired hook mechanism (replaced by .claude/hooks/guard.sh)
 .githooks/
