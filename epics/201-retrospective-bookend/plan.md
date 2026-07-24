@@ -62,8 +62,9 @@ The foundational deliverable. Authoring a single self-contained skill.
   task/PR counts, releases, opened→closed span), §1 How the plan evolved
   (synthesized from `plan.md` Evolution log), §2 Lessons learned, §3 Compromises
   & tradeoffs, §4 New problems & opportunities (+ where each went), §5 What's
-  next, Appendix A Operational notes (optional), Appendix B Extended metrics
-  (optional).
+  next, Appendix A Operational notes (optional — note that a `summarize`
+  operations-mode log may be embedded here as a subset for operationally-heavy
+  epics), Appendix B Extended metrics (optional).
 - [ ] **§0 data sourcing.** §0 facts come from `vrg-epic-audit` (task/PR graph)
   plus `vrg-gh` (PR titles, merge dates, releases). Anything not determinable is
   marked *unknown* — never invented (no-fabrication doctrine).
