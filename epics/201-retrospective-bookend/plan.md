@@ -148,6 +148,24 @@ docs PR closes `#203` and rolls up the epic.
 
 ## Evolution during execution
 
-_Frozen at execution start (first task ships). Append dated entries here for
-meaningful deltas — a task added, dropped, or rescoped, a discovered dependency —
-with the reasoning. Empty at freeze._
+_Frozen at execution start; dated entries record meaningful deltas — a task
+added, dropped, or rescoped, a discovered dependency — with the reasoning._
+
+### 2026-07-25 — epic was not "plugin-contained" (task added)
+
+Filed on the belief that the change was contained in `vergil-claude-plugin`, but
+the documentation-review sweep (#658) found the **authoritative** epic-lifecycle
+standard in `vergil-tooling/docs/site/docs/standards/github-issues.md` (and a
+stale skills-site catalogue in the plugin). Per the placement law, spawned
+**vergil-tooling#2531** to correct the standard in its own repo. Task count 5 → 6.
+
+### 2026-07-26 — three tooling improvements absorbed at the retrospective gate
+
+Drafting the retrospective surfaced three small tooling gaps: a
+`--kind retrospective` scaffold (**#2537**), brittle epic sub-issue enumeration in
+the preflight/audit path (**#2538**), and a missing `vrg-gh release` subcommand
+(**#2539**). Rather than fork them to triage — where small items tend to
+accumulate unfinished — we **absorbed them into this epic** (if it is small
+enough to finish now, finish it now). This reopened the runnable frontier and,
+correctly, **held the terminal retrospective**: the `epic-retrospective` preflight
+will not pass until these close. Task count 6 → 9.
