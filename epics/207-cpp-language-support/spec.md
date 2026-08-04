@@ -190,6 +190,13 @@ Conan package cache** are the implementation levers to keep wall-clock sane.
    capability; the auth/provider details are verified in implementation, not
    asserted here. **Contingency:** if it needs paid infra, fall back to
    **OSV-Scanner** over `conan.lock`.
+   - **Acceptance — the audit must be proven to *detect*, not just to run.** A
+     dependency-audit that passes because there is nothing to find is a silent
+     no-op. Validation (§10, T11) must pin a dependency with a **known CVE**,
+     confirm the audit **fails**, then confirm the clean version **passes**. If
+     the chosen tool cannot demonstrably flag the known-vulnerable pin, that is
+     the objective trigger to switch from `conan audit` to the OSV-Scanner
+     contingency.
 2. **License gating is weaker in C++** than pip/go — Conan carries per-package
    license metadata but enforcement is not as turnkey as `go-licenses`. v1 does a
    **best-effort** check; hardened license gating is on the ledger (§9 #7).
@@ -323,7 +330,9 @@ pulled into this epic before close or pushed to a future epic — never dropped.
   known enabling chain — Swift, and the deferred axes — exists at creation).
 - **Retrospective** (#210, terminal): its docs PR closes the epic.
 - **Operational** (filed at plan time): image **deployment** to GHCR, and a
-  **cold-rebuild validation** (this is an infra/provisioning-shaped epic).
+  **cold-rebuild validation** (this is an infra/provisioning-shaped epic). The
+  validation's acceptance explicitly includes **proving the dependency audit
+  detects a known CVE** (§4 caveat 1), not merely that the pipeline runs green.
 
 ## 11. Open questions (resolved in plan / implementation)
 

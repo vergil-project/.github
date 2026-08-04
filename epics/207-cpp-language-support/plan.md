@@ -156,9 +156,11 @@ The meaty task — the concrete tool commands. Depends on T3 (cardinality) and T
 - [ ] **LINT (`once`).** `clang-format --dry-run --Werror`, `clang-tidy` (over
   `compile_commands.json`), `cppcheck --enable=all --error-exitcode=1`, using the
   packaged `{configs}/cpp/*` configs.
-- [ ] **TYPECHECK (`per-version`).** The warnings-to-11 build
-  (`-Wall -Wextra -Werror -Wpedantic` + the curated extras finalized in T9) under
-  the image's compiler.
+- [ ] **TYPECHECK (`per-version`).** The warnings-to-11 build under the image's
+  compiler. **This task decides and tests the concrete "curated extras" warning
+  set** (`-Wall -Wextra -Werror -Wpedantic` + the extras, per compiler, since the
+  two spell some warnings differently) — the flags live in the registry command
+  where they are used. T9 later *documents* this already-decided set.
 - [ ] **TEST (`per-version`).** `ctest --output-on-failure`; coverage via
   `gcovr --fail-under-line 100` (using `gcov` on GCC, `llvm-cov gcov` on Clang); a
   second `-fsanitize=address,undefined` build+run.
@@ -240,8 +242,10 @@ image; detection works.
 
 - [ ] **Overview.** The CMake + Conan 2 layout, the dual-compiler model, the
   prebuilt-only rule, GoogleTest-on-CTest default.
-- [ ] **Warnings.** Finalize and document the concrete "curated extras" warning
-  set per compiler (spec §3.2) and the no-suppression rule.
+- [ ] **Warnings.** Document the concrete "curated extras" warning set **decided
+  and tested in T5** (spec §3.2) and the no-suppression rule — this task describes
+  the set, it does not choose it (that ownership lives in T5, breaking the former
+  T5↔T9 loop).
 - [ ] **Testing & coverage.** The 100%-per-compiler gate and the **exclusion
   discipline** — what a legitimate `GCOVR_EXCL` looks like vs. abuse (whole-file
   exemptions), and that compiler-specific `#ifdef` blocks are a smell to minimize.
@@ -273,10 +277,17 @@ Operational (not PR-workable). Run with `issue-validate`. The end-to-end proof.
   (T3–T8).
 - [ ] **Sample repo.** Stand up a minimal C++ repo (CMake + `conanfile` + a
   GoogleTest suite) declaring `primary-language = "cpp"` and the four-image
-  `[ci].versions`.
+  `[ci].versions`. This is an **ephemeral validation fixture** (built, exercised,
+  discarded) — not a persistent published deliverable. *(A persistent reference
+  repo, if ever wanted, is a ledger candidate, not v1.)*
 - [ ] **Cold rebuild.** From clean, `vrg-container-run -- vrg-validate` passes
   every stage under **each** compiler×version: warnings-clean build, 100%
   per-compiler coverage, ASan/UBSan clean, `conan audit`, LINT/AUDIT once.
+- [ ] **Prove the audit detects (spec §4 acceptance).** Pin a dependency with a
+  **known CVE**, confirm the AUDIT stage **fails**; revert to the clean version,
+  confirm it **passes**. If `conan audit` cannot flag the known-vulnerable pin,
+  that is the trigger to switch T5's AUDIT to the **OSV-Scanner** contingency (and
+  file the follow-up). Prevents shipping a no-op audit stage.
 - [ ] **CI gates.** Confirm `desired_ci_gates_ruleset` emits the expected
   per-version and once gates and they match the vergil-actions job names.
 - [ ] **Record** `Outcome: SUCCESS` (or FAILURE with detail; stays open on
@@ -290,7 +301,10 @@ Operational (not PR-workable). Run with `issue-validate`. The end-to-end proof.
 ## Closing bookends (already seeded)
 
 - **Documentation-review sweep** — vergil-tooling#2551 (this repo's site docs +
-  spawns per-repo doc siblings, incl. `docs`); runs **before** the retrospective.
+  spawns per-repo doc siblings); runs **before** the retrospective. **The `docs`
+  repo's higher-level summary docs (spec §7) are intentionally *not* a seeded
+  up-front task** — they are handled by a `docs`-repo sibling this sweep spawns,
+  so its PR lands in `docs` and honors the placement law.
 - **Follow-on brainstorm** — .github#209 (adjudicate the spec §9 deferral ledger).
 - **Retrospective** — .github#210 (terminal; its docs PR closes the epic).
 
