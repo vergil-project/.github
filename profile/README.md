@@ -8,8 +8,8 @@
 
 VERGIL is a developer platform for AI-assisted engineering of
 **high-quality, secure, standards-compliant** Linux applications,
-developed on macOS across five supported languages — Python first,
-then Ruby, Rust, Go, and Java. It is deliberately opinionated about
+developed on macOS across six supported languages — Python first,
+then Ruby, Rust, Go, Java, and C++. It is deliberately opinionated about
 its foundation: code lives on **GitHub**, agents run in **Claude
 Code**, and development happens on **macOS**. These three couplings
 are where VERGIL stands today, not where it intends to stay.
@@ -90,7 +90,7 @@ a complex update path.
 
 **[VERGIL-Containers](https://github.com/vergil-project/vergil-docker)**
 *(currently `vergil-docker`; rename in progress)* — the language
-layer. It packages the toolchains for the five supported languages
+layer. It packages the toolchains for the six supported languages
 into container images, so none of it is installed or maintained on
 macOS. The real driver isn't just multiple languages but multiple
 *versions* of each: maintaining that two-dimensional matrix of
