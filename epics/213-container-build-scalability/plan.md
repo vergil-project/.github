@@ -289,25 +289,42 @@ def test_full_matrix_matches_current_16_plus_base():
 
 - [ ] **Step 2: Replace the hand-written `matrix.include`** in `build-scan-push`
   with `needs: [hadolint, setup]` and `strategy.matrix: ${{
-  fromJSON(needs.setup.outputs.matrix) }}`. Fold the standalone `publish-base` job
-  into the matrix (base is now an entry) **or** keep `publish-base` and exclude
-  `base` from `full()` — choose the matrix-fold (deletes duplication); guard the
-  arg step so a null `build-arg` (base) skips `--build-arg`.
+  fromJSON(needs.setup.outputs.matrix) }}`, folding the standalone `publish-base` job
+  into the matrix (deletes duplication). **`base` diverges from the language images
+  and must be special-cased explicitly — a naive fold silently breaks its tag or
+  cache:**
+  - tag: `{prefix}-base:latest` + datestamp (the literal `latest` tag, *not* a
+    coincidence of `version:"latest"`) — languages tag `{prefix}-{lang}:{version}`;
+  - build-arg: **none** — guard the arg step so a null `build-arg` skips
+    `--build-arg` entirely;
+  - cache tag: `cache-latest` for base vs `cache-{version}` for languages — the
+    cache-tag interpolation must resolve to `cache-latest` when `version == latest`.
 
-- [ ] **Step 3: Parity check.** In the PR, confirm the emitted matrix equals the old
-  hand-written include list (attach `build_matrix.py --mode full` output to the PR
-  description; a reviewer diffs it against the deleted block). This is Stage A's
-  behavior-preserving guarantee — **no image name/tag/arch changes.**
+- [ ] **Step 3: Parity check — languages *and* base.** In the PR, confirm the
+  emitted matrix + the resulting **tag and cache-tag set** equals the old hand-written
+  `build-scan-push` include list **and** the deleted `publish-base` job (attach
+  `build_matrix.py --mode full` plus the derived tags to the PR; a reviewer diffs
+  against both deleted blocks). Explicitly assert base still publishes
+  `{prefix}-base:latest` with cache `cache-latest`. This is Stage A's
+  behavior-preserving guarantee — **no image name/tag/cache/arch changes.**
 
 - [ ] **Step 4: Point nightly at the manifest.** `ops.yml` already calls
   `cd-docker-publish.yml`; since that now derives the full matrix, nightly is
   automatically manifest-driven — confirm no `matrix.include` remains anywhere and
   both `dev`/`prod` nightly legs still pass `no-cache: true`.
 
-- [ ] **Step 5: Validate + report-ready.** `vrg-container-run -- vrg-validate`; hand
-  off. (This PR's own CI exercises the new `setup` job on push to the PR's branch is
-  N/A — CD runs on develop; call this out in the PR notes so the human watches the
-  first develop-push after merge.)
+- [ ] **Step 5: Add a `workflow_dispatch` matrix dry-run.** Because the `setup`
+  wiring (`fromJSON`, and later the push-range diff) only fires on a real `develop`
+  push, add a `workflow_dispatch` input `print-matrix-only: boolean` to
+  `cd-docker-publish.yml`: when true, `setup` computes and echoes the matrix to the
+  job summary and **no build runs**. This makes the plumbing testable pre-merge and
+  on demand, instead of relying on watching the first develop-push. Verify by
+  dispatching it and confirming the printed matrix equals `build_matrix.py --mode
+  full`.
+
+- [ ] **Step 6: Validate + report-ready.** `vrg-container-run -- vrg-validate`; hand
+  off. (CD proper runs on develop, so note in the PR that the human should still
+  watch the first post-merge develop-push; the dry-run from Step 5 de-risks it.)
 
 ---
 
@@ -433,7 +450,10 @@ build-gate:
 - [ ] **Step 1: Base-first proof.** Convert the `base` build to two per-arch jobs —
   `build-amd64` on `ubuntu-latest`, `build-arm64` on `ubuntu-24.04-arm` — each
   building `linux/<arch>` and pushing **by digest** to a temp tag, emitting its
-  digest as an output. Drop QEMU (`setup-qemu-action`) from these legs.
+  digest as an output. Drop QEMU (`setup-qemu-action`) from these legs. **Give each
+  arch its own registry cache ref** — `cache-{version}-amd64` / `cache-{version}-arm64`
+  (base: `cache-latest-{arch}`) — so the two native builds don't clobber a shared
+  cache tag; preserve the existing `cache-from`/`cache-to` behavior per-arch.
 
 - [ ] **Step 2: Stitch + scan + promote.** Add a job that
   `docker buildx imagetools create` the candidate multi-arch tag from the two

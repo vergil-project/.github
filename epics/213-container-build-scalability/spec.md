@@ -190,8 +190,8 @@ cannot drift from what actually goes into each image.
 
 **Input classification — rebuild inputs vs. check-config.** A file is a *rebuild
 input* **iff changing it changes the image's bytes**. Everything else is
-check/scan/report config and triggers its own re-check lane, never an image
-rebuild:
+check/scan/report config that never triggers an image rebuild (and, where a check
+exists, is re-checked by an *existing* CI job — no new machinery):
 
 | File(s) | Changes image bytes? | Trigger |
 |---|---|---|
@@ -200,11 +200,18 @@ rebuild:
 | `docker/base/**` | **Yes** | Rebuild `base` |
 | `docker/generate.sh` | **Yes** (generates the Dockerfile) | Fan-out: rebuild all |
 | `docker/languages.yml` | **Yes** (versions / build-args) | Rebuild per the diff |
-| `.trivyignore`, `trivy.yaml`, `.trivy/` | No — scan gating | Re-scan lane |
-| `.hadolint.yaml` | No — Dockerfile lint config | Re-lint (hadolint job) |
-| `docker/pins/**` (`pins.yml` + scripts) | No — pin *justification* + CI check; the image-affecting `ARG …_VERSION` lines live in the templates/fragments | Pins-check lane |
-| `docker/cpp/smoke-test.sh` | No — post-build validation | Re-smoke, not rebuild |
+| `.hadolint.yaml` | No — Dockerfile lint config | Re-checked by the **existing** `hadolint` CI job (runs every PR) |
+| `docker/pins/**` (`pins.yml` + scripts) | No — pin *justification* + CI check; the image-affecting `ARG …_VERSION` lines live in the templates/fragments | Re-checked by the **existing** `pins` CI job (runs every PR) |
+| `.trivyignore`, `trivy.yaml`, `.trivy/` | No — Trivy scan gating | **No new mechanism** — Trivy runs only inside an image build, so a suppression change is re-evaluated on the *next* build of each image and on the nightly, not instantly |
+| `docker/cpp/smoke-test.sh` | No — post-build validation | Re-run with that language's next build |
 | `cliff.toml`, `vergil.toml`, release-notes config | No — tooling/release config | n/a to image builds |
+
+**No standalone "re-scan" lane is added** (a deliberate anti-over-engineering
+decision from pushback). `.hadolint.yaml` and `docker/pins/**` are already
+re-checked by the unconditional `hadolint`/`pins` jobs on every PR; `.trivyignore`
+carries no instant re-scan and rides the next build / the nightly. What every one
+of these files shares is only that it **does not trigger an image rebuild** — the
+positive re-check, where one exists, is an *existing* CI job, not new machinery.
 
 So the "fan-out to all" set is small — `generate.sh`, `languages.yml`, and the
 workflow itself — with `base/**` rebuilding `base`, and `common/` fragments scoped
@@ -332,7 +339,8 @@ Ordered so each stage is verifiable in isolation and low-risk:
   by diffing generated vs. current hand-written matrix.
 - **Stage B — Selective on-change builds.** Add the `setup` diff-aware matrix job
   (derived include-graph + input-classification), the aggregating build-gate, and
-  the check-config re-check lanes (re-lint / re-scan / pins-check). Nightly and
+  the check-config classification (so those files build nothing; the existing
+  `hadolint`/`pins` PR jobs continue to re-check them). Nightly and
   release stay full. The headline behavior change.
 - **Stage C — Native arm64 runners.** Split the multi-arch build onto native
   runners + manifest stitch; rework promote/attest accordingly. Orthogonal; can be
@@ -377,7 +385,8 @@ only by unit checks — this is an infrastructure epic. A `validation`-kind task
 3. Confirm a **selective on-change build** schedules only the expected images for a
    representative single-language change, the full matrix for a `generate.sh` /
    `languages.yml` change, and **no rebuild** for a `.trivyignore` / `.hadolint.yaml`
-   / `pins.yml` change (only the corresponding re-check lane).
+   / `pins.yml` change (the existing `hadolint`/`pins` PR jobs still run; no image
+   build is scheduled).
 4. Record `Outcome: SUCCESS` as a comment; the task closes only on success.
 
 ## 9. Deferred / open questions (ledger — nothing falls out silently)
