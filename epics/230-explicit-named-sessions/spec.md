@@ -103,15 +103,18 @@ unnecessary — deleting archive is a *consequence* of explicit naming, not a ga
 
 1. **Use supported interfaces for everything they cover:** naming via `-n` at launch
    and `/rename` in-session; resume/fork via `--resume <id>` / `--continue` /
-   `--fork-session`. **Never hand-write transcript naming events**, and never depend
-   on a specific event type (`agent-name`/`custom-title`) in our own code.
-2. **Isolate the unsupported remainder behind one seam.** The only capabilities with
-   no confirmed supported CLI surface are **name → session-id resolution** and
-   **session enumeration/last-activity**. Confine both to a single module (a
-   `SessionStore` interface) with two interchangeable backends: the current
-   transcript/roster **scrape** (isolated, not spread through the code) and a future
-   **Agent SDK** backend — selected once the §6 spike verifies the SDK. The rest of
-   `vrg-vm` speaks only to the seam, so swapping backends touches one file.
+   `--fork-session`. **Outside the seam**, never hand-write transcript naming events
+   and never depend on a specific event type (`agent-name`/`custom-title`); those
+   unsupported operations live *only* in the seam's scrape backend.
+2. **Isolate the unsupported remainder behind one seam.** The capabilities with no
+   confirmed supported CLI surface are **name → session-id resolution**, **session
+   enumeration/last-activity**, and **programmatic rename** (renaming a *detached*
+   session — `/rename` only works in-session). Confine all three to a single module (a
+   `SessionStore` interface) with interchangeable backends: the current
+   transcript/roster **scrape** ships now (isolated, not spread through the code), and
+   an **Agent SDK** backend is a *later, conditional* swap if the §6 spike verifies the
+   SDK. The rest of `vrg-vm` speaks only to the seam, so swapping backends touches one
+   file. **Nothing on the critical path depends on the unverified SDK.**
 3. **Fail loud, not silent** on any assumption the seam can't satisfy (e.g. a name
    that resolves to zero or multiple live sessions — §4.3).
 
@@ -170,16 +173,19 @@ removed; `--all` changes from "include archived" to "include older-than-recent".
 removes #2602's entire bug class: there is no archive-vs-active name state to
 mis-filter.
 
-### 4.5 Rename, `--fresh`, `--fork`, guardrail — via supported interfaces
+### 4.5 Rename, `--fresh`, `--fork`, guardrail
 
-- **Rename** is Claude's `/rename` (in-session) — the slug → `epic-<N>-<slug>` path.
-  We do **not** write transcript events ourselves. A scripting-friendly `vrg-vm rename`
-  verb, if added, goes through the seam (SDK `rename` if verified, else a documented
-  mechanism) — never a raw transcript append.
+- **Interactive rename** is Claude's `/rename` — the slug → `epic-<N>-<slug>` path.
+- **Programmatic rename** (renaming a *detached* session, which `/rename` cannot do)
+  is a **`SessionStore` seam operation** — `store.rename(session_id, new_name)`. Its
+  ScrapeStore backend performs the transcript write, which is legitimate *because it is
+  the seam's isolated-hack backend*; a future SdkStore backend uses the SDK. Callers
+  never touch a transcript directly — the rule is **never outside the seam**, not
+  "never at all."
 - **`--fresh`** restarts a name cleanly by **renaming the prior same-named session**
-  (via the supported rename) with a retired suffix (still reconnectable, never
-  deleted) and launching a new session with the clean `label` — preserving
-  visible-name uniqueness, no resurrected archive state.
+  (via `store.rename`) with a retired suffix (still reconnectable, never deleted) and
+  launching a new session with the clean `label` — preserving visible-name uniqueness,
+  no resurrected archive state.
 - **`--fork`** maps to Claude's supported `--fork-session`; the **no-double-attach
   guardrail** stays.
 
@@ -216,18 +222,25 @@ explicitly asked for.
 
 ## 6. Rollout — independently shippable stages
 
-- **Stage 0 — Agent SDK verification spike (BLOCKING).** Empirically verify (against
-  the actually-installed `claude-agent-sdk`) which session-management functions exist;
-  whether they resolve a **name → session id**, enumerate sessions with
-  last-activity/cwd, and **see interactively-launched sessions** (not just SDK
-  `query()` ones). Deliverable: a written finding + a go/no-go on the SDK backend for
-  the seam. **Gates Stages A–B.** (This is why the seam exists: A/B ship on the scrape
-  backend if the SDK can't do it, on the SDK backend if it can — same interface.)
-- **Stage A — The `SessionStore` seam + named create + exact-name resume.** Define the
-  seam (resolve-name→id, enumerate); implement the chosen backend; add `--label`
-  (create via `-n`, uniqueness check), make `--resume` resolve-then-`--resume <id>`
-  with workspace derived from the resolved session; remove `--slot` and the
-  most-recent default; drop identity from the name. Tests against the seam interface.
+- **Stage 0 — Agent SDK verification spike (informational; NOT a blocker).**
+  Empirically verify (against the actually-installed `claude-agent-sdk`) which
+  session-management functions exist; whether they resolve a **name → session id**,
+  enumerate sessions with last-activity/cwd, **rename** a detached session, and **see
+  interactively-launched sessions** (not just SDK `query()` ones). Deliverable: a
+  written go/no-go on an SDK backend. It **gates nothing on the critical path** —
+  Stage A ships on the scrape backend regardless; a GO verdict only authorizes the
+  *conditional follow-on* SDK backend below.
+- **Stage A — The `SessionStore` seam + `ScrapeStore` + named create + exact-name
+  resume.** Define the seam (`resolve_name`, `list_sessions`, `rename`) and
+  **unconditionally implement the `ScrapeStore` backend** (so nothing waits on the
+  SDK); add `--label` (create via `-n`, uniqueness check), make `--resume`
+  resolve-then-`--resume <id>` with workspace derived from the resolved session; remove
+  `--slot` and the most-recent default; drop identity from the name. Tests against the
+  seam interface.
+- **Stage E (conditional follow-on, gated on Stage 0 = GO) — `SdkStore` backend.**
+  If and only if Stage 0 verifies the SDK, add a second seam backend using it and
+  switch the default; the rest of `vrg-vm` is untouched (same interface). If Stage 0 is
+  NO-GO, this stage is closed won't-do and the scrape backend stands.
 - **Stage B — Delete archive; recency filter.** Remove marker/bands/auto-archive/
   thresholds; add the `list` recency filter + `session_recent_days`; retire
   `--archived`; re-point `--all`; reconceive `--fresh` as supported-rename-to-retired.
@@ -238,7 +251,8 @@ explicitly asked for.
   `vergil-vm/docs/site/docs/sessions.md`; mark the two design specs superseded; note the
   supported-interface stance; optional `archived@` cosmetic strip.
 
-`writing-plans` refines these into tasks + `Blocked-by` ordering; Stage 0 blocks A/B.
+`writing-plans` refines these into tasks + `Blocked-by` ordering. Stage 0 gates only
+the conditional Stage E, never A–D; A–D ship on the scrape backend.
 
 ## 7. Risks and mitigations
 
@@ -272,14 +286,16 @@ release/deploy of the new `vrg-vm`) will, on the actual VM:
    reveals older; no `archived@` marker is produced; `--fresh` retires the old name via
    the supported rename.
 5. Confirm a legacy `identity:slot:workspace` session still reconnects by exact name.
-6. Confirm the seam backend in use matches Stage 0's decision (SDK if verified).
+6. Confirm the active seam backend (ScrapeStore by default; SdkStore only if Stage E
+   shipped after a GO) behaves identically for create/resume/list/rename.
 7. Record `Outcome: SUCCESS`.
 
 ## 9. Deferred / open questions (ledger)
 
-- **Agent SDK backend adoption** — decided by Stage 0. If the SDK resolves names,
-  enumerates, and sees interactive sessions, the seam's SDK backend replaces the scrape
-  entirely (and `tag`-based organization becomes possible); otherwise the scrape backend
+- **Agent SDK backend adoption** — the conditional Stage E, decided by Stage 0. If the
+  SDK resolves names, enumerates, renames, and sees interactive sessions, the seam's
+  SdkStore backend supersedes the scrape (and `tag`-based organization becomes possible);
+  otherwise the scrape backend
   ships and SDK adoption is revisited when the SDK matures.
 - **Epic-state–bound visibility** — a session's default visibility could track its
   epic's open/closed state; a display refinement on §4.4's recency filter, deferred to

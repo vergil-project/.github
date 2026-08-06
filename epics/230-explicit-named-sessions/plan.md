@@ -49,28 +49,35 @@ via `report-ready` (humans submit).
 **Task dependency graph:**
 
 ```text
-T0 (SDK spike, BLOCKING) ─gates→ T1 (seam) → T2 (--label create)
-                                        └────→ T3 (--resume attach)
+T1 (seam + ScrapeStore, incl. rename) → T2 (--label create)
+                                    └───→ T3 (--resume attach)
 T2,T3 → T4 (delete archive + recency list) → T5 (--fresh retire-rename)
 T3,T4 → T6 (selection-correctness / #2602)
 T4    → T7 (optional cosmetic archived@ strip)
+T0 (SDK spike, informational) ──authorizes──▶ T8 (SdkStore backend, CONDITIONAL on T0=GO)
 Validation (live-lab) ──Blocked-by── T2,T3,T4,T6  (+ human-gated deploy of new vrg-vm)
 ```
 
+T0 and T1 are both runnable immediately (no deps). T0 gates **only** the conditional
+T8; it does **not** block T1–T7, which ship on the ScrapeStore backend.
+
 ---
 
-### Task 0 (Stage 0): Agent SDK verification spike — BLOCKING
+### Task 0 (Stage 0): Agent SDK verification spike — informational (NOT a blocker)
+
+Runnable immediately; **does not block T1–T7**. Its only downstream is the conditional
+T8. T1 ships ScrapeStore regardless.
 
 **Files:**
 - Create: `scripts/dev/probe-claude-sessions.py`
 - Create: `docs/claude-session-surface.md` (findings + go/no-go)
 
 **Interfaces:**
-- Produces: a written **go/no-go** on an SDK backend for the seam, answering: does an
+- Produces: a written **go/no-go** on an SdkStore backend (T8), answering: does an
   installed `claude-agent-sdk` expose functions to (a) **enumerate** sessions with
-  id/name/cwd/last-activity, (b) **resolve a name → id**, and (c) **see
-  interactively-launched sessions** (not just SDK `query()` ones)? Consumed by T1's
-  backend choice.
+  id/name/cwd/last-activity, (b) **resolve a name → id**, (c) **rename** a detached
+  session, and (d) **see interactively-launched sessions** (not just SDK `query()`
+  ones)? Consumed by T8's go/no-go, not by T1.
 
 - [ ] **Step 1: Probe the installed surface.** In `probe-claude-sessions.py`: print
   `claude --version`; attempt `import claude_agent_sdk` and enumerate its public
@@ -102,12 +109,16 @@ Validation (live-lab) ──Blocked-by── T2,T3,T4,T6  (+ human-gated deploy 
 - Produces:
   - `@dataclass(frozen=True) class SessionInfo(session_id: str, name: str | None, cwd: str, active: bool, last_active: float | None)`
   - `class AmbiguousSessionError(Exception)`
-  - `class SessionStore(Protocol)` with `list_sessions(self) -> list[SessionInfo]` and
-    `resolve_name(self, name: str) -> SessionInfo | None`.
+  - `class SessionStore(Protocol)` with `list_sessions(self) -> list[SessionInfo]`,
+    `resolve_name(self, name: str) -> SessionInfo | None`, and
+    `rename(self, session_id: str, new_name: str) -> None`.
   - `class ScrapeStore` implementing it over the *existing* `name_by_session()` +
-    `read_roster()` (the isolated hack). `resolve_name`: filter `list_sessions()` to
-    exact `name` matches; **0 → None**; **≥2 active → raise AmbiguousSessionError**;
-    else the single active, else the most-recent by `last_active`.
+    `read_roster()` — **shipped unconditionally** (the SDK is never on this path; a
+    future `SdkStore` is the separate, conditional T8). `resolve_name`: filter
+    `list_sessions()` to exact `name` matches; **0 → None**; **≥2 active → raise
+    AmbiguousSessionError**; else the single active, else the most-recent by
+    `last_active`. `rename`: append a naming event to the transcript (the isolated
+    hack — legitimate *only* here, inside the seam's scrape backend).
 - Consumes: nothing new (wraps existing scrape functions).
 
 - [ ] **Step 1: Write failing tests** with a fake store list:
@@ -138,9 +149,13 @@ def test_resolve_raises_on_two_active():
 - [ ] **Step 2: Run, expect FAIL.**
   `vrg-container-run -- pytest tests/vergil_tooling/test_session_store.py -v`
 - [ ] **Step 3: Implement** `SessionInfo`, `AmbiguousSessionError`, the pure
-  `resolve_over(rows, name)` helper (the rule above), the `SessionStore` Protocol, and
-  `ScrapeStore` (whose `resolve_name` = `resolve_over(self.list_sessions(), name)`;
-  `list_sessions` adapts `name_by_session()` + `read_roster()` into `SessionInfo` rows).
+  `resolve_over(rows, name)` helper (the rule above), the `SessionStore` Protocol
+  (`list_sessions`, `resolve_name`, `rename`), and `ScrapeStore` (whose `resolve_name`
+  = `resolve_over(self.list_sessions(), name)`; `list_sessions` adapts
+  `name_by_session()` + `read_roster()` into `SessionInfo` rows; `rename` appends a
+  naming event to `<slug>/<session_id>.jsonl` — the isolated hack, confined here). Add a
+  test that `ScrapeStore.rename` then `list_sessions` reflects the new name (temp
+  transcript dir).
 - [ ] **Step 4: Route enumeration through the seam.** In `vrg_vm_resolve.py`, replace
   direct `name_by_session`/`read_roster` reads used for listing/resolution with a
   `ScrapeStore` instance (leave `_exec_claude` and the supported-flag exec untouched).
@@ -277,17 +292,17 @@ def test_resume_errors_when_absent(fake_store_empty):
 
 **Interfaces:**
 - Produces: `--fresh --label <name>` renames the prior visible session of that name to a
-  retired suffix (`<name>~<datestamp>`) **via the supported rename path**, then creates a
-  new session with the clean `name`. `retired_name(name, stamp) -> f"{name}~{stamp}"`.
+  retired suffix (`<name>~<datestamp>`) **via `store.rename(...)`**, then creates a new
+  session with the clean `name`. `retired_name(name, stamp) -> f"{name}~{stamp}"`.
 
 - [ ] **Step 1: Write failing test** for `retired_name` and for the plan: given a visible
   session named `epic-1:w`, `--fresh` yields (rename-old-to-`epic-1:w~<stamp>`, then
   create `epic-1:w`).
 - [ ] **Step 2: Run, expect FAIL.**
-- [ ] **Step 3: Implement** `retired_name` + the `--fresh` plan. The rename uses the
-  supported mechanism the T0 spike selected (SDK `rename` if GO; otherwise Claude's
-  `/rename` semantics through the seam) — **not** a raw transcript write. Timestamp is
-  passed in (no `Date.now()` in pure logic; the CLI supplies it).
+- [ ] **Step 3: Implement** `retired_name` + the `--fresh` plan. The rename calls
+  `store.rename(old_session_id, retired_name(name, stamp))` — backend-agnostic (ScrapeStore
+  today, SdkStore later); callers never touch a transcript. Timestamp is passed in (no
+  `Date.now()` in pure logic; the CLI supplies it).
 - [ ] **Step 4: Run tests, expect PASS.**
 - [ ] **Step 5: Validate + commit.** `vrg-commit --type feat --scope vrg-vm --message "reconceive --fresh as supported retire-rename (never delete)"`.
 
@@ -319,7 +334,7 @@ def test_resume_errors_when_absent(fake_store_empty):
 - Modify: `docs/` note as needed
 
 **Interfaces:** one-time, idempotent; renames any session whose current name begins
-`archived@<ts>@<orig>` back to `<orig>` **via the supported rename**, so the list renders
+`archived@<ts>@<orig>` back to `<orig>` **via `store.rename(...)`**, so the list renders
 uniformly. Purely cosmetic; never deletes.
 
 - [ ] **Step 1: Write the script** using the seam + supported rename; dry-run by default,
@@ -330,22 +345,45 @@ uniformly. Purely cosmetic; never deletes.
 
 ---
 
+### Task 8 (Stage E, CONDITIONAL on Task 0 = GO): `SdkStore` seam backend
+
+Only if T0's `docs/claude-session-surface.md` verdict is **GO**. If NO-GO, close this
+task won't-do; the ScrapeStore backend stands and nothing else changes.
+
+**Files:**
+- Create: `src/vergil_tooling/lib/session_store_sdk.py`
+- Modify: `src/vergil_tooling/lib/session_store.py` (backend selection), tests
+
+**Interfaces:** `class SdkStore(SessionStore)` implementing the *same*
+`list_sessions`/`resolve_name`/`rename` via the verified `claude-agent-sdk` functions;
+default backend switches to it. No caller changes — the seam interface is unchanged.
+
+- [ ] **Step 1:** Write tests against the SDK functions T0 confirmed exist (mock the SDK
+  boundary), asserting `SdkStore` satisfies the same `resolve_over` semantics + rename.
+- [ ] **Step 2:** Implement `SdkStore`; add backend selection (default SDK, fallback
+  ScrapeStore) behind one factory the rest of `vrg-vm` already calls.
+- [ ] **Step 3:** Validate + commit. `vrg-commit --type feat --scope vrg-vm --message "add verified Agent SDK backend behind the SessionStore seam"`.
+
+---
+
 ### Operational task (filed at step 9): live-lab validation
 
 `--kind validation`, `Blocked-by` T2, T3, T4, T6 **and** a human-gated deploy of the new
 `vrg-vm` (release + `uv tool install`). Runs the §8 checks on a real VM: named create,
 exact-name resume with correct cwd/memory slug, typo/collision errors, no auto-archive,
-recency list + `--all`, `--fresh` retire, legacy-name reconnect, and that the seam backend
-matches T0's decision. Records `Outcome: SUCCESS`.
+recency list + `--all`, `--fresh` retire, legacy-name reconnect, and that the active seam
+backend (ScrapeStore, or SdkStore if T8 shipped) behaves identically. Records
+`Outcome: SUCCESS`.
 
 ## Self-Review
 
-**Spec coverage:** §3 seam + §6 Stage 0 → T0/T1; §4.1 name → T2; §4.2 create/resume +
-workspace-derived → T2/T3; §4.3 uniqueness/fail-loud + slot removal → T1/T3; §4.4 archive
-delete + recency → T4; §4.5 `--fresh`/`--fork`/rename → T5 (fork already supported in
-exec); §4.6 migration → T4 (opaque legacy) + T7 (cosmetic); §4.7 selection → T6; §8
-validation → operational task. Fork guardrail (no-double-attach) is existing behavior,
-untouched. No spec requirement is unmapped.
+**Spec coverage:** §3 seam (incl. `rename`) → T1; §6 Stage 0 → T0 (informational), Stage E
+→ T8 (conditional); §4.1 name → T2; §4.2 create/resume + workspace-derived → T2/T3; §4.3
+uniqueness/fail-loud + slot removal → T1/T3; §4.4 archive delete + recency → T4; §4.5
+programmatic rename via `store.rename` + `--fresh` → T1/T5 (fork/guardrail already supported
+in exec, untouched); §4.6 migration → T4 (opaque legacy) + T7 (cosmetic); §4.7 selection →
+T6; §8 validation → operational task. Nothing on the T1–T7 critical path depends on the
+unverified SDK. No spec requirement is unmapped.
 
 **Placeholder scan:** none — pure-logic tasks carry real tests/signatures; CLI/exec tasks
 carry concrete wiring + fake-store tests. The one *deliberately* deferred choice (SDK vs
