@@ -82,31 +82,30 @@ universal gate and must be added to `desired_ci_gates_ruleset()`
 **unconditionally**, alongside `quality / common` / `security / trivy` /
 `security / semgrep`.
 
-### 3.2 Enforcement is two layers — contract (apply-time) + empirical (daily)
+### 3.2 Enforcement — contract completeness (this epic)
 
 **The contract layer reuses the existing audit machinery.** `vrg-github-repo-config`
 already computes the *desired* required-check set and its `audit` subcommand
 already **hard-fails on required-set drift** (exit 1; see §3.4). So the contract
-enforcement of I1 is mostly *completeness of the desired set*, not new gating
-code:
+enforcement of I1 is *completeness of the desired set*, not new gating code:
 
-- **(a) Complete the desired set.** Add `docs / docs` (§3.1). Add a **completeness
+- **Complete the desired set.** Add `docs / docs` (§3.1). Add a **completeness
   test** that pins the universal required-check set against the vergil-actions
   reusable-CI contract, so a future universal check added to CI without a matching
   entry here fails the tooling's own test suite (not at fleet apply-time).
 
-  Because enforcement is contract-based, it works at **config-apply time with no
-  PR needed** — critical for new/quiet repos, which have no PR check-runs to
-  observe. (This resolves the empirical-source feasibility gap: the required
-  ruleset is written before any PR exists, so the ground truth must be the known
-  reusable-CI contract the tool already computes — not observed PR check-runs.)
+Because enforcement is contract-based, it works at **config-apply time with no PR
+needed** — critical for new/quiet repos, which have no PR check-runs to observe.
+This resolves the empirical-source feasibility gap: the required ruleset is
+written before any PR exists, so the ground truth must be the known reusable-CI
+contract the tool already computes — not observed PR check-runs.
 
-- **(b) Empirical drift detection (daily-job layer).** For **repo-local** checks
-  the contract does not know about, compare the check contexts a repo actually
-  **produces on a `pull_request`** (read from PR check-runs via `gh pr checks` /
-  check-runs API) against the required set, and flag any produced-but-not-required
-  PR check. This is the **report-first** layer the daily ops job (§5) runs; it
-  needs at least one PR's worth of data and is naturally scoped to `pull_request`.
+**Repo-local drift is deferred.** Detecting *repo-local* PR checks the contract
+does not know about needs empirical observation of a repo's actual PR check-runs.
+That reconciler is built **with its consumer** — the daily drift-reporting ops
+job — in the follow-on (#227, §5), not here. This epic's I1 enforcement is the
+contract layer, which fully covers the universal checks (including the `docs /
+docs` miss that triggered this work).
 
 ### 3.3 Rollout — hard-fail immediately; deploy then re-apply the fleet
 
@@ -144,8 +143,7 @@ remediation:
 - `audit` exits non-zero on a repo missing a contract-required check (existing
   machinery, now with a complete desired set).
 - A completeness test ties the universal required set to the reusable-CI contract.
-- The empirical layer flags a produced-but-not-required repo-local PR check.
-- Post-merge-only checks are never flagged.
+- Post-merge-only checks are never added to the required set.
 
 ## 4. Task B — Orphaned-check resilience (finalize side)
 
@@ -206,22 +204,21 @@ run/job cross-check does not apply, so the **timeout itself is the signal and
 ## 5. Enforcement path & follow-on
 
 The intended production enforcement of I1 is running `vrg-github-repo-config`
-**daily as an ops job that reports on failure** — designed but never built. It
-consumes Task A's empirical layer (§3.2b). This is **out of scope here** and is
-captured as the epic's follow-on brainstorm bookend (`.github#227`); its outcome
-is recorded in the retrospective §5.
+**daily as an ops job that reports on failure** — designed but never built. The
+follow-on owns **both** the daily-job scheduling/reporting **and** the empirical
+repo-local reconciler it consumes (deferred from §3.2 so it is built with its
+consumer). This is **out of scope here** and is captured as the epic's follow-on
+brainstorm bookend (`.github#227`); its outcome is recorded in the retrospective
+§5.
 
 ## 6. Component checklist (to be detailed by the plan)
 
-- `github_config.py`: add `docs / docs` unconditionally; empirical
-  produced-vs-required PR-check reconciler; completeness test vs reusable-CI
-  contract.
-- `vrg_github_repo_config.py`: surface the empirical reconciler result (the
-  contract layer already fails via existing `audit`).
+- `github_config.py`: add `docs / docs` unconditionally; completeness test vs
+  reusable-CI contract.
 - `pr_merge.py` / `github.py`: bounded watch + `gh run view` backing-run
   cross-check + orphan raise; app-posted-status timeout fallback.
-- Tests — Task A: contract completeness, empirical drift, post-merge-not-flagged.
-  Task B: orphan / genuinely-running / failing / app-posted-timeout.
+- Tests — Task A: contract completeness, post-merge-not-required. Task B: orphan /
+  genuinely-running / failing-passthrough / app-posted-timeout.
 - **Deployment task** (operational, `--kind deployment`, blocked-by Task A):
   `vrg-github-repo-config apply` across all managed repos to bring required
   checks current. Seeded at task-filing time (step 9) so blocked-by wires to a
@@ -229,10 +226,11 @@ is recorded in the retrospective §5.
 
 ## 7. Out of scope
 
-- The daily drift-reporting ops job itself (follow-on `.github#227`).
+- The daily drift-reporting ops job **and** the empirical repo-local
+  produced-vs-required reconciler it consumes (both follow-on `.github#227`).
 - Full derivation of the required set from workflow YAML (matrix / reusable /
-  dynamic-name mapping). Approach chosen is contract completeness + empirical
-  reconciler, not YAML derivation.
+  dynamic-name mapping). Approach chosen is contract completeness, not YAML
+  derivation.
 - Path-filtered per-PR required checks (§2 boundary).
 - Any change to which checks CI *runs* — this epic changes which are *required*
   and how finalize *waits*, not the CI job set.
