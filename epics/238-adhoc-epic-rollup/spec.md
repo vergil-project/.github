@@ -1,7 +1,7 @@
 # Quarterly roll-up of ad-hoc epics — time-bound the perpetual umbrella
 
 - **Epic:** vergil-project/.github#238
-- **Status:** Draft design (2026-08-08) — pre-pushback
+- **Status:** Reviewed design (2026-08-08) — post-pushback (4 findings, all resolved)
 - **Brainstorm source:** superpowers brainstorming session, 2026-08-08
 - **Implemented in:** vergil-tooling (CLI), vergil-actions (reusable workflow),
   vergil-project/.github (scheduled caller) — tasks filed there at
@@ -51,13 +51,25 @@ ad-hoc epics — this behavior is genuinely new.
 
 ### 3.1 The roll-up algorithm (idempotent, per ad-hoc epic)
 
-For each ad-hoc epic in the org's home repo:
+The driver is **resume-first**: it completes any roll left half-finished by a
+prior crash *before* it starts a new one. Both phases run per repo.
 
+**Phase A — resume any in-progress roll.** Find **open**, period-stamped archives
+(`Epic (ad hoc): <repo> — <YYYY>-Q<n>`, still open, `epic`+`ad-hoc`) — an open
+period-stamped archive *is* the signal of an unfinished roll, since a completed
+archive is closed. For each: ensure a fresh `Epic (ad hoc): <repo>` exists,
+re-parent its still-open children into that fresh epic, comment the pointer, and
+close it. This is what makes a crash between rename and close self-healing.
+
+**Phase B — start a new roll (per live ad-hoc epic).**
 1. **Resolve** the live ad-hoc epic (`Epic (ad hoc): <repo>`, `epic`+`ad-hoc`,
    open).
 2. **Skip** if it has **0 closed children** (nothing to archive — see 3.2).
 3. **Rename** it to the period-stamped archive title (see 3.5), where the period
-   is the **quarter just completed** relative to the run date.
+   is the **quarter just completed** relative to the run date — **unless** an
+   archive with that exact stamped title already exists, in which case that
+   quarter was already rolled: do **not** create a duplicate, and defer to Phase A
+   to verify/finish it (this also makes a second same-quarter run a no-op).
 4. **Create** a fresh `Epic (ad hoc): <repo>` — **only if** the canonical title
    is now absent (the idempotency check; a fresh epic already present means a
    prior partial run created it).
@@ -67,9 +79,12 @@ For each ad-hoc epic in the org's home repo:
 6. **Comment** a pointer on the archive (`rolled up to #<fresh>`) and **close**
    it.
 
-Every step is **check-before-act**, so a run that dies partway is safe to simply
-re-run: the next quarterly tick or a manual `workflow_dispatch` completes it. No
-step assumes the previous one ran in the same invocation.
+**Invariant:** every step is **check-before-act**, and Phase A completes any
+partial roll, so a run that dies at *any* intermediate state (renamed-but-no-
+successor, successor-present-but-children-unmigrated, migrated-but-not-closed) is
+repaired by simply re-running — the next quarterly tick or a manual
+`workflow_dispatch` finishes it. No step assumes the previous one ran in the same
+invocation.
 
 ### 3.2 Skip rule — never create an empty archive
 
@@ -99,8 +114,12 @@ vrg-adhoc-epic rollup [--repo <owner>/<repo> | --all-in <org>/.github] [--apply]
   title it will take, the count and refs of open children that will migrate, and
   what will be closed — and makes **no** mutations.
 - `--apply` executes the algorithm in 3.1.
-- `--repo` targets one repo's ad-hoc epic; `--all-in <org>/.github` sweeps every
-  ad-hoc epic in the org home (the scheduled path).
+- `--repo` targets one repo's ad-hoc epic; `--all-in <org>` sweeps the whole org
+  (the scheduled path): it enumerates the org's repos and resolves each one's
+  ad-hoc-epic home via `resolve_epic_home`, so **public** repos (homed in
+  `<org>/.github`) **and private** repos (self-homed in themselves) are both
+  covered — a fixed `<org>/.github` target would silently miss private repos'
+  ad-hoc epics.
 - Reuses `lib/epics.py` primitives; `lib/adhoc_migrate.py` (find → plan → render →
   human-gated apply → re-parent → close-with-pointer) is the structural template,
   minus its human-only gate (see 3.4).
@@ -113,7 +132,7 @@ vrg-adhoc-epic rollup [--repo <owner>/<repo> | --all-in <org>/.github] [--apply]
   `workflow_dispatch`. Delegates to the reusable workflow, passing the org.
 - **Reusable workflow — `vergil-actions`:**
   `.github/workflows/ops-adhoc-rollup.yml@v2.1`, runs
-  `vrg-adhoc-epic rollup --all-in <org>/.github --apply` under the App identity
+  `vrg-adhoc-epic rollup --all-in <org> --apply` under the App identity
   (`APP_CLIENT_ID`/`APP_PRIVATE_KEY`), exactly as `ops-epic-sweep` runs
   `vrg-epic-audit --close`.
 - **CLI — `vergil-tooling`:** the subcommand above.
@@ -156,16 +175,22 @@ law); cross-repo references are `Ref`, never `Closes`.
 
 - **Unit** (`vergil-tooling`, existing faked-GitHub test pattern): plan
   construction (skip rule, archive title stamping across quarter boundaries,
-  open-vs-closed partition), and apply idempotency (re-running a partially-applied
-  plan is a no-op; a fresh epic already present is not duplicated; an
-  already-migrated child is not re-parented).
-- **Live validation** (operational task vergil-tooling#2677): run
-  `vrg-adhoc-epic rollup --apply` against a real ad-hoc epic once and verify the
-  end-to-end outcome — archive renamed+closed with a pointer comment, fresh
-  canonical epic present, open children re-parented, closed children left behind.
-  This is the check the faked-GitHub unit tests cannot fully prove (native
-  sub-issue re-parenting against the live GraphQL API). Blocked-by the
-  implementation tasks.
+  open-vs-closed partition, visibility-aware home resolution for public vs
+  private repos); apply idempotency (a fresh epic already present is not
+  duplicated; an already-migrated child is not re-parented; a pre-existing
+  same-quarter archive is not duplicated); and **resume from each intermediate
+  crash state** — renamed-but-no-successor, successor-present-but-children-
+  unmigrated, migrated-but-not-closed — each converging to the correct end state
+  (Phase A).
+- **Live validation** (operational task vergil-tooling#2677): from a
+  `vergil-tooling` worktree, run the **dev tree** via
+  `uv run vrg-adhoc-epic rollup --apply` against a real ad-hoc epic once and
+  verify the end-to-end outcome — archive renamed+closed with a pointer comment,
+  fresh canonical epic present, open children re-parented, closed children left
+  behind. Running from the dev tree (not the installed binary) exercises the real
+  GitHub sub-issue GraphQL API — the check the faked-GitHub unit tests cannot
+  prove — **without waiting on a release/`uv tool install`** (merged ≠ deployed).
+  Blocked-by the implementation tasks.
 
 ## 5. Non-goals
 
