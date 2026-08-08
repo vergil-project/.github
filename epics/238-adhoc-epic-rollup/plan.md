@@ -480,6 +480,22 @@ def test_drain_adhoc_org_iterates_repos_visibility_aware() -> None:
     ):
         epics.drain_adhoc_org("org", apply=True, now=NOW)
     assert ("org/tooling", True) in seen and ("org/priv", True) in seen
+
+def test_drain_adhoc_org_skips_repo_that_raises() -> None:
+    good = epics.DrainPlan(IssueRef("org", ".github", 40), moves=[], close=[])
+    seen = []
+    def fake(target_repo, *, apply, now):
+        seen.append(target_repo)
+        if target_repo == "org/bad":
+            raise ValueError("multiple ad-hoc epics — corruption")
+        return good
+    with (
+        patch("vergil_tooling.lib.github.list_org_repos", return_value=["bad", "good"]),
+        patch("vergil_tooling.lib.epics.drain_adhoc_repo", side_effect=fake),
+    ):
+        plans = epics.drain_adhoc_org("org", apply=True, now=NOW)  # must NOT raise
+    assert seen == ["org/bad", "org/good"]   # continued past the failure
+    assert plans == [good]                    # the healthy repo still drained
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -496,12 +512,16 @@ def list_org_repos(org: str) -> list[str]:
     raw: Any = read_json("repo", "list", org, "--no-archived", "--limit", "1000", "--json", "name")
     return [str(r["name"]) for r in raw if isinstance(r, dict) and "name" in r] if isinstance(raw, list) else []
 ```
-In `epics.py` (each repo resolves its own home via `drain_adhoc_repo` → `find_adhoc_epic` → `resolve_epic_home`, so public and private repos are both covered):
+In `epics.py` (add `import sys` at the top if absent). Each repo resolves its own home via `drain_adhoc_repo` → `find_adhoc_epic` → `resolve_epic_home`, so public and private repos are both covered. **Per-repo failures are isolated** (spec §7 "report and skip"): a corrupted repo (e.g. `_find_epic_by_title` raising on a `>1` ad-hoc epic) is skipped with a message, never aborting the whole sweep:
 ```python
 def drain_adhoc_org(org: str, *, apply: bool, now: datetime) -> list[DrainPlan]:
     plans: list[DrainPlan] = []
     for bare in github.list_org_repos(org):
-        plan = drain_adhoc_repo(f"{org}/{bare}", apply=apply, now=now)
+        try:
+            plan = drain_adhoc_repo(f"{org}/{bare}", apply=apply, now=now)
+        except (ValueError, RuntimeError) as exc:
+            print(f"skipped {org}/{bare}: {exc}", file=sys.stderr)
+            continue
         if plan is not None:
             plans.append(plan)
     return plans
@@ -634,21 +654,25 @@ def test_archive_repo_dry_run_default(capsys) -> None:
                            moves=[(IssueRef("org", ".github", 101), "2026-Q2")], close=[])
     with (
         patch(f"{_MOD}.github.current_repo", return_value="org/tooling"),
+        patch(f"{_MOD}.github.target_org") as mock_scope,   # MagicMock is a ctx manager
         patch(f"{_MOD}.epics.drain_adhoc_repo", return_value=plan) as mock_drain,
     ):
         rc = vrg_adhoc_epic.main(["archive"])
     assert rc == 0
     assert mock_drain.call_args.kwargs["apply"] is False
+    assert mock_scope.call_args.args[0] == "org"            # token scoped to the owner
     assert "org/.github#101" in capsys.readouterr().out
 
 def test_archive_all_in_apply(capsys) -> None:
     with (
+        patch(f"{_MOD}.github.target_org") as mock_scope,
         patch(f"{_MOD}.epics.drain_adhoc_org", return_value=[]) as mock_org,
     ):
         rc = vrg_adhoc_epic.main(["archive", "--all-in", "org", "--apply"])
     assert rc == 0
     assert mock_org.call_args.args[0] == "org"
     assert mock_org.call_args.kwargs["apply"] is True
+    assert mock_scope.call_args.args[0] == "org"            # token scoped to the org
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -673,7 +697,10 @@ def cmd_archive(args: argparse.Namespace) -> int:
     now = datetime.now(timezone.utc)
     verb = "APPLY" if args.apply else "DRY-RUN"
     if args.all_in:
-        plans = epics.drain_adhoc_org(args.all_in, apply=args.apply, now=now)
+        # Scope the App token to the org before any mutation, mirroring
+        # vrg-epic-move / vrg-issue-create (spec §7).
+        with github.target_org(args.all_in):
+            plans = epics.drain_adhoc_org(args.all_in, apply=args.apply, now=now)
         print(f"[{verb}] {args.all_in}: {len(plans)} ad-hoc epic(s) with work to archive")
         for plan in plans:
             print(_render_plan(plan))
@@ -682,7 +709,9 @@ def cmd_archive(args: argparse.Namespace) -> int:
     if "/" not in repo:
         print(f"vrg-adhoc-epic: --repo must be 'owner/repo' (got {repo!r})", file=sys.stderr)
         return 1
-    plan = epics.drain_adhoc_repo(repo, apply=args.apply, now=now)
+    owner = repo.split("/", 1)[0]
+    with github.target_org(owner):
+        plan = epics.drain_adhoc_repo(repo, apply=args.apply, now=now)
     print(f"[{verb}] " + (_render_plan(plan) if plan else f"{repo}: no ad-hoc epic"))
     return 0
 ```
@@ -749,7 +778,11 @@ Expected: FAIL — `drain_adhoc_org` not called.
 
 - [ ] **Step 3: Implement**
 
-Add `from datetime import datetime, timezone` (if absent) and `from vergil_tooling.lib import epics` (confirm import). In the `if args.close:` block, after `reopen_epics_with_open_children`, add:
+Add `from datetime import datetime, timezone` (if absent) and `from vergil_tooling.lib import epics` (confirm import).
+
+> **Token scoping (spec §7) — read before wiring.** First check how `vrg_epic_audit` establishes org scope today: if its `--close` path already runs inside `github.target_org(org)` (or the daily Action mints the token pre-scoped), the drain inherits that scope and needs no wrapper. If it does **not**, wrap the `drain_adhoc_org` call below in `with github.target_org(org):`, matching the standalone CLI (Task 7) and `vrg-epic-move`. Do not leave the mutation unscoped.
+
+In the `if args.close:` block, after `reopen_epics_with_open_children`, add (inside the org scope per the note above):
 ```python
         drained = epics.drain_adhoc_org(org, apply=True, now=datetime.now(timezone.utc))
         moved = sum(len(p.moves) for p in drained)
