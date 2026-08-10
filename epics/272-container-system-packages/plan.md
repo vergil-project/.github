@@ -356,9 +356,13 @@ vrg-commit --type feat --scope container \
 - Consumes: `config.container_system_packages` (Task 1); `container_cache.apt_install_command`
   and `container.container_platform` (Task 2).
 - Produces: CLI `vrg-container-system-packages`:
-  - default: prints the package list, one per line (empty output when none).
   - `--install-script`: prints the exact shell snippet from `apt_install_command`
-    (the single speller CI executes), or nothing when the list is empty.
+    (the single speller CI executes), or nothing when the list is empty. **This is
+    the mode CI consumes** (spec §3.3).
+  - default: prints the package list, one per line (empty output when none). This
+    is a **deliberate human-facing inspection affordance** ("what would this repo
+    install?"), not a second automated consumer path — kept intentionally (spec
+    §3.1).
 
 - [ ] **Step 1: Write the failing tests** (new file):
 

@@ -73,9 +73,12 @@ system-packages = ["lilypond"]
   non-string rejection). Add a `container_system_packages(repo_root)` accessor
   alongside `container_env_prefixes`, returning `[]` when there is no
   `vergil.toml`. This accessor is the **single reader** of the key; both the
-  local bake (§3.2) and CI (§3.3) go through it — CI via a thin `vrg-*` entry
-  point that prints the list — so there is exactly one TOML parser and one source
-  of truth.
+  local bake (§3.2) and CI (§3.3) go through it. CI reaches it via a thin `vrg-*`
+  entry point that **emits the install script** — the single speller from §3.2,
+  which CI executes verbatim — so there is exactly one TOML parser *and* one apt
+  speller. The same entry point also offers a plain-list mode (package names, one
+  per line) as a human-facing inspection affordance ("what would this repo
+  install?"); it is deliberate, not a second consumer path.
 - The key is documented as "Debian `apt` package names" right where it is
   defined; see §3.4 on naming.
 
@@ -102,11 +105,13 @@ CI does not use the local cache layer: `ci-quality.yml` runs each job in
 declaration must take effect in CI by a different path.
 
 - A composite setup step, added to the container jobs that **run the repo's own
-  tests**, reads `[container].system-packages` (via the §3.1 accessor — a thin
-  `vrg-*` entry point that prints the list; **not** ad-hoc shell parsing of
-  `vergil.toml`, which would silently mis-read valid TOML) and runs
-  `apt-get install -y --no-install-recommends <names>` inside the already-selected
-  base-image container (as root) before the tests.
+  tests**, obtains the install script from the §3.1 accessor (its
+  `--install-script` mode — the single §3.2 speller, which already carries the
+  per-package `--no-install-recommends` install and the fail-closed message) and
+  **executes it** inside the already-selected base-image container (as root)
+  before the tests. CI never spells the apt command itself and never parses
+  `vergil.toml` by hand — both would let the CI spelling drift from the local
+  one.
 - **Bounded retry.** The `apt-get update && apt-get install` invocation is wrapped
   in a small bounded retry, because `apt-get update` against live Debian mirrors
   is a known CI flake source and the CI path (unlike the baked-once local image)
