@@ -242,7 +242,9 @@ legacy one instead of minting a new-form sibling. The standalone sweep is then a
 - **Discovery queries** — archive lookups use `--label archive --label ad-hoc`;
   live-epic lookups still use `--label epic --label ad-hoc`.
 - **Audit — `stray_dotgithub_issue`** — an open `archive`+`ad-hoc` issue with no
-  parent is **not** flagged as a stray (regression guard for §3.6); a closed
-  child under an `archive`-labelled parent is not flagged by
-  `closed_epic_open_child`.
+  parent is **not** flagged as a stray (the regression guard for §3.6). No
+  dedicated `closed_epic_open_child` test is written: that audit filters on
+  `--label epic`, so a label-less archive is **structurally** excluded from its
+  result set — a test would have to fabricate an impossible `--label epic` row to
+  exercise it. The `--label epic` filtering is the guarantee, not a guard clause.
 - **Label definition** — `labels.json` carries a well-formed `archive` entry.
