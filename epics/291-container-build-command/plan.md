@@ -45,18 +45,30 @@ its shape everywhere; this plan calls out only the deltas.
 Each task below is filed (workflow step 9) as one GitHub issue, in the repo where
 its PR lands, linked under epic vergil-project/.github#291.
 
-| Task | Repo | Kind | Depends on |
+| Task | Repo | Kind | Blocked-by |
 |---|---|---|---|
 | 1 Config surface | vergil-tooling | task | — |
 | 2 Local bake + cache key | vergil-tooling | task | 1 |
 | 3 CI speller entry point | vergil-tooling | task | 1 |
-| 4 vergil-actions CI step | vergil-actions | task | 3 (released) |
-| 5 Cold-rebuild validation | vergil-tooling | validation | 2, 4 |
+| 4 Release vergil-tooling | vergil-tooling | deployment | 2, 3 |
+| 5 vergil-actions CI step | vergil-actions | task | 4 |
+| 6 Cold-rebuild validation | vergil-tooling | validation | 4, 5 |
 
-**Sequencing (mirrors #272):** vergil-tooling (1→2, 1→3) lands and is released;
-then vergil-actions (4) consumes the speller; validation (5) runs last. Tasks 1–3
-can be three PRs or folded into fewer at the implementer's discretion, but 2 and 3
-both depend on 1's accessors.
+**Sequencing (mirrors #272):** vergil-tooling code lands (1→2, 1→3), then a
+**release** (Task 4) makes `vrg-container-build-command` and the bake installable;
+only then can vergil-actions (5) consume the speller in CI, and validation (6) runs
+last. Tasks 1–3 can be three PRs or folded into fewer at the implementer's
+discretion, but 2 and 3 both depend on 1's accessors.
+
+**Why the release is a modeled task, not prose.** Task 5's CI step calls
+`vrg-container-build-command`, which the `Install vergil-tooling` action only
+provides once vergil-tooling is *released* to the version CI installs — merged is
+not enough. Modeling that as an explicit `deployment` task (Task 4), with Task 5
+`Blocked-by` it, keeps the chain deterministic: no step is runnable until its real
+precondition is met, which is what lets the epic's `Blocked-by` graph drive
+execution without a human silently filling the release gap. The release itself
+stays human-gated (Task 4's deploy step is an attested release; `issue-deploy`
+never cuts one).
 
 ---
 
@@ -497,10 +509,47 @@ vrg-commit --type feat --scope container \
 
 ---
 
-### Task 4: CI path — new vergil-actions composite step (fail-closed, no retry)
+### Task 4: Release vergil-tooling (operational — `deployment`)
 
-**Repo:** vergil-actions. **Depends on** Task 3 being released and installed in CI
-(the `Install vergil-tooling` step must provide `vrg-container-build-command`).
+**Repo:** vergil-tooling. **Kind:** `deployment`. **Blocked-by:** Tasks 2 and 3.
+Not PR-workable — run via `issue-deploy`, record `Outcome: SUCCESS` as a comment.
+Makes the merged config + bake + speller *installable* in CI, which Task 5 needs.
+
+**Deployment autonomy boundary.** The deploy action here **is** a vergil-tooling
+release (bump/tag/publish), which is **human-gated** — attested, never performed by
+the agent. `issue-deploy` never cuts the release; it verifies the release happened
+and that the released tool carries the feature.
+
+**Precondition self-check:** Tasks 2 and 3 are merged to develop (the released tag
+must contain both the local bake and the `vrg-container-build-command` speller). If
+unmet, comment "blocked: preconditions not met" and stop.
+
+**Procedure:**
+
+1. **Human-gated release (attested).** The human cuts a vergil-tooling release
+   including the `build-command` feature (`vrg-release`). The agent does **not**
+   perform this; it records the released tag once the human confirms it.
+2. **Verify the release carries the feature.** Install the released tag in a clean
+   environment and confirm the speller is present:
+   ```bash
+   uvx --from 'vergil-tooling @ git+https://github.com/vergil-project/vergil-tooling@<tag>' \
+     vrg-container-build-command --script --repo-root .
+   ```
+   Expected: exits 0 (prints nothing here — no build-command declared — but the
+   command resolving proves the entry point shipped).
+
+**Acceptance (record as a comment):**
+- `Outcome: SUCCESS` iff a vergil-tooling release exists whose tag provides
+  `vrg-container-build-command` (and the Task 2 bake). Record the tag. Until then,
+  stays open — gating Task 5.
+
+---
+
+### Task 5: CI path — new vergil-actions composite step (fail-closed, no retry)
+
+**Repo:** vergil-actions. **Blocked-by** Task 4 (the deployment): the released
+vergil-tooling installed by the `Install vergil-tooling` step must provide
+`vrg-container-build-command`.
 
 **Files:**
 - Create: `actions/shared/setup/build-command/action.yml`
@@ -601,14 +650,14 @@ vrg-commit --type feat --scope actions \
 
 ---
 
-### Task 5: Cold-rebuild validation (operational — `validation`)
+### Task 6: Cold-rebuild validation (operational — `validation`)
 
-**Repo:** vergil-tooling. **Kind:** `validation`. **Blocked-by:** Tasks 2 and 4.
+**Repo:** vergil-tooling. **Kind:** `validation`. **Blocked-by:** Tasks 4 and 5.
 Not PR-workable — run via `issue-validate`, record `Outcome: SUCCESS` as a comment.
 
-**Precondition self-check:** the build-command mechanism (Task 2) is merged to
-develop and the vergil-actions step (Task 4) is released; Docker is available. If
-unmet, comment "blocked: preconditions not met" and stop.
+**Precondition self-check:** vergil-tooling is released with the feature (Task 4)
+and the vergil-actions step (Task 5) is merged; Docker is available. If unmet,
+comment "blocked: preconditions not met" and stop.
 
 **Procedure (clean-tree, out-of-workspace proof):**
 
@@ -649,11 +698,14 @@ unmet, comment "blocked: preconditions not met" and stop.
 - §3.2 local bake, order-after-install, self-repo, fail-closed, byte-identical →
   Task 2. ✓
 - §3.3 CI new step, single speller, fail-closed no-retry, test-jobs-only → Tasks 3
-  (speller) + 4 (step). ✓ (O4 resolved: new step, not generalization.)
+  (speller) + 5 (step), gated by Task 4 (release). ✓ (O4 resolved: new step, not
+  generalization.)
 - §3.4 `build-cache-files` cache-key → Task 2 (fold) + Task 1 (key). ✓
-- §3.5 trust model → docs in Task 4 + the key docs (doc-review bookend #2756). ✓
-- §4 out-of-workspace contract → Global Constraints + Task 5 clean-tree proof. ✓
-- §6 acceptance → Tasks 2/4 tests + Task 5 validation. ✓
+- §3.5 trust model → docs in Task 5 + the key docs (doc-review bookend #2756). ✓
+- §4 out-of-workspace contract → Global Constraints + Task 6 clean-tree proof. ✓
+- §6 acceptance → Tasks 2/5 tests + Task 6 validation. ✓
+- Merged-vs-deployed gate (release before CI can consume the speller) → Task 4
+  (`deployment`), keeping Task 5 un-runnable until the tool is installable. ✓
 - Site-docs narrative sweep → **not** an impl task; handled by the
   documentation-review bookend vergil-tooling#2756 (spawns per-repo siblings). The
   impl tasks carry only code-adjacent docs (the action doc, docstrings, key
