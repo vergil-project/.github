@@ -129,7 +129,15 @@ legacy one instead of minting a new-form sibling. The standalone sweep is then a
 - New `normalize_adhoc_archives(org, apply=…)` in `epics.py`, surfaced as a
   `vrg-adhoc-epic normalize` subcommand (dry-run by default, `--apply` to
   execute, mirroring the existing `archive` subcommand's preview/apply shape).
-- It scans the org's epic home for every **legacy-form** archive (old title +
+- It **resolves each repo's own epic home the way the drain engine does** —
+  iterating `list_org_repos` and resolving `resolve_epic_home` per repo, deduping
+  homes so `.github` is swept once rather than once per public repo — so it covers
+  **both** public archives (in `<org>/.github`) and **private** repos' archives
+  (self-homed in the repo itself, `epics.py:381`). Scanning only `<org>/.github`
+  would silently leave every private repo's archives in legacy form; mirroring
+  `drain_adhoc_org` (`epics.py:631-650`) is the traversal already trusted to find
+  archives wherever they live.
+- Within each home it finds every **legacy-form** archive (old title +
   `epic` label), **open or closed**, and for each performs the same in-place
   conversion as §3.4 step 2: retitle to `Archive (ad hoc): …`, add `archive`,
   remove `epic`, keep `ad-hoc`.
@@ -143,17 +151,26 @@ legacy one instead of minting a new-form sibling. The standalone sweep is then a
 
 - **Roadmap:** no change. `roadmap.py::_is_perpetual` filters `ad-hoc`, which
   archives retain, so they stay off the strategic roadmap exactly as today.
-- **Audits — verification, not assumption.** The epic audits
-  (`epic_audit.py`) query `--label epic`, so a non-epic archive drops out of
-  every epic audit, which is the desired outcome. Before landing, **verify** that
-  no invariant flags a **closed child re-parented under a now-non-epic archive**
-  — specifically `closed_epic_open_child` and any orphan-child /
-  "sub-issue must sit under an epic" style check. The re-parenting itself uses the
-  GitHub sub-issue relationship, which is independent of labels, so the linkage
-  is unaffected; the risk is purely that an audit *reads* the archive's label and
-  draws a wrong conclusion. If any such check would misfire, adjust it to treat an
-  `archive`-labelled parent as a valid terminal home for closed children. The
-  plan enumerates each audit invariant and its post-change disposition.
+- **Audit invariant 2 — `stray_dotgithub_issue` MUST be changed (required
+  work, not a "verify").** This is the one audit that definitely breaks. Today an
+  archive is skipped by that check **only** because it carries the `epic` label
+  (`epic_audit.py:332`, `"epic" in labels`). An archive is a **top-level** issue
+  with **no parent**, so once the `epic` label is gone it is neither epic-labelled,
+  nor intake, nor parented-under-an-epic — and every open (current-quarter)
+  archive across the org is reported as a stray `.github` violation (fail-loud).
+  Fix: **add `archive` to the skip set in `stray_dotgithub_issue`**, treating an
+  `archive`-labelled home issue as legitimately non-stray alongside `epic` and
+  intake, with a regression test asserting an open archive is not flagged.
+- **Other epic audits — checked, no change needed.** They query `--label epic`,
+  so a non-epic archive simply drops out:
+  - `epic_outside_dotgithub` (invariant 1, `gh search issues --label epic`) —
+    archive no longer matched; safe.
+  - `closed_epic_open_child` (`--label epic --state closed`, `epic_audit.py:342`)
+    — archive no longer returned at all; safe. (It was previously returned but
+    skipped via the `ad-hoc` guard at `:375`; the outcome is unchanged.)
+  The re-parenting linkage itself uses the GitHub sub-issue relationship, which is
+  independent of labels, so a closed child under an `archive` parent is unaffected.
+  The plan restates this invariant-by-invariant disposition.
 
 ## 4. Scope boundary — what this does not touch
 
@@ -193,11 +210,12 @@ legacy one instead of minting a new-form sibling. The standalone sweep is then a
   form** heals that archive in place and does **not** create a duplicate bucket.
 - `vrg-adhoc-epic normalize` dry-run lists every legacy-form archive (open and
   closed); `--apply` converts them; a second `--apply` is a no-op.
-- After the rollout sweep, no archive across the org remains in legacy form; the
-  historical record (including closed archives) reads as `Archive (ad hoc): …`
-  under `label:archive`.
+- After the rollout sweep, no archive across the org remains in legacy form —
+  **including private repos' self-homed archives** — and the historical record
+  (including closed archives) reads as `Archive (ad hoc): …` under `label:archive`.
 - The strategic roadmap is unchanged (archives never appeared and still do not).
-- No epic audit flags a closed child that sits under a converted archive.
+- `stray_dotgithub_issue` does **not** flag an open archive as a stray, and no
+  other epic audit flags a closed child that sits under a converted archive.
 - The `archive` label exists in `.github` and every managed repo after the label
   sync.
 - Docs (the ad-hoc/epic model in `docs/site` and any tooling docs describing the
@@ -219,10 +237,12 @@ legacy one instead of minting a new-form sibling. The standalone sweep is then a
   the live epic is never relabeled.
 - **`normalize_adhoc_archives`** — legacy (open) and legacy (closed) both
   convert; a new-form archive is skipped; a second run is a no-op; the live
-  ad-hoc epic is never touched.
+  ad-hoc epic is never touched; **a private repo's self-homed legacy archive is
+  converted** (the per-repo home traversal, not `.github`-only).
 - **Discovery queries** — archive lookups use `--label archive --label ad-hoc`;
   live-epic lookups still use `--label epic --label ad-hoc`.
-- **Audit invariants** — a closed child under an `archive`-labelled parent is not
-  flagged by `closed_epic_open_child` or any orphan-child check (regression
-  guard for the §3.6 verification).
+- **Audit — `stray_dotgithub_issue`** — an open `archive`+`ad-hoc` issue with no
+  parent is **not** flagged as a stray (regression guard for §3.6); a closed
+  child under an `archive`-labelled parent is not flagged by
+  `closed_epic_open_child`.
 - **Label definition** — `labels.json` carries a well-formed `archive` entry.
