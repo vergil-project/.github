@@ -88,6 +88,17 @@ build-command = "npm install -g @coderline/alphatab"
   path surfaced via `NODE_PATH`), because the runtime bind-mount masks anything at
   a workspace path (§4). This is a documented contract at the key, not something
   the tooling can enforce; the validation task proves it on a clean tree.
+
+  > **Erratum (#2766/#2781):** the global `npm install -g` case above is **not**
+  > `NODE_PATH`-free — it is presented here as if only the "fixed image path"
+  > alternative needs `NODE_PATH`, which is wrong. A global install lands in
+  > `/usr/lib/node_modules`, which is **not** on Node's default `require.resolve`
+  > search path, so the global case **also** needs `NODE_PATH` set to resolve
+  > (CommonJS `require` only; ESM `import` ignores `NODE_PATH`). The epic's
+  > validation (vergil-tooling#2766) caught this and the fix (vergil-tooling#2781,
+  > shipped in v2.1.191) wired up `NODE_PATH`. The out-of-workspace / Model B
+  > decision itself is correct — only the resolution mechanism was misstated. See
+  > the §4 erratum.
 - A companion key, **`build-cache-files`** (§3.4), lists the command's real input
   files so a dependency bump rebuilds the image.
 - `config.py`: add `build-command` and `build-cache-files` to
@@ -261,6 +272,18 @@ in every CI job **without** depending on any host-tree state. Where a package mu
 live at a fixed non-global path, the repo installs it there and surfaces it via
 `NODE_PATH` (or the language's equivalent) — the rule is simply "not under
 `/workspace`."
+
+> **Erratum (#2766/#2781):** the parenthetical "(on the default resolution
+> path)" is **wrong**. A global `npm install -g` lands in `/usr/lib/node_modules`,
+> which is **not** on Node's default `require.resolve` search path; it resolves
+> only when `NODE_PATH` points at that directory — which the epic's fix
+> (vergil-tooling#2781, shipped in v2.1.191) wired up after the validation
+> (vergil-tooling#2766) caught the omission. This applies to CommonJS `require`
+> **only** — ESM `import` ignores `NODE_PATH`. The rest of the sentence (survives
+> `docker commit`, host-independent) is correct, and the Model B out-of-workspace
+> decision stands; only the resolution-mechanism claim needed correcting — the
+> global case is no more "default-path" than the fixed-path case, both needing
+> `NODE_PATH`.
 
 The **rejected alternative** (Model A — populate `/workspace`, let the image warm
 only the cache) was declined because it produces no runtime-visible baked

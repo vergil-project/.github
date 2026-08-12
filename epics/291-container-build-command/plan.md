@@ -31,6 +31,14 @@ its shape everywhere; this plan calls out only the deltas.
   (e.g. `npm install -g`); workspace-path artifacts are masked by the runtime
   bind-mount (`container.py:179`). This is a documented contract, not enforced by
   tooling.
+
+  > **Erratum (#2766/#2781):** a global `npm install -g` lands in
+  > `/usr/lib/node_modules`, which is **not** on Node's default `require.resolve`
+  > path — it resolves only with `NODE_PATH` set (CommonJS `require` only; ESM
+  > `import` ignores `NODE_PATH`). The out-of-workspace contract is correct; the
+  > resolution mechanism needed the `NODE_PATH` wiring added by
+  > vergil-tooling#2781 (v2.1.191) after the validation vergil-tooling#2766
+  > caught it. See spec §4.
 - **Order: after the vergil-tooling install, before warmup — in BOTH paths.** So
   the command's environment cannot diverge local-vs-CI.
 - **Empty/absent ⇒ byte-identical to today.** No key ⇒ no setup fragment, no extra
@@ -679,6 +687,14 @@ comment "blocked: preconditions not met" and stop.
    ```
    Expected: resolves (exit 0) — proving the dependency is image-resident, not
    host-tree pollution.
+
+   > **Erratum (#2766/#2781):** this `require.resolve(...)` "Expected: resolves"
+   > is the bug this erratum records. With a bare global `npm install -g` it does
+   > **not** resolve: `/usr/lib/node_modules` is not on Node's default
+   > `require.resolve` path. Making it resolve required wiring `NODE_PATH`
+   > (vergil-tooling#2781, shipped in v2.1.191); the validation
+   > (vergil-tooling#2766) is exactly what caught this. The check is valid only
+   > once `NODE_PATH` is set (CommonJS `require` only; ESM `import` ignores it).
 4. **Cache-key check:** add a `build-cache-files` entry, edit that file, run
    `vrg-container-run`, and confirm a rebuild is triggered (banner reappears).
 5. **Fail-closed check:** set `build-command = "exit 3"`; confirm the cache build
