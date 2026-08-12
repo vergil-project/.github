@@ -15,7 +15,7 @@ check-runs** (bounded watch → raise, never hang or merge past); the config was
 was extended into the standards docs (hard gates only, with a single named
 advisory carve-out).
 
-**Work delivered**
+### Work delivered
 
 | PR | Task | What it did |
 |---|---|---|

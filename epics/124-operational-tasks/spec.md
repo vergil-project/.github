@@ -53,8 +53,8 @@ impl task(s) ──Blocked-by──▶ deployment task ──Blocked-by──▶
 
 The existing `Blocked-by` + `all_blockers_closed` machinery computes runnability
 unchanged — no new precondition mechanism. This turns "is it deployed?" from a
-human-attested precondition into structure, and so **partially delivers idea
-#123** (machine-checkable preconditions) by making deployed-ness a closeable
+human-attested precondition into structure, and so **partially delivers idea #123**
+(machine-checkable preconditions) by making deployed-ness a closeable
 task rather than an attestation.
 
 ## Shared operational-task invariants

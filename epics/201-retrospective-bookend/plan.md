@@ -40,12 +40,13 @@ validation.
 ### Task 1 — the `epic-retrospective` skill (vergil-claude-plugin)
 
 **Files:**
+
 - Create: `skills/epic-retrospective/SKILL.md`
 
 The foundational deliverable. Authoring a single self-contained skill.
 
 - [ ] **Frontmatter.** `name: epic-retrospective`; `description:` covering
-  triggers — "finish an epic", "run the retrospective", "close out epic <ref>",
+  triggers — "finish an epic", "run the retrospective", "close out epic `<ref>`",
   "we're done with this epic" — and stating it is the terminal, run-once finishing
   gate of the three-skill lifecycle (`epic-create` → `epic-implement` →
   `epic-retrospective`).
@@ -85,6 +86,7 @@ and drives the retrospective to a closing PR.
 ### Task 2 — reframe the epic lifecycle docs (vergil-claude-plugin)
 
 **Files:**
+
 - Modify: `skills/epic-create/SKILL.md`
 - Modify: `skills/epic-implement/SKILL.md`
 - Modify: `CLAUDE.md`
@@ -148,8 +150,8 @@ docs PR closes `#203` and rolls up the epic.
 
 ## Evolution during execution
 
-_Frozen at execution start; dated entries record meaningful deltas — a task
-added, dropped, or rescoped, a discovered dependency — with the reasoning._
+*Frozen at execution start; dated entries record meaningful deltas — a task
+added, dropped, or rescoped, a discovered dependency — with the reasoning.*
 
 ### 2026-07-25 — epic was not "plugin-contained" (task added)
 

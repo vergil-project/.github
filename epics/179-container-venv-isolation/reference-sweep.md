@@ -72,7 +72,7 @@ Counts:
 Canonical reference for the single-`.venv` model is **vergil-tooling**
 (`CLAUDE.md` "Environment Setup", already collapsed to a single `.venv` by
 task T3 / vergil-tooling#2491; and the container anonymous-volume masking,
-#2486).
+vergil-tooling #2486).
 
 ### Cluster 1 — `vergil-vm` (in-org; live provisioning + tests)
 
@@ -216,8 +216,8 @@ to route here.
 
 **Other-org — triage handoff (referenced by comment, never epic-linked):**
 
-4. **`logical-minds-foundry` consumer `.gitignore` files** (5 repos above) —
+1. **`logical-minds-foundry` consumer `.gitignore` files** (5 repos above) —
    file a triage issue in that org; the fix rides the corrected `repo_init`
    template.
-5. **`wphillipmoore/the-infrastructure-mindset` article content** — note to
+2. **`wphillipmoore/the-infrastructure-mindset` article content** — note to
    the article owner that the dual-venv narrative is now historical.

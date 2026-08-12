@@ -39,7 +39,7 @@
 
 ## Task dependency graph
 
-```
+```text
 Task 1 (audit) ─┬─▶ Task 4 (memory sync) ─▶ Task 5 (lock) ─▶ Task 6 (verify)
                 └─▶ Task 3 (path align) ───▶ Task 4
 Task 2 (resolver) ── independent, consumed by Task 5 (gate) + Task 7
@@ -55,6 +55,7 @@ Each task below becomes a GitHub implementation task filed under the epic (plan 
 **Why:** the locked set (Component 3) and the path-preservation breadth (Component 2b) both depend on facts we must establish empirically before writing lock code: exactly what `vrg-vm` copies into the guest, which of those files the Claude Code runtime writes during a session, and whether any copied file embeds `/Users/<me>/…` literals that would otherwise force a HOME rewrite. This task produces a written finding, not code.
 
 **Files:**
+
 - Create: `epics/156-cloud-memory-projection/audit-findings.md` (in `.github`, committed with this task)
 
 **Steps:**
@@ -75,11 +76,13 @@ vrg-commit --type docs --scope epic-156 --message "copied-config and runtime-wri
 ### Task 2: Platform resolver (`platform_env.py` + `vrg-whoami --platform`)
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/platform_env.py`
 - Modify: `src/vergil_tooling/bin/vrg_whoami.py`
 - Test: `tests/vergil_tooling/test_platform_env.py`, `tests/vergil_tooling/test_vrg_whoami.py`
 
 **Interfaces:**
+
 - Produces:
   - `class Platform(enum.Enum): PHYSICAL_HOST="physical-host"; LOCAL_VM="local-vm"; CLOUD_VM="cloud-vm"`
   - `@dataclass(frozen=True) class PlatformResolution: platform: Platform; resolved_from: str; signals: dict[str, str]; disagreement: bool`
@@ -89,6 +92,7 @@ vrg-commit --type docs --scope epic-156 --message "copied-config and runtime-wri
 - Consumes: `vergil_tooling.lib.identity_mode.resolve` (identity corroboration).
 
 **Design (empirical signals, precedence):** derive without any written marker file —
+
 1. macOS (`platform.system() == "Darwin"`) and no `/vergil` mount ⇒ `PHYSICAL_HOST`.
 2. `/vergil` mount present ⇒ in a VM. Distinguish cloud vs local: a reachable cloud metadata endpoint (GCP `metadata.google.internal` / Azure IMDS, probed with a short timeout) ⇒ `CLOUD_VM`; else Lima markers (e.g. `/mnt/lima` or the lima serial device) ⇒ `LOCAL_VM`.
 3. **Fail closed:** any VM signal present but not positively confirmed `LOCAL_VM` ⇒ `CLOUD_VM`. Never fall through to `PHYSICAL_HOST` from inside a VM.
@@ -136,11 +140,13 @@ def test_agent_identity_on_physical_host_flags_disagreement(monkeypatch):
 ### Task 3: Host-path alignment on cloud sessions (Component 2a)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/vm_cloud.py` (new `ensure_host_path` helper)
 - Modify: `src/vergil_tooling/bin/vrg_vm.py` (`_cloud_session`: create indirection, set `workdir`)
 - Test: `tests/vergil_tooling/test_vm_cloud.py`
 
 **Interfaces:**
+
 - Produces: `def ensure_host_path(transport, host_projects_dir: str, org: str, repo: str) -> str` — creates `<host_projects_dir>/<org>/<repo>` in the guest as a symlink onto `/vergil/projects/<org>/<repo>` (mkdir -p the parent first), returns the host-equivalent absolute path. Idempotent.
 - Consumes: `target.identity.projects_dir` (the host projects dir, e.g. `/Users/<me>/dev/projects`), `target.org`, `target.repo`.
 
@@ -176,11 +182,13 @@ def test_ensure_host_path_symlinks_onto_volume():
 ### Task 4: Memory projection sync (`vm_memory.py`) — per cloud-session refresh
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/vm_memory.py`
 - Modify: `src/vergil_tooling/bin/vrg_vm.py` (`_cloud_session`: call the projection before `exec_session`)
 - Test: `tests/vergil_tooling/test_vm_memory.py`
 
 **Interfaces:**
+
 - Produces:
   - `def host_slug(host_workdir: str) -> str` — the Claude memory slug for an absolute path (leading `-`, `/`→`-`), matching how Claude derives `~/.claude/projects/<slug>`.
   - `def host_memory_dir(claude_dir: Path, slug: str) -> Path` — `claude_dir/"projects"/slug/"memory"`.
@@ -236,10 +244,12 @@ def test_project_memory_copies_memory_and_claude_md(tmp_path):
 ### Task 5: Surgical read-only lock (`lock_projection`)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/vm_memory.py` (add `lock_projection`)
 - Test: `tests/vergil_tooling/test_vm_memory.py`
 
 **Interfaces:**
+
 - Produces: `def lock_projection(transport, *, claude_dir_guest: str, slug: str, locked_set: Sequence[str]) -> None` — `chmod` the projected canonical set read-only: `~/.claude/projects/<slug>/memory` (recursive), `~/.claude/projects/<slug>/memory/MEMORY.md` if present, `~/.claude/CLAUDE.md`, and any additional files in `locked_set` from the Task-1 audit. Never touches the `.jsonl` transcripts in `projects/<slug>/`.
 - Consumes: the audit's `locked_set` (Task 1).
 
@@ -271,11 +281,13 @@ def test_lock_projection_locks_memory_not_transcripts():
 ### Task 6: Projection verification — fail loudly (`verify_projection`)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/vm_memory.py` (add `verify_projection`)
 - Modify: `src/vergil_tooling/bin/vrg_vm.py` (call verification after `project_memory`)
 - Test: `tests/vergil_tooling/test_vm_memory.py`
 
 **Interfaces:**
+
 - Produces: `class ProjectionError(RuntimeError)`; `def verify_projection(transport, *, host_workdir: str, slug: str) -> None` — asserts, in-guest, that (a) `host_workdir` resolves (the Task-3 symlink exists and points at the `/vergil` checkout) and (b) `~/.claude/projects/<slug>/memory` exists; raises `ProjectionError` with an actionable message otherwise.
 
 **Why:** a broken indirection would otherwise degrade *silently* to empty memory (spec §Component 6).
@@ -308,6 +320,7 @@ def test_verify_projection_raises_when_host_path_missing():
 ### Task 7: Read-only policy clause in canonical `CLAUDE.md` (soft control)
 
 **Files:**
+
 - Modify: the developer's canonical `~/.claude/CLAUDE.md` (a **human/config action**, not a repo PR — this file is personal/global)
 - Modify: `docs/site/docs/guides/agent-vm-claude-share-set.md` (document the clause + the platform resolver so the convention is discoverable)
 
@@ -332,6 +345,7 @@ def test_verify_projection_raises_when_host_path_missing():
 ## Self-Review
 
 **Spec coverage:**
+
 - Component 1 (resolver) → Task 2. ✅
 - Component 2a (slug/path alignment) → Task 3. ✅
 - Component 2b (config-internal paths, no full HOME) → Task 1 (audit decides per file). ✅

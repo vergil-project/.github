@@ -31,7 +31,7 @@ skipped.
 
 ## Task map & dependency order
 
-```
+```text
 T1 docs task (.github)            ── publishes spec + this plan; first child of the epic
 T2 label taxonomy (vergil-tooling)── extend vrg-ensure-label registry            [blocks enforcement, T5]
 T3 umbrella links (vergil-tooling)── github.graphql() + lib/epics.py + vrg-gh    [blocks T4]
@@ -52,6 +52,7 @@ T2 and T3 are the unblockers; do them first after the docs task. T9 keeps the ep
 **Repo:** `vergil-project/.github` · **Epic:** #40 · **Task:** #41 · **Branch:** `feature/41-epic-task-convention-docs`
 
 **Files:**
+
 - Create: `.github/epics/40-epic-task-convention/spec.md` (the reviewed design doc)
 - Create: `.github/epics/40-epic-task-convention/plan.md` (this file)
 
@@ -77,10 +78,12 @@ and `…/scratchpad/2026-06-28-epic-task-convention-implementation-plan.md`.
 **Repo:** `vergil-project/vergil-tooling` · **Branch:** `feature/<N>-epic-task-labels`
 
 **Files:**
+
 - Modify: the label registry consumed by `load_labels()` in `src/vergil_tooling/bin/vrg_ensure_label.py` (locate the registry data file it reads — JSON/TOML under `src/vergil_tooling/`; grep `def load_labels`).
 - Test: `tests/vergil_tooling/test_vrg_ensure_label.py`
 
 **Interfaces:**
+
 - Consumes: existing `sync_repo(repo)`, `load_labels() -> dict` (keys `labels: list[{name,color,description}]`, `delete: list[str]`).
 - Produces: canonical labels **added additively** — `epic`, `standing`, `triage`, `idea`, `hotfix` (Role/Stage/Kind/Exception axes), with the `Kind` set aligned to the `.github` issue template (`feature`,`bug`,`documentation`,`refactor`,`chore`,`research`) plus `idea`.
 
@@ -90,6 +93,7 @@ touch the `delete` list. Retiring default cruft (`help wanted`,`question`,`wontf
 so no label is orphaned off a still-unmigrated issue.
 
 - [ ] **Step 1: Write the failing test.**
+
 ```python
 def test_registry_includes_convention_labels() -> None:
     reg = load_labels()
@@ -102,6 +106,7 @@ def test_label_addition_is_additive_only() -> None:
     reg = load_labels()
     assert {"help wanted", "wontfix", "question"}.isdisjoint(set(reg.get("delete", [])))
 ```
+
 - [ ] **Step 2: Run to verify it fails.** `uv run pytest tests/vergil_tooling/test_vrg_ensure_label.py -k "convention or additive" -v` → FAIL (labels absent).
 - [ ] **Step 3: Add the labels** to the registry data file (each with `name`, 6-hex `color`, `description`). Do **not** add anything to `delete`.
 - [ ] **Step 4: Run to verify it passes.** Same command → PASS.
@@ -117,11 +122,13 @@ def test_label_addition_is_additive_only() -> None:
 **Repo:** `vergil-project/vergil-tooling` · **Branch:** `feature/<N>-umbrella-links`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/github.py` (add `graphql()` helper)
 - Create: `src/vergil_tooling/lib/epics.py` (umbrella relationship, mechanism-agnostic)
 - Test: `tests/vergil_tooling/lib/test_epics.py`, `tests/vergil_tooling/lib/test_github_graphql.py`
 
 **Interfaces — Produces (consumed by T4 & T8):**
+
 - `github.graphql(query: str, **variables) -> dict` — wraps `gh api graphql -f query=… -F k=v`, returns parsed `data`.
 - `epics.child_states(epic: IssueRef) -> list[ChildState]` where `ChildState = {"ref": IssueRef, "state": "OPEN"|"CLOSED"}`; uses native `subIssues` GraphQL, falls back to reflink scan (`Parent: <org>/.github#<N>` cross-references) when native returns none.
 - `epics.parent_of(task: IssueRef) -> IssueRef | None`
@@ -162,11 +169,13 @@ def test_label_addition_is_additive_only() -> None:
 **Repo:** `vergil-project/vergil-tooling` · **Branch:** `feature/<N>-finalize-close-rollup`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_finalize_pr.py` (add `_stage_close` + register in `build_stages`)
 - Modify: `src/vergil_tooling/lib/epics.py` (add `rollup(task: IssueRef)` + `premature_close_guard`)
 - Test: `tests/vergil_tooling/test_vrg_finalize_pr.py` (extend), `tests/vergil_tooling/lib/test_epics.py`
 
 **Interfaces:**
+
 - Consumes: `linkage.extract_tracking_issue(pr_body) -> int|None`; `epics.parent_of`, `epics.all_children_closed`, `github.run`.
 - Produces: `_stage_close(ctx)` — after `cd-check` succeeds, resolve the Ref'd task from the merged PR body, `github.run("issue","close",N,"--repo",repo)`, then `epics.rollup(task)` which closes the parent finite epic iff it lacks `standing` and `all_children_closed`. Runs **only** when prior fail_fast/fail_defer stages succeeded.
 
@@ -187,11 +196,13 @@ def test_label_addition_is_additive_only() -> None:
 **Repo:** `vergil-project/vergil-tooling` · **Branch:** `feature/<N>-linkage-epic-guard`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_pr_issue_linkage.py` (CI validator) and `src/vergil_tooling/lib/linkage.py`
 - Modify: `src/vergil_tooling/bin/vrg_submit_pr.py` (pre-submit check)
 - Test: `tests/vergil_tooling/test_linkage.py`, `tests/vergil_tooling/test_vrg_pr_issue_linkage.py`
 
 **Interfaces:**
+
 - Consumes: `extract_tracking_issue()` (already raises on >1 Ref); `github.read_json("issue","view",N,"--json","labels")`.
 - Produces: a validator rule — the single Ref'd issue must exist and must **not** carry the `epic` label; scoped to new-taxonomy issues so legacy issues don't trip it (skip the epic-label check when the issue has none of the convention labels).
 
@@ -206,6 +217,7 @@ def test_label_addition_is_additive_only() -> None:
 **Repo:** `vergil-project/vergil-claude-plugin` · **Branch:** `feature/<N>-intake-skills`
 
 **Files:**
+
 - Create: `skills/triage-capture/SKILL.md`, `skills/triage-review/SKILL.md`
 - Modify: `docs/repository-standards.md` (document the `triage` intake convention)
 
@@ -222,6 +234,7 @@ def test_label_addition_is_additive_only() -> None:
 **Repo(s):** `vergil-claude-plugin` (standards/on-ramp) and `.github` (epics/ README) · two child tasks if split per repo.
 
 **Files:**
+
 - Modify: `vergil-claude-plugin/CLAUDE.md` + `docs/repository-standards.md` (epic/task model on-ramp; `.github/epics/<N>-<slug>/` doc home; durable-knowledge integration step; correct namespace to `vergil`).
 - Create: `vergil-project/.github/epics/README.md` (explains the epics directory + roadmap derivation).
 
@@ -259,6 +272,7 @@ reverts and hotfixes are handled, and that tasks never reopen.
 **Repo(s):** `vergil-tooling` (generators) + `.github` (output + nightly workflow).
 
 **Files:**
+
 - Create: `vergil-tooling/src/vergil_tooling/bin/vrg_roadmap.py` (+ `vrg-activity-log` or one CLI with subcommands), `lib/roadmap.py`
 - Add: `[project.scripts]` entries in `vergil-tooling/pyproject.toml`
 - Create: `vergil-project/.github/.github/workflows/observability.yml` (nightly `schedule`) + output `roadmap.md` / `activity-log.md`

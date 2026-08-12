@@ -49,7 +49,7 @@ observable, and then **migrates the existing backlog into the new framework**.
 
 ## 2. Goals and non-goals
 
-**Goals**
+### Goals
 
 - A two-tier issue hierarchy (epic / task) invented on GitHub's flat model, with
   mechanical, deterministic closing rules.
@@ -67,7 +67,7 @@ observable, and then **migrates the existing backlog into the new framework**.
 - **Migration of the existing backlog, repo by repo, into this framework** — the
   epic is not done until every repo is migrated.
 
-**Non-goals (this spec)**
+### Non-goals (this spec)
 
 - The readiness-gating state machine (follow-on, #681).
 - **Cross-org epics.** The `.github` project layer is **per-org**; the "virtual
@@ -160,7 +160,7 @@ Clean task queues are the substrate for a future capability — an agent that pi
 discrete, fully-specified tasks off the queue and implements them — *because the
 epic did the planning upfront*.
 
-```
+```text
 .github/                         (org repo — project layer)
   epics/
     <N>-<slug>/                  N = epic issue number in .github

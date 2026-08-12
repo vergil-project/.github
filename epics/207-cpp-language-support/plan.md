@@ -53,6 +53,7 @@ reusable workflows; MkDocs site docs.
 ### T1 — Common C++ image base + Clang family (vergil-containers)
 
 **Files:**
+
 - Create: `docker/cpp/Dockerfile.base` (shared analysis-tool layer)
 - Create: `docker/cpp/Dockerfile.clang`
 - Modify: `docker/build.sh` (register the new image targets)
@@ -81,6 +82,7 @@ the concrete majors.
 ### T2 — GCC family (vergil-containers)
 
 **Files:**
+
 - Create: `docker/cpp/Dockerfile.gcc`
 - Modify: `docker/build.sh`
 
@@ -98,6 +100,7 @@ the concrete majors.
 ### T3 — Per-kind check cardinality (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/languages.py` (CheckKind cardinality concept)
 - Modify: `src/vergil_tooling/lib/github_config.py:224` (`desired_ci_gates_ruleset`)
 - Test: `tests/lib/test_languages.py`, `tests/lib/test_github_config.py`
@@ -123,6 +126,7 @@ generation honors it.
 ### T4 — `[cpp]` config schema + language enum (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/config.py:30` (`_ENUMS["primary-language"]`) and
   the `[cpp]` block parse/validate
 - Test: `tests/lib/test_config.py`
@@ -141,6 +145,7 @@ block.
 ### T5 — C++ language registry entry (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/languages.py:115` (`_REGISTRY`) and license
   allowlist constants
 - Create: `src/vergil_tooling/configs/cpp/` (packaged `clang-format`,
@@ -179,6 +184,7 @@ The meaty task — the concrete tool commands. Depends on T3 (cardinality) and T
 ### T6 — Container maps + language detection (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/container.py` (`_DEFAULT_VERSIONS`,
   `_DEFAULT_TEST_COMMANDS`, `detect_language`, image resolution)
 - Test: `tests/lib/test_container.py`
@@ -200,6 +206,7 @@ image; detection works.
 ### T7 — CodeQL list fix + repo-init wiring (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/github_config.py:224`
   (`_CODEQL_SUPPORTED_LANGUAGES`)
 - Modify: `src/vergil_tooling/lib/repo_init.py` (`_container_suffix`,
@@ -220,6 +227,7 @@ image; detection works.
 ### T8 — Reusable CI workflows accept `language: cpp` (vergil-actions)
 
 **Files:**
+
 - Modify: the reusable `.github/workflows/ci-*.yml` (quality/test/audit/security)
 - Test: workflow-level (a dry-run / sample invocation)
 
@@ -237,6 +245,7 @@ image; detection works.
 ### T9 — C++ standards docs (vergil-tooling · site docs)
 
 **Files:**
+
 - Create: `docs/site/docs/standards/development/cpp/overview.md`,
   `naming-conventions.md`, `testing-and-coverage.md`, `toolchain-and-warnings.md`
 
@@ -328,5 +337,5 @@ Operational (not PR-workable). Run with `issue-validate`. The end-to-end proof.
 
 ## Evolution during execution
 
-_Frozen at execution start; dated entries record meaningful deltas — a task
-added, dropped, or rescoped, a discovered dependency — with the reasoning._
+*Frozen at execution start; dated entries record meaningful deltas — a task
+added, dropped, or rescoped, a discovered dependency — with the reasoning.*

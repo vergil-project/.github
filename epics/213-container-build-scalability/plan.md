@@ -58,14 +58,16 @@ Validation (cold-rebuild) ── Blocked-by ── T4,T6,T7[,T8]
 ### Task 0 (Stage 0): Build-timing baseline harness
 
 **Files:**
+
 - Create: `docker/measure-build.sh`
 - Create: `docs/build-timing-baseline.md` (committed baseline snapshot)
 
 **Interfaces:**
+
 - Produces: `docker/measure-build.sh [lang…]` — cold-builds the given images (all
   by default) via `generate.sh` + the resolved runtime, printing per-image
   wall-clock and writing a machine-readable `timings.tsv` (columns:
-  `image	seconds`). Consumed by no code; its output seeds the baseline doc and
+  `image seconds`). Consumed by no code; its output seeds the baseline doc and
   the Stage D1 go/no-go.
 
 - [ ] **Step 1: Write `docker/measure-build.sh`.** Reuse `build.sh`'s runtime
@@ -92,6 +94,7 @@ Validation (cold-rebuild) ── Blocked-by ── T4,T6,T7[,T8]
 ### Task 1 (Stage A): `languages.yml` manifest + loader/validator + CI gate
 
 **Files:**
+
 - Create: `docker/languages.yml`
 - Create: `docker/matrix/manifest.py`
 - Create: `docker/matrix/check_manifest.py`
@@ -99,6 +102,7 @@ Validation (cold-rebuild) ── Blocked-by ── T4,T6,T7[,T8]
 - Modify: `.github/workflows/ci.yml` (add a `manifest` gate job)
 
 **Interfaces:**
+
 - Produces:
   - `manifest.py`: `@dataclass(frozen=True) class Language(name: str, build_arg:
     str | None, versions: tuple[str, ...], context: str, smoke: str | None)` and
@@ -161,10 +165,12 @@ def test_loads_all_six_languages_plus_base():
 ### Task 2 (Stage A): `@include` dependency-graph extractor
 
 **Files:**
+
 - Create: `docker/matrix/includes.py`
 - Create: `docker/matrix/test_includes.py`
 
 **Interfaces:**
+
 - Consumes: nothing (reads templates from disk).
 - Produces: `includes.py`:
   - `fragments_of(template: Path) -> set[str]` — parse `# @include common/<frag>`
@@ -213,11 +219,13 @@ def test_dependency_map_scopes_security_tools_to_base_only():
 ### Task 3 (Stage A): full-mode matrix generator + `build.sh` rewire
 
 **Files:**
+
 - Create: `docker/matrix/build_matrix.py`
 - Create: `docker/matrix/test_build_matrix.py`
 - Modify: `docker/build.sh`
 
 **Interfaces:**
+
 - Consumes: `manifest.load`, `includes.dependency_map`.
 - Produces: `build_matrix.py`:
   - `full(root: Path) -> list[dict]` — one entry per (language, version):
@@ -255,7 +263,7 @@ def test_full_matrix_matches_current_16_plus_base():
 - [ ] **Step 4: Run tests, expect PASS.**
 
 - [ ] **Step 5: Rewire `docker/build.sh`** to iterate the manifest instead of the
-  hand-written `build … ` list: read `build_matrix.py --mode full` (or import via a
+  hand-written `build …` list: read `build_matrix.py --mode full` (or import via a
   small `python3 -c`), and for each entry run `generate.sh <lang>` + the runtime
   build with `--build-arg <arg>=<version>` and tag `dev-<lang>:<version>`
   (`base` → `dev-base:latest`). Preserve the existing C++ smoke-test invocation by
@@ -274,10 +282,12 @@ def test_full_matrix_matches_current_16_plus_base():
 ### Task 4 (Stage A): CD + nightly consume the full manifest matrix (parity)
 
 **Files:**
+
 - Modify: `.github/workflows/cd-docker-publish.yml`
 - Modify: `.github/workflows/ops.yml` (nightly stays full, now manifest-driven)
 
 **Interfaces:**
+
 - Consumes: `build_matrix.py --mode full`.
 - Produces: a `setup` job output `matrix` (JSON) that `build-scan-push` consumes via
   `strategy.matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}`.
@@ -331,10 +341,12 @@ def test_full_matrix_matches_current_16_plus_base():
 ### Task 5 (Stage B): selective-mode matrix (diff → images, via the graph)
 
 **Files:**
+
 - Modify: `docker/matrix/build_matrix.py`
 - Modify: `docker/matrix/test_build_matrix.py`
 
 **Interfaces:**
+
 - Consumes: `includes.dependency_map`, plus a spec-§4.2 classification table.
 - Produces:
   - `REBUILD_ALL_GLOBS = ("docker/generate.sh","docker/languages.yml",
@@ -391,11 +403,13 @@ def test_docs_only_change_builds_nothing():
 ### Task 6 (Stage B): develop-push selectivity + aggregating build-gate
 
 **Files:**
+
 - Modify: `.github/workflows/cd-docker-publish.yml`
 - Modify: `.github/workflows/cd.yml` (pass event context / ref into the reusable
   workflow so `setup` knows full-vs-selective)
 
 **Interfaces:**
+
 - Produces: a `build-gate` job (`needs: build-scan-push`, `if: always()`) that fails
   unless every scheduled build succeeded (passing when zero were scheduled) — the
   single required status check for branch protection.
@@ -443,6 +457,7 @@ build-gate:
 ### Task 7 (Stage C): native arm64 runners + manifest stitch
 
 **Files:**
+
 - Modify: `.github/workflows/cd-docker-publish.yml`
 
 **Interfaces:** unchanged image names/tags; internal job graph reworked.
@@ -483,6 +498,7 @@ build-gate:
 > for the runtime-heavy tools).
 
 **Files:**
+
 - Create: `docker/common-tools/Dockerfile.template`
 - Modify: `docker/validation-tools.dockerfile` consumers → `COPY --from`
 - Modify: `docker/build.sh`, `.github/workflows/cd-docker-publish.yml`

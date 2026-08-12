@@ -159,10 +159,12 @@ would merely re-float and is useless for Axis-B recovery.
 ## 7. Workstreams
 
 ### WS1 — Fix nightly branch coupling *(filed: vergil-containers#413)*
+
 Prod from `main`, dev from `develop`; explicit `ref:` per prefix. Under ad-hoc
 epic #100. Referenced, not re-scoped.
 
 ### WS2 — Pin audit + catch-up (generated catalog)
+
 - **Generated catalog, not hand-maintained** (the founding drift problem must not
   recur). Version *facts* are generated from the Dockerfile templates/fragments
   (single source of truth). *Justifications* live in a keyed `pins.yml` (§4.2). A
@@ -179,6 +181,7 @@ epic #100. Referenced, not re-scoped.
   can repoint out of it. Plan encodes `WS2-free-risky` blocked-by `WS3`.
 
 ### WS3 — Immutable image-artifact tagging + sliding-window rollback
+
 - Publish, alongside the rolling tag, an **immutable datestamp alias** per build
   (e.g. `{prefix}-{lang}:{version}-YYYYMMDD` → digest). Datestamp (not semver)
   because it enables age-based cleanup and chronological bisection.
@@ -195,6 +198,7 @@ epic #100. Referenced, not re-scoped.
   not reap the active rollback target during an open incident.
 
 ### WS4 — Pin/version observability (internal state)
+
 - **Narrowed to what is local and un-driftable** (upstream-distance is delegated
   to the report-only Dependabot follow-on, §11): per image, the installed version
   set (from the image/SBOM) joined with `pins.yml`.
@@ -224,13 +228,14 @@ python 469 MB, go 1,828 MB, rust 1,122 MB, java 775 MB, ruby 689 MB. Full matrix
 (naive). At prod W=30 / dev W=7 ≈ **~380 GB** retained at steady state (naive
 upper bound).
 
-**Data (sourced):** public GHCR packages are **currently free, unlimited storage
-+ bandwidth**, ≥1-month notice before any change; our packages are confirmed
+**Data (sourced):** public GHCR packages are **currently free, unlimited storage -
+bandwidth**, ≥1-month notice before any change; our packages are confirmed
 public. If the free policy ever ends, historical GitHub Packages storage is
 **$0.25/GB/month**; data transfer is free when pulled inside Actions.
 (<https://docs.github.com/en/billing/concepts/product-billing/github-packages>)
 
 **Judgment:**
+
 - **No capacity wall today** (public = free). The **age-based reaper is what
   prevents the wall** — footprint plateaus at ~W×daily and stays flat rather than
   accelerating.

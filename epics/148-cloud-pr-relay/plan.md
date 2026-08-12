@@ -34,7 +34,7 @@ gains a worktree-free, push-free relay path selected by explicit branch args;
 
 ## Sequence / dependency graph
 
-```
+```text
 Task 1 (spike, validation) ─▶ Task 2 (GitHubTransport)
                                    ├─▶ Task 3 (report-ready always-push)
                                    ├─▶ Task 4 (vrg-submit-pr relay path)
@@ -79,10 +79,12 @@ FAILURE the epic's design is revisited before Task 2.
 ## Task 2: `GitHubTransport`
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/pr_workflow/github_transport.py`
 - Test: `tests/vergil_tooling/lib/pr_workflow/test_github_transport.py`
 
 **Interfaces — Produces:**
+
 ```python
 class GitHubTransport(Transport):
     def __init__(self, repo_root: Path, branch: str, *, remote: str = "origin") -> None: ...
@@ -92,6 +94,7 @@ class GitHubTransport(Transport):
     def head_sha(self) -> str: ...
     def merge_base(self) -> str: ...
 ```
+
 Ref path: `refs/vergil/pr-workflow/{branch}`.
 
 **Consumes:** `Transport` ABC (`lib/pr_workflow/transport.py`), `WorkflowState`
@@ -105,6 +108,7 @@ tree, then `git push --force origin <commit>:refs/vergil/pr-workflow/<branch>`.
 It must NOT run `git commit`.
 
 - [ ] **Step 1 — failing test: round-trip.**
+
 ```python
 def test_write_then_read_round_trips(tmp_git_remote):
     root, branch = tmp_git_remote
@@ -113,7 +117,9 @@ def test_write_then_read_round_trips(tmp_git_remote):
     got = GitHubTransport(root, branch).read()
     assert got is not None and got.issue == "42" and got.status == "ready"
 ```
+
 - [ ] **Step 2 — failing test: freeze-neutral invariant** (the load-bearing one):
+
 ```python
 def test_write_does_not_touch_head_index_or_worktree(tmp_git_remote):
     root, branch = tmp_git_remote
@@ -123,6 +129,7 @@ def test_write_does_not_touch_head_index_or_worktree(tmp_git_remote):
     assert git_rev_parse(root, "HEAD") == before_head
     assert git_status_porcelain(root) == before_status
 ```
+
 - [ ] **Step 3 — failing tests: `read()` on missing ref → `None`; `write()` twice
   force-updates; `delete()` removes it and is a no-op when absent.**
 - [ ] **Step 4 — run tests, verify they fail** (`GitHubTransport` undefined).
@@ -135,6 +142,7 @@ def test_write_does_not_touch_head_index_or_worktree(tmp_git_remote):
 ## Task 3: `report-ready` always-pushes the relay ref
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_pr_workflow.py` (the `report-ready` handler)
 - Test: `tests/vergil_tooling/bin/test_vrg_pr_workflow.py`
 
@@ -145,12 +153,14 @@ def test_write_does_not_touch_head_index_or_worktree(tmp_git_remote):
 (non-zero/warning) but does not undo the durable local write.
 
 - [ ] **Step 1 — failing test: `report-ready` writes the ref.**
+
 ```python
 def test_report_ready_pushes_relay_ref(monkeypatch, worktree):
     calls = record_calls(monkeypatch, "GitHubTransport.write")
     run_report_ready(worktree, issue="42", title="t", summary="s", notes="n")
     assert calls.count == 1 and calls.last_arg.status == "ready"
 ```
+
 - [ ] **Step 2 — failing test: push failure surfaces, local write persists.**
 - [ ] **Step 3 — run, verify fail. Step 4 — implement. Step 5 — validate green. Step 6 — commit.**
 
@@ -159,6 +169,7 @@ def test_report_ready_pushes_relay_ref(monkeypatch, worktree):
 ## Task 4: `vrg-submit-pr` — shared PR-open core + relay branch-list path
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_submit_pr.py`
 - Test: `tests/vergil_tooling/bin/test_vrg_submit_pr.py`
 
@@ -166,6 +177,7 @@ def test_report_ready_pushes_relay_ref(monkeypatch, worktree):
 
 **Behavior:** extract a shared core `_open_pr(branch, base, metadata, *, push:
 bool)` from today's flow. Add positional `branches: nargs="*"`.
+
 - **No branches** → today's local-worktree batch (`push=True`, unchanged).
 - **Branches** → relay path: per branch, resolve state (local worktree file if
   present, else `GitHubTransport.read()`); **verify origin tip ==
@@ -175,6 +187,7 @@ bool)` from today's flow. Add positional `branches: nargs="*"`.
 
 - [ ] **Step 1 — failing test: no-arg path still submits local ready worktrees** (regression guard).
 - [ ] **Step 2 — failing test: relay path opens a PR from the ref without pushing.**
+
 ```python
 def test_relay_submit_opens_pr_without_push(monkeypatch, origin_with_ref):
     branch = "feature/42-x"
@@ -183,6 +196,7 @@ def test_relay_submit_opens_pr_without_push(monkeypatch, origin_with_ref):
     main(["feature/42-x"])
     assert opened.branch == branch and pushed.count == 0
 ```
+
 - [ ] **Step 3 — failing tests: local-file preferred over ref; head_sha mismatch → error; missing ready-state → clear error; batch of two branches.**
 - [ ] **Step 4 — run, verify fail. Step 5 — refactor + implement. Step 6 — validate green. Step 7 — commit.**
 
@@ -191,6 +205,7 @@ def test_relay_submit_opens_pr_without_push(monkeypatch, origin_with_ref):
 ## Task 5: `vrg-finalize-pr` — delete the relay ref on cleanup
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_finalize_pr.py` (and the straggler sweep it
   shares with `lib/worktrees.py` if needed)
 - Test: `tests/vergil_tooling/bin/test_vrg_finalize_pr.py`
@@ -212,6 +227,7 @@ the straggler sweep, prune a relay ref whose branch no longer exists.
 **Repo:** `vergil-project/vergil-claude-plugin`. **After Task 4's behavior is fixed.**
 
 **Files:**
+
 - Delete: `skills/issue-localize/` (the whole skill)
 - Modify: plugin `CLAUDE.md` cloud-session contract; any docs referencing
   `issue-localize` or "cloud is triage-only, no PR-dev".

@@ -15,7 +15,7 @@ self-healing creation path, an idempotent org-wide `vrg-adhoc-epic normalize`
 sweep, one audit fix, updated standards docs, and a one-time migration of the
 whole existing backlog. The live `Epic (ad hoc): <repo>` epic was left untouched.
 
-**Work delivered**
+### Work delivered
 
 | PR / action | Repo | Task | What it did |
 |---|---|---|---|

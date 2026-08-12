@@ -35,10 +35,12 @@
 ## Task 1: Add the `archive` label
 
 **Files:**
+
 - Modify: `src/vergil_tooling/data/labels.json`
 - Test: `tests/vergil_tooling/test_data_labels.py` (create if absent)
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: an `archive` label available to `vrg-ensure-label` and to issue creation.
 
@@ -105,10 +107,12 @@ vrg-commit --type feat --scope epics --message "add 'archive' label for per-quar
 ## Task 2: Archive constants, new-form regex, legacy recognizer, parameterized title search
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py:399-452` (constants block + `_find_epic_by_title`)
 - Test: `tests/vergil_tooling/test_epics.py`
 
 **Interfaces:**
+
 - Produces:
   - `_ADHOC_ARCHIVE_TITLE_PREFIX: str = "Archive (ad hoc): "`
   - `_ADHOC_ARCHIVE_LABELS: tuple[str, str] = ("archive", "ad-hoc")`
@@ -228,10 +232,12 @@ vrg-commit --type refactor --scope epics --message "add archive constants, new/l
 ## Task 3: Switch archive creation and discovery to the new form
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` — `ensure_adhoc_archive` (`499-520`) and `list_open_adhoc_archives` (`523-550`)
 - Test: `tests/vergil_tooling/test_epics.py:934-970` (existing archive tests → new form)
 
 **Interfaces:**
+
 - Produces: `ensure_adhoc_archive(target_repo, quarter)` creates `Archive (ad hoc): <bare> — <quarter>` labelled `("archive", "ad-hoc")` and looks up existing archives with those labels. `list_open_adhoc_archives(home)` finds archives via `_ADHOC_ARCHIVE_RE` under the archive labels.
 
 - [ ] **Step 1: Update the existing tests to the new form (they will fail)**
@@ -335,10 +341,12 @@ vrg-commit --type feat --scope epics --message "create and discover per-quarter 
 ## Task 4: Self-healing creation — heal a legacy archive in place
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` — add `_normalize_archive_in_place`; extend `ensure_adhoc_archive` with the legacy-heal branch
 - Test: `tests/vergil_tooling/test_epics.py`
 
 **Interfaces:**
+
 - Consumes: `_ADHOC_EPIC_TITLE_PREFIX`, `_ADHOC_ARCHIVE_TITLE_PREFIX`, `_find_epic_by_title` (both label sets).
 - Produces:
   - `_normalize_archive_in_place(ref: IssueRef, new_title: str) -> None` — retitle + add `archive` + remove `epic` (keeps `ad-hoc`) via `github.run("issue", "edit", ...)`.
@@ -444,10 +452,12 @@ vrg-commit --type feat --scope epics --message "self-heal legacy archives in pla
 ## Task 5: One-time idempotent normalize sweep (per-repo home traversal)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` — add `ArchiveConversion`, `plan_normalize_adhoc`, `apply_normalize`, `normalize_adhoc_archives`
 - Test: `tests/vergil_tooling/test_epics.py`
 
 **Interfaces:**
+
 - Consumes: `resolve_epic_home`, `github.list_org_repos`, `github.read_json`, `_LEGACY_ADHOC_ARCHIVE_RE`, `_normalize_archive_in_place`, `_ADHOC_ARCHIVE_TITLE_PREFIX`.
 - Produces:
   - `@dataclass(frozen=True) class ArchiveConversion: ref: IssueRef; old_title: str; new_title: str`
@@ -615,10 +625,12 @@ vrg-commit --type feat --scope epics --message "add org-wide idempotent normaliz
 ## Task 6: `vrg-adhoc-epic normalize` subcommand
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_adhoc_epic.py` — add `cmd_normalize` + the `normalize` subparser; update the prog description
 - Test: `tests/vergil_tooling/test_vrg_adhoc_epic.py`
 
 **Interfaces:**
+
 - Consumes: `epics.normalize_adhoc_archives(org, apply=…)`, `github.target_org`.
 - Produces: CLI `vrg-adhoc-epic normalize --all-in ORG [--apply]` (dry-run default), printing one line per planned conversion.
 
@@ -709,10 +721,12 @@ vrg-commit --type feat --scope adhoc-epic --message "add 'normalize' subcommand 
 ## Task 7: Fix `stray_dotgithub_issue` so archives are not flagged as strays
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epic_audit.py:332` (the skip-set line in `stray_dotgithub_issue`)
 - Test: `tests/vergil_tooling/test_epic_audit.py`
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: an open `archive`-labelled home issue is treated as legitimately non-stray.
 
@@ -799,6 +813,7 @@ These steps are agent-safe (no release), so `issue-deploy` runs them; success is
 ## Self-Review
 
 **Spec coverage:**
+
 - §3.1 new `archive` label → Task 1. ✓
 - §3.2 constants, new-form regex, legacy recognizer → Task 2. ✓
 - §3.3 creation/discovery switch + parameterized label set → Tasks 2 (param) + 3 (switch). ✓

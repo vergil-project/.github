@@ -7,8 +7,8 @@
 ## §0 At a glance
 
 We set out to add **C++ as a first-class supported language** on the fleet's
-containerized, multi-version model — and shipped a **dual-compiler (Clang primary
-+ GCC secondary) four-image pipeline** (`clang-20/19`, `gcc-14/13`), validated
+containerized, multi-version model — and shipped a **dual-compiler (Clang primary -
+GCC secondary) four-image pipeline** (`clang-20/19`, `gcc-14/13`), validated
 green end-to-end: warnings-to-11 `-Werror` builds, **100% per-compiler coverage**,
 ASan/UBSan, and a **working `conan audit` dependency gate that demonstrably
 detects CVEs**. The one thing we *didn't* ship — the generic fleet-secrets

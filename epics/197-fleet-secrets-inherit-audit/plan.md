@@ -40,7 +40,7 @@ works. Merge + release + install before Task 2 runs.
 ### Task 3 — vergil-project residual (from the catalog)
 
 For any vergil-project repo the catalog flags that #189 missed: an impl task under
-#197, one `cd.yml`/workflow fix per repo (explicit map or removal), human-pushed.
+issue #197, one `cd.yml`/workflow fix per repo (explicit map or removal), human-pushed.
 
 ### Task 4 — per-org handoffs (from the catalog)
 

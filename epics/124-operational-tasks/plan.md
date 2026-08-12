@@ -23,17 +23,20 @@
 ### Task 1: Rename the guard `validation` → `operational` (behavior-preserving) — `vergil-tooling`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` (`is_validation_task` → `is_operational_task`; add `_OPERATIONAL_LABELS`)
 - Modify: `src/vergil_tooling/bin/vrg_submit_pr.py` (`_reject_if_validation_task` → `_reject_if_operational_task`)
 - Modify: `src/vergil_tooling/bin/vrg_pr_workflow.py` (`_reject_validation_issue` → `_reject_operational_issue`)
 - Test: `tests/vergil_tooling/test_epics.py`, `test_vrg_submit_pr.py`, `pr_workflow/test_cli_e2e.py`
 
 **Interfaces:**
+
 - Produces: `epics.is_operational_task(ref, *, default_repo) -> bool` (True if the ref carries any label in `_OPERATIONAL_LABELS`); `epics._OPERATIONAL_LABELS: set[str]` (initially `{"validation"}`); `epics.is_validation(ref)` unchanged (per-label predicate).
 
 - [ ] **Step 1: Update the library tests to the new names (still validation-only behavior)**
 
 In `tests/vergil_tooling/test_epics.py`, rename the three `is_validation_task` tests to `is_operational_task`, keeping identical behavior (patch `epics.is_validation`):
+
 ```python
 def test_is_operational_task_true_for_operational() -> None:
     with patch("vergil_tooling.lib.epics.is_operational", return_value=True) as mock:
@@ -60,6 +63,7 @@ Expected: FAIL (`is_operational_task` undefined).
 Add **public** operational predicates (so `epic_audit` never pokes `_labels`),
 and have `is_operational_task` delegate. Rename `is_validation` → `is_operational`
 (behavior-preserving: `validation` is the only operational label at this step):
+
 ```python
 # Labels that mark a not-PR-workable operational task (run, don't merge).
 # Extended as new operational kinds are added (e.g. deployment).
@@ -89,6 +93,7 @@ def is_operational_task(ref: str, *, default_repo: str) -> bool:
         return False
     return is_operational(issue)
 ```
+
 (Delete `is_validation_task` and `is_validation`; `is_operational` /
 `operational_kind` subsume them. Update the two `is_validation` tests in
 `test_epics.py` to `is_operational`.)
@@ -107,6 +112,7 @@ Run: `uv run pytest tests/vergil_tooling/test_epics.py tests/vergil_tooling/test
 Expected: PASS — the guard still refuses validation, now via the operational set.
 
 - [ ] **Step 7: Commit**
+
 ```bash
 vrg-git add src/vergil_tooling/lib/epics.py src/vergil_tooling/bin/vrg_submit_pr.py src/vergil_tooling/bin/vrg_pr_workflow.py tests/vergil_tooling/
 vrg-commit --type refactor --scope pr-guard --message "generalize the PR-workability guard to operational tasks" --body "Behavior-preserving rename is_validation_task -> is_operational_task (label-set based). Ref #<TASK1>."
@@ -117,16 +123,19 @@ vrg-commit --type refactor --scope pr-guard --message "generalize the PR-workabi
 ### Task 2: Rename the audit `validation` → `operational` (behavior-preserving) — `vergil-tooling`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epic_audit.py` (`ValidationStatus` → `OperationalStatus`; `validation_status`/`validation_pending`/`closed_validation_without_pass` → `operational_*`; `_VALIDATION_PASS_RE` → `_OPERATIONAL_SUCCESS_RE`; render section title)
 - Modify: `src/vergil_tooling/bin/vrg_epic_audit.py` (call sites, param names)
 - Test: `tests/vergil_tooling/test_epic_audit.py`, `test_vrg_epic_audit.py`
 
 **Interfaces:**
+
 - Produces: `epic_audit.OperationalStatus` (fields `epic`, `runnable`, `blocked`, prop `pending`); `operational_status(epic) -> OperationalStatus`; `operational_pending(org) -> list[OperationalStatus]`; `closed_operational_without_success(org) -> list[str]`. `is_operational` child check via `epics._labels(ref) & epics._OPERATIONAL_LABELS`.
 
 - [ ] **Step 1: Update the audit tests to the new names (behavior identical, still matches `PASS`)**
 
 In `test_epic_audit.py`, rename the six validation-aware tests to `operational_*` and update the assertions to the new symbol names; keep the `Outcome: PASS` fixtures (regex still matches PASS at this step). E.g.:
+
 ```python
 def test_operational_status_classifies_runnable_vs_blocked() -> None:
     ...  # identical body, epic_audit.operational_status(epic)
@@ -142,6 +151,7 @@ Expected: FAIL (new symbols undefined).
 - [ ] **Step 3: Rename in `epic_audit.py` (behavior-preserving)**
 
 Rename the dataclass and functions; the classifier still keys off `"validation" in _labels(...)` via the operational set:
+
 ```python
 @dataclass(frozen=True)
 class OperationalStatus:
@@ -160,6 +170,7 @@ def operational_status(epic: epics.IssueRef) -> OperationalStatus:
         (runnable if epics.all_blockers_closed(child.ref) else blocked).append(child.ref)
     return OperationalStatus(epic=epic, runnable=tuple(runnable), blocked=tuple(blocked))
 ```
+
 Use the **public** `epics.is_operational` (added in Task 1) — do not reach into
 `epics._labels` / `epics._OPERATIONAL_LABELS`. Rename `validation_pending` →
 `operational_pending` (calls `operational_status`); `closed_validation_without_pass`
@@ -179,6 +190,7 @@ Run: `uv run pytest tests/vergil_tooling/test_epic_audit.py tests/vergil_tooling
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
+
 ```bash
 vrg-git add src/vergil_tooling/lib/epic_audit.py src/vergil_tooling/bin/vrg_epic_audit.py tests/vergil_tooling/
 vrg-commit --type refactor --scope epic-audit --message "generalize validation-aware audit to operational tasks" --body "Behavior-preserving rename; still matches Outcome: PASS. Ref #<TASK2>."
@@ -189,14 +201,17 @@ vrg-commit --type refactor --scope epic-audit --message "generalize validation-a
 ### Task 3: Unified `Outcome: SUCCESS` marker (tooling side) — `vergil-tooling`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epic_audit.py` (`_OPERATIONAL_SUCCESS_RE`)
 - Modify: `src/vergil_tooling/data/validation_task_body.md` (results template)
 - Test: `tests/vergil_tooling/test_epic_audit.py`
 
 **Interfaces:**
+
 - Produces: the success invariant recognizes `Outcome: SUCCESS` **and** legacy `Outcome: PASS`.
 
 - [ ] **Step 1: Write the failing test**
+
 ```python
 def test_success_marker_accepts_success_and_legacy_pass() -> None:
     search = [{"number": n, "repository": {"nameWithOwner": "org/repo"}} for n in (1, 2, 3)]
@@ -211,6 +226,7 @@ def test_success_marker_accepts_success_and_legacy_pass() -> None:
 - [ ] **Step 2: Run, verify fail** (`SUCCESS` not yet accepted → #1 wrongly flagged).
 
 - [ ] **Step 3: Broaden the regex**
+
 ```python
 _OPERATIONAL_SUCCESS_RE = re.compile(
     r"^\s*[-*]?\s*Outcome:\s*(?:SUCCESS|PASS)\s*$", re.MULTILINE | re.IGNORECASE
@@ -224,6 +240,7 @@ In `data/validation_task_body.md`, change the results line to `- Outcome: SUCCES
 - [ ] **Step 5: Run, verify pass** (`uv run pytest tests/vergil_tooling/test_epic_audit.py -k success -v`).
 
 - [ ] **Step 6: Commit**
+
 ```bash
 vrg-git add src/vergil_tooling/lib/epic_audit.py src/vergil_tooling/data/validation_task_body.md tests/vergil_tooling/test_epic_audit.py
 vrg-commit --type feat --scope epic-audit --message "unify operational success marker (SUCCESS, legacy PASS)" --body "Ref #<TASK3>."
@@ -234,11 +251,13 @@ vrg-commit --type feat --scope epic-audit --message "unify operational success m
 ### Task 4: Add the `deployment` label to the operational set — `vergil-tooling`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/data/labels.json`
 - Modify: `src/vergil_tooling/lib/epics.py` (`_OPERATIONAL_LABELS`)
 - Test: `tests/vergil_tooling/test_labels.py`, `test_epics.py`
 
 - [ ] **Step 1: Write failing tests**
+
 ```python
 # test_labels.py
 def test_registry_includes_deployment_label() -> None:
@@ -256,9 +275,11 @@ def test_is_operational_task_true_for_deployment() -> None:
 - [ ] **Step 3: Add the label + extend the set**
 
 `labels.json` (description ≤ 100 chars — the existing limit test enforces it):
+
 ```json
 {"name": "deployment", "color": "1d76db", "description": "Deployment task: install/sync merged changes so they are usable; never auto-closed"}
 ```
+
 `epics.py`: `_OPERATIONAL_LABELS = {"validation", "deployment"}`.
 
 - [ ] **Step 4: Bump the `vrg-ensure-label` sync count**
@@ -268,6 +289,7 @@ def test_is_operational_task_true_for_deployment() -> None:
 - [ ] **Step 5: Run, verify green** (`uv run pytest tests/vergil_tooling/test_labels.py tests/vergil_tooling/test_epics.py tests/vergil_tooling/test_vrg_ensure_label.py -q`).
 
 - [ ] **Step 6: Commit**
+
 ```bash
 vrg-git add src/vergil_tooling/data/labels.json src/vergil_tooling/lib/epics.py tests/vergil_tooling/
 vrg-commit --type feat --scope labels --message "add deployment label to the operational set" --body "Ref #<TASK4>."
@@ -278,15 +300,18 @@ vrg-commit --type feat --scope labels --message "add deployment label to the ope
 ### Task 5: `vrg-issue-create --kind deployment` + scaffold — `vergil-tooling`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_issue_create.py` (`--kind` choices; `_render_validation_body` → `_render_operational_body(kind)`)
 - Create: `src/vergil_tooling/data/deployment_task_body.md`
 - Test: `tests/vergil_tooling/test_vrg_issue_create.py`
 
 **Interfaces:**
+
 - Consumes: `epics.render_blocked_by`, the `deployment` label (Task 4).
 - Produces: `vrg-issue-create --kind {task,validation,deployment}`; deployment kind stamps the `deployment` label + `deployment_task_body.md` + `Blocked-by:` reflinks.
 
 - [ ] **Step 1: Write the failing test**
+
 ```python
 def test_kind_deployment_applies_label_and_scaffold() -> None:
     with (
@@ -311,6 +336,7 @@ def test_kind_deployment_applies_label_and_scaffold() -> None:
 - [ ] **Step 3: Create the deployment scaffold**
 
 `data/deployment_task_body.md` — mirror the validation scaffold but for deploying, with the release boundary and idempotency baked in:
+
 ```markdown
 {intro}
 
@@ -350,6 +376,7 @@ Rename `_render_validation_body(*, intro, deps)` → `_render_operational_body(*
 - [ ] **Step 5: Run, verify green** — add a `test_kind_validation_*` regression check that validation still works via the renamed builder.
 
 - [ ] **Step 6: Commit**
+
 ```bash
 vrg-git add src/vergil_tooling/bin/vrg_issue_create.py src/vergil_tooling/data/deployment_task_body.md tests/vergil_tooling/test_vrg_issue_create.py
 vrg-commit --type feat --scope issue-create --message "add --kind deployment path + scaffold" --body "Ref #<TASK5>."
@@ -360,13 +387,16 @@ vrg-commit --type feat --scope issue-create --message "add --kind deployment pat
 ### Task 6: Audit kind-awareness (validation vs deployment) — `vergil-tooling`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epic_audit.py` (`OperationalStatus` carries per-child kind; render shows kind)
 - Test: `tests/vergil_tooling/test_epic_audit.py`
 
 **Interfaces:**
+
 - Produces: `operational_status` tags each pending child with its kind so the report distinguishes deployment-pending from validation-pending.
 
 - [ ] **Step 1: Write the failing test**
+
 ```python
 def test_operational_status_tags_kind() -> None:
     epic = epics.IssueRef("org", ".github", 124)
@@ -397,6 +427,7 @@ Add `by_kind: dict[IssueRef, str]` (**keyed by ref** — cross-repo safe, since
 - [ ] **Step 4: Run, verify green.**
 
 - [ ] **Step 5: Commit**
+
 ```bash
 vrg-git add src/vergil_tooling/lib/epic_audit.py tests/vergil_tooling/test_epic_audit.py
 vrg-commit --type feat --scope epic-audit --message "tag operational-pending items by kind" --body "Ref #<TASK6>."
@@ -407,12 +438,14 @@ vrg-commit --type feat --scope epic-audit --message "tag operational-pending ite
 ### Task 7: Shared operational-task lifecycle + `issue-validate` marker update — `vergil-claude-plugin`
 
 **Files:**
+
 - Create: `skills/issue-validate/references/operational-task-lifecycle.md` (shared lifecycle)
 - Modify: `skills/issue-validate/SKILL.md` (record `Outcome: SUCCESS`; point to the shared lifecycle)
 
 - [ ] **Step 1:** Write the shared lifecycle reference: the common contract both run skills follow — preflight (USER + operational label) → preconditions gate (block, don't fabricate) → run the recorded procedure → record `Outcome: SUCCESS/FAILURE` comment → **close on SUCCESS / hold-open on FAILURE**, plus the "not-PR-workable / gates-the-epic" invariants.
 - [ ] **Step 2:** Update `issue-validate` to record `Outcome: SUCCESS`/`FAILURE` (was PASS/FAIL) and to reference the shared lifecycle instead of restating it; keep validation-specific "verify, don't change" framing.
 - [ ] **Step 3:** Self-review; commit.
+
 ```bash
 vrg-git add skills/issue-validate/
 vrg-commit --type docs --scope issue-validate --message "extract shared operational lifecycle; record SUCCESS" --body "Ref #<TASK7>."
@@ -423,6 +456,7 @@ vrg-commit --type docs --scope issue-validate --message "extract shared operatio
 ### Task 8: `issue-deploy` skill (new) — `vergil-claude-plugin`
 
 **Files:**
+
 - Create: `skills/issue-deploy/SKILL.md`
 
 - [ ] **Step 1:** Frontmatter (`name: issue-deploy`; triggers: "deploy #N", "run the deployment", picking up a `deployment`-labelled issue).
@@ -431,6 +465,7 @@ vrg-commit --type docs --scope issue-validate --message "extract shared operatio
 - [ ] **Step 4:** **Close semantics** — SUCCESS → close (epic can roll up). FAILURE → **retry first** (idempotent); file a fix task only for a genuine defect; leave the task and epic open.
 - [ ] **Step 5:** Reference the shared operational-task lifecycle (Task 7); contrast with `issue-validate` (deploy *changes* state) and `issue-implement` (no worktree/PR).
 - [ ] **Step 6:** Self-review; commit.
+
 ```bash
 vrg-git add skills/issue-deploy/
 vrg-commit --type feat --scope issue-deploy --message "add issue-deploy skill" --body "Ref #<TASK8>."
@@ -441,12 +476,14 @@ vrg-commit --type feat --scope issue-deploy --message "add issue-deploy skill" -
 ### Task 9: `epic-create` doctrine — Operational tasks — `vergil-claude-plugin`
 
 **Files:**
+
 - Modify: `skills/epic-create/SKILL.md`
 
 - [ ] **Step 1:** Generalize the "Validation tasks" section to **"Operational tasks"** covering both kinds and the invariants.
 - [ ] **Step 2:** Document the **impl → deploy → validate** ordering and *when to add a deployment task* (the next step needs the thing **deployed/usable**, not merely merged), including the merged-vs-deployed `Blocked-by` structure.
 - [ ] **Step 3:** Document creation via `vrg-issue-create --kind deployment` and the release-as-precondition boundary.
 - [ ] **Step 4:** Self-review; commit.
+
 ```bash
 vrg-git add skills/epic-create/SKILL.md
 vrg-commit --type docs --scope epic-create --message "generalize doctrine to operational tasks (+ deployment)" --body "Ref #<TASK9>."
@@ -457,11 +494,13 @@ vrg-commit --type docs --scope epic-create --message "generalize doctrine to ope
 ### Task 10: `issue-implement` redirect — any operational kind — `vergil-claude-plugin`
 
 **Files:**
+
 - Modify: `skills/issue-implement/SKILL.md`
 
 - [ ] **Step 1:** Broaden the wrong-skill redirect: a `validation`-labelled issue → `issue-validate`; a `deployment`-labelled issue → `issue-deploy`; both are operational tasks, not code-implementation.
 - [ ] **Step 2:** Extend discover-and-create: when a step must be **deployed** before the next can run or be validated, mint a **deployment task** (`--kind deployment`, blocked-by the impl task) and don't declare done while it's open.
 - [ ] **Step 3:** Self-review; commit.
+
 ```bash
 vrg-git add skills/issue-implement/SKILL.md
 vrg-commit --type docs --scope issue-implement --message "redirect deployment issues to issue-deploy; discover deploy needs" --body "Ref #<TASK10>."
@@ -474,12 +513,14 @@ vrg-commit --type docs --scope issue-implement --message "redirect deployment is
 **Deliverable:** a `deployment`-labelled task created via the new tooling that exercises the chain end-to-end with **agent-safe** deploy steps (the release is the human precondition). Blocked-by the tooling tasks.
 
 - [ ] **Step 1:** After Tasks 4–6 merge and deploy, create it:
+
 ```bash
 vrg-issue-create --epic vergil-project/.github#124 --repo vergil-project/.github \
   --kind deployment --title "Deploy: the deployment-task tooling into the org" \
   --blocked-by vergil-project/vergil-tooling#<TASK4> \
   --blocked-by vergil-project/vergil-tooling#<TASK5>
 ```
+
 - [ ] **Step 2:** Preconditions: attest the release is published (human). Deploy
   steps (agent-safe, **non-circular** — the `.github` label already exists to
   create this task, so target the **member repos**): confirm `deployment` is

@@ -40,23 +40,28 @@
 **Repo:** vergil-tooling. **Depends on:** none (foundational).
 
 **Files:**
+
 - Modify: `src/vergil_tooling/data/labels.json` (add `ad-hoc`)
 - Modify: `src/vergil_tooling/lib/epics.py`
 - Test: `tests/vergil_tooling/test_epics.py`, `tests/vergil_tooling/test_labels.py`
 
 **Interfaces:**
+
 - Produces: `ensure_adhoc_epic(target_repo: str) -> IssueRef` — locate/create the ad-hoc epic for `target_repo` in `<org>/.github`, titled `Epic (ad hoc): <bare-name>`, labelled `epic` + `ad-hoc`.
 - Produces: `resolve_epic_ref(ref, *, repo)` accepts `"adhoc"` and (alias) `"standing"`, both routing to `ensure_adhoc_epic(repo)`.
 - Produces: `rollup()` treats a parent labelled `ad-hoc` **or** `standing` as perpetual (never auto-closes).
 
 - [ ] **Step 1: Add the `ad-hoc` label.** In `data/labels.json`, add after the `standing` entry:
+
 ```json
 {"name": "ad-hoc", "color": "5319e7", "description": "Perpetual umbrella for ad-hoc work; never auto-closes"},
 ```
+
 Leave `standing` in place (retired in Task 11). Add/extend `test_labels.py` to assert `ad-hoc` is present.
 **Precondition for live use:** `gh issue create --label ad-hoc` fails unless the label already exists in the target repo, so `ensure_adhoc_epic` cannot mint an epic in `.github` until `ad-hoc` is **synced into `<org>/.github`** via the label-sync path (`vrg-ensure-label` / the labels.json apply). This sync must land before Task 10; it is the real-world gate on Phase 2.
 
 - [ ] **Step 2: Write failing tests for `ensure_adhoc_epic`** in `test_epics.py`:
+
 ```python
 def test_ensure_adhoc_epic_finds_by_title_in_dotgithub(monkeypatch):
     calls = {}
@@ -80,9 +85,11 @@ def test_ensure_adhoc_epic_creates_when_absent(monkeypatch):
     assert created["title"] == "Epic (ad hoc): vergil-tooling"
     assert set(created["labels"]) == {"epic", "ad-hoc"}
 ```
+
 Run: `uv run pytest tests/vergil_tooling/test_epics.py -k adhoc -v` → FAIL (no `ensure_adhoc_epic`).
 
 - [ ] **Step 3: Implement `ensure_adhoc_epic`.** Replace `_STANDING_EPIC_*` with `_ADHOC_EPIC_TITLE_PREFIX = "Epic (ad hoc): "`, `_ADHOC_EPIC_LABELS = ("epic", "ad-hoc")`, and a body constant. New function:
+
 ```python
 def ensure_adhoc_epic(target_repo: str) -> IssueRef:
     """Return target_repo's ad-hoc epic in <org>/.github, creating it if absent.
@@ -112,6 +119,7 @@ def ensure_adhoc_epic(target_repo: str) -> IssueRef:
     number = int(url.rstrip("/").rsplit("/", 1)[-1])
     return IssueRef(owner=owner, repo=".github", number=number)
 ```
+
 Keep a thin `ensure_standing_epic = ensure_adhoc_epic` module-level alias so external callers survive Phase 1.
 
 - [ ] **Step 4: Sentinel + rollup.** In `resolve_epic_ref`, change the sentinel branch to `if ref in ("adhoc", "standing"): return ensure_adhoc_epic(repo)`. In `rollup`, change the perpetual guard to `if _labels(parent) & {"ad-hoc", "standing"}: return`.
@@ -125,6 +133,7 @@ Keep a thin `ensure_standing_epic = ensure_adhoc_epic` module-level alias so ext
 **Repo:** vergil-tooling. **Depends on:** Task 1.
 
 **Files:**
+
 - Rename: `src/vergil_tooling/bin/vrg_standing_epic.py` → `bin/vrg_adhoc_epic.py`
 - Modify: `pyproject.toml` (`[project.scripts]`)
 - Test: rename `tests/vergil_tooling/test_vrg_standing_epic.py` → `test_vrg_adhoc_epic.py`
@@ -154,6 +163,7 @@ Keep a thin `ensure_standing_epic = ensure_adhoc_epic` module-level alias so ext
 **Interfaces:** Produces: `vrg-triage-create --kind {triage,idea,research}` (default `triage`), primary label = kind; `--repo` defaults to `<org>/.github`.
 
 - [ ] **Step 1: Failing tests:**
+
 ```python
 def test_kind_research_labels_and_targets_dotgithub(monkeypatch):
     monkeypatch.setattr(tc.github, "detect_org", lambda: "vergil-project")
@@ -167,7 +177,9 @@ def test_kind_research_labels_and_targets_dotgithub(monkeypatch):
 def test_default_kind_is_triage(monkeypatch):
     ...  # asserts labels == ["triage"] and repo defaults to <org>/.github
 ```
+
 Run → FAIL.
+
 - [ ] **Step 2:** Add `--kind` with `choices=["triage", "idea", "research"], default="triage"`. Build `labels = list(dict.fromkeys([args.kind, *args.label]))`. Change default repo: `repo = args.repo or f"{github.detect_org()}/.github"`. Update `prog` description/epilog to describe all three kinds and the `.github` default; note it supersedes the current-repo default.
 - [ ] **Step 3:** Run tests → PASS. **Step 4:** Validate + commit (`--type feat --scope cli`).
 
@@ -189,6 +201,7 @@ Run → FAIL.
 **Files:** Modify `lib/epic_audit.py`, `bin/vrg_epic_audit.py`; test `test_epic_audit.py`, `test_vrg_epic_audit.py`.
 
 **Interfaces:** Produces two report-only checks (human-gated close/fix stays as-is):
+
 1. `epic_outside_dotgithub(org) -> list[IssueRef]` — open `epic`-labelled issues in any repo other than `.github` (violates invariant 1).
 2. `stray_dotgithub_issue(org) -> list[IssueRef]` — open `.github` issues that are **not** an epic, **not** intake (`triage`/`idea`/`research`), and **not** a self-referential task (one whose closing PR is in `.github`) (violates invariant 2). For the self-referential exemption, treat any issue linked under a `.github` ad-hoc epic (or any non-epic issue with an open/merged `.github` PR ref) as allowed; when uncertain, report it (fail-loud, human decides).
 
@@ -228,6 +241,7 @@ Run → FAIL.
 **Repo:** vergil-claude-plugin. **Depends on:** Task 4 (tool must accept `--kind`, default `.github`).
 
 **Deliverable:** Update every skill that creates intake so it files into `<org>/.github` (never a member repo), choosing `--kind {triage,idea,research}` by the captured shape:
+
 - `skills/triage-capture/SKILL.md` — remove the "most-relevant repo" routing; always target `.github`; add `--kind` selection guidance.
 - `skills/memory-audit/SKILL.md` — surfaced in alignment (it also calls `vrg-triage-create`). Update its intake creation to the same `.github` + `--kind` routing so it doesn't silently file into the current repo.
 
@@ -250,6 +264,7 @@ Run → FAIL.
 **Repo:** vergil-tooling (ship a one-shot `bin/vrg_adhoc_migrate.py`), executed by a human/USER agent against the org. **Depends on:** Tasks 1, 2 **deployed** (labels + `ensure_adhoc_epic` available).
 
 **Deliverable:** For each member repo (+ `.github`, `docs`) with an `Epic (standing): Ad-hoc maintenance`:
+
 1. `ensure_adhoc_epic(<owner>/<repo>)` → create `Epic (ad hoc): <repo>` in `.github`.
 2. Enumerate the old standing epic's **open** children (`epics.child_states`) and re-link each to the new epic (`epics.add_child`); leave closed children with the retired epic for provenance.
 3. Close the old per-repo standing epic with a comment pointing at the new `.github` epic.
@@ -277,11 +292,12 @@ Run → FAIL.
 
 ## Sequencing summary
 
-```
+```bash
 Phase 1 (any order, but 1 before 3/5/6):  T1 → {T2, T3, T5→T6}, T4, T12 ; skills T7, T8(after T4), T9
 Phase 2:  T10  (requires T1,T2 deployed)
 Phase 3:  T11  (requires T10 verified)
 ```
+
 Bookend review tasks #87–#90 are dispositioned last; epic #85 cannot roll up until then (spec §6, §8).
 
 ## Self-review notes

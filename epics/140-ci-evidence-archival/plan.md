@@ -48,7 +48,7 @@ workflows (`vergil-actions`), `gh` CLI, `actions/attest-build-provenance`,
 
 ## Repos and dependency order
 
-```
+```text
 vergil-tooling                         vergil-actions
 ──────────────                         ──────────────
 T1  evidence-gate derivation           T8 producer uploads  ─┐ (parallel, early)
@@ -75,14 +75,17 @@ in warning mode. The gate goes fatal only at T11, after the bake (spec §9.2).
 **Repo:** vergil-tooling · **Depends on:** none
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/github_config.py` (add `EvidenceGate`,
   `classify_evidence_gate`, `required_evidence_gates`)
 - Test: `tests/vergil_tooling/test_github_config_lib.py`
 
 **Interfaces:**
+
 - Consumes: existing `desired_ci_gates_ruleset(project, ci, *, ghas)` and its
   `required_status_checks` list.
 - Produces:
+
   ```python
   @dataclass(frozen=True)
   class EvidenceGate:
@@ -101,6 +104,7 @@ in warning mode. The gate goes fatal only at T11, after the bake (spec §9.2).
   ```
 
 **Classification rule (evidence-producing → gate name):**
+
 - prefix `security /` OR literal `Trivy` / `Semgrep OSS` / `CodeQL` → `security`
 - prefix `test /` → `test`
 - prefix `audit /` → `audit`
@@ -108,7 +112,9 @@ in warning mode. The gate goes fatal only at T11, after the bake (spec §9.2).
 - prefix `version /` → `None` (non-blocking)
 
 **Steps:**
+
 - [ ] Step 1: Write failing tests:
+
   ```python
   class TestClassifyEvidenceGate:
       def test_quality_prefix(self):
@@ -135,6 +141,7 @@ in warning mode. The gate goes fatal only at T11, after the bake (spec §9.2).
                    required_evidence_gates(SHELL_PROJECT, SHELL_CI, ghas=False)}
           assert "quality" not in gates  # shell has no lint check registry entry
   ```
+
   (Reuse the `VergilConfig` fixtures already in `test_github_config_lib.py`.)
 - [ ] Step 2: Run — expect FAIL (names not defined).
 - [ ] Step 3 (GREEN): Implement `classify_evidence_gate` (prefix/literal table)
@@ -157,11 +164,14 @@ its *evidence-required* gates. No hand-maintained list.
 **Repo:** vergil-tooling · **Depends on:** none
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/ci_evidence.py`
 - Test: `tests/vergil_tooling/test_ci_evidence.py`
 
 **Interfaces:**
+
 - Produces:
+
   ```python
   @dataclass(frozen=True)
   class GateEvidence:
@@ -206,7 +216,9 @@ its *evidence-required* gates. No hand-maintained list.
   ```
 
 **Steps:**
+
 - [ ] Step 1: Write failing tests (use `tmp_path`):
+
   ```python
   def test_sha256_file(tmp_path):
       p = tmp_path / "a.txt"; p.write_text("hello")
@@ -249,6 +261,7 @@ its *evidence-required* gates. No hand-maintained list.
       out = copy_sbom(sbom, staging)
       assert out == staging / "evidence" / "gates" / "sbom" / "sbom.cdx.json"
   ```
+
 - [ ] Step 2 (RED): Run — expect FAIL (names not defined).
 - [ ] Step 3 (GREEN): Implement with `hashlib`, `json`, `tarfile`, `shutil`
   (deterministic: sort tar members, no mtime dependence in assertions). Minimal
@@ -271,6 +284,7 @@ dependency.
 **Repo:** vergil-tooling · **Depends on:** Task 2 (types)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/ci_evidence.py`
 - Reuse: `src/vergil_tooling/lib/github.py` (`read_json`, `run`,
   `_run_with_retry`), `src/vergil_tooling/lib/linkage.py`
@@ -278,7 +292,9 @@ dependency.
 - Test: `tests/vergil_tooling/test_ci_evidence_harvest.py`
 
 **Interfaces:**
+
 - Produces:
+
   ```python
   class NoQualifyingRunError(Exception): ...   # substantive: no green CI run
 
@@ -297,6 +313,7 @@ dependency.
   ```
 
 **Key selection logic (spec §5.2):**
+
 ```python
 runs = github.read_json(
     "api", f"repos/{repo}/actions/runs",
@@ -311,8 +328,10 @@ return max(qualifying, key=lambda r: r["run_started_at"])
 ```
 
 **Steps:**
+
 - [ ] Step 1: Failing tests, mocking `github.read_json`/`github.run` via
   `monkeypatch` (mirror `test_github.py` style):
+
   ```python
   def test_select_ci_run_ignores_cancelled(monkeypatch):
       monkeypatch.setattr(github, "read_json", lambda *a, **k: [
@@ -330,6 +349,7 @@ return max(qualifying, key=lambda r: r["run_started_at"])
   def test_download_evidence_artifacts_filters_prefix(monkeypatch, tmp_path):
       ...  # only ci-evidence-* downloaded, staged under dest/<gate>/
   ```
+
 - [ ] Step 2: Run — expect FAIL.
 - [ ] Step 3 (GREEN): Implement using `github.read_json`/`github.run`
   (`gh run download --name ci-evidence-<gate>` or the artifacts API). PR
@@ -352,12 +372,15 @@ return max(qualifying, key=lambda r: r["run_started_at"])
 **Repo:** vergil-tooling · **Depends on:** Tasks 1, 3
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/ci_evidence.py`
 - Test: `tests/vergil_tooling/test_ci_evidence.py`
 
 **Interfaces:**
+
 - Consumes: `EvidenceGate` (T1), harvested gate dir (T3).
 - Produces:
+
   ```python
   class IncompleteEvidenceError(Exception):
       def __init__(self, missing: list[str]) -> None:
@@ -373,7 +396,9 @@ return max(qualifying, key=lambda r: r["run_started_at"])
   ```
 
 **Steps:**
+
 - [ ] Step 1: Failing tests:
+
   ```python
   def test_all_present_ok():
       validate_completeness([EvidenceGate("test",("test / unit / 3.14",))],
@@ -386,6 +411,7 @@ return max(qualifying, key=lambda r: r["run_started_at"])
               {"test": _gate_test()})
       assert e.value.missing == ["security"]
   ```
+
 - [ ] Step 2: Run — expect FAIL.
 - [ ] Step 3 (GREEN): Implement (set difference of required names vs harvested
   keys). Minimal.
@@ -405,15 +431,18 @@ return max(qualifying, key=lambda r: r["run_started_at"])
 **Repo:** vergil-tooling · **Depends on:** Tasks 2, 3, 4
 
 **Files:**
+
 - Create: `src/vergil_tooling/bin/vrg_ci_evidence.py`
 - Modify: `pyproject.toml` (add `vrg-ci-evidence = "...:main"` console script)
 - Test: `tests/vergil_tooling/test_vrg_ci_evidence.py`
 
 **Interfaces:**
+
 - Consumes: T2 `build_manifest`/`assemble_bundle`, T3 harvest fns, T4
   `validate_completeness`, T1 `required_evidence_gates`.
 - CLI:
-  ```
+
+  ```bash
   vrg-ci-evidence bundle \
     --repo owner/name --version 2.1.129 --merge-sha <sha> \
     --generated-at <iso8601> --out-dir <dir> [--sbom-file <path>]
@@ -433,6 +462,7 @@ manifest. Wrap transient GitHub errors in retry (via `lib.github`); let
 with `emit_error`.
 
 **Steps:**
+
 - [ ] Step 1: Failing test — full `main()` run with every `lib.ci_evidence`
   GitHub fn monkeypatched to fixtures; assert tarball + manifest written and
   exit 0.
@@ -459,24 +489,30 @@ wiring.
 convention)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/docs.py` (add `evidence_link_line`,
   integrate into staged release pages)
 - Modify: `src/vergil_tooling/bin/vrg_docs_stage.py` (flag + call)
 - Test: `tests/vergil_tooling/test_docs.py`
 
 **Interfaces:**
+
 - Produces:
+
   ```python
   def evidence_link_line(repo: str, tag: str, *, has_asset: bool) -> str | None:
       """Return the '**CI Evidence:** ... [Download →](...)' markdown for a
       release page, or None when the release has no evidence asset."""
   ```
+
   Asset URL: `https://github.com/{repo}/releases/download/{tag}/{tag}-ci-evidence.tar.gz`.
   `has_asset` is resolved by the caller via `gh release view {tag} --json assets`
   (one cheap call per release at docs-build time).
 
 **Steps:**
+
 - [ ] Step 1: Failing tests:
+
   ```python
   def test_evidence_link_present():
       line = evidence_link_line("o/r","v2.1.129", has_asset=True)
@@ -484,6 +520,7 @@ convention)
   def test_evidence_link_absent():
       assert evidence_link_line("o/r","v1.0.0", has_asset=False) is None
   ```
+
 - [ ] Step 2: Run — expect FAIL.
 - [ ] Step 3 (GREEN): Implement; append the line to each staged `releases/v*.md`
   whose asset exists (asset lookup mocked in tests).
@@ -504,6 +541,7 @@ convention)
 **Repo:** vergil-tooling · **Depends on:** Tasks 1–5 (stable interfaces)
 
 **Files:**
+
 - Create: `docs/specs/ci-evidence-convention.md` (or `docs/site/docs/...`
   following the repo's docs placement)
 - Test: n/a (doc) — validated by `vrg-validate` markdown checks
@@ -515,6 +553,7 @@ publish invariant; how a downstream auditor verifies (`gh attestation verify` +
 per-file `sha256`).
 
 **Steps:**
+
 - [ ] Step 1: Write the doc from spec §7/§8/§10.
 - [ ] Step 2: `vrg-container-run -- vrg-validate` (markdown passes).
 - [ ] Step 3: commit `docs(evidence): document the CI evidence convention`.
@@ -528,6 +567,7 @@ per-file `sha256`).
 **Repo:** vergil-actions · **Depends on:** none (parallel; harmless everywhere)
 
 **Files:**
+
 - Modify: `.github/workflows/ci-security.yml`, `ci-test.yml`, `ci-audit.yml`,
   `ci-quality.yml` (and the composite actions they call)
 - Add: a shared `actions/ci/evidence/emit` composite that writes `evidence.json`
@@ -539,6 +579,7 @@ upload as `ci-evidence-<gate>`. Security uploads SARIF **unconditionally**
 (independent of code-scanning upload — spec §7).
 
 **Steps:**
+
 - [ ] Step 1: Add the `emit` composite; wire `ci-test` first (coverage.xml +
   junit.xml + evidence.json).
 - [ ] Step 2: Open a PR; confirm on its own CI run that a `ci-evidence-test`
@@ -566,6 +607,7 @@ would be an `evidence.json` envelope with **no actual report** inside. There is 
 point publishing empty reports (spec §7.2).
 
 **Files:**
+
 - Modify: the check-command registry in `src/vergil_tooling/` (per T8's finding,
   `languages.py`) so the evidence-producing gates emit machine-readable reports at
   **workspace-root paths that match the T8 composite's globs**:
@@ -584,6 +626,7 @@ point publishing empty reports (spec §7.2).
 glob (T8) reference this one list — keep them in sync.
 
 **Steps:**
+
 - [ ] Step 1 (RED): failing tests asserting each evidence-producing check command
   contains its report-output flag/path.
 - [ ] Step 2: Run — expect FAIL.
@@ -605,13 +648,16 @@ report — so bundles contain data, not empty envelopes. Prerequisite for T9.
 Task 12 (real report files — no empty bundles, spec §7.2)
 
 **Files:**
+
 - Create: `actions/cd/release/ci-evidence/action.yml`
 - Modify: `.github/workflows/cd-release.yml` (run evidence FIRST; gate publish
   on it), `.github/workflows/cd.yml` **in each consuming repo** to add
   `actions: read` permission (spec §5.2)
 
 **Composite `ci-evidence/action.yml`** — ships in **warning mode** (spec §9.2):
+
 - Input `enforce` (default `false`). Input `timeout-minutes` (bounded run).
+
 1. `vrg-ci-evidence bundle --repo ${{ github.repository }} --version <v>
    --merge-sha ${{ github.sha }} --generated-at <now> --out-dir evidence-out
    [--sbom-file <path-to-already-built-SBOM>]`. The SBOM is already produced in
@@ -620,6 +666,7 @@ Task 12 (real report files — no empty bundles, spec §7.2)
 2. `actions/attest-build-provenance` over the bundle digest.
 3. `gh release upload <tag> evidence-out/*.tar.gz evidence-out/*-manifest.json
    --clobber` (idempotent).
+
 - **Mode handling:** when `enforce == false` (warning), the whole step is wrapped
   so that **any** failure/timeout in steps 1–3 emits a loud `::warning::` and the
   job succeeds (release proceeds, partial bundle attached if any). When
@@ -632,6 +679,7 @@ is complete (spec §9). Position is identical in both modes so the promotion
 (Task 11) is a pure flag flip, no restructuring.
 
 **Steps:**
+
 - [ ] Step 1: Add the composite action with the `enforce` (default `false`) and
   `timeout-minutes` inputs and the warning-mode wrapper; call it as the first step
   in `cd-release.yml`.
@@ -655,6 +703,7 @@ is Task 11.
 **Repo:** vergil-actions · **Depends on:** none (independent)
 
 **Files:**
+
 - Create: a foundational-principles doc under `vergil-actions` docs
 
 **Content (spec §14 phase 4):** every check that matters is a hard, asserting
@@ -669,6 +718,7 @@ gate*, never a permanent soft gate. Use the CI-evidence gate as the example.
 Cross-reference the publish-safety property (spec §9.1).
 
 **Steps:**
+
 - [ ] Step 1: Write the doc.
 - [ ] Step 2: `vrg-validate` markdown passes.
 - [ ] Step 3: commit `docs(ci): codify the all-hard-gates principle`.
@@ -685,6 +735,7 @@ warning-mode bake with reliability data reviewed. **Opened only when the human
 judges the gate stable** (spec §9.2, §14.1).
 
 **Files:**
+
 - Modify: the `enforce` default (`false` → `true`) at its single source — the
   `cd-release` evidence step / composite input default.
 
@@ -692,6 +743,7 @@ judges the gate stable** (spec §9.2, §14.1).
 are identical between modes (Task 9), so promotion changes only fatality.
 
 **Steps:**
+
 - [ ] Step 1: Review accumulated warning-mode data — bundle-success rate across
   releases, every warning emitted, any defects — and confirm the gate is reliable
   enough to make fatal. (Human judgment; this is the gate.)
@@ -710,6 +762,7 @@ demotion of the `2.1` tag (spec §14.1).
 ## Self-Review
 
 **Spec coverage:**
+
 - §5 architecture / §5.1 flow → T3, T5, T9. ✔
 - §5.2 preconditions (`actions: read`, run selection) → T3 (selection), T9
   (permission). ✔

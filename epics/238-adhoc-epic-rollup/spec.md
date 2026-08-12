@@ -106,7 +106,7 @@ first-run logic**. Steady state and backfill are the same code path.
 A new `archive` subcommand on the existing `vrg-adhoc-epic` command (which already
 has `ensure`):
 
-```
+```bash
 vrg-adhoc-epic archive [--repo <owner>/<repo> | --all-in <org>] [--apply]
 ```
 

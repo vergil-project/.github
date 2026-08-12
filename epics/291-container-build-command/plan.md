@@ -83,11 +83,13 @@ never cuts one).
 ### Task 1: Config surface — `build-command` + `build-cache-files`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/config.py` (`_KNOWN_KEYS`, `ContainerConfig`,
   the `container_raw` parse block ~566–583, accessors ~684–703)
 - Test: `tests/lib/test_config.py`
 
 **Interfaces:**
+
 - Produces:
   - `ContainerConfig.build_command: str | None` (default `None`)
   - `ContainerConfig.build_cache_files: list[str]` (default `[]`)
@@ -260,6 +262,7 @@ fields fails typecheck. Add `build_command=None, build_cache_files=[]` to each.
 
 Run: `vrg-container-run -- vrg-validate`
 Then:
+
 ```bash
 vrg-commit --type feat --scope config \
   --message "add [container].build-command + build-cache-files keys" \
@@ -271,11 +274,13 @@ vrg-commit --type feat --scope config \
 ### Task 2: Local path — bake the command + fold cache-key inputs
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/container_cache.py`
   (`_build_cached_image` ~249–348; `cache_sensitive_files` ~188–191)
 - Test: `tests/lib/test_container_cache.py`
 
 **Interfaces:**
+
 - Consumes: `container_build_command`, `container_build_cache_files` (Task 1).
 - Produces: a `setup` string of the form
   `<apt> && <uv tool install …> && <build-command> && <warmup>` (build-command
@@ -410,6 +415,7 @@ Expected: PASS.
 
 Run: `vrg-container-run -- vrg-validate`
 Then:
+
 ```bash
 vrg-commit --type feat --scope container \
   --message "bake [container].build-command into the cached image" \
@@ -421,11 +427,13 @@ vrg-commit --type feat --scope container \
 ### Task 3: CI speller entry point — `vrg-container-build-command`
 
 **Files:**
+
 - Create: `src/vergil_tooling/bin/vrg_container_build_command.py`
 - Modify: `pyproject.toml` (`[project.scripts]`)
 - Test: `tests/bin/test_vrg_container_build_command.py`
 
 **Interfaces:**
+
 - Consumes: `container_build_command` (Task 1).
 - Produces: console script `vrg-container-build-command`; `--script` prints the
   command (empty output when none declared), default prints the command or nothing.
@@ -509,6 +517,7 @@ Expected: PASS.
 
 Run: `vrg-container-run -- vrg-validate`
 Then:
+
 ```bash
 vrg-commit --type feat --scope container \
   --message "add vrg-container-build-command speller for CI" \
@@ -539,14 +548,17 @@ unmet, comment "blocked: preconditions not met" and stop.
    perform this; it records the released tag once the human confirms it.
 2. **Verify the release carries the feature.** Install the released tag in a clean
    environment and confirm the speller is present:
+
    ```bash
    uvx --from 'vergil-tooling @ git+https://github.com/vergil-project/vergil-tooling@<tag>' \
      vrg-container-build-command --script --repo-root .
    ```
+
    Expected: exits 0 (prints nothing here — no build-command declared — but the
    command resolving proves the entry point shipped).
 
 **Acceptance (record as a comment):**
+
 - `Outcome: SUCCESS` iff a vergil-tooling release exists whose tag provides
   `vrg-container-build-command` (and the Task 2 bake). Record the tag. Until then,
   stays open — gating Task 5.
@@ -560,6 +572,7 @@ vergil-tooling installed by the `Install vergil-tooling` step must provide
 `vrg-container-build-command`.
 
 **Files:**
+
 - Create: `actions/shared/setup/build-command/action.yml`
 - Create: `actions/shared/setup/build-command/install.sh`
 - Create: `actions/shared/setup/build-command/tests/install.test.sh`
@@ -650,6 +663,7 @@ fail-closed no-retry contract, test-runtime scoping) and its mkdocs nav entry.
 
 Run: `vrg-container-run -- vrg-validate`
 Then:
+
 ```bash
 vrg-commit --type feat --scope actions \
   --message "add shared/setup/build-command CI step (fail-closed, no retry)" \
@@ -671,20 +685,24 @@ comment "blocked: preconditions not met" and stop.
 
 1. In a scratch repo (or a disposable branch of a repo) declare a real
    out-of-workspace command:
+
    ```toml
    [container]
    env-prefixes = []
    build-command = "npm install -g @coderline/alphatab"
    build-cache-files = []
    ```
+
 2. Force a cold rebuild: `clean_branch_images` for the branch (or remove the
    cached tag), then `vrg-container-run -- true` to trigger the bake. Confirm the
    provisioning banner shows the `Build:` line and the build succeeds.
 3. **Clean-tree check:** ensure no host `node_modules` under the workspace
    (`vrg-git clean -ndx` shows none relevant), then:
+
    ```bash
    vrg-container-run -- node -e 'require.resolve("@coderline/alphatab")'
    ```
+
    Expected: resolves (exit 0) — proving the dependency is image-resident, not
    host-tree pollution.
 
@@ -701,6 +719,7 @@ comment "blocked: preconditions not met" and stop.
    fails loudly (non-zero) with the command output, and no image is committed.
 
 **Acceptance (record as a comment):**
+
 - `Outcome: SUCCESS` iff steps 2–5 all pass: cold build runs the command; the dep
   resolves on a clean tree; a build-cache-file edit rebuilds; a failing command
   fails closed. Any failure ⇒ leave open, record the failing step.
@@ -710,6 +729,7 @@ comment "blocked: preconditions not met" and stop.
 ## Self-Review
 
 **Spec coverage:**
+
 - §3.1 config surface → Task 1. ✓
 - §3.2 local bake, order-after-install, self-repo, fail-closed, byte-identical →
   Task 2. ✓

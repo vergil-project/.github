@@ -25,10 +25,12 @@
 ### Task 1: Exception schema + loader
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/sarif_exceptions.py`
 - Test: `tests/vergil_tooling/test_sarif_exceptions.py`
 
 **Interfaces:**
+
 - Produces: `SarifException(tool: str, rule: str, path: str | None, reason: str, issue: str)` (frozen dataclass); `load_sarif_exceptions(repo_root: Path) -> list[SarifException]`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -177,10 +179,12 @@ vrg-commit --type feat --scope sarif --message "add SarifException schema + verg
 ### Task 2: Exception matching, tool-identity scoping, and fail-on-stale in `evaluate_findings`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/sarif.py`
 - Test: `tests/vergil_tooling/test_sarif.py`
 
 **Interfaces:**
+
 - Consumes: `SarifException` (Task 1).
 - Produces: `EvaluationResult` gains `applied: list[AppliedException]` and `stale: list[SarifException]`; `AppliedException(exception: SarifException, count: int)`; `evaluate_findings(sarif_data, severity_filter=None, exceptions=None)` — `passed` is now `(no findings) and (no stale)`.
 
@@ -402,10 +406,12 @@ vrg-commit --type feat --scope sarif --message "evaluate_findings: apply excepti
 ### Task 3: Wire the three scanner CLIs
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_sarif_evaluate.py`, `src/vergil_tooling/bin/vrg_semgrep_scan.py`, `src/vergil_tooling/bin/vrg_trivy_scan.py`
 - Test: `tests/vergil_tooling/test_vrg_sarif_evaluate.py` (+ mirror for the other two if they have suites)
 
 **Interfaces:**
+
 - Consumes: `load_sarif_exceptions` (Task 1), `evaluate_findings(..., exceptions=...)` and `EvaluationResult.stale` (Task 2).
 
 - [ ] **Step 1: Write the failing test (CodeQL CLI)**
@@ -485,6 +491,7 @@ vrg-commit --type feat --scope sarif --message "wire codeql/semgrep/trivy CLIs t
 ## Self-Review
 
 **Spec coverage** (spec §→task):
+
 - §3.1 config surface (required `tool/rule/reason/issue`, optional `path`, enum) → Task 1.
 - §3.2 matching + tool-identity scoping (`tool.driver.name`, not `driver.rules`) → Task 2 (`_scanner_tool`, `_excepts`) + Task 4 (real names).
 - §3.3 skip / report / fail-on-stale, applied after severity → Task 2 (evaluate + `passed`) + Task 2 Step 5 (report) + Task 3 (CLI emit).

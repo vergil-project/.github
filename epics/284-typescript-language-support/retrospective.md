@@ -14,7 +14,7 @@ five repos, with `prod-/dev-ts-node:{24,22}` live on GHCR and the reusable CI
 gates wired — **executed in roughly one day** (epic opened 2026-08-11 14:47Z,
 last task PR merged 2026-08-12 13:49Z).
 
-**Work delivered**
+### Work delivered
 
 | Repo | PR | What it did |
 |---|---|---|

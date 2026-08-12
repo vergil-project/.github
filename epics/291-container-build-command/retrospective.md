@@ -17,7 +17,7 @@ promise — and its live validation caught a genuine resolvability gap that a
 unit-test-only path would have shipped, which cost one unplanned fix + release +
 CI-parity cycle.
 
-**Work delivered**
+### Work delivered
 
 | PR | Repo | Merged | What it did |
 |---|---|---|---|
@@ -42,7 +42,7 @@ run, SUCCESS on re-run** after #2784).
   tasks:** 2.
 - **Releases cut during the epic:** vergil-tooling **v2.1.189** (base feature) and
   **v2.1.191** (NODE_PATH fix); vergil-actions **v2.1.24** and **v2.1.25** (CI step
-  + parity).
+  - parity).
 - **Span:** opened 2026-08-11 → all work merged 2026-08-12 (~2 days).
 - **Cross-org:** one adoption heads-up comment on `mnemosys-project/melete#85` (no
   linked task — cross-org linking is disallowed).

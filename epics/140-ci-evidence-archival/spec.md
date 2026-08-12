@@ -150,7 +150,7 @@ what keeps the harvester language-agnostic and the whole mechanism fleet-wide.
 
 ### 5.1 Data flow (one release)
 
-```
+```text
 push to main
   └─ cd-release.yml
        ├─ actions/cd/release/ci-evidence  (runs FIRST — see §9)
@@ -308,7 +308,7 @@ carry real data**, so this producer change lands *before* the first real bundle
 The bundle is designed to be consumed by a machine auditor: self-describing and
 verifiable.
 
-```
+```text
 v{version}-ci-evidence.tar.gz
 └─ evidence/
    ├─ manifest.json          # top-level machine index (below)
@@ -577,7 +577,7 @@ mode is the on-ramp to a robust hard gate, not a substitute for building it well
 
 Task linkage template:
 
-```
+```bash
 vrg-epic-link --epic vergil-project/.github#140 \
               --task vergil-project/<repo>#<TASK>
 ```

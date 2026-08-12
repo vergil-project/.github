@@ -25,6 +25,7 @@ duplicates already created in production and finish the migration.
 **Files:** `src/vergil_tooling/lib/epics.py`, `tests/vergil_tooling/test_epics.py`.
 
 **Interfaces:**
+
 - `_find_epic_by_title(home, title, *, prefer_oldest: bool = False)` — when
   `prefer_oldest` and >1 open match, return the lowest-numbered instead of raising.
   Default `False` keeps the current raise (live-epic finders unchanged).
@@ -53,6 +54,7 @@ duplicates already created in production and finish the migration.
   - `ensure_adhoc_archive` passes `prefer_oldest=True`.
   - In `apply_adhoc_drain`, replace the per-child `ensure_adhoc_archive` call with a
     per-quarter cache:
+
     ```python
     archives: dict[str, IssueRef] = {}
     for child, quarter in plan.moves:
@@ -96,6 +98,7 @@ duplicates already created in production and finish the migration.
 **Blocked-by:** Task 2.
 
 **Procedure:**
+
 1. **Consolidate.** For each `(repo, quarter)` with >1 open archive in
    `.github` (currently `#249`–`#258`): keeper = lowest-numbered; atomically
    `reparent_child(keeper, straggler)` for every child of the other archives; then

@@ -61,6 +61,7 @@ Actions reusable workflows; MkDocs site docs.
 ### T1 — Common TS image base + primary Node image (vergil-containers)
 
 **Files:**
+
 - Create: `docker/typescript/Dockerfile.base` (shared analysis-tool layer)
 - Create: `docker/typescript/Dockerfile.node`
 - Modify: `docker/build.sh` (register the new image targets)
@@ -91,6 +92,7 @@ confirms the concrete majors.
 ### T2 — Second Node image (vergil-containers)
 
 **Files:**
+
 - Create: `docker/typescript/Dockerfile.node` reuse for the second major (or a
   build-arg on T1's Dockerfile)
 - Modify: `docker/build.sh`
@@ -107,6 +109,7 @@ confirms the concrete majors.
 ### T3 — `[typescript]` config schema + language enum (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/config.py:30` (`_ENUMS["primary-language"]`),
   the `_LANG_BLOCK_FIELDS`-style mapping, and a `_parse_typescript_config` +
   `TypeScriptConfig` (mirror the existing `_parse_cpp_config` / `CppConfig`)
@@ -127,6 +130,7 @@ confirms the concrete majors.
 ### T4 — TypeScript language registry entry (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/languages.py:232` (`_REGISTRY`) and license
   allowlist constants
 - Create: `src/vergil_tooling/configs/typescript/` (packaged **shareable strict
@@ -143,7 +147,7 @@ existing `Cardinality` concept (no new machinery).
   no-suppression rule.
 - [ ] **TYPECHECK (`once`).** `tsc --noEmit`. **This task authors and tests the
   concrete "curated extras" set** in the packaged `tsconfig.base.json` (`strict`
-  + the extras listed in Global constraints) — the base config consumers `extends`.
+  - the extras listed in Global constraints) — the base config consumers `extends`.
   T8 later *documents* this already-decided set (breaking any T4↔T8 loop).
 - [ ] **TEST (`per-version`).** `vitest run --coverage` with V8 provider and a
   100% line threshold (configured so the gate fails under 100%). Note the
@@ -167,6 +171,7 @@ base tsconfig ships.
 ### T5 — Container maps + language detection (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/container.py:18` (`_DEFAULT_VERSIONS`,
   `_DEFAULT_TEST_COMMANDS`, `detect_language`, image resolution)
 - Test: `tests/lib/test_container.py`
@@ -190,6 +195,7 @@ detection works.
 ### T6 — CodeQL support + primary→CodeQL mapping + repo-init wiring (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/github_config.py:225`
   (`_CODEQL_SUPPORTED_LANGUAGES`)
 - Modify: `src/vergil_tooling/lib/repo_init.py` (`_container_suffix`,
@@ -221,6 +227,7 @@ container resolution.
 ### T7 — Reusable CI workflows accept `language: typescript` (vergil-actions)
 
 **Files:**
+
 - Modify: the reusable `.github/workflows/ci-*.yml` (quality/test/audit/security)
 - Test: workflow-level (a dry-run / sample invocation)
 
@@ -244,6 +251,7 @@ once typecheck/lint/audit), with CodeQL analyzing `javascript-typescript`.
 ### T8 — TypeScript standards docs + base tsconfig docs (vergil-tooling · site docs)
 
 **Files:**
+
 - Create: `docs/site/docs/standards/development/typescript/overview.md`,
   `naming-conventions.md`, `testing-and-coverage.md`, `toolchain-and-strictness.md`
 
@@ -259,8 +267,8 @@ once typecheck/lint/audit), with CodeQL analyzing `javascript-typescript`.
 - [ ] **Validate + commit** (`docs(ts): TypeScript development standards`).
 
 **Deliverable:** per-language standards docs matching the `python/`/`cpp/` pattern.
-**Depends on:** T4 (final tool commands + base tsconfig). **(Doc-review sweep
-#2738 may spawn siblings in `docs`.)**
+**Depends on:** T4 (final tool commands + base tsconfig). **(Doc-review sweep #2738
+may spawn siblings in `docs`.)**
 
 ### T9 — Publish TypeScript images to GHCR (vergil-containers) · **deployment**
 
@@ -326,7 +334,7 @@ Operational (not PR-workable). Run with `issue-validate`. The end-to-end proof.
   cardinality (reused) → T4 declares, T7 aligns, T10 verifies; §4 tool matrix → T4
   (+ T1/T2 toolset, T7 SAST); §5 per-version coverage → T4/T8/T10; §6 touch points
   → T3–T6 (+ T7 for the CodeQL mapping); §6 point 8/8a CodeQL split → T6 (gate key)
-  + T7 (Action mapping); §7 five-repo spread → all; §9 ledger → follow-on
+  - T7 (Action mapping); §7 five-repo spread → all; §9 ledger → follow-on
   brainstorm #286; §10 operational tasks → T9/T10.
 - **Placement law.** Every code task is filed in the repo whose PR closes it
   (vergil-containers: T1/T2; vergil-tooling: T3–T6, T8; vergil-actions: T7);
@@ -345,5 +353,5 @@ Operational (not PR-workable). Run with `issue-validate`. The end-to-end proof.
 
 ## Evolution during execution
 
-_Frozen at execution start; dated entries record meaningful deltas — a task
-added, dropped, or rescoped, a discovered dependency — with the reasoning._
+*Frozen at execution start; dated entries record meaningful deltas — a task
+added, dropped, or rescoped, a discovered dependency — with the reasoning.*
