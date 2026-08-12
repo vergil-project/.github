@@ -45,6 +45,7 @@ gate).
 ### Task 1 (T2): Core isolation fix — anonymous venv mask + PATH-add
 
 Files:
+
 - Modify: `src/vergil_tooling/lib/container.py` — `build_container_args`
   (after the `/workspace` mount block, ~line 152-159)
 - Modify: `src/vergil_tooling/bin/vrg_validate.py:154-156` — the PATH-add
@@ -52,6 +53,7 @@ Files:
 - Test: `tests/vergil_tooling/test_vrg_validate.py`
 
 Interfaces:
+
 - Consumes: `detect_language(repo_root: Path) -> str` (already in `container.py`).
 - Produces: no new public signatures; `build_container_args` gains an anonymous
   `-v /workspace/.venv` for Python repos; `vrg_validate`'s PATH-add is
@@ -180,6 +182,7 @@ on a different filesystem from the uv cache, so the cross-fs copy stays correct)
 
 Run: `vrg-container-run -- vrg-validate`
 Then:
+
 ```bash
 vrg-commit --type fix --scope container \
   --message "isolate container venv with an anonymous mask over .venv" \
@@ -194,6 +197,7 @@ vrg-commit --type fix --scope container \
 Constraints before adopting `.venv` on any host still running the old tool.**
 
 Files:
+
 - Modify: `src/vergil_tooling/lib/repo_init.py:391` — gitignore template
 - Modify: `tests/vergil_tooling/test_repo_init.py:347` — gitignore test
 - Modify: `src/vergil_tooling/bin/validate_common.py:85` — docstring comment
@@ -282,6 +286,7 @@ masked by an anonymous volume, #2473), which is why a single `.venv` is now safe
 
 Run: `vrg-container-run -- vrg-validate`
 Then:
+
 ```bash
 vrg-commit --type refactor --scope venv \
   --message "retire the .venv-host dual-venv model" \
@@ -306,12 +311,14 @@ that carries the mask). If not met, comment "blocked: preconditions not met" and
 stop.
 
 **Procedure (on a Python repo host, e.g. a lab box or vergil-tooling itself):**
+
 1. Record the host venv fingerprint:
    `readlink .venv/bin/python` and `head -1 .venv/bin/<some-console-script>`.
 2. Run the full gate: `vrg-container-run -- vrg-validate`.
 3. Re-read the same two values.
 
 **Acceptance (SUCCESS):**
+
 - The interpreter symlink target and the console-script shebang are **byte-for-byte
   unchanged**.
 - Host `uv run <entrypoint>` and host console scripts still execute.
@@ -334,6 +341,7 @@ vergil-tooling release carrying Task 1 + Task 2 has been cut (bump/tag/publish).
 The agent records the released version; it does not cut the release.
 
 **Agent-safe deploy steps:**
+
 1. Upgrade the host tool on each affected host:
    `uv tool install --python 3.14 'vergil-tooling @ git+https://github.com/vergil-project/vergil-tooling@<tag>'`.
 2. Confirm `vrg-container-run` resolves to the new version.

@@ -38,11 +38,13 @@
 ### Task 1: Resolver + visibility probe
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/github.py` (add `repo_visibility`, `is_public` near `detect_org`, ~L106)
 - Modify: `src/vergil_tooling/lib/epics.py` (add `resolve_epic_home` near `resolve_epic_ref`, ~L282)
 - Test: `tests/vergil_tooling/test_github.py`, `tests/vergil_tooling/test_epics.py`
 
 **Interfaces:**
+
 - Produces: `github.repo_visibility(name_with_owner: str) -> str` (memoized; raises `GitHubAPIError` on failure); `github.is_public(name_with_owner: str) -> bool`; `epics.resolve_epic_home(org: str, target_repo: str) -> str` returning `"owner/repo"`.
 - Consumes: `github.read_json`, `github.GitHubAPIError`.
 
@@ -192,10 +194,12 @@ vrg-git commit -m "feat(epics): add visibility-based epic-home resolver"
 ### Task 2: `vrg-epic-create --repo` target + resolved home
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_epic_create.py` (L44-66 `main`, add `--repo`)
 - Test: `tests/vergil_tooling/test_vrg_epic_create.py`
 
 **Interfaces:**
+
 - Consumes: `epics.resolve_epic_home`, `github.repo_visibility`, `github.current_repo`.
 - Produces: unchanged `main(argv) -> int`.
 
@@ -294,11 +298,13 @@ vrg-git commit -m "feat(epic-create): explicit --repo target, resolver-derived h
 ### Task 3: `vrg-adhoc-epic --repo` + resolver-homed ad-hoc epic
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py:293-342` (`ensure_adhoc_epic`)
 - Modify: `src/vergil_tooling/bin/vrg_adhoc_epic.py` (add `--repo`)
 - Test: `tests/vergil_tooling/test_epics.py`, `tests/vergil_tooling/test_vrg_adhoc_epic.py`
 
 **Interfaces:**
+
 - Consumes: `resolve_epic_home`.
 - Produces: `ensure_adhoc_epic(target_repo: str) -> IssueRef` (unchanged signature; `IssueRef.repo` is now the resolved home's repo, e.g. `".github"` **or** the private repo's own name).
 
@@ -384,10 +390,12 @@ vrg-git commit -m "feat(epics): home ad-hoc epics via the resolver (self for pri
 ### Task 4: Generalize the audit invariant (public-only flagging, fail-loud)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epic_audit.py:208-234` (`epic_outside_dotgithub`), `render` text, and `--repo` targeting on `bin/vrg_epic_audit.py`
 - Test: `tests/vergil_tooling/test_epic_audit.py`
 
 **Interfaces:**
+
 - Consumes: `github.is_public`.
 - Produces: `epic_outside_dotgithub(org: str) -> list[str]` (same signature; now flags only *public*-repo epics outside `.github`).
 
@@ -462,10 +470,12 @@ vrg-git commit -m "feat(epic-audit): flag epics outside .github only for public 
 ### Task 5: Roadmap sourcing from the resolved home
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/roadmap.py:31-93` (`_open_epics`, `gather`, `render`), `bin/vrg_roadmap.py` (add `--repo`)
 - Test: `tests/vergil_tooling/test_roadmap.py`
 
 **Interfaces:**
+
 - Consumes: `epics.resolve_epic_home`.
 - Produces: `gather(org: str | None = None, *, home: str | None = None) -> list[EpicSummary]` — reads epics from *home* (default: `resolve_epic_home(org, ".github")` → `<org>/.github`).
 
@@ -578,10 +588,12 @@ vrg-git commit -m "feat(roadmap): source epics from the resolved home (self for 
 ### Task 10: `vrg-epic-link` visibility-boundary guard
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_epic_link.py:31-48` (`main`, add guard after `single_target_org`)
 - Test: `tests/vergil_tooling/test_vrg_epic_link.py`
 
 **Interfaces:**
+
 - Consumes: `github.is_public`, `epics.parse_issue_ref`, `epics.single_target_org`.
 - Produces: unchanged `main(argv) -> int` (returns 1 + stderr on a boundary violation).
 

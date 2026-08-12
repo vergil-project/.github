@@ -53,8 +53,8 @@ closed child into its close-quarter archive, leaving the live epic's identity
 untouched — **explicitly to eliminate the rename/replace dance and its
 crash-recovery complexity.** Hold that reason; §2 returns to it.
 
-**The plan's 9 tasks mapped onto 5 code issues.** Tasks 1–3 → #2678, Tasks 4–5 →
-#2679, Task 6 → #2680, Task 7 → #2681, Task 8 → #2682; the plan's Task 9 (full
+**The plan's 9 tasks mapped onto 5 code issues.** Tasks 1–3 → #2678, Tasks 4–5 → #2679,
+Task 6 → #2680, Task 7 → #2681, Task 8 → #2682; the plan's Task 9 (full
 validation) folded into each task's own green-gate rather than a separate issue.
 All five went green on first implementation and merged the same day.
 
@@ -67,7 +67,7 @@ boundary. But the live-validation bookend (#2677), running the real
 sub-issues enforce a **single parent**, so `addSubIssue` is rejected while the
 child is still linked to the live epic —
 
-```
+```text
 gh: Failed to add sub-issue #243 to parent #242. Sub issue may only have one parent
 ```
 

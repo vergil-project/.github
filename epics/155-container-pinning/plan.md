@@ -35,7 +35,7 @@
 
 ## Task dependency graph (for epic-create step 9 task filing)
 
-```
+```text
 Task 1 (pins.yml + extract + check gate)
   └─ Task 2 (generator + CATALOG.md)
        ├─ Task 3 (audit + free LOUD-failure pins)
@@ -44,6 +44,7 @@ Task 4 (datestamp aliases)  ─┬─ Task 5 (sliding-window reaper)
                              └─ Task 6 (repoint rollback)
 Task 7 (free SILENT/fleet-gating pins)  ── blocked-by Task 6 AND Task 3
 ```
+
 Filed tasks: T1→T2→T3 sequential; T4→{T5,T6} sequential; T7 blocked-by T6+T3; T8 blocked-by T2. WS2-catalog (T1–T2) and WS3 (T4–T6) proceed in parallel.
 
 ---
@@ -51,6 +52,7 @@ Filed tasks: T1→T2→T3 sequential; T4→{T5,T6} sequential; T7 blocked-by T6+
 ### Task 1: Pin data model + extractor + CI gate
 
 **Files:**
+
 - Create: `docker/pins/pins.yml`
 - Create: `docker/pins/extract_pins.py`
 - Create: `docker/pins/check_pins.py`
@@ -58,6 +60,7 @@ Filed tasks: T1→T2→T3 sequential; T4→{T5,T6} sequential; T7 blocked-by T6+
 - Modify: `.github/workflows/ci.yml` (add `pins` job)
 
 **Interfaces:**
+
 - Produces: `extract_pins.extract(root: Path) -> list[Pin]` where `Pin` is a dataclass `{tool: str, version: str, source: str}` (EXACT `x.y.z` pins only). `check_pins.main(root) -> int` (0 ok, 1 on any undocumented pin or stale entry). `pins.yml` shape: `pins: {<tool>: {constraint, inducing_release, deterministic, reason, state, tracking_issue}}`.
 
 - [ ] **Step 1: Write the failing test for the extractor**
@@ -284,6 +287,7 @@ Expected: PASS (extractor + check tests). If `test_check_passes...` fails, a rea
 
 Run: `vrg-container-run -- vrg-validate`
 Then:
+
 ```bash
 vrg-commit --type feat --scope pins --message "add pin data model, extractor, and CI justification gate" \
   --body "pins.yml carries a justification per exact pin; check_pins.py fails CI on any undocumented pin or stale entry. Seeds every current exact pin (Task 3 audits them)."
@@ -294,12 +298,14 @@ vrg-commit --type feat --scope pins --message "add pin data model, extractor, an
 ### Task 2: Catalog generator
 
 **Files:**
+
 - Create: `docker/pins/generate_catalog.py`
 - Create: `docker/pins/CATALOG.md` (generated, committed)
 - Modify: `docker/pins/test_pins.py`
 - Modify: `.github/workflows/ci.yml` (assert CATALOG.md is up to date)
 
 **Interfaces:**
+
 - Consumes: `extract_pins.extract`, `pins.yml`.
 - Produces: `generate_catalog.render(root) -> str` (markdown). CLI writes `CATALOG.md`; `--check` exits 1 if the committed file is stale.
 
@@ -386,6 +392,7 @@ Expected: `CATALOG.md` created; both catalog tests PASS.
 - [ ] **Step 6: Validate and commit**
 
 Run: `vrg-container-run -- vrg-validate`
+
 ```bash
 vrg-commit --type feat --scope pins --message "generate the pin catalog from Dockerfiles + pins.yml" \
   --body "CATALOG.md is generated (version facts from images, justifications from pins.yml) and CI-verified for staleness, so it cannot drift like CLAUDE.md did."
@@ -396,6 +403,7 @@ vrg-commit --type feat --scope pins --message "generate the pin catalog from Doc
 ### Task 3: Audit + free loud-failure pins
 
 **Files:**
+
 - Modify: `docker/common/*.dockerfile`, `docker/*/Dockerfile.template` (remove freed pins)
 - Modify: `docker/pins/pins.yml` (justify survivors with real `inducing_release`, delete freed)
 - Modify: `docker/pins/CATALOG.md` (regenerate)
@@ -405,6 +413,7 @@ vrg-commit --type feat --scope pins --message "generate the pin catalog from Doc
 - [ ] **Step 1: Classify every seed pin (record the outcome in the PR description)**
 
 For each `seed — unaudited` pin, decide via Tenet 6:
+
 - **Free it** (default when no testable inducing release is known) — this is the expected outcome for the linters/formatters/build tools and pyyaml.
 - **Justify it** — only if a specific `inducing_release` + reason exists (like `go-test-coverage`).
 Restrict this task to **loud-failure** tools (a bad float breaks the build visibly): markdownlint-cli, shellcheck, shfmt, actionlint, git-cliff, hadolint, yamllint, ansible-lint, uv, opentofu, nfpm, mkdocs-material, mike, pyyaml, goimports, gocyclo, go-licenses, golangci-lint, cargo-deny, cargo-llvm-cov.
@@ -439,6 +448,7 @@ vrg-commit --type feat --scope pins --message "audit pins; free loud-failure too
 ### Task 4: Publish immutable datestamp aliases
 
 **Files:**
+
 - Modify: `.github/workflows/cd-docker-publish.yml` (language promote ~L204-207; base promote ~L338-341)
 
 **Interfaces:** Produces immutable tags `{prefix}-{lang}:{version}-YYYYMMDD` and `{prefix}-base:latest-YYYYMMDD`, pointing at the same digest as the rolling tag.
@@ -449,7 +459,9 @@ vrg-commit --type feat --scope pins --message "audit pins; free loud-failure too
 # in the language job's env: block (near IMAGE/CANDIDATE)
       STAMP: ""   # set at runtime below
 ```
+
 Add a step before "Promote to final tag":
+
 ```yaml
       - name: Compute datestamp
         id: stamp
@@ -459,6 +471,7 @@ Add a step before "Promote to final tag":
 - [ ] **Step 2: Promote to BOTH the rolling tag and the immutable alias**
 
 Replace the language "Promote to final tag" step body:
+
 ```yaml
       - name: Promote to final + immutable tags
         run: |
@@ -467,6 +480,7 @@ Replace the language "Promote to final tag" step body:
             --tag "${IMAGE}-${{ steps.stamp.outputs.date }}" \
             "$CANDIDATE"
 ```
+
 Apply the identical change to the base job's promote step (using its `IMAGE`).
 
 - [ ] **Step 3: Verify digest preservation still holds for the rolling tag**
@@ -480,6 +494,7 @@ Run `actionlint` via validation (below) to confirm YAML/expression validity. A f
 - [ ] **Step 5: Validate and commit**
 
 Run: `vrg-container-run -- vrg-validate`
+
 ```bash
 vrg-commit --type feat --scope cd --message "publish immutable datestamp image aliases alongside rolling tags" \
   --body "Each build now also publishes {prefix}-{lang}:{version}-YYYYMMDD at the same digest, enabling repoint rollback."
@@ -490,6 +505,7 @@ vrg-commit --type feat --scope cd --message "publish immutable datestamp image a
 ### Task 5: Sliding-window reaper
 
 **Files:**
+
 - Modify: `.github/workflows/package-cleanup.yml`
 
 **Interfaces:** Reaps `*-YYYYMMDD` aliases older than the window; keeps rolling tags, `cache-*`, and in-window aliases. prod matrix W=30, dev matrix W=7.
@@ -545,6 +561,7 @@ After Task 4 has run once in CI, list tags (`vrg-gh` or the anonymous GHCR API u
 - [ ] **Step 4: Validate and commit**
 
 Run: `vrg-container-run -- vrg-validate`
+
 ```bash
 vrg-commit --type feat --scope ops --message "reap datestamp image aliases on a sliding window (prod 30d / dev 7d)" \
   --body "Adds an age-based reaper for {prefix}-{lang}:{version}-YYYYMMDD aliases; rolling/version/cache tags untouched. Ships DRY-RUN like the existing cleanup."
@@ -555,6 +572,7 @@ vrg-commit --type feat --scope ops --message "reap datestamp image aliases on a 
 ### Task 6: Repoint rollback procedure
 
 **Files:**
+
 - Create: `docs/rollback.md` (or the repo's docs location) — the documented procedure
 - (Decision) optionally a thin wrapper; default is a documented `imagetools` procedure, no new binary.
 
@@ -584,6 +602,7 @@ On a non-critical image, publish two datestamp aliases, repoint the rolling tag 
 - [ ] **Step 3: Validate and commit**
 
 Run: `vrg-container-run -- vrg-validate`
+
 ```bash
 vrg-commit --type docs --scope rollback --message "document image repoint rollback procedure" \
   --body "Repoint a rolling tag at an in-window datestamp alias for instant Axis-B rollback; demonstrated end-to-end."
@@ -602,6 +621,7 @@ vrg-commit --type docs --scope rollback --message "document image repoint rollba
 - [ ] **Step 3: Regenerate** — `docker/generate.sh && docker/pins/generate_catalog.py`.
 - [ ] **Step 4: Build + validate** — `docker/build.sh` then `vrg-container-run -- vrg-validate`. Confirm the security jobs still run and gate correctly with floated scanners.
 - [ ] **Step 5: Commit**
+
 ```bash
 vrg-commit --type feat --scope pins --message "free security scanners now that repoint rollback exists" \
   --body "trivy/scorecard/govulncheck float; silent-regression risk is bounded by WS3 rollback. semgrep confirmed floating."
@@ -612,6 +632,7 @@ vrg-commit --type feat --scope pins --message "free security scanners now that r
 ### Task 8: Pin/version exposure report (WS4) *(blocked-by Task 2)*
 
 **Files:**
+
 - Create: `docker/pins/report_exposure.py`
 - Create: `docker/pins/harvest_installed.py`
 - Create: `docker/pins/test_report.py`
@@ -747,6 +768,7 @@ def harvest(images, tools, probe=_docker_probe) -> dict[str, dict[str, str]]:
 - [ ] **Step 10: Validate and commit**
 
 Run: `vrg-container-run -- vrg-validate`
+
 ```bash
 vrg-commit --type feat --scope pins --message "add pin exposure report: due-for-re-evaluation + installed versions per image" \
   --body "Reports pins whose inducing_release is no longer leading edge, plus resolved installed versions per image (pinned AND floating), and links the §4.3 lifecycle. Internal-state only; upstream drift is the Dependabot follow-on."
@@ -757,6 +779,7 @@ vrg-commit --type feat --scope pins --message "add pin exposure report: due-for-
 ## Self-Review
 
 **Spec coverage:**
+
 - §3 philosophy / §4 lifecycle → `pins.yml` schema (T1) + audit (T3) + report's due-for-re-evaluation (T8). ✓
 - §7 WS2 (generated catalog + CI gate + failure-mode sequencing) → T1, T2, T3, T7. ✓
 - §7 WS3 (datestamp aliases, sliding window, reaper, rollback) → T4, T5, T6. ✓

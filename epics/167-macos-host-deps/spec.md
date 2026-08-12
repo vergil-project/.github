@@ -100,7 +100,7 @@ brainstorm (#169); the manifest records Docker's reality as it is today.
 This epic does **not** define a new pinning model. It adopts vergil-project/
 .github#155's doctrine as the single, org-wide standard for managing pins as
 technical debt, applied to host tools. Restated for reference (canonical text in
-#155 §3–§4):
+vergil-tooling #155 §3–§4):
 
 1. **Default is unpinned** — float on each tool's leading edge.
 2. **A pin is a reaction, never a default** — a reaction to a release breaking us.
@@ -116,8 +116,8 @@ technical debt, applied to host tools. Restated for reference (canonical text in
 Pin **states** (`active` / `under-evaluation` / `freed`) and the **re-evaluation
 algorithm** (deterministic pin → re-test then free-or-re-anchor; non-deterministic
 pin → suppress-and-observe under a tracking issue) are inherited verbatim from
-#155 §4. Host-specific mechanics are in §9. The **one deliberate extension** to
-#155's schema is a `pinned_date` field (§9), added so `status` can render how long
+vergil-tooling #155 §4. Host-specific mechanics are in §9. The **one deliberate
+extension** to #155's schema is a `pinned_date` field (§9), added so `status` can render how long
 a pin has stood; the core fields and semantics remain #155's, and #155 may adopt
 the same field for parity.
 

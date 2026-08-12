@@ -24,18 +24,22 @@
 **Deliverable:** a short written finding (committed as `docs/specs/notes/` or the task's PR description) answering: can our App token write and read GitHub's native issue-dependency (blocked-by/blocking) relation? Decide native-vs-reflink. This gates Tasks 4 and 6.
 
 **Files:**
+
 - Create: `docs/specs/2026-07-07-blocked-by-storage-spike.md` (the finding)
 
 **Interfaces:**
+
 - Produces: a decision — `STORAGE = "native"` or `STORAGE = "reflink"`. Tasks 4/6 implement the reflink baseline unconditionally; the native path is added only if the spike says `native`.
 
 - [ ] **Step 1: Probe the GraphQL schema for the dependency mutation**
 
 Run (as a human or USER agent with a token):
+
 ```bash
 vrg-gh api graphql -f query='query { __type(name: "Mutation") { fields { name } } }' \
   --jq '.data.__type.fields[].name' | grep -i -E "depend|block"
 ```
+
 Expected: either a mutation name (e.g. an `addIssueDependency`-style field) or no output.
 
 - [ ] **Step 2: If a mutation exists, attempt a real write on two throwaway issues**
@@ -47,6 +51,7 @@ Create two scratch issues under a scratch epic, attempt to set one blocked-by th
 Document the result. Decision rule: use `native` only if **both** write and read succeed under the App-installation token used by `vrg-gh`; otherwise `reflink`. State the decision explicitly.
 
 - [ ] **Step 4: Commit**
+
 ```bash
 vrg-git add docs/specs/2026-07-07-blocked-by-storage-spike.md
 vrg-commit --type docs --scope validation --message "record blocked-by storage spike finding" --body "Decides native issue-dependency vs Blocked-by reflink for validation task deps. Ref #<TASK1>."
@@ -57,13 +62,16 @@ vrg-commit --type docs --scope validation --message "record blocked-by storage s
 ### Task 2: Add the `validation` label to the registry — `vergil-tooling`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/data/labels.json` (add the `validation` entry)
 - Test: `tests/vergil_tooling/test_labels.py` (create if absent, else extend)
 
 **Interfaces:**
+
 - Produces: a canonical `validation` label provisioned by `vrg-ensure-label --sync`.
 
 - [ ] **Step 1: Write the failing test**
+
 ```python
 # tests/vergil_tooling/test_labels.py
 from vergil_tooling.lib.labels import load_labels
@@ -85,6 +93,7 @@ Expected: FAIL (`validation` not in names).
 - [ ] **Step 3: Add the label entry**
 
 Add to the `labels` array in `src/vergil_tooling/data/labels.json`:
+
 ```json
 {
   "name": "validation",
@@ -99,6 +108,7 @@ Run: `uv run pytest tests/vergil_tooling/test_labels.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
+
 ```bash
 vrg-git add src/vergil_tooling/data/labels.json tests/vergil_tooling/test_labels.py
 vrg-commit --type feat --scope labels --message "add validation label to the registry" --body "Marks post-merge validation tasks. Ref #<TASK2>."
@@ -109,16 +119,19 @@ vrg-commit --type feat --scope labels --message "add validation label to the reg
 ### Task 3: PR-workability guard — refuse `validation` tasks in submit/report-ready — `vergil-tooling`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` (add `is_validation_task`, near `is_epic_linkage:311`)
 - Modify: `src/vergil_tooling/bin/vrg_submit_pr.py:241` (refuse alongside the epic-linkage refusal)
 - Modify: `src/vergil_tooling/bin/vrg_pr_workflow.py:45` (refuse in report-ready)
 - Test: `tests/vergil_tooling/test_epics.py`, `tests/vergil_tooling/test_vrg_submit_pr.py`, `tests/vergil_tooling/pr_workflow/test_submission.py`
 
 **Interfaces:**
+
 - Consumes: `epics.parse_issue_ref`, `epics._labels` (Task uses existing helpers).
 - Produces: `epics.is_validation_task(ref: str, *, default_repo: str) -> bool` — the single source of truth, mirroring `is_epic_linkage`.
 
 - [ ] **Step 1: Write the failing test for the library predicate**
+
 ```python
 # tests/vergil_tooling/test_epics.py
 from unittest.mock import patch
@@ -144,6 +157,7 @@ Expected: FAIL (`AttributeError: module 'vergil_tooling.lib.epics' has no attrib
 - [ ] **Step 3: Implement the predicate**
 
 In `src/vergil_tooling/lib/epics.py`, directly after `is_epic_linkage`:
+
 ```python
 def is_validation_task(ref: str, *, default_repo: str) -> bool:
     """True if *ref* is a validation task, so PR tooling must refuse it.
@@ -167,6 +181,7 @@ Run: `uv run pytest tests/vergil_tooling/test_epics.py -k is_validation_task -v`
 Expected: PASS.
 
 - [ ] **Step 5: Write the failing guard test for `vrg-submit-pr`**
+
 ```python
 # tests/vergil_tooling/test_vrg_submit_pr.py
 from unittest.mock import patch
@@ -179,11 +194,13 @@ def test_submit_pr_refuses_validation_task(capsys):
     assert rc == 1
     assert "validation task" in capsys.readouterr().err.lower()
 ```
+
 (Adapt the invocation to `vrg_submit_pr`'s real entry — read `main`/`parse_args` around line 241 first; the assertion is the contract.)
 
 - [ ] **Step 6: Run, verify fail; then add the refusal**
 
 In `src/vergil_tooling/bin/vrg_submit_pr.py`, beside the existing `if epics.is_epic_linkage(issue_ref, ...):` block (~line 241):
+
 ```python
     if epics.is_validation_task(issue_ref, default_repo=github.current_repo()):
         print(
@@ -198,6 +215,7 @@ In `src/vergil_tooling/bin/vrg_submit_pr.py`, beside the existing `if epics.is_e
 - [ ] **Step 7: Write + implement the same refusal for `vrg-pr-workflow report-ready`**
 
 In `src/vergil_tooling/bin/vrg_pr_workflow.py` (~line 45, beside `links_epic = epics.is_epic_linkage(...)`):
+
 ```python
         if epics.is_validation_task(issue, default_repo=github.current_repo()):
             print(
@@ -208,6 +226,7 @@ In `src/vergil_tooling/bin/vrg_pr_workflow.py` (~line 45, beside `links_epic = e
             )
             return 1
 ```
+
 Add a mirror test in `tests/vergil_tooling/pr_workflow/test_submission.py` asserting `report-ready` returns non-zero and mentions "validation task".
 
 - [ ] **Step 8: Run the guard tests, verify pass**
@@ -216,6 +235,7 @@ Run: `uv run pytest tests/vergil_tooling/test_vrg_submit_pr.py tests/vergil_tool
 Expected: PASS.
 
 - [ ] **Step 9: Commit**
+
 ```bash
 vrg-git add src/vergil_tooling/lib/epics.py src/vergil_tooling/bin/vrg_submit_pr.py src/vergil_tooling/bin/vrg_pr_workflow.py tests/vergil_tooling/
 vrg-commit --type feat --scope pr-guard --message "refuse PR development against validation tasks" --body "A validation task is not PR-workable: vrg-submit-pr and vrg-pr-workflow report-ready both refuse it, making both auto-close vectors moot. Ref #<TASK3>."
@@ -226,10 +246,12 @@ vrg-commit --type feat --scope pr-guard --message "refuse PR development against
 ### Task 4: Dependency link plumbing (`Blocked-by:` reflink baseline) — `vergil-tooling`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` (add `_BLOCKED_BY_RE`, `blockers_of`, `all_blockers_closed`, `render_blocked_by`)
 - Test: `tests/vergil_tooling/test_epics.py`
 
 **Interfaces:**
+
 - Consumes: Task 1's `STORAGE` decision (reflink baseline always; native additive if `native`).
 - Produces:
   - `epics.render_blocked_by(deps: list[IssueRef]) -> str` — the `Blocked-by:` lines to embed in a validation task body.
@@ -237,6 +259,7 @@ vrg-commit --type feat --scope pr-guard --message "refuse PR development against
   - `epics.all_blockers_closed(task: IssueRef) -> bool` — True iff every blocker is CLOSED (used by rollup runnable/blocked).
 
 - [ ] **Step 1: Write the failing tests**
+
 ```python
 # tests/vergil_tooling/test_epics.py
 from unittest.mock import patch
@@ -274,6 +297,7 @@ Expected: FAIL (attributes undefined).
 - [ ] **Step 3: Implement (reflink baseline)**
 
 In `src/vergil_tooling/lib/epics.py`:
+
 ```python
 _BLOCKED_BY_RE = re.compile(
     r"^\s*Blocked-by:\s*([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)#(\d+)\s*$",
@@ -304,6 +328,7 @@ def all_blockers_closed(task: IssueRef) -> bool:
     """True iff every blocker of *task* is CLOSED (empty ⇒ True, i.e. runnable)."""
     return all(_issue_state(dep) == "CLOSED" for dep in blockers_of(task))
 ```
+
 If Task 1 selected `native`, additionally implement the real mutation (to set) and query (in `_native_blockers`); the reflink stays as the fallback.
 
 - [ ] **Step 4: Run, verify pass**
@@ -312,6 +337,7 @@ Run: `uv run pytest tests/vergil_tooling/test_epics.py -k "blocked_by or blocker
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
+
 ```bash
 vrg-git add src/vergil_tooling/lib/epics.py tests/vergil_tooling/test_epics.py
 vrg-commit --type feat --scope epics --message "add Blocked-by dependency reflink plumbing" --body "render/parse/evaluate validation-task blockers; reflink baseline mirrors the Parent: sub-issue fallback. Ref #<TASK4>."
@@ -322,15 +348,18 @@ vrg-commit --type feat --scope epics --message "add Blocked-by dependency reflin
 ### Task 5: `vrg-issue-create --kind validation` — label + scaffold + blocked-by — `vergil-tooling`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_issue_create.py` (add `--kind`, `--blocked-by`; stamp scaffold; apply label)
 - Create: `src/vergil_tooling/data/validation_task_body.md` (the scaffold template)
 - Test: `tests/vergil_tooling/test_vrg_issue_create.py`
 
 **Interfaces:**
+
 - Consumes: `epics.render_blocked_by` (Task 4), the `validation` label (Task 2).
 - Produces: `vrg-issue-create --epic <E> --kind validation --title ... --blocked-by owner/repo#N [--blocked-by ...]` → an issue with the `validation` label, the scaffold body (with rendered `Blocked-by:` lines and a commit-floor precondition placeholder resolved from the deps), linked under the epic.
 
 - [ ] **Step 1: Write the failing test**
+
 ```python
 # tests/vergil_tooling/test_vrg_issue_create.py
 from unittest.mock import patch
@@ -364,6 +393,7 @@ Expected: FAIL (`--kind` unrecognized).
 - [ ] **Step 3: Create the scaffold template**
 
 `src/vergil_tooling/data/validation_task_body.md`:
+
 ```markdown
 {intro}
 
@@ -400,13 +430,16 @@ and stop. Do not run the checklist. Never fabricate a result.
 - [ ] **Step 4: Implement the CLI path**
 
 In `parse_args`, add:
+
 ```python
     parser.add_argument("--kind", choices=("task", "validation"), default="task",
                         help="Issue kind; 'validation' stamps the validation scaffold + label")
     parser.add_argument("--blocked-by", action="append", default=[], metavar="REF",
                         help="Dependency this validation task is blocked by (repeatable)")
 ```
+
 In `main`, when `args.kind == "validation"`:
+
 ```python
     labels = [*args.label, "validation"]
     deps = [epics.parse_issue_ref(r, default_repo=repo) for r in args.blocked_by]
@@ -416,6 +449,7 @@ In `main`, when `args.kind == "validation"`:
         blocked_by=epics.render_blocked_by(deps),
     )
 ```
+
 then proceed through the existing create+link path with `labels`/`body`. (Non-validation kind is unchanged.)
 
 - [ ] **Step 5: Run, verify pass**
@@ -424,6 +458,7 @@ Run: `uv run pytest tests/vergil_tooling/test_vrg_issue_create.py -v`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
+
 ```bash
 vrg-git add src/vergil_tooling/bin/vrg_issue_create.py src/vergil_tooling/data/validation_task_body.md tests/vergil_tooling/test_vrg_issue_create.py
 vrg-commit --type feat --scope issue-create --message "add --kind validation path" --body "Stamps the validation label, executable scaffold, and Blocked-by reflinks. Ref #<TASK5>."
@@ -434,17 +469,20 @@ vrg-commit --type feat --scope issue-create --message "add --kind validation pat
 ### Task 6: Validation-aware rollup/audit — `vergil-tooling`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epic_audit.py` (validation-pending state; runnable/blocked; report-only invariant)
 - Modify: `src/vergil_tooling/lib/roadmap.py` (surface a `validation_pending` signal on `EpicSummary` if needed for rendering)
 - Test: `tests/vergil_tooling/test_epic_audit.py`, `tests/vergil_tooling/test_vrg_epic_rollup.py`
 
 **Interfaces:**
+
 - Consumes: `epics.child_states`, `epics.blockers_of`, `epics.all_blockers_closed` (Task 4), the `validation` label (Task 2).
 - Produces:
   - `epic_audit.validation_status(epic) -> {"pending": [...], "runnable": [...], "blocked": [...]}`
   - a report-only invariant: `epic_audit.closed_validation_without_pass(org) -> list[str]` (validation tasks CLOSED with no PASS comment).
 
 - [ ] **Step 1: Write the failing test for rollup-holds-epic-open**
+
 ```python
 # tests/vergil_tooling/test_vrg_epic_rollup.py
 from unittest.mock import patch
@@ -470,6 +508,7 @@ Run: `uv run pytest tests/vergil_tooling/test_vrg_epic_rollup.py -k validation_c
 Expected: PASS — `all_children_closed` is already False with an open child. This test *locks in* the safe-by-construction behavior; if it fails, rollup logic regressed. Keep it.
 
 - [ ] **Step 3: Write the failing test for validation_status**
+
 ```python
 # tests/vergil_tooling/test_epic_audit.py
 from unittest.mock import patch
@@ -498,6 +537,7 @@ def test_validation_status_classifies_runnable_vs_blocked():
 - [ ] **Step 4: Run, verify fail; then implement**
 
 In `src/vergil_tooling/lib/epic_audit.py`:
+
 ```python
 def validation_status(epic: epics.IssueRef) -> dict[str, list[epics.IssueRef]]:
     """Outstanding validation children of *epic*, split runnable vs blocked.
@@ -526,6 +566,7 @@ Run: `uv run pytest tests/vergil_tooling/test_epic_audit.py -v`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
+
 ```bash
 vrg-git add src/vergil_tooling/lib/epic_audit.py src/vergil_tooling/lib/roadmap.py tests/vergil_tooling/
 vrg-commit --type feat --scope epic-audit --message "make rollup/audit validation-aware" --body "Report code-complete/validation-pending, classify runnable vs blocked, flag validation tasks closed without a PASS comment (report-only). Ref #<TASK6>."
@@ -536,6 +577,7 @@ vrg-commit --type feat --scope epic-audit --message "make rollup/audit validatio
 ### Task 7: `epic-create` skill — validation doctrine + default seeding — `vergil-claude-plugin`
 
 **Files:**
+
 - Modify: `skills/epic-create/SKILL.md`
 
 **Deliverable:** doctrine prose (no code). "Tests" = self-review against the spec + the dogfood in Task 10.
@@ -545,6 +587,7 @@ vrg-commit --type feat --scope epic-audit --message "make rollup/audit validatio
 - [ ] **Step 3:** Document **creation** via `vrg-issue-create --kind validation --blocked-by …`, and the **anatomy** (preconditions self-check with the deployed-version commit-floor, commands, acceptance, results template).
 - [ ] **Step 4:** State the **default seeding** rule for infra epics at step 2 of the workflow.
 - [ ] **Step 5:** Self-review against `spec.md`; commit.
+
 ```bash
 vrg-git add skills/epic-create/SKILL.md
 vrg-commit --type docs --scope epic-create --message "add post-merge validation doctrine" --body "Validation task type, judgment doctrine, default infra seeding, creation + anatomy. Ref #<TASK7>."
@@ -555,12 +598,14 @@ vrg-commit --type docs --scope epic-create --message "add post-merge validation 
 ### Task 8: `issue-implement` skill — discover-and-create + wrong-skill redirect — `vergil-claude-plugin`
 
 **Files:**
+
 - Modify: `skills/issue-implement/SKILL.md`
 
 - [ ] **Step 1:** Add the **wrong-skill redirect** at the top of the workflow: on picking up a `validation`-labelled issue, stop and redirect to `issue-validate` — this issue is not code-implementation.
 - [ ] **Step 2:** Add the **discover-and-create** rule: when pipeline unit/integration tests cannot prove acceptance (the change must be merged + deployed to validate), mint a validation follow-on with `vrg-issue-create --kind validation --blocked-by <this task>` (1:1 or attach to an existing epoch validation).
 - [ ] **Step 3:** Add the **don't-declare-done** rule: never treat the task/epic as complete while a paired or epoch validation is outstanding.
 - [ ] **Step 4:** Self-review against `spec.md`; commit.
+
 ```bash
 vrg-git add skills/issue-implement/SKILL.md
 vrg-commit --type docs --scope issue-implement --message "discover/create validation follow-ons + redirect" --body "Redirect validation-labelled issues to issue-validate; mint follow-ons on discovery; don't declare done while a validation is open. Ref #<TASK8>."
@@ -571,6 +616,7 @@ vrg-commit --type docs --scope issue-implement --message "discover/create valida
 ### Task 9: `issue-validate` skill (new) — the execution lifecycle — `vergil-claude-plugin`
 
 **Files:**
+
 - Create: `skills/issue-validate/SKILL.md`
 - Modify: the plugin's skill manifest/registry if one enumerates skills (check `.claude-plugin/` and any marketplace index)
 
@@ -583,6 +629,7 @@ vrg-commit --type docs --scope issue-implement --message "discover/create valida
 - [ ] **Step 5:** **Close semantics** — PASS ⇒ comment then close (`vrg-gh issue close`). FAIL ⇒ comment evidence, file follow-on fix task(s) via `vrg-issue-create`, and **leave the task and epic OPEN**. Triage-discovered problems are out-of-band new issues, not edits here.
 - [ ] **Step 6:** **Boundaries** — no worktree, no commits, no PR; explicitly contrast with `issue-implement`.
 - [ ] **Step 7:** Self-review against `spec.md`; commit.
+
 ```bash
 vrg-git add skills/issue-validate/
 vrg-commit --type feat --scope issue-validate --message "add issue-validate skill" --body "Execute a validation task: reachability gate, run, record PASS/FAIL comment, close on PASS / hold open on FAIL. No code, no PR. Ref #<TASK9>."
@@ -595,6 +642,7 @@ vrg-commit --type feat --scope issue-validate --message "add issue-validate skil
 **Deliverable:** a `validation`-labelled task (created *by the new tooling*) that exercises the framework end-to-end without a live lab — proving the pattern eats its own dogfood. This is the epic's epoch validation, blocked-by Tasks 3, 5, 6.
 
 - [ ] **Step 1:** After Tasks 2–6 merge, create it with the new path:
+
 ```bash
 vrg-issue-create --epic vergil-project/.github#115 --repo vergil-project/.github \
   --kind validation --title "Validate: post-merge validation framework end-to-end" \
@@ -602,6 +650,7 @@ vrg-issue-create --epic vergil-project/.github#115 --repo vergil-project/.github
   --blocked-by vergil-project/vergil-tooling#<TASK5> \
   --blocked-by vergil-project/vergil-tooling#<TASK6>
 ```
+
 - [ ] **Step 2:** In its body, record the checklist: (a) `vrg-submit-pr` and `report-ready` both refuse a `validation`-labelled issue; (b) `vrg-issue-create --kind validation` stamps label + scaffold + `Blocked-by:`; (c) `vrg-epic-audit` reports the validation as runnable once its blockers close, blocked before; (d) `vrg-epic-rollup` holds a test epic open while a validation child is open.
 - [ ] **Step 3:** Run it via `issue-validate` (Task 9); post PASS/FAIL; close on PASS only.
 

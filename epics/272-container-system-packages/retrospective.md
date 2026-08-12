@@ -13,7 +13,7 @@ apt speller shared by both install paths, fail-closed on a missing candidate,
 proven end-to-end on a live cold rebuild, and documented on both the
 consuming-repo and CI-operator sides.
 
-**Work delivered**
+### Work delivered
 
 | PR | Repo | What it did |
 |---|---|---|
@@ -23,7 +23,7 @@ consuming-repo and CI-operator sides.
 | [vergil-tooling#2736](https://github.com/vergil-project/vergil-tooling/pull/2736) | vergil-tooling | Consuming-repo docs: Container Config Reference + CI Architecture guide (documentation-review bookend, task #2724) |
 | [vergil-actions#813](https://github.com/vergil-project/vergil-actions/pull/813) | vergil-actions | CI-operator docs: Action Reference page + ci-test note (task #812, spawned by the docs sweep) |
 
-**By the numbers**
+### By the numbers
 
 - **Repos touched (delivery):** 3 — `vergil-project/.github`, `vergil-tooling`, `vergil-actions`.
 - **Children:** 9 total — 5 PR-workable tasks (all merged), 1 `validation` operational task (#2725, closed on `Outcome: SUCCESS`), 1 origin research issue (#2718, closed as promoted), 1 forward-axis follow-on bookend (#274), and this retrospective (#275).

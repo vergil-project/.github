@@ -16,7 +16,7 @@ internals are quarantined behind a `SessionStore` seam), the Agent-SDK backend w
 and deliberately deferred**, `--fork` was **removed**, and **three defects that only the live
 lab could surface** were fixed before sign-off.
 
-**Work delivered**
+### Work delivered
 
 | PR | Repo | What it did |
 |---|---|---|

@@ -38,11 +38,13 @@ Each task below is scoped to become a single GitHub implementation task filed un
 ## Task 1: Manifest schema + TOML loader
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/host_deps.py`
 - Create: `src/vergil_tooling/data/host_dependencies.toml` (minimal seed; full curation is Task 7)
 - Test: `tests/vergil_tooling/test_host_deps.py`
 
 **Interfaces:**
+
 - Produces:
   - `@dataclass(frozen=True) AuxCheck(name: str, probe: list[str], remediation: list[str] | None)`
   - `@dataclass(frozen=True) HostPin(constraint: str, inducing_release: str, deterministic: bool, reason: str, state: str, tracking_issue: str | None, pinned_date: str)` — `pinned_date` (ISO `YYYY-MM-DD`) is the one deliberate host extension to #155's schema, so `status` can render pin age (spec §5, §9).
@@ -236,10 +238,12 @@ vrg-commit --type feat --scope host --message "add host-dependency manifest sche
 ## Task 2: Method-handler registry
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/host_methods.py`
 - Test: `tests/vergil_tooling/test_host_methods.py`
 
 **Interfaces:**
+
 - Consumes: `HostDependency` (Task 1).
 - Produces:
   - Sentinel `UNMANAGED = object()` for "no latest feed".
@@ -368,12 +372,14 @@ vrg-commit --type feat --scope host --message "add install-method handler regist
 ## Task 3: `vrg-host status` — classification, reporting, entry point
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/host_status.py`
 - Create: `src/vergil_tooling/bin/vrg_host.py`
 - Modify: `pyproject.toml` (add `vrg-host` under `[project.scripts]`, alphabetical position near `vrg-hook-guard`)
 - Test: `tests/vergil_tooling/test_host_status.py`, `tests/vergil_tooling/test_vrg_host.py`
 
 **Interfaces:**
+
 - Consumes: `HostDependency` (T1), `installed_version`/`latest_version`/`UNMANAGED` (T2).
 - Produces:
   - `VERSION_STATES` = `{"missing","current","behind","pinned","latest-unmanaged","latest-unknown"}`.
@@ -561,11 +567,13 @@ vrg-commit --type feat --scope host --message "add vrg-host status with two-axis
 ## Task 4: Auxiliary requirement checks + gcloud numpy (#166 absorption)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_host.py` (a `--fix-checks` path / remediation wiring)
 - Modify: `src/vergil_tooling/data/host_dependencies.toml` (gcloud `custom` entry with the numpy check)
 - Test: `tests/vergil_tooling/test_vrg_host.py`
 
 **Interfaces:**
+
 - Consumes: `AuxCheck` (T1), `_run_check` (T3).
 - Produces: `remediate_checks(dep) -> list[str]` (names of checks whose remediation ran), invoked by `upgrade` (T5) and a `status --fix` flag.
 
@@ -617,10 +625,12 @@ vrg-commit --type feat --scope host --message "add auxiliary checks + gcloud num
 ## Task 5: `vrg-host upgrade` — auto/manual, pin-respecting, no escalation
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_host.py`
 - Test: `tests/vergil_tooling/test_vrg_host.py`
 
 **Interfaces:**
+
 - Consumes: `upgrade`/`UpgradeUnsupported` (T2), pin state (T1).
 - Produces: `_upgrade(args) -> int`; `upgrade` subcommand accepting `deps...` and `--all`.
 
@@ -658,11 +668,13 @@ vrg-commit --type feat --scope host --message "add vrg-host upgrade (auto/manual
 ## Task 6: `vrg-host pin` / `unpin` + #155 lifecycle surfacing
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/host_pins.py`
 - Modify: `src/vergil_tooling/bin/vrg_host.py`, `src/vergil_tooling/lib/host_status.py` (render pins as debt)
 - Test: `tests/vergil_tooling/test_host_pins.py`
 
 **Interfaces:**
+
 - Consumes: `HostPin`/`HostDependency` (T1).
 - Produces:
   - `write_pin(name, pin: HostPin) -> None`, `clear_pin(name) -> None` (rewrite the manifest TOML in place, preserving other entries).
@@ -705,6 +717,7 @@ vrg-commit --type feat --scope host --message "add vrg-host pin/unpin with #155 
 ## Task 7: Enumerate & curate the authoritative manifest (spec §11)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/data/host_dependencies.toml` (full curation)
 - Modify: `src/vergil_tooling/lib/host_methods.py` (real brew/uv/gcloud output parsers + fixtures)
 - Test: `tests/vergil_tooling/test_host_methods.py` (parser tests against recorded fixtures)

@@ -30,7 +30,7 @@ released repo that publishes the organization's documentation **site**.
 
 ## 3. What `docs` contains
 
-1. **Hand-written org-wide narrative** — what *<project>* is, architecture,
+1. **Hand-written org-wide narrative** — what `<project>` is, architecture,
    getting-started, conventions.
 2. **The generated roadmap + activity-log**, as published pages — the org's plan
    and recent throughput, finally findable.

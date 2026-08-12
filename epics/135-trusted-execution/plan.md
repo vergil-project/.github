@@ -45,9 +45,11 @@
 ### Task A: The `epic-implement` skill
 
 **Files:**
+
 - Create: `skills/epic-implement/SKILL.md`
 
 **Interfaces:**
+
 - Produces: a `/vergil:epic-implement <epic-ref>` skill. Consumes (routes to) the existing `issue-implement`, `issue-validate`, `issue-deploy` skills and the `CLAUDE.md` "Agent prompt contract."
 - Acceptance: `vrg-validate` green; the SKILL.md contains, verbatim in intent — resume-from-epic-issue+plan (not `vrg-epic-audit` as engine); the paste-ready `/rename` line; label→skill routing table; sub-agent dispatch via the CLAUDE.md Agent prompt contract; batch-once-then-stop gate; explicit "driver does NOT drive `pr-watch`"; escalate-on-problem; hybrid terminal handoff (drive doc-review, stop-and-prepare closing brainstorm; never close it).
 
@@ -198,6 +200,7 @@ Then tell the human: *"Ready — run `vrg-submit-pr`."*
 ### Task B: `issue-implement` cleanup
 
 **Files:**
+
 - Modify: `skills/issue-implement/SKILL.md` (replace the "Run it in the foreground" block)
 
 **Acceptance:** `vrg-validate` green; the "never spawn a sub-agent / visible progress is oversight" text is gone; sub-agents encouraged + escalate-on-problem present; `report-ready` → human-submits and never-suppress-a-gate text elsewhere in the file is untouched.
@@ -256,6 +259,7 @@ vrg-pr-workflow report-ready --issue 627 \
 ### Task C: `issue-localize` cleanup
 
 **Files:**
+
 - Modify: `skills/issue-localize/SKILL.md` (replace the "Run it in the foreground" block)
 
 **Acceptance:** `vrg-validate` green; "never spawn a sub-agent" gone; sub-agents encouraged + escalate present; the never-fabricate-the-reconstructed-metadata intent preserved.
@@ -311,6 +315,7 @@ vrg-pr-workflow report-ready --issue 628 \
 ### Task D: `issue-validate` + `issue-deploy` cleanup
 
 **Files:**
+
 - Modify: `skills/issue-validate/SKILL.md` (rewrite the foreground block, lines ~28–30)
 - Modify: `skills/issue-deploy/SKILL.md` (rewrite the foreground block, lines ~28–30)
 
@@ -387,6 +392,7 @@ vrg-pr-workflow report-ready --issue 629 \
 ### Task E: Canonical invariant statement
 
 **Files:**
+
 - Modify: `CLAUDE.md` (add a doctrine section)
 - Modify: `README.md`, `docs/site/docs/agents/index.md`, `docs/site/docs/index.md` (audit + align any oversight-model prose)
 - Modify: `skills/pr-watch/SKILL.md` (one-line clarifier so its "foreground" header does not read as the old doctrine)
@@ -464,4 +470,4 @@ vrg-pr-workflow report-ready --issue 630 \
 
 ## Evolution during execution
 
-*(Frozen at execution start. Append dated entries here for meaningful deviations — a task added, dropped, or rescoped, or a discovered dependency — with the reasoning. The GitHub sub-issues remain the authoritative live task list.)*
+(Frozen at execution start. Append dated entries here for meaningful deviations — a task added, dropped, or rescoped, or a discovered dependency — with the reasoning. The GitHub sub-issues remain the authoritative live task list.)

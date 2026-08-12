@@ -44,11 +44,13 @@ and daily ops job are deferred to follow-on #227.)
 ## Task A1: `docs / docs` universal required check + completeness test
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/github_config.py` (`desired_ci_gates_ruleset`, the
   "Always present" block near line 279)
 - Test: `tests/vergil_tooling/test_github_config.py`
 
 **Interfaces:**
+
 - Consumes: existing `_make_check(context)` → `{"context", "integration_id"}`.
 - Produces: `desired_ci_gates_ruleset(project, ci, ghas=…)` now includes a
   `docs / docs` context in `required_status_checks`.
@@ -122,12 +124,14 @@ vrg-commit --type fix --scope pr-gates \
 ## Task B: Orphaned-check resilience in `vrg-finalize-pr`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/github.py` (`wait_for_checks`,
   `_poll_and_watch_checks`; new orphan helpers)
 - Modify: `src/vergil_tooling/lib/pr_merge.py` (surface the orphan error message)
 - Test: `tests/vergil_tooling/test_github.py`, `tests/vergil_tooling/test_pr_merge.py`
 
 **Interfaces:**
+
 - Consumes: `github.pr_checks(pr)` (extended to include `link`), `gh run view`.
 - Produces:
   - `OrphanedCheckError(Exception)` with an actionable message.

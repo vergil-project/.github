@@ -57,8 +57,8 @@ epic (see §6) — the convention only names it as expected.
 ### 4.2 Validation gate — runtime invoke `--help`
 
 A test enumerates every console script from `pyproject.toml`
-`[project.scripts]`, runs each with `--help` in a subprocess, and asserts exit 0
-+ non-empty stdout. An explicit, commented `EXEMPT` set holds `vrg-hook-guard`.
+`[project.scripts]`, runs each with `--help` in a subprocess, and asserts exit 0 -
+non-empty stdout. An explicit, commented `EXEMPT` set holds `vrg-hook-guard`.
 `--help` short-circuits before any side effects, so the gate is hermetic. It
 runs inside the existing test suite that `vrg-validate`/CI already executes.
 

@@ -32,11 +32,13 @@ Resolve these as **Task 0** spikes before building on them. Each has a guarantee
 ### Task 0: Resolve D1/D2/D3 and record the decisions
 
 **Files:**
+
 - Create: `epics/171-observability-platform/decisions.md` (in the `.github` epic dir) — short record of what each spike found.
 
 - [ ] **Step 1:** Dump the distinct top-level keys and a sample record from three known session files — one Mac-only session, one known to have run inside the shared-home VM (e.g. an `epic-79`/`epic-91` file under the `mq-resiliency-lab-for-linux` slug) — and diff their record shapes for a host discriminator.
 
 Run (read-only inspection):
+
 ```bash
 python3 - <<'PY'
 import json, glob, os, collections
@@ -44,6 +46,7 @@ root=os.path.expanduser('~/.claude/projects')
 for f in sorted(glob.glob(root+'/*/*.jsonl'))[:0]: pass
 PY
 ```
+
 (Use a scratch script; do not commit it. Record findings, not the script.)
 
 - [ ] **Step 2:** Record in `decisions.md`: D1 result (discriminator field name, or "none → ambiguous fallback"), D2 confirmation (which local VMs share `~/.claude`), D3 readiness (relay producer + `vm_cloud` enumeration present? yes/no → keep or cut Phase 3).
@@ -82,13 +85,16 @@ Register script in `pyproject.toml`: `vrg-fleet = "vergil_tooling.bin.vrg_fleet:
 ### Task 1: The versioned contract dataclasses
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/fleet/__init__.py`, `src/vergil_tooling/lib/fleet/contract.py`
 - Test: `tests/vergil_tooling/lib/fleet/__init__.py`, `tests/vergil_tooling/lib/fleet/test_contract.py`
 
 **Interfaces:**
+
 - Produces: `CONTRACT_VERSION: str`; frozen dataclasses `Host`, `SessionRec`, `WorktreeRec`, `PrRec`, `TaskRec`, `EpicRec`, `GitHubRollup`, `Snapshot`; `Snapshot.to_dict() -> dict`, `Snapshot.to_json(indent=2) -> str`.
 
 - [ ] **Step 1: Write the failing test**
+
 ```python
 # tests/vergil_tooling/lib/fleet/test_contract.py
 import json
@@ -114,8 +120,10 @@ def test_snapshot_serialises_versioned_json():
     assert doc["sessions"][0]["title_lineage"][1] == ["epic-79-x", 689]
     assert doc["partial"] is False
 ```
+
 - [ ] **Step 2: Run it — expect ImportError/fail.** `uv run pytest tests/vergil_tooling/lib/fleet/test_contract.py -v`
 - [ ] **Step 3: Implement `contract.py`.**
+
 ```python
 # src/vergil_tooling/lib/fleet/contract.py
 from __future__ import annotations
@@ -205,17 +213,20 @@ class Snapshot:
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent, sort_keys=False)
 ```
+
 - [ ] **Step 4: Run test — expect PASS.**
 - [ ] **Step 5: Commit.** `vrg-commit --type feat --scope fleet --message "add versioned fleet-state contract dataclasses"`
 
 ### Task 2: Tail-read of the authoritative session title (+ lineage)
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/fleet/sessions.py`
 - Test: `tests/vergil_tooling/lib/fleet/test_sessions.py`
 - Fixtures: `tests/vergil_tooling/lib/fleet/fixtures/renamed_session.jsonl`, `.../plain_session.jsonl`
 
 **Interfaces:**
+
 - Produces:
   - `read_session_title(path: Path) -> tuple[str | None, list[tuple[str,int]]]` — returns `(authoritative_title, lineage)` where `authoritative_title` is the **last** `custom-title` seen and `lineage` is the ordered list of `(title, first_seen_line)` transitions.
   - `read_session(path: Path) -> SessionRaw` (dataclass: `uuid, project_slug, cwd, gitBranch, last_active_epoch, title, lineage`).
@@ -223,6 +234,7 @@ class Snapshot:
 
 - [ ] **Step 1: Build the fixture** `renamed_session.jsonl`: 60+ lines where lines 1..40 carry `{"type":"custom-title","customTitle":"vergil-user:01:x","sessionId":"u1"}` (interleaved with dummy message records that carry `cwd`/`gitBranch`), then from line ~45 onward `customTitle` becomes `"epic-79-observability-extraction"`. This encodes the real bug: a naive head-read returns the stale title.
 - [ ] **Step 2: Write the failing test.**
+
 ```python
 # tests/vergil_tooling/lib/fleet/test_sessions.py
 from pathlib import Path
@@ -242,8 +254,10 @@ def test_plain_session_single_title():
     assert title is not None
     assert len(lineage) == 1
 ```
+
 - [ ] **Step 3: Run — expect fail.**
 - [ ] **Step 4: Implement `read_session_title` with a reverse/tail scan** (efficient for multi-MB files). Read the file once, but derive the authoritative title from the *last* matching record; build lineage by tracking title changes in line order.
+
 ```python
 # src/vergil_tooling/lib/fleet/sessions.py  (excerpt)
 from __future__ import annotations
@@ -274,6 +288,7 @@ def read_session_title(path: Path) -> tuple[str | None, list[tuple[str, int]]]:
                 last_title = t
     return authoritative, lineage
 ```
+
 - [ ] **Step 5: Run test — expect PASS.**
 - [ ] **Step 6: Add the multi-MB tail case** — generate (in the test, not committed) a ~3MB file whose only `epic-*` title is on the final line; assert `read_session_title` returns it and completes under a soft time bound. (Documents the "must reach EOF" property.)
 - [ ] **Step 7: Implement `read_session` + `iter_session_files`** (parse `cwd`/`gitBranch`/`uuid`, `path.stat().st_mtime` for `last_active`), with a test over the fixtures.
@@ -301,6 +316,7 @@ def read_session_title(path: Path) -> tuple[str | None, list[tuple[str, int]]]:
 
 **Files:** Modify `hosts.py`, create `collect.py`, `correlate.py`; Tests `.../test_collect.py`
 **Interfaces:**
+
 - `mac_host(projects_root: Path) -> Host`
 - `collect_snapshot(*, dev_root, projects_root, github=False, hosts="mac") -> Snapshot` (github/VMs added in later phases)
 - `correlate(sessions, worktrees, github) -> Snapshot` (Phase-0 form: no GitHub join yet; `epic` from `epic-<N>` title only)
@@ -343,12 +359,14 @@ def read_session_title(path: Path) -> tuple[str | None, list[tuple[str, int]]]:
 ### Task 9: Wire GitHub into `correlate` + offline degradation
 
 **Files:** Modify `correlate.py`, `collect.py`; Test `.../test_correlate.py`
+
 - [ ] **Step 1:** Failing tests: (a) with a stubbed rollup, a worktree on `feature/687-x` gets `epic == 79` and its session inherits it; (b) with `github=True` but the stub raising `GitHubUnreachable`, `Snapshot.github.reachable is False`, `github.error` is set, every `epic` falls back to title-only (or `None`) and is rendered "unresolved" — **not dropped** — and `Snapshot.partial is True`.
 - [ ] **Step 2:** Run — fail. **Step 3:** Implement join + degradation. **Step 4:** Pass. **Step 5:** Commit.
 
 ### Task 10: Render idle-but-open epics and orphan branches
 
 **Files:** Modify `render.py`, `github_rollup.py`; Test `test_vrg_fleet.py`
+
 - [ ] **Step 1:** Failing test: a GitHub rollup with an open epic that has **no** local worktree/session renders as an "idle" row; a local `feature/x` branch with **no** resolvable epic renders under an "orphan / ad-hoc" heading. **Step 2:** fail. **Step 3:** implement. **Step 4:** pass. **Step 5:** commit.
 
 - [ ] **Step 6 (GitHub-as-fallback-truth acceptance — spec finding ③):** Add a failing test asserting the reconstruction promise: given a **host that is down** (a `reachable:false` Host, so its sessions/worktrees are absent) whose branch/PR nonetheless exists in the GitHub rollup, that work still renders as an **"idle — pushed work"** row attributed to the down host, proving an off VM's pushed branches remain visible via GitHub. Assert it appears **and** that `Snapshot.partial` is still `True` (the host itself was not reachable). **Step 7:** run — fail. **Step 8:** implement the join (a down host + a GitHub task/PR on its branch → idle-pushed row). **Step 9:** pass. **Step 10:** commit `feat(fleet): show pushed work for an unreachable host via the GitHub fallback`.
@@ -370,11 +388,13 @@ def read_session_title(path: Path) -> tuple[str | None, list[tuple[str, int]]]:
 ### Task 12: `uuid` de-dup across hosts
 
 **Files:** Modify `correlate.py`; Test `.../test_correlate.py`
+
 - [ ] **Step 1:** Failing test: two `SessionRec` with the same `uuid` (one seen via Mac read, one via a VM path) collapse to **one** record, attributed per Task 11. **Step 2:** fail. **Step 3:** implement de-dup keyed on `uuid`. **Step 4:** pass. **Step 5:** commit.
 
 ### Task 13: Non-shared local VM reach via transport (only if D2 requires)
 
 **Files:** Modify `hosts.py`, `collect.py`; Test `.../test_hosts.py`
+
 - [ ] **Step 1:** *Guard:* if D2 confirmed **all** local VMs share `~/.claude`, mark this task **N/A** in `decisions.md` and skip. Otherwise: failing test with a stubbed `vm_transport.LimaTransport` returning a session listing from a non-shared VM; assert those sessions appear as that host's, and an unreachable VM becomes a `reachable:false` Host with an error and sets `Snapshot.partial=True`. **Step 2–5:** implement over `vm_transport`, test, commit.
 
 ### Task 14: Phase-2 acceptance (MVP)
@@ -390,6 +410,7 @@ def read_session_title(path: Path) -> tuple[str | None, list[tuple[str, int]]]:
 ### Task 15: Read cloud fleet-state from the relay ref
 
 **Files:** Create `src/vergil_tooling/lib/fleet/relay.py`; Modify `collect.py`; Test `.../test_relay.py`
+
 - [ ] **Step 1:** Failing test with a stubbed relay reader returning a canned per-VM contract fragment; assert cloud sessions/worktrees merge into the `Snapshot` tagged to a `cloud-vm` Host, and that a cloud VM with **no** relay data but present in the registry renders as `reachable:false` (idle-with-pushed-work if GitHub covers it). **Step 2–5:** implement over the #148 relay-ref transport + `vm_cloud` enumeration; test; commit.
 
 ---
@@ -399,11 +420,13 @@ def read_session_title(path: Path) -> tuple[str | None, list[tuple[str, int]]]:
 ### Task 16: Scoping flags + live-only view + active-recency threshold
 
 **Files:** Modify `bin/vrg_fleet.py`, `render.py`; Test `test_vrg_fleet.py`
+
 - [ ] **Step 1:** Failing tests: `--org vergil-project` filters; `--host mac` filters; `--live` shows only sessions with `age_seconds <= ACTIVE_WINDOW` (default constant, e.g. 24h) — assert the default and that the flag can override it. **Step 2–5:** implement; test; commit.
 
 ### Task 17: Non-zero-exit-on-partial + fail-loud rows
 
 **Files:** Modify `bin/vrg_fleet.py`, `render.py`; Test `test_vrg_fleet.py`
+
 - [ ] **Step 1:** Failing test: a `Snapshot.partial=True` (a faulted host) makes `main(...)` return a non-zero exit code **and** the tree shows an explicit red/fault row for the host; a fully-collected snapshot exits 0. **Step 2–5:** implement; test; commit.
 
 ### Task 18: Docs (site docs) — deferred to the epic docs-review bookend
@@ -437,6 +460,7 @@ def read_session_title(path: Path) -> tuple[str | None, list[tuple[str, int]]]:
 ## Implementation-task filing (after alignment)
 
 File these under epic `vergil-project/.github#171`, each in `vergil-tooling`, born linked:
+
 - **T-A** Contract + Mac collector + `vrg-fleet` (Tasks 1–7) — Phase 0.
 - **T-B** GitHub correlation + batched join (Tasks 8–10) — Phase 1.
 - **T-C** Local Lima hosts + attribution + de-dup (Tasks 0/D1, 11–14) — Phase 2 (MVP ceiling).

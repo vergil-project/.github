@@ -79,7 +79,7 @@ In `build_container_args` (`container.py`), when the repo is a Python project
 (`detect_language(repo_root) == "python"`), add an **anonymous volume** mounted
 over the workspace venv path:
 
-```
+```text
 -v /workspace/.venv          # anonymous volume: no host source, container path only
 ```
 

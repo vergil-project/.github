@@ -21,10 +21,12 @@
 ### Task 1: Intake epic, orphan resolver, and sweep-domain predicate [`vergil-tooling`]
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` (generalize `ensure_adhoc_epic`; add intake epic, labels, predicates, resolver, sweep predicate)
 - Test: `tests/vergil_tooling/test_epics.py`
 
 **Interfaces:**
+
 - Consumes: existing `resolve_epic_home`, `IssueRef`, `github.create_issue`, `github.read_json`, `add_child`, `parent_of`, `is_epic`, `_labels`.
 - Produces:
   - `ensure_intake_epic(target_repo: str) -> IssueRef`
@@ -189,10 +191,12 @@ vrg-commit --type feat --scope epics --message "add intake standing epic, orphan
 > Sequencing: Task 7 renames the module to `vrg_intake_create.py` first; this born-link edit applies there (the logic is filename-agnostic).
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_intake_create.py` (post-Task-7 name)
 - Test: `tests/vergil_tooling/test_vrg_triage_create.py`
 
 **Interfaces:**
+
 - Consumes: `epics.ensure_intake_epic`, `epics.add_child`, `epics.parse_issue_ref`, `github.create_issue`.
 - Produces: no new public API; behavior change — the created intake issue is attached under the repo's intake epic before the command returns.
 
@@ -255,12 +259,14 @@ vrg-commit --type feat --scope triage --message "born-link intake issues under t
 ### Task 3: Refuse PRs against un-groomed intake issues [`vergil-tooling`] — closes `vergil-project/.github#175`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` (add `is_intake_issue(ref: str, *, default_repo)`)
 - Modify: `src/vergil_tooling/bin/vrg_submit_pr.py` (add `_reject_if_intake` beside `_reject_if_operational_task`, call it)
 - Modify: `src/vergil_tooling/bin/vrg_pr_workflow.py` (mirror the refusal in `report-ready`, at the existing operational check ~line 101)
 - Test: `tests/vergil_tooling/test_epics.py`, `test_vrg_submit_pr.py`, `test_vrg_pr_workflow.py`
 
 **Interfaces:**
+
 - Consumes: `epics.parse_issue_ref`, `epics.is_intake`, `github.current_repo`.
 - Produces: `epics.is_intake_issue(ref: str, *, default_repo: str) -> bool` (str-ref twin of `is_intake`, self-scoping like `is_operational_task`).
 
@@ -335,6 +341,7 @@ vrg-commit --type feat --scope pr --message "refuse PRs against un-groomed intak
 ### Task 4: Extend `vrg-epic-audit` with an org-wide orphan-attach [`vergil-tooling`]
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epic_audit.py` (add `orphan_drift(org)` + `attach_orphans(...)`)
 - Modify: `src/vergil_tooling/bin/vrg_epic_audit.py` (run the orphan-attach in the sweep, gated by `VRG_EPIC_SWEEP`)
 - Test: `tests/vergil_tooling/test_epic_audit.py`, `tests/vergil_tooling/test_vrg_epic_audit.py`
@@ -342,6 +349,7 @@ vrg-commit --type feat --scope pr --message "refuse PRs against un-groomed intak
 **Rationale (reuse, not rebuild):** `vrg-epic-audit` already scans the whole org (`task_drift(since, org=org)`, `epic_drift(org, home=home)`, `close_drift(...)`) and already carries the automated-write authorization `VRG_EPIC_SWEEP` that `ops-epic-sweep` sets. Folding orphan-attach here means the existing scheduled sweep heals orphans in the same pass it closes drift — no new command, no new workflow.
 
 **Interfaces:**
+
 - Consumes: the existing org-issue listing the audit uses, `epics.is_sweepable`, `epics.parent_of`, `epics.resolve_orphan_epic`, `epics.add_child`, `epics.IssueRef`.
 - Produces: `epic_audit.orphan_drift(org: str) -> list[IssueRef]` (open, non-PR, non-epic, unparented issues org-wide); `epic_audit.attach_orphans(orphans: list[IssueRef]) -> int` (attaches each via the resolver, returns count).
 
@@ -411,7 +419,7 @@ The existing reusable `ops-epic-sweep.yml` already runs `vrg-epic-audit --close 
 - [ ] **Step 3:** `actionlint` clean; a `workflow_dispatch` dry run confirms it attaches a planted orphan and no-ops on a second run.
 - [ ] **Step 4:** Commit in `vergil-actions`.
 
-*(Runtime correctness — the schedule actually heals a planted orphan — is proven by the operational task below, not by unit tests.)*
+(Runtime correctness — the schedule actually heals a planted orphan — is proven by the operational task below, not by unit tests.)
 
 ---
 
@@ -429,12 +437,14 @@ Filed via: `vrg-issue-create --epic vergil-project/.github#176 --repo vergil-pro
 ### Task 7: Rename the intake tool family + generalize `intake-review` [`vergil-tooling` + plugin/skills repo]
 
 **Files:**
+
 - Rename: `src/vergil_tooling/bin/vrg_triage_create.py → vrg_intake_create.py`; in `pyproject.toml` register `vrg-intake-create` and keep a deprecated `vrg-triage-create` alias entry point for one release
 - Modify: the `vrg-gh` denial message that names `vrg-triage-create`; docs/CLAUDE.md references
 - Rename (plugin/skills repo): `triage-review → intake-review`, `triage-capture → intake-capture` skill dirs + SKILL.md; generalize `intake-review`'s listing query and promote-in-place label removal to all three kinds
 - Test: `tests/vergil_tooling/test_vrg_intake_create.py` (+ alias test)
 
 **Interfaces:**
+
 - Produces: console scripts `vrg-intake-create` (canonical) and `vrg-triage-create` (deprecated alias → warns on stderr, forwards to `vrg_intake_create.main`).
 
 - [ ] **Step 1: Failing test — the deprecated alias warns and forwards**

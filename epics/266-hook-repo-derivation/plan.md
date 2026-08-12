@@ -71,6 +71,7 @@ with the epic's own bare name, and drain only for canonical per-repo epics.
 **Kind:** `validation`. **Repo:** vergil-project/vergil-tooling. **Blocked-by:** T2.
 
 **Procedure:**
+
 1. For each `Epic (ad hoc): .github — <quarter>` archive in `vergil-project/.github`
    holding a **non-`.github`** child, atomically `reparent_child` that child into
    the correct `Epic (ad hoc): <child-repo> — <quarter>` archive (create-if-missing

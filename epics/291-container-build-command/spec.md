@@ -117,7 +117,7 @@ build-command = "npm install -g @coderline/alphatab"
 (apt fragment) → (vergil-tooling install) → (language warmup). Insert the
 build-command **after the vergil-tooling install and before the warmup**:
 
-```
+```bash
 <apt fragment> && <uv tool install …> && <build-command> && <warmup>
 ```
 

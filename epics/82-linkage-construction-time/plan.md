@@ -40,6 +40,7 @@ The tasks are **order-dependent**; ship each and let it propagate before the nex
 ## Task A: Construction-time linkage guard (`vergil-tooling#2117`)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/linkage.py` (add `find_linkage_keyword` + `freetext_linkage_error`)
 - Modify: `src/vergil_tooling/bin/vrg_pr_workflow.py` (guard in `cmd_report_ready`)
 - Modify: `src/vergil_tooling/lib/pr_body.py` (guard in `build_pr_body`)
@@ -48,6 +49,7 @@ The tasks are **order-dependent**; ship each and let it propagate before the nex
 - Test: `tests/vergil_tooling/pr_workflow/test_cli_e2e.py`
 
 **Interfaces:**
+
 - Produces:
   - `find_linkage_keyword(text: str) -> str | None` — first `Ref`/`Close[sd]`/`Fix(es|ed)`/`Resolve[sd]` + `#N`/`owner/repo#N` substring in *text*, mid-line; `None` for bare `#N` or keyword-free prose.
   - `freetext_linkage_error(found: str, primary_issue: str) -> str` — user-ready rejection message with the lossless-redirect guidance.
@@ -313,6 +315,7 @@ vrg-commit --type feat --scope pr-body \
 ## Task R: Drop the `security / standards` required check from the CI-gates ruleset (`vergil-tooling#2140`)
 
 **Prerequisite:** Task A can be in flight in parallel. **Gates:** Task B (must land + be applied before B releases). **Files:**
+
 - Modify: `src/vergil_tooling/lib/github_config.py` (`desired_ci_gates_ruleset`)
 - Test: `tests/vergil_tooling/test_github_config_lib.py`
 
@@ -331,6 +334,7 @@ Run: `vrg-container-run -- uv run pytest tests/vergil_tooling/test_github_config
 ## Task B: Remove the redundant CI standards gate (`vergil-actions#746`)
 
 **Prerequisite:** Task A released **and Task R applied to the fleet** (`security / standards` no longer a required check anywhere — else this PR and every other repo's PRs stall on the unreported check). **Files** (in `vergil-actions`):
+
 - Delete: `actions/ci/security/standards-compliance/action.yml` (and the now-empty `standards-compliance/` dir)
 - Modify: `.github/workflows/ci-security.yml` (remove the `standards` job; keep the `run-standards` input, marked vestigial)
 - Modify: `.github/workflows/README.md` (drop the standards-compliance mention if present)
@@ -378,6 +382,7 @@ vrg-commit --type chore --scope ci \
 ## Task C: Delete the dead script and local CI passthrough (`vergil-tooling#2116`)
 
 **Prerequisite:** Task B released and propagated (no CI invokes `vrg-pr-issue-linkage`). **Files:**
+
 - Delete: `src/vergil_tooling/bin/vrg_pr_issue_linkage.py`
 - Modify: `pyproject.toml` (remove the `vrg-pr-issue-linkage` entry point, line ~44)
 - Delete: `tests/vergil_tooling/test_vrg_pr_issue_linkage.py`

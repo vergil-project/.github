@@ -24,12 +24,14 @@
 ## File structure
 
 **Modified:**
+
 - `src/vergil_tooling/lib/epics.py` — `ChildState.closed_at`, `closedAt` in the sub-issue query + reflink, quarter helpers, archive title constants/regex, `_find_epic_by_title`, `find_adhoc_epic`, `ensure_adhoc_archive`, `list_open_adhoc_archives`, `DrainPlan`, `plan_adhoc_drain`/`apply_adhoc_drain`/`drain_adhoc_repo`/`drain_adhoc_org`, `_issue_closed_at`, and the `rollup()` hook.
 - `src/vergil_tooling/lib/github.py` — `list_org_repos`.
 - `src/vergil_tooling/bin/vrg_adhoc_epic.py` — `archive` subcommand.
 - `src/vergil_tooling/bin/vrg_epic_audit.py` — org-wide drain in the `--close` sweep.
 
 **Tests (mirror existing `unittest.mock.patch`-by-dotted-path style):**
+
 - `tests/vergil_tooling/test_epics.py` (extend), `tests/vergil_tooling/test_vrg_adhoc_epic.py` (extend), `tests/vergil_tooling/test_vrg_epic_audit.py` (extend), `tests/vergil_tooling/test_github.py` (extend for `list_org_repos`).
 
 ---
@@ -37,10 +39,12 @@
 ## Task 1: Thread `closedAt` through child enumeration
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` (`ChildState` ~37-48; `_SUBISSUES_QUERY` ~99-109; `_native_child_states` ~160-168; `_reflink_child_states` ~181-216)
 - Test: `tests/vergil_tooling/test_epics.py`
 
 **Interfaces:**
+
 - Produces: `ChildState(ref: IssueRef, state: str, title: str = "", closed_at: str = "")` — `closed_at` is the ISO-8601 `closedAt` string (empty when open).
 
 - [ ] **Step 1: Write the failing test**
@@ -76,6 +80,7 @@ Expected: FAIL — `ChildState.__init__() got an unexpected keyword 'closed_at'`
 - [ ] **Step 3: Implement**
 
 Add the field to `ChildState`:
+
 ```python
 @dataclass(frozen=True)
 class ChildState:
@@ -84,14 +89,19 @@ class ChildState:
     title: str = ""
     closed_at: str = ""  # ISO-8601 closedAt; "" when open
 ```
+
 Add `closedAt` to the query node selection (`_SUBISSUES_QUERY`):
+
 ```python
         nodes { number state title closedAt repository { name owner { login } } }
 ```
+
 In `_native_child_states`, set it when building each `ChildState`:
+
 ```python
             closed_at=str(n.get("closedAt") or ""),
 ```
+
 In `_reflink_child_states`, add `closedAt` to the `--json` field list and set `closed_at=str(row.get("closedAt") or "")` on the built `ChildState`.
 
 - [ ] **Step 4: Run to verify it passes**
@@ -111,10 +121,12 @@ vrg-commit --type feat --scope epics --message "thread closedAt through child en
 ## Task 2: Quarter helpers
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` (add near the top: `from datetime import datetime`; helpers after the dataclasses)
 - Test: `tests/vergil_tooling/test_epics.py`
 
 **Interfaces:**
+
 - Produces:
   - `quarter_of(closed_at: str) -> str` — `"2026-08-01T10:00:00Z"` → `"2026-Q3"`; raises `ValueError` on empty/unparseable.
   - `current_quarter(now: datetime) -> str` — `datetime(2026, 8, 8, tzinfo=UTC)` → `"2026-Q3"`.
@@ -186,10 +198,12 @@ vrg-commit --type feat --scope epics --message "add close-quarter helpers (#238)
 ## Task 3: Archive/live epic finders
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` (add title constants/regex ~near `_ADHOC_EPIC_*`; `_find_epic_by_title`; `find_adhoc_epic`; refactor `ensure_adhoc_epic` to use it; `ensure_adhoc_archive`; `list_open_adhoc_archives`)
 - Test: `tests/vergil_tooling/test_epics.py`
 
 **Interfaces:**
+
 - Produces:
   - `find_adhoc_epic(target_repo: str) -> IssueRef | None` — the live canonical ad-hoc epic, or None (does **not** create).
   - `ensure_adhoc_archive(target_repo: str, quarter: str) -> IssueRef` — the `— <quarter>` archive, create-if-missing.
@@ -239,10 +253,13 @@ Expected: FAIL — attributes not defined.
 - [ ] **Step 3: Implement**
 
 Add constants beside `_ADHOC_EPIC_*`:
+
 ```python
 _ADHOC_ARCHIVE_RE = re.compile(r"^Epic \(ad hoc\): (?P<bare>.+) — (?P<quarter>\d{4}-Q[1-4])$")
 ```
+
 Extract the search core and build the finders:
+
 ```python
 def _find_epic_by_title(home: str, title: str) -> IssueRef | None:
     owner, home_repo = home.split("/", 1)
@@ -299,6 +316,7 @@ def list_open_adhoc_archives(home: str) -> list[tuple[IssueRef, str]]:
             out.append((IssueRef(owner, home_repo, int(r["number"])), m.group("quarter")))
     return out
 ```
+
 Then refactor `ensure_adhoc_epic` to reuse `_find_epic_by_title` (replace its inline search with `found = _find_epic_by_title(home, title); if found: return found`), keeping its create path unchanged.
 
 - [ ] **Step 4: Run to verify it passes**
@@ -318,10 +336,12 @@ vrg-commit --type feat --scope epics --message "add live/archive ad-hoc epic fin
 ## Task 4: Per-repo drain (plan + apply)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` (`DrainPlan` dataclass; `plan_adhoc_drain`; `apply_adhoc_drain`; `drain_adhoc_repo`)
 - Test: `tests/vergil_tooling/test_epics.py`
 
 **Interfaces:**
+
 - Consumes: `find_adhoc_epic`, `child_states`, `quarter_of`, `current_quarter`, `ensure_adhoc_archive`, `list_open_adhoc_archives`, `add_child`, `remove_child`, `github.run`.
 - Produces:
   - `@dataclass DrainPlan: live: IssueRef; moves: list[tuple[IssueRef, str]]; close: list[IssueRef]`
@@ -432,6 +452,7 @@ def drain_adhoc_repo(target_repo: str, *, apply: bool, now: datetime) -> DrainPl
         apply_adhoc_drain(target_repo, plan)
     return plan
 ```
+
 Note the quarter-string comparison `q < cur` is a correct chronological test because `YYYY-Qn` is lexicographically ordered.
 
 - [ ] **Step 4: Run to verify it passes**
@@ -451,10 +472,12 @@ vrg-commit --type feat --scope epics --message "add per-repo ad-hoc drain plan/a
 ## Task 5: Org-wide drain (visibility-aware)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/github.py` (`list_org_repos`); `src/vergil_tooling/lib/epics.py` (`drain_adhoc_org`)
 - Test: `tests/vergil_tooling/test_github.py`, `tests/vergil_tooling/test_epics.py`
 
 **Interfaces:**
+
 - Produces:
   - `github.list_org_repos(org: str) -> list[str]` — bare repo names in *org*.
   - `epics.drain_adhoc_org(org: str, *, apply: bool, now: datetime) -> list[DrainPlan]` — one entry per repo with a live ad-hoc epic.
@@ -506,13 +529,16 @@ Expected: FAIL — undefined.
 - [ ] **Step 3: Implement**
 
 In `github.py`:
+
 ```python
 def list_org_repos(org: str) -> list[str]:
     """Return the bare names of all repositories in *org*."""
     raw: Any = read_json("repo", "list", org, "--no-archived", "--limit", "1000", "--json", "name")
     return [str(r["name"]) for r in raw if isinstance(r, dict) and "name" in r] if isinstance(raw, list) else []
 ```
+
 In `epics.py` (add `import sys` at the top if absent). Each repo resolves its own home via `drain_adhoc_repo` → `find_adhoc_epic` → `resolve_epic_home`, so public and private repos are both covered. **Per-repo failures are isolated** (spec §7 "report and skip"): a corrupted repo (e.g. `_find_epic_by_title` raising on a `>1` ad-hoc epic) is skipped with a message, never aborting the whole sweep:
+
 ```python
 def drain_adhoc_org(org: str, *, apply: bool, now: datetime) -> list[DrainPlan]:
     plans: list[DrainPlan] = []
@@ -543,10 +569,12 @@ vrg-commit --type feat --scope epics --message "add visibility-aware org-wide ad
 ## Task 6: Event-path hook in `rollup()`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` (`rollup` ~460-474; add `_issue_closed_at`)
 - Test: `tests/vergil_tooling/test_epics.py`
 
 **Interfaces:**
+
 - Consumes: `parent_of`, `_labels`, `quarter_of`, `ensure_adhoc_archive`, `add_child`, `remove_child`.
 - Behavior change: when the just-closed *task*'s parent is a **live** ad-hoc epic (canonical title, i.e. **not** an archive), archive that one task into its close-quarter archive. Archive/finite parents behave as before.
 
@@ -591,6 +619,7 @@ Expected: FAIL — `_issue_title`/`_issue_closed_at` undefined and old rollup re
 - [ ] **Step 3: Implement**
 
 Add small readers mirroring `_issue_state`:
+
 ```python
 def _issue_title(ref: IssueRef) -> str:
     return github.read_output("api", _issue_endpoint(ref), "--jq", ".title")
@@ -599,7 +628,9 @@ def _issue_title(ref: IssueRef) -> str:
 def _issue_closed_at(ref: IssueRef) -> str:
     return github.read_output("api", _issue_endpoint(ref), "--jq", ".closed_at // \"\"")
 ```
+
 Replace the ad-hoc early return in `rollup()`:
+
 ```python
     if "ad-hoc" in _labels(parent):
         owner, home_repo = parent.owner, parent.repo
@@ -616,6 +647,7 @@ Replace the ad-hoc early return in `rollup()`:
             remove_child(parent, task)
         return
 ```
+
 (Deriving `target_repo` as `parent.owner/parent.repo` is correct: an ad-hoc epic lives in its home, and `ensure_adhoc_archive` resolves the same home from that pair; the bare name in the archive title comes from the parent's own title prefix via `ensure_adhoc_archive`'s `target_repo.split`. For a `.github`-homed public-repo epic the home is `.github` and the archive is created alongside — matching where the live epic lives.)
 
 > **Implementer note:** verify against `ensure_adhoc_archive` that passing `f"{parent.owner}/{parent.repo}"` yields the archive in the same home as `parent`. `parent.repo` is the home repo (e.g. `.github`), and `resolve_epic_home(owner, ".github")` returns `owner/.github` — consistent. If a future bare-name mismatch is possible, thread the bare name parsed from the parent title instead. This is covered by the Task 6 tests and the live validation (#2677).
@@ -637,10 +669,12 @@ vrg-commit --type feat --scope epics --message "drain closed child on close via 
 ## Task 7: `vrg-adhoc-epic archive` subcommand
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_adhoc_epic.py`
 - Test: `tests/vergil_tooling/test_vrg_adhoc_epic.py`
 
 **Interfaces:**
+
 - Consumes: `epics.drain_adhoc_repo`, `epics.drain_adhoc_org`, `github.current_repo`.
 - CLI: `vrg-adhoc-epic archive [--repo O/R | --all-in ORG] [--apply]` — dry-run default.
 
@@ -683,6 +717,7 @@ Expected: FAIL — `invalid choice: 'archive'`.
 - [ ] **Step 3: Implement**
 
 Add imports `from datetime import datetime, timezone`, then:
+
 ```python
 def _render_plan(plan: epics.DrainPlan) -> str:
     lines = [f"{plan.live.slug}: {len(plan.moves)} closed child(ren) to archive"]
@@ -715,7 +750,9 @@ def cmd_archive(args: argparse.Namespace) -> int:
     print(f"[{verb}] " + (_render_plan(plan) if plan else f"{repo}: no ad-hoc epic"))
     return 0
 ```
+
 Wire the subparser in `parse_args` (mutually-exclusive scope):
+
 ```python
     p_arch = sub.add_parser("archive", help="Drain closed children into per-quarter archives (dry-run unless --apply).")
     scope = p_arch.add_mutually_exclusive_group()
@@ -742,10 +779,12 @@ vrg-commit --type feat --scope adhoc-epic --message "add 'archive' subcommand (#
 ## Task 8: Backstop drain in the daily `vrg-epic-audit --close` sweep
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_epic_audit.py` (the `--close` write path, ~154-168; report path)
 - Test: `tests/vergil_tooling/test_vrg_epic_audit.py`
 
 **Interfaces:**
+
 - Consumes: `epics.drain_adhoc_org`. Runs under the same human/`VRG_EPIC_SWEEP` gate as the existing closes. Provides the backstop for missed close events, the one-time backlog distribution, and past-archive closing.
 
 - [ ] **Step 1: Write the failing test**
@@ -783,13 +822,16 @@ Add `from datetime import datetime, timezone` (if absent) and `from vergil_tooli
 > **Token scoping (spec §7) — read before wiring.** First check how `vrg_epic_audit` establishes org scope today: if its `--close` path already runs inside `github.target_org(org)` (or the daily Action mints the token pre-scoped), the drain inherits that scope and needs no wrapper. If it does **not**, wrap the `drain_adhoc_org` call below in `with github.target_org(org):`, matching the standalone CLI (Task 7) and `vrg-epic-move`. Do not leave the mutation unscoped.
 
 In the `if args.close:` block, after `reopen_epics_with_open_children`, add (inside the org scope per the note above):
+
 ```python
         drained = epics.drain_adhoc_org(org, apply=True, now=datetime.now(timezone.utc))
         moved = sum(len(p.moves) for p in drained)
         closed_archives = sum(len(p.close) for p in drained)
         print(f"Ad-hoc drain: {moved} child(ren) archived, {closed_archives} past archive(s) closed.")
 ```
+
 In the dry-run/report path (no `--close`), add a preview:
+
 ```python
         preview = epics.drain_adhoc_org(org, apply=False, now=datetime.now(timezone.utc))
         pmoved = sum(len(p.moves) for p in preview)

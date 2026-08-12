@@ -42,7 +42,7 @@ language-aware least-privilege secrets, and stop `repo_init` re-introducing it.
 - [ ] Verify the acceptance: no `secrets: inherit`; map matches the real publish
   path (noting release runs only on `main`).
 
-*(vergil-tooling's cd.yml is already done via #179 PR #2506 — proof-of-concept.)*
+(vergil-tooling's cd.yml is already done via #179 PR #2506 — proof-of-concept.)
 
 ---
 

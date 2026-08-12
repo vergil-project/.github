@@ -145,7 +145,7 @@ way a branch ends, not just merge:
 
 ## 4. Data flow
 
-```
+```text
 Cloud VM:  implement → report-ready
              → writes local pr-workflow.json  AND  pushes refs/vergil/pr-workflow/<branch>
 Mac human: vrg-submit-pr feature/<N>-a feature/<M>-b …

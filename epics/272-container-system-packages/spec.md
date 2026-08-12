@@ -88,7 +88,7 @@ system-packages = ["lilypond"]
 fresh container and commits the result. When `system-packages` is non-empty,
 prepend an apt fragment to `setup`:
 
-```
+```bash
 apt-get update && apt-get install -y --no-install-recommends <names> && <existing warmup>
 ```
 

@@ -69,10 +69,12 @@ Runnable immediately; **does not block T1–T7**. Its only downstream is the con
 T8. T1 ships ScrapeStore regardless.
 
 **Files:**
+
 - Create: `scripts/dev/probe-claude-sessions.py`
 - Create: `docs/claude-session-surface.md` (findings + go/no-go)
 
 **Interfaces:**
+
 - Produces: a written **go/no-go** on an SdkStore backend (T8), answering: does an
   installed `claude-agent-sdk` expose functions to (a) **enumerate** sessions with
   id/name/cwd/last-activity, (b) **resolve a name → id**, (c) **rename** a detached
@@ -101,11 +103,13 @@ T8. T1 ships ScrapeStore regardless.
 ### Task 1 (Stage A): the `SessionStore` seam + `ScrapeStore` backend
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/session_store.py`
 - Create: `tests/vergil_tooling/test_session_store.py`
 - Modify: `src/vergil_tooling/bin/vrg_vm_resolve.py` (route enumeration through the seam)
 
 **Interfaces:**
+
 - Produces:
   - `@dataclass(frozen=True) class SessionInfo(session_id: str, name: str | None, cwd: str, active: bool, last_active: float | None)`
   - `class AmbiguousSessionError(Exception)`
@@ -167,11 +171,13 @@ def test_resolve_raises_on_two_active():
 ### Task 2 (Stage A): `--label` — named creation
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_vm.py` (add `--label`; compose `label:workspace`)
 - Modify: `src/vergil_tooling/lib/session.py` (name composition + slug validation)
 - Modify: `tests/vergil_tooling/test_session.py`
 
 **Interfaces:**
+
 - Produces: `make_label_name(label: str, workspace: str) -> str` → `f"{label}:{workspace}"`;
   `validate_label(label: str) -> list[str]` returning warning strings (empty = clean;
   a non-`epic-`/`adhoc-` prefix yields one warning; a `:`/whitespace/empty label raises
@@ -215,11 +221,13 @@ def test_validate_label_rejects_colon():
 ### Task 3 (Stage A): `--resume` promotion + remove slots/auto-resume
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_vm.py` (remove `--slot`; `--resume` primary; no-arg guide)
 - Modify: `src/vergil_tooling/bin/vrg_vm_resolve.py` (resolve name→id via seam; derive workspace)
 - Modify: `tests/vergil_tooling/test_vrg_vm_resolve.py`
 
 **Interfaces:**
+
 - Consumes: `SessionStore.resolve_name` (T1). Produces: a resolve path that maps
   `--resume <name>` → `SessionInfo` → `claude --resume <session_id> -n <name>`, with the
   bootstrap **cwd derived from `SessionInfo.cwd`**, not a positional.
@@ -256,12 +264,14 @@ def test_resume_errors_when_absent(fake_store_empty):
 ### Task 4 (Stage B): delete archive; recency display-filter
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/session.py` (remove archive/staleness types + `make_archived_name`/`parse_archived`/`classify_age`)
 - Modify: `src/vergil_tooling/bin/vrg_vm_resolve.py` (remove `_archive_session`, `_run_sweep`, `_prompt_stale`, `PromptStale`)
 - Modify: `src/vergil_tooling/bin/vrg_vm.py` (`list` flags; `session_recent_days`)
 - Modify: `tests/vergil_tooling/test_session.py`, `test_vrg_vm_resolve.py`
 
 **Interfaces:**
+
 - Produces: a `list --sessions` that filters `SessionStore.list_sessions()` to
   `last_active` within `session_recent_days` by default; `--all` returns everything.
   `--active`/`--idle` retained; `--archived` removed.
@@ -287,10 +297,12 @@ def test_resume_errors_when_absent(fake_store_empty):
 ### Task 5 (Stage B): `--fresh` = supported retire-rename
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_vm_resolve.py`, `bin/vrg_vm.py`
 - Modify: `tests/vergil_tooling/test_vrg_vm_resolve.py`
 
 **Interfaces:**
+
 - Produces: `--fresh --label <name>` renames the prior visible session of that name to a
   retired suffix (`<name>~<datestamp>`) **via `store.rename(...)`**, then creates a new
   session with the clean `name`. `retired_name(name, stamp) -> f"{name}~{stamp}"`.
@@ -311,6 +323,7 @@ def test_resume_errors_when_absent(fake_store_empty):
 ### Task 6 (Stage C): selection-correctness regression (#2602)
 
 **Files:**
+
 - Modify: `tests/vergil_tooling/test_vrg_vm_resolve.py`
 - Modify: source only if a defect surfaces
 
@@ -330,6 +343,7 @@ def test_resume_errors_when_absent(fake_store_empty):
 ### Task 7 (Stage D): optional cosmetic `archived@` strip
 
 **Files:**
+
 - Create: `scripts/dev/strip-archived-markers.py`
 - Modify: `docs/` note as needed
 
@@ -351,6 +365,7 @@ Only if T0's `docs/claude-session-surface.md` verdict is **GO**. If NO-GO, close
 task won't-do; the ScrapeStore backend stands and nothing else changes.
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/session_store_sdk.py`
 - Modify: `src/vergil_tooling/lib/session_store.py` (backend selection), tests
 

@@ -70,12 +70,14 @@ this plan; see "Docs" at the end.
 ### Task 1: Parse `[container].system-packages` (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/config.py`
   (`_KNOWN_KEYS["container"]`, `ContainerConfig`, container parse block ~498–509,
   add `container_system_packages` near `container_env_prefixes` ~609–615)
 - Test: `tests/vergil_tooling/test_config.py`
 
 **Interfaces:**
+
 - Produces:
   - `ContainerConfig.system_packages: list[str]` (default `[]`)
   - `config.container_system_packages(repo_root: Path) -> list[str]`
@@ -219,11 +221,13 @@ vrg-commit --type feat --scope config \
 ### Task 2: Install-command speller + bake into the cached image (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/container_cache.py`
   (new `apt_install_command`; extend `_build_cached_image` `setup` construction ~234–244)
 - Test: `tests/vergil_tooling/test_container_cache.py`
 
 **Interfaces:**
+
 - Consumes: `config.container_system_packages` (Task 1); `container_platform`
   (already imported in `container.py`).
 - Produces:
@@ -325,7 +329,7 @@ def apt_install_command(packages: list[str], platform_label: str) -> str:
         setup = f"{apt} && {setup}"
 ```
 
-Extend the provisioning banner to print `  Packages: <names>` when `apt` is
+Extend the provisioning banner to print `Packages: <names>` when `apt` is
 non-empty (mirroring the existing `Warmup:` line), so a system-package install is
 visible in the build log.
 
@@ -348,11 +352,13 @@ vrg-commit --type feat --scope container \
 ### Task 3: `vrg-container-system-packages` accessor (vergil-tooling)
 
 **Files:**
+
 - Create: `src/vergil_tooling/bin/vrg_container_system_packages.py`
 - Modify: `pyproject.toml` (console_scripts, next to the other `vrg-container-*`)
 - Test: `tests/vergil_tooling/test_vrg_container_system_packages.py`
 
 **Interfaces:**
+
 - Consumes: `config.container_system_packages` (Task 1); `container_cache.apt_install_command`
   and `container.container_platform` (Task 2).
 - Produces: CLI `vrg-container-system-packages`:
@@ -479,11 +485,13 @@ Expected: PASS. This is the end of implementation issue A (PR 1).
 ### Task 4: CI setup step in vergil-actions (test job only, retry, fail-closed)
 
 **Files:**
+
 - Create: `actions/shared/setup/system-packages/action.yml`
 - Modify: `.github/workflows/ci-test.yml` (the `unit` job)
 - Test: per the repo's action-test convention (fixture repo / workflow test)
 
 **Interfaces:**
+
 - Consumes: `vrg-container-system-packages` (Task 3), on `PATH` after the existing
   `./actions/shared/setup/vergil` step.
 

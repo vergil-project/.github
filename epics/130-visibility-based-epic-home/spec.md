@@ -80,7 +80,7 @@ not-`PUBLIC`** — a repo whose visibility is anything other than `PUBLIC`
 (including `INTERNAL`) counts as private for routing, because it is not
 publicly visible, which is the whole concern.
 
-```
+```text
 resolve_epic_home(org, target_repo):
     if target_repo == ".github":          return f"{org}/.github"   # already in .github
     if is_public(f"{org}/{target_repo}"): return f"{org}/.github"   # public target -> central (today)
