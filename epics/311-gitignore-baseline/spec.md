@@ -109,7 +109,9 @@ truth. It is loaded at runtime via
   `__pycache__/`, `*.pyc`, `.coverage`, `coverage.xml`, `junit.xml`,
   `pip-audit.json`, `licenses.json`, `quality-ruff.json`, `quality-mypy.xml`,
   `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, and the mkdocs build output
-  `site/` (and/or `docs/site/site/` — see open question O1).
+  **`docs/site/site/`** (the fleet's `mkdocs.yml` lives at `docs/site/`, so the
+  build emits `docs/site/site/`; we ignore that specific path, **not** a generic
+  `site/`, which is not otherwise used — resolved O1).
 - **Managed-language artifacts:** the union across the languages in
   `lib/languages.py` (Python, TypeScript/Node, Go, Ruby, C++). E.g.
   `node_modules/`, `*.tsbuildinfo`, Go test/coverage output, Ruby
@@ -191,9 +193,20 @@ Both are registered in `audit_local_config`'s helper list alongside the existing
 
 `repo_init` today renders `ci.yml`, `cd.yml`, and the epic-rollup workflow but
 **not** `ops.yml`. Add `render_ops_workflow()` (emitting the daily-cron
-`ops.yml` that calls `ops-github-config.yml@<pinned-ref>`) and write it during
-init. New repos are then born self-policing and pass `_check_required_workflows`
-from day one.
+`ops.yml` that calls `ops-github-config.yml@vX.Y`) and write it during init. New
+repos are then born self-policing and pass `_check_required_workflows` from day
+one.
+
+**Staggered cron (resolved O3).** The scheduled minute is **spread per repo**,
+not the uniform `15 6 * * *` two repos share today — a single fleet-wide minute
+becomes a thundering-herd corner case as the fleet grows, so we eliminate it
+now. Because cron lives in static YAML, "randomize" is implemented as a
+**deterministic hash of the repo name → minute in `[0,59]`** (stable per repo,
+reproducible by `repo_init` and by `_check_required_workflows`, evenly spread).
+The hour stays in the existing early-UTC window; only the minute varies. Whether
+`_check_required_workflows` asserts the *exact* derived minute or merely that a
+daily `ops.yml` audit cron exists is a plan-level call (leaning: assert presence
++ wiring, not the exact minute, to avoid churn — see the plan).
 
 ### 5. Propagation model
 
@@ -231,19 +244,20 @@ to the baseline for:
 Plus reconcile `vergil-tooling` and `vergil-containers` `.gitignore` to the
 final baseline (they already carry `ops.yml`).
 
-**Per-repo audit-readiness is a precondition of each rollout task.** Turning on
-the nightly audit runs the *full* `audit_local_config` (which also checks
-`vergil.toml`, `guard.sh`, `CLAUDE.md`, `.claude/settings.json`, workflow refs)
-plus the GitHub-API half — so a repo that was never fully onboarded will go red
-on *those* checks, not on `.gitignore`, the moment `ops.yml` lands. Therefore
-the **plan enumerates each target repo with its current audit-readiness** and
-each rollout task's precondition self-check verifies the repo already passes
-`vrg-github-repo-config audit` locally (everything but the new checks) before
-adding `ops.yml`. Where a repo is not meant to be a managed member (open
-question O4: is `vergil-project/.github` itself a managed repo with
-`vergil.toml`, or should it be scoped out of the audit rollout?), the plan
-either onboards it first or explicitly scopes it out — never silently rolls
-`ops.yml` onto a repo that will red for pre-existing reasons.
+**Per-repo audit-readiness is a precondition of each rollout task (resolved
+O4).** Turning on the nightly audit runs the *full* `audit_local_config` (which
+also checks `vergil.toml`, `guard.sh`, `CLAUDE.md`, `.claude/settings.json`,
+workflow refs) plus the GitHub-API half — so a repo that was never fully
+onboarded would go red on *those* checks, not on `.gitignore`, the moment
+`ops.yml` lands. Every target repo — **including `vergil-project/.github`, which
+is treated as a managed member** — is expected to pass the audit today, but this
+must be **verified, not assumed**. So each rollout task's precondition
+self-check runs `vrg-github-repo-config audit` locally first, and **any existing
+non-compliance is fixed as part of this rollout** (not scoped out, not deferred)
+before `ops.yml` is enabled. The plan enumerates each repo with its verified
+readiness so a repo's rollout task is correctly sized ("add two lines" vs "fix
+pre-existing drift, then add `ops.yml`"). No repo silently goes red for
+pre-existing reasons.
 
 ### Other orgs (per-org follow-on epics)
 
@@ -301,27 +315,29 @@ signal meaningful:
   (fail), comment/blank-line handling, trailing-whitespace normalization.
 - Unit tests for `_check_required_workflows`: present-and-wired (pass), absent
   (fail), present-but-not-wired-to-audit (fail).
+- Unit test for the per-repo cron-minute derivation: deterministic and stable
+  for a given repo name, spread across `[0,59]`.
 - `repo_init` tests: a freshly scaffolded repo passes both new checks
-  (round-trip: init → `audit_local_config` clean).
+  (round-trip: init → `audit_local_config` clean), and its `ops.yml` carries the
+  derived staggered cron minute.
 - Coverage: the repo's `--cov-fail-under=100` gate applies; note the
   multi-version PR-CI coverage matrix (3.12/3.13/3.14).
 
-## Open questions (resolve during spec review / implementation)
+## Resolved decisions (spec review)
 
-- **O1 — mkdocs output path.** Ignore `site/` generically, or the specific
-  `docs/site/site/` path some repos emit, or both? (Leaning: include the generic
-  `site/` and any concrete paths found in the fleet integration.)
-- **O2 — baseline comment blocks.** The baseline file will carry explanatory
-  comments; §2 ignores comments for matching. Confirm we do **not** also require
-  repos to carry the baseline's comments (superset of *patterns*, not of
-  comment text).
-- **O3 — `ops.yml` cron uniformity.** Adopt the existing `15 6 * * *` schedule
-  fleet-wide, or stagger per repo to avoid a thundering herd? (Leaning: keep the
-  established `15 6 * * *`.)
-- **O4 — is `vergil-project/.github` a managed repo?** Does it carry
-  `vergil.toml` and pass `audit_local_config` today, or should it be scoped out
-  of the audit rollout? Decides whether its rollout task is "add two lines" or
-  "onboard the repo." (Established in the plan's per-repo readiness pass.)
+- **O1 — mkdocs output path → resolved.** Ignore the specific `docs/site/site/`
+  path (the fleet's `mkdocs.yml` lives at `docs/site/`); do **not** add a
+  generic `site/`, which isn't otherwise used. (§1)
+- **O2 — baseline comment blocks → resolved.** Comments are irrelevant to
+  matching; repos must carry the baseline *pattern* lines, never its comment
+  text. (§2)
+- **O3 — `ops.yml` cron → resolved: stagger.** Per-repo minute derived from a
+  deterministic hash of the repo name (spread, stable, reproducible); the uniform
+  minute is eliminated now to avoid a thundering-herd corner case at scale. (§4)
+- **O4 — `.github` + audit-readiness → resolved.** `vergil-project/.github` is
+  treated as a managed member; every target repo is expected to pass the audit
+  today but this is **verified**, and any existing non-compliance is fixed as
+  part of this rollout. (Enforcement & fleet rollout)
 
 ## Follow-on brainstorm bookends — deferred
 
