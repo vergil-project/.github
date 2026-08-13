@@ -39,10 +39,12 @@ All of the above lands as **one implementation PR in `vergil-tooling`** (epic ta
 ### Task 1: Create the canonical baseline data asset
 
 **Files:**
+
 - Create: `src/vergil_tooling/data/gitignore.baseline`
 - Modify: `pyproject.toml` (`[tool.setuptools.package-data]`)
 
 **Interfaces:**
+
 - Produces: the packaged file `vergil_tooling.data/gitignore.baseline`, read by Task 2 (`render_gitignore`) and Task 4 (`_check_gitignore`).
 
 The content is the **integral** of the fleet's `.gitignore` files, canonicalized to one spelling per pattern (per spec §2, resolved O1). Start from the set below; before finalizing, run the integration check in Step 3 to fold in anything a fleet repo ignores that is missing here.
@@ -152,10 +154,12 @@ git commit -m "feat(gitignore): add canonical baseline data asset (#311)"
 ### Task 2: `render_gitignore()` reads the asset
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/repo_init.py:434` (`render_gitignore`)
 - Test: `tests/lib/test_repo_init.py`
 
 **Interfaces:**
+
 - Consumes: `vergil_tooling.data/gitignore.baseline` (Task 1), via the existing `_load_data_file(filename: str) -> str` helper (`repo_init.py:284`).
 - Produces: `render_gitignore() -> str` returning the baseline verbatim.
 
@@ -222,10 +226,12 @@ git commit -m "refactor(repo-init): render_gitignore reads the baseline asset (#
 ### Task 3: `_load_gitignore_baseline` + `_gitignore_patterns` helpers
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/repo_config.py`
 - Test: `tests/lib/test_repo_config.py`
 
 **Interfaces:**
+
 - Produces:
   - `_load_gitignore_baseline() -> str` — reads the packaged asset.
   - `_gitignore_patterns(text: str) -> list[str]` — non-comment, non-blank, trailing-whitespace-trimmed lines. Consumed by Task 4.
@@ -299,10 +305,12 @@ git commit -m "feat(github-config): add gitignore baseline loader + pattern pars
 ### Task 4: `_check_gitignore` superset check + register in `audit_local_config`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/repo_config.py` (`audit_local_config:49`)
 - Test: `tests/lib/test_repo_config.py`
 
 **Interfaces:**
+
 - Consumes: `_load_gitignore_baseline`, `_gitignore_patterns` (Task 3); `DiffItem` (from `github_config`, already imported).
 - Produces: `_check_gitignore(repo_root: Path, items: list[DiffItem]) -> None`; registered in `audit_local_config`.
 
@@ -411,10 +419,12 @@ git commit -m "feat(github-config): audit .gitignore is a superset of the baseli
 ### Task 5: `render_ops_workflow` + staggered cron, written by `repo_init`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/repo_init.py` (add `_ops_cron_minute`, `render_ops_workflow`; write in `step_ci_cd_workflows:1255`)
 - Test: `tests/lib/test_repo_init.py`
 
 **Interfaces:**
+
 - Consumes: `RepoInitContext` (`org`, `name`).
 - Produces: `_ops_cron_minute(org: str, name: str) -> int`; `render_ops_workflow(ctx: RepoInitContext) -> str`.
 
@@ -528,10 +538,12 @@ git commit -m "feat(repo-init): scaffold ops.yml with staggered per-repo cron (#
 ### Task 6: `_check_required_workflows` (ops.yml presence-and-wiring) + register
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/repo_config.py` (`audit_local_config:49`)
 - Test: `tests/lib/test_repo_config.py`
 
 **Interfaces:**
+
 - Produces: `_check_required_workflows(repo_root: Path, items: list[DiffItem]) -> None`; registered in `audit_local_config`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -645,6 +657,7 @@ git commit -m "feat(github-config): audit ops.yml presence-and-wiring (#311)"
 ### Task 7: Round-trip + full validation
 
 **Files:**
+
 - Test: `tests/lib/test_repo_init.py`
 
 - [ ] **Step 1: Write the round-trip test**
@@ -700,12 +713,14 @@ Record the PR with `vrg-pr-workflow report-ready --issue <impl-issue> --title ..
 These are **not** TDD code tasks; they are `deployment`-kind operational tasks (spec "Enforcement & fleet rollout"). Each is filed with `vrg-issue-create --kind deployment` under the epic, in the repo it targets. **Precondition self-check for every one (resolved O4):** run `vrg-github-repo-config audit` on the repo first; if it fails for pre-existing reasons, **fix that non-compliance as part of this task** before adding `ops.yml`. Never enable the nightly audit on a repo that will red for unrelated drift.
 
 Each rollout task's body:
+
 1. Verify readiness: `vrg-github-repo-config audit --repo <owner>/<repo>` (fix any pre-existing findings).
 2. Reconcile `.gitignore`: rewrite to a superset of the baseline (standardize spellings; the check is verbatim). Use `vrg-github-repo-config diff`/the `repo-init adopt` managed-file regeneration where it applies.
 3. Add `.github/workflows/ops.yml` (staggered cron) if absent — mirror `render_ops_workflow`.
 4. Confirm a clean audit, then close on `Outcome: SUCCESS`.
 
 **vergil-project targets:**
+
 - `vergil-actions` — no `ops.yml` today: reconcile `.gitignore` + add `ops.yml`.
 - `vergil-claude-plugin` — no `ops.yml` today: reconcile `.gitignore` + add `ops.yml`.
 - `vergil-vm` — no `ops.yml` today: reconcile `.gitignore` + add `ops.yml`.
@@ -739,6 +754,7 @@ File these under epic `vergil-project/.github#311`, each in the repo where its P
 ## Self-review
 
 **Spec coverage:**
+
 - §1 baseline asset → Task 1; `render_gitignore` reads it → Task 2. ✓
 - §2 superset semantics (verbatim, comments ignored, trailing-ws trim) → Tasks 3–4. ✓
 - §3 both audit checks registered in `audit_local_config` → Tasks 4, 6. ✓

@@ -209,7 +209,7 @@ reproducible by `repo_init` and by `_check_required_workflows`, evenly spread).
 The hour stays in the existing early-UTC window; only the minute varies. Whether
 `_check_required_workflows` asserts the *exact* derived minute or merely that a
 daily `ops.yml` audit cron exists is a plan-level call (leaning: assert presence
-+ wiring, not the exact minute, to avoid churn — see the plan).
+and wiring, not the exact minute, to avoid churn — see the plan).
 
 ### 5. Propagation model
 
@@ -348,7 +348,7 @@ signal meaningful:
 
 Both are seeded as brainstorm tasks under this epic and run via
 `/vergil:epic-create` to produce successor epics; their outcomes are recorded in
-#311's retrospective §5. They are closely related (a fleet-wide auditor is
+the epic #311 retrospective §5. They are closely related (a fleet-wide auditor is
 plausibly the *engine*; the required-workflows registry is the *policy* it
 enforces) — see the note in the plan on whether they merge into one brainstorm.
 
