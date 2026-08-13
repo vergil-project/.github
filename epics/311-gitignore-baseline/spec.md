@@ -168,10 +168,13 @@ and the repo's `.gitignore`; emits a `DiffItem` per missing baseline pattern.
 Reuses the `_check_settings_section` superset-comparator pattern.
 
 **`_check_required_workflows(repo_root)`** — a **wiring validator**: asserts
-`.github/workflows/ops.yml` exists and references the reusable
+`.github/workflows/ops.yml` (a) exists, (b) references the reusable
 `ops-github-config.yml` config-audit workflow (so a repo cannot carry an
-`ops.yml` that omits the audit). Emits a `DiffItem` when the workflow is absent
-or does not wire the audit.
+`ops.yml` that omits the audit), **and (c) carries a scheduled (`cron`)
+trigger** — because a wired-but-unscheduled `ops.yml` (e.g. `workflow_dispatch`
+only) would pass a bare wiring check yet **never run nightly**, silently
+defeating the self-policing mechanism. Emits a `DiffItem` when the workflow is
+absent, does not wire the audit, or has no scheduled trigger.
 
 **Known structural limit (deliberate, deferred to follow-on C).** Because this
 check runs *inside* the nightly `ops.yml` job, it cannot detect a repo that
@@ -306,7 +309,9 @@ signal meaningful:
 - **Packaging:** ensure `gitignore.baseline` ships as package data (pyproject /
   MANIFEST as applicable).
 - **Docs:** config-audit reference, baseline reference, `repo_init` docs, and
-  the consuming-repo contract (documentation-review sweep, #2833).
+  the consuming-repo contract. **Deferred to the documentation-review bookend
+  (#2833), not the implementation PR** — per the epic bookend architecture, all
+  doc updates are the sweep's job, so the tooling PR ships code + tests only.
 
 ## Testing
 

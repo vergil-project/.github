@@ -110,6 +110,10 @@ docs/site/site/
 node_modules/
 *.tsbuildinfo
 
+# Go (test/coverage output; binaries usually have no extension)
+*.test
+*.out
+
 # Ruby
 .bundle/
 vendor/bundle/
@@ -533,14 +537,18 @@ git commit -m "feat(repo-init): scaffold ops.yml with staggered per-repo cron (#
 - [ ] **Step 1: Write the failing tests**
 
 ```python
+_WIRED = "  github-config:\n    uses: vergil-project/vergil-actions/.github/workflows/ops-github-config.yml@v2.1\n"
+_SCHED = "on:\n  schedule:\n    - cron: '7 6 * * *'\n  workflow_dispatch:\n"
+
+
 def _ops(dir_: Path, body: str) -> None:
     wf = dir_ / ".github" / "workflows"
     wf.mkdir(parents=True, exist_ok=True)
     (wf / "ops.yml").write_text(body, encoding="utf-8")
 
 
-def test_required_workflows_present_and_wired_passes(tmp_path: Path):
-    _ops(tmp_path, "jobs:\n  x:\n    uses: vergil-project/vergil-actions/.github/workflows/ops-github-config.yml@v2.1\n")
+def test_required_workflows_present_wired_scheduled_passes(tmp_path: Path):
+    _ops(tmp_path, _SCHED + "\njobs:\n" + _WIRED)
     items: list = []
     repo_config._check_required_workflows(tmp_path, items)
     assert items == []
@@ -554,11 +562,19 @@ def test_required_workflows_absent_fails(tmp_path: Path):
 
 
 def test_required_workflows_present_but_not_wired_fails(tmp_path: Path):
-    _ops(tmp_path, "jobs:\n  x:\n    uses: vergil-project/vergil-actions/.github/workflows/ci.yml@v2.1\n")
+    _ops(tmp_path, _SCHED + "\njobs:\n  x:\n    uses: vergil-project/vergil-actions/.github/workflows/ci.yml@v2.1\n")
     items: list = []
     repo_config._check_required_workflows(tmp_path, items)
-    assert [i.field for i in items] == ["local.ops_workflow"]
-    assert "does not wire" in items[0].actual
+    assert all(i.field == "local.ops_workflow" for i in items)
+    assert any("does not wire" in i.actual for i in items)
+
+
+def test_required_workflows_wired_but_unscheduled_fails(tmp_path: Path):
+    _ops(tmp_path, "on:\n  workflow_dispatch:\n\njobs:\n" + _WIRED)
+    items: list = []
+    repo_config._check_required_workflows(tmp_path, items)
+    assert all(i.field == "local.ops_workflow" for i in items)
+    assert any("no schedule" in i.actual for i in items)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -570,12 +586,14 @@ Expected: FAIL — not defined.
 
 ```python
 def _check_required_workflows(repo_root: Path, items: list[DiffItem]) -> None:
-    """Assert .github/workflows/ops.yml exists and wires the config audit.
+    """Assert .github/workflows/ops.yml exists, wires the audit, and is scheduled.
 
-    A WIRING validator: it verifies a *present* ops.yml calls the reusable
-    ops-github-config workflow. It cannot detect a repo missing ops.yml entirely
-    (no workflow -> no nightly run -> this check never fires there); that
-    from-outside guarantee is deferred to follow-on C (#315). (#311)
+    A WIRING validator: it verifies a *present* ops.yml (a) calls the reusable
+    ops-github-config workflow and (b) carries a scheduled (cron) trigger, so a
+    wired-but-unscheduled ops.yml can't silently never run nightly. It cannot
+    detect a repo missing ops.yml entirely (no workflow -> no nightly run ->
+    this check never fires there); that from-outside guarantee is deferred to
+    follow-on C (#315). (#311)
     """
     ops = repo_root / ".github" / "workflows" / "ops.yml"
     if not ops.is_file():
@@ -583,12 +601,21 @@ def _check_required_workflows(repo_root: Path, items: list[DiffItem]) -> None:
             DiffItem(field="local.ops_workflow", expected="present", actual="missing")
         )
         return
-    if "ops-github-config.yml" not in ops.read_text(encoding="utf-8"):
+    content = ops.read_text(encoding="utf-8")
+    if "ops-github-config.yml" not in content:
         items.append(
             DiffItem(
                 field="local.ops_workflow",
                 expected="calls ops-github-config.yml",
                 actual="ops.yml present but does not wire the config audit",
+            )
+        )
+    if "cron:" not in content:
+        items.append(
+            DiffItem(
+                field="local.ops_workflow",
+                expected="scheduled (cron) trigger",
+                actual="ops.yml present but has no schedule",
             )
         )
 ```
