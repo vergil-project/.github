@@ -26,8 +26,50 @@ Thumbs.db
 # Throwaway superpowers-skill scratch (must never reach a branch)
 .superpowers/
 
+# Claude Code local state
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+
 # Python venv (host dev tree / ad-hoc uv runs)
 .venv/
+
+# Python build / cache artifacts
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Coverage / test / audit reports
+.coverage
+coverage.xml
+junit.xml
+pip-audit.json
+licenses.json
+quality-ruff.json
+quality-mypy.xml
+
+# Docs site build output
+docs/site/site/
+
+# Node / TypeScript
+node_modules/
+*.tsbuildinfo
+*.test
+*.out
+
+# Ruby bundler
+.bundle/
+vendor/bundle/
+
+# Compiled objects / libraries
+*.o
+*.obj
+*.a
+*.so
 
 # Retired hook mechanism (replaced by .claude/hooks/guard.sh)
 .githooks/
