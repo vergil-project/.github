@@ -1,89 +1,51 @@
-# OS
-.DS_Store
-Thumbs.db
-
-# Editors
-.idea/
-.vscode/
+# >>> vergil-managed: base (managed by vrg-gitignore-sync; do not edit) >>>
 *.swp
 *.swo
 *~
 *.bak
-
-# Environment
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
 .env
 .env.*
-
-# Logs
 *.log
-
-# Worktrees (parallel AI agent sessions)
+.venv/
 .worktrees/
-
-# VERGIL tooling working files (PR template handoff, validate logs)
 .vergil/
-
-# Throwaway superpowers-skill scratch (must never reach a branch)
 .superpowers/
-
-# Claude Code local state
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
-
-# Python venv (host dev tree / ad-hoc uv runs)
-.venv/
-
-# Python build / cache artifacts
 build/
 dist/
-*.egg-info/
-__pycache__/
-*.pyc
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# Coverage / test / audit reports
-.coverage
 coverage.xml
 junit.xml
-pip-audit.json
 licenses.json
-quality-ruff.json
-quality-mypy.xml
+docs/site/site/
+node_modules/
+# <<< vergil-managed <<<
+
+# Environment
+
+# Worktrees (parallel AI agent sessions)
+
+# VERGIL tooling working files (PR template handoff, validate logs)
+
+# Throwaway superpowers-skill scratch (must never reach a branch)
+
+# Claude Code local state
+
+# Python venv (host dev tree / ad-hoc uv runs)
+
+# Python build / cache artifacts
+
+# Coverage / test / audit reports
 
 # Docs site build output
-docs/site/site/
-
-# Node / TypeScript
-node_modules/
-*.tsbuildinfo
-*.test
-*.out
 
 # Ruby bundler
-.bundle/
-vendor/bundle/
 
 # Compiled objects / libraries
-*.o
-*.obj
-*.a
-*.so
 
 # Retired hook mechanism (replaced by .claude/hooks/guard.sh)
 .githooks/
-
-# --- Vergil baseline sync (vergil-project/.github#322): lines added to match gitignore.baseline ---
-build-sanitize/
-CMakePresets.json
-CMakeUserPresets.json
-cmakedeps_macros.cmake
-conan_toolchain.cmake
-conandeps_legacy.cmake
-conanbuild*.sh
-conanrun*.sh
-conanbuildenv-*.sh
-conanrunenv-*.sh
-deactivate_conanbuild*.sh
-deactivate_conanrun*.sh
