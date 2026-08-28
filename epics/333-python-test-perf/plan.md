@@ -51,12 +51,14 @@ driver.
 **Repo:** vergil-tooling · **Depends-on:** none
 
 **Files:**
+
 - Create: `scripts/perf/measure_test_stage.py` — warm-run driver.
 - Create: `epics/333-python-test-perf/evidence/baseline.md` — recorded results
   (committed as the evidence record; path mirrors the epic slug).
 - Test: `tests/vergil_tooling/test_measure_test_stage.py`
 
 **Interfaces:**
+
 - Produces: `measure_test_stage.run(config: MeasureConfig) -> MeasureResult` where
   `MeasureResult` has `.median_seconds: float`, `.per_run: list[float]`,
   `.label: str`. Later tasks re-run this harness to measure their deltas.
@@ -124,12 +126,14 @@ vrg-commit --type test --scope perf --message "add test-stage measurement harnes
 **Repo:** vergil-tooling · **Depends-on:** Task 1
 
 **Files:**
+
 - Create: `scripts/perf/coverage_equivalence.py` — runs the suite under each
   backend, extracts the missing-line/branch set from `coverage.xml`, diffs them.
 - Create: `epics/333-python-test-perf/evidence/coverage-equivalence.md`
 - Test: `tests/vergil_tooling/test_coverage_equivalence.py`
 
 **Interfaces:**
+
 - Produces: `coverage_equivalence.diff_reports(a: Path, b: Path) -> list[str]` —
   returns the symmetric difference of (file, line, branch) misses between two
   `coverage.xml` reports; empty list means identical.
@@ -179,6 +183,7 @@ consumes the dev-dep shape, and `lib/` must not import from `scripts/`. So the
 classifiers live in `lib/`; the survey script imports them.
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/test_layout.py` — `classify_test_layout`.
 - Create: `src/vergil_tooling/lib/dev_deps.py` — `DevDepShape` + `classify_dev_deps`.
 - Create: `scripts/perf/fleet_survey.py` — imports both `lib` classifiers, adds
@@ -188,6 +193,7 @@ classifiers live in `lib/`; the survey script imports them.
   `tests/vergil_tooling/test_dev_deps.py`.
 
 **Interfaces:**
+
 - Produces:
   - `lib.test_layout.classify_test_layout(repo: Path) -> LayoutVerdict` with
     `.packaged: bool`, `.duplicate_basenames: list[str]`, `.importlib_safe: bool`.
@@ -247,6 +253,7 @@ def test_uv_dependency_groups_shape(tmp_path: Path):
 **Repo:** vergil-tooling · **Depends-on:** Task 2 (equivalence proof must be empty)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/languages.py` — add `test_env_overlay()`.
 - Modify: `src/vergil_tooling/bin/vrg_validate.py` — apply the overlay to
   `os.environ` before running the TEST check (it already mutates `os.environ` for
@@ -255,6 +262,7 @@ def test_uv_dependency_groups_shape(tmp_path: Path):
   module), `tests/vergil_tooling/test_validate_common.py`.
 
 **Interfaces:**
+
 - Produces: `languages.test_env_overlay(language: str | None, *, python_supports_sysmon: bool) -> dict[str, str]`
   — returns `{"COVERAGE_CORE": "sysmon"}` for `language == "python"` and
   `python_supports_sysmon`, else `{}`. Pure function; the live caller passes
@@ -301,11 +309,13 @@ def test_env_overlay(language: str | None, *, python_supports_sysmon: bool) -> d
 **Repo:** vergil-tooling · **Depends-on:** none (can land alongside Phase 1)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/config.py` — add `TestConfig`, fold into
   `VergilConfig`, parse `[test]`.
 - Test: `tests/vergil_tooling/test_config.py`
 
 **Interfaces:**
+
 - Produces: `config.TestConfig(parallel: bool = True)` and
   `VergilConfig.test: TestConfig`. Task 6 reads `cfg.test.parallel`.
 
@@ -353,6 +363,7 @@ if not isinstance(_parallel, bool):
 **Repo:** vergil-tooling · **Depends-on:** Task 5; Task 2 (equivalence under `-n auto`)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/languages.py` — add `build_python_test_argv`,
   make the Python `CheckKind.TEST` computed, thread `test_parallel` through
   `language_commands`.
@@ -361,6 +372,7 @@ if not isinstance(_parallel, bool):
 - Test: `tests/vergil_tooling/test_languages.py`
 
 **Interfaces:**
+
 - Consumes: `config.TestConfig.parallel` (Task 5).
 - Produces:
   `build_python_test_argv(*, python_supports_sysmon: bool, xdist_available: bool, parallel: bool) -> tuple[list[str], dict[str, str]]`.
@@ -409,6 +421,7 @@ def test_build_python_test_argv_truth_table(sysmon, xdist, parallel, expect_n, e
 **Repo:** vergil-tooling · **Depends-on:** Task 6
 
 **Files:**
+
 - Modify: `pyproject.toml` — remove `addopts = ["-n", "auto"]` (the shared command
   now supplies parallelism); keep the `[tool.pytest.ini_options]` block otherwise.
 
@@ -444,6 +457,7 @@ signal that gates Task 9's sweep.
 (image live)
 
 **Files:**
+
 - Create: `src/vergil_tooling/bin/vrg_xdist_sync.py` — new `fleet_sweep` consumer
   (the #328 general-change rail), mirroring `vrg_fleet_sync.py`.
 - Create: `src/vergil_tooling/lib/xdist_applicator.py` — the shape-aware applicator.
@@ -451,6 +465,7 @@ signal that gates Task 9's sweep.
 - Test: `tests/vergil_tooling/test_xdist_applicator.py`
 
 **Interfaces:**
+
 - Consumes: `fleet_sweep.SweepSpec`, `fleet_sweep.run_sweep`,
   `fleet_sweep.AppResult`, and `lib.dev_deps.DevDepShape` / `classify_dev_deps`
   (Task 3).
@@ -507,12 +522,14 @@ def test_unknown_shape_reports_loudly_no_edit(tmp_path: Path):
 Task 1 (measured speedup)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/languages.py` — `build_python_test_argv` appends
   `--import-mode=importlib` under a new `import_mode_importlib: bool` param.
 - Test: `tests/vergil_tooling/test_languages.py`
 
 **Decision gate (do this first):** consult Task 3's collection-safety table and
 Task 1's `+import-mode` delta.
+
 - If **fleet-wide safe AND measurably faster** → enable unconditionally.
 - If **safe only for some repos** → gate at command-build time on a per-repo
   `importlib_safe` probe (`lib.test_layout.classify_test_layout` — the `lib`
@@ -546,6 +563,7 @@ def test_import_mode_appended_only_when_enabled():
 **Repo:** vergil-tooling · **Depends-on:** Task 1 (hotspot map + projection)
 
 **Files:**
+
 - Modify: the top-ranked test files from `evidence/baseline.md` (e.g.
   `tests/vergil_tooling/test_vrg_vm.py` and the other worst offenders).
 - Test: the same files (behavior preserved; only the seam changes).
@@ -558,6 +576,7 @@ addressed, whichever comes first. Record the achieved wall-clock in the evidence
 file.
 
 **Per hotspot (repeat):**
+
 - [ ] **Step 1:** Pick the next-worst hotspot from the map. Read the test — is the subprocess incidental (testing our arg-construction/parsing) or the integration itself?
 - [ ] **Step 2:** If incidental, replace with a mock/fake that asserts the argv we build (behavior-preserving). Leave genuine integration tests alone.
 - [ ] **Step 3:** Run that file — `uv run pytest tests/vergil_tooling/<file> -v` → PASS, unchanged assertions.
@@ -583,7 +602,7 @@ file.
 
 ## Dependency summary
 
-```
+```text
 Task 1 (baseline) ─┬─▶ Task 4 (sysmon)  [+ Task 2 equivalence]
 Task 2 (equiv) ────┘         │
 Task 3 (surveys) ──┬─────────┼─▶ Task 9 (sweep) ◀── Task 8 (image live)
