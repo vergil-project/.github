@@ -1,8 +1,12 @@
 # Fleet-wide Python test-suite performance
 
 - **Epic:** vergil-project/.github#333
-- **Status:** Design (2026-08-28) — pre-pushback
+- **Status:** Reviewed design (2026-08-28) — post-pushback
 - **Brainstorm source:** superpowers brainstorming session, 2026-08-28
+- **Review:** paad pushback (3 findings, all resolved) — import-mode split out of
+  the zero-risk phase and gated on a collection-safety survey + measured speedup;
+  fleet-sweep applicator made shape-aware with a loud-report contract (no silent
+  no-op); Phase 3/4 hotspot work bound to a measured target
 - **Testbed:** vergil-tooling (fleet's largest suite, ~5,100 tests)
 - **Shared surface:** `vergil-tooling/src/vergil_tooling/lib/languages.py`
   (Python `CheckKind.TEST` command), consumed by every Python repo via
@@ -54,11 +58,14 @@ scope for this epic.
 |---|---|---|---|
 | `COVERAGE_CORE=sysmon` | CPython 3.12 `sys.monitoring` coverage backend instead of the C tracer; typically the largest single win under a 100%-coverage suite | None (cannot affect test outcomes or order) | Universal, zero new deps, guarded on interpreter >= 3.12 |
 | `-n auto --dist worksteal` | pytest-xdist parallel execution with work-stealing load balancing (better than default `load` when durations are lopsided — one 6.3k-line test file dominates) | Non-deterministic order/process → surfaces hidden shared-state or order leaks | Requires `pytest-xdist` in every image + dev group |
-| `--import-mode=importlib` | Cleaner, faster collection/import semantics | Very low | Universal |
+| `--import-mode=importlib` | Cleaner import/collection semantics (import hygiene, **not** a proven speedup) | **Collection-correctness surface** — suites with duplicate test basenames, or unpackaged `tests/` relying on pytest's default `prepend` sys.path insertion, fail to collect under importlib | Universal *only after* a per-repo collection-safety survey (see Phase 0); ships in its own gated step, **not** Phase 1 |
 | Subprocess-hotspot removal | Profile-driven refactor of the worst of the ~551 real `subprocess.run` sites in vergil-tooling's suite; mock the ones testing our own logic (not integration) | None (correctness-preserving) | vergil-tooling-specific |
 
-The only lever with a fleet-wide correctness surface is xdist. It is the only
-one that gets an opt-out.
+Two levers carry a correctness surface: **xdist** (non-deterministic order,
+fleet-wide) and **import-mode** (collection resolution, fleet-wide). xdist is
+gated by the `[test].parallel` opt-out; import-mode is gated by a Phase-0
+collection-safety survey and a measured speedup before it ships (§7). sysmon is
+the only lever with no correctness surface at all.
 
 ## 4. Coverage correctness
 
@@ -156,28 +163,49 @@ check); unit tests drive all corners of the truth table directly.
 
 Each phase is independently shippable and gated on the prior phase's evidence.
 
-- **Phase 0 — Baseline & profile.** A measurement harness + recorded baseline:
-  test-stage wall-clock as the median of N warm runs (reported per-check);
-  per-lever cumulative attribution (`baseline → +sysmon → +xdist → +worksteal →
-  +hotspot fixes`); the coverage-equivalence proof (§4); and a hotspot map
-  (`--durations=25` + `-X importtime`) ranking the worst subprocess sites. Output
-  is numbers, captured into this epic as the evidence record. No behavior change.
-- **Phase 1 — Universal zero-risk wins.** `sysmon` (guarded) +
-  `--import-mode=importlib` into `languages.py`. Ships to all repos on next run.
-  Gated on Phase 0's coverage-equivalence proof.
+- **Phase 0 — Baseline, profile & fleet survey.** A measurement harness +
+  recorded baseline: test-stage wall-clock as the median of N warm runs (reported
+  per-check); per-lever cumulative attribution (`baseline → +sysmon → +xdist →
+  +worksteal → +import-mode → +hotspot fixes`); the coverage-equivalence proof
+  (§4); and a hotspot map (`--durations=25` + `-X importtime`) ranking the worst
+  subprocess sites. **Plus two fleet surveys that gate later phases:** (i) a
+  **collection-safety survey** — every Python repo's test layout (packaged vs
+  unpackaged, duplicate basenames) to determine which repos are importlib-safe;
+  (ii) a **dev-dependency-shape survey** — how each Python repo declares dev deps
+  (uv `[dependency-groups]`, PEP-621 `[project.optional-dependencies]`,
+  `requirements-dev.txt`, poetry groups) so the Phase-2c applicator knows what it
+  is editing. Output is numbers + the two survey tables, captured into this epic
+  as the evidence record. No behavior change.
+- **Phase 1 — sysmon (the one true zero-risk universal win).** `COVERAGE_CORE=sysmon`
+  (guarded on interpreter >= 3.12) into `languages.py`. Ships to all repos on next
+  run. Gated on Phase 0's coverage-equivalence proof. sysmon alone — because it is
+  the only lever with no correctness surface.
 - **Phase 2 — xdist promotion**, ordered so xdist is present before any repo is
   told to use it:
   - **(a)** vergil-containers: `pytest-xdist` into the Python dev image
     (**deployment task** #587 tracks the "image is live" signal).
   - **(b)** `languages.py`: `-n auto --dist worksteal` (guarded on
     xdist-importable + `[test].parallel`); `TestConfig` in `config.py`.
-  - **(c)** fleet-sweep consumer adds `pytest-xdist` to every repo's `dev` group —
-    one PR per repo. A repo that breaks under parallel order sets
-    `[test].parallel = false` and files an isolation-leak follow-up; never left
-    red.
-- **Phase 3 — Hotspot removal.** Refactor vergil-tooling's top subprocess
-  hotspots from the Phase-0 map. Pure vergil-tooling, correctness-preserving,
-  measured against the Phase-0 baseline.
+  - **(c)** fleet-sweep consumer adds `pytest-xdist` to every repo's dev deps —
+    one PR per repo. The applicator **handles each dev-dependency shape from the
+    Phase-0 survey**, and for any repo whose shape it cannot safely edit it emits
+    a **loud per-repo report and files a follow-up**, never a silent no-op (a
+    silent skip would leave the repo carrying the on-by-default parallel config
+    while degrading to serial with no signal — a silent failure). A repo that
+    breaks under parallel order sets `[test].parallel = false` and files an
+    isolation-leak follow-up; never left red.
+- **Phase 3 — import-mode (gated).** Add `--import-mode=importlib` to the shared
+  command **only after** the Phase-0 collection-safety survey confirms fleet-wide
+  safety (or restricts it to the safe repos, detected at command-build time)
+  **and** a measured speedup justifies it. If Phase 0 shows no measurable gain,
+  this phase is dropped — import-mode is the weakest lever and does not ship on
+  hygiene alone.
+- **Phase 4 — Hotspot removal.** Refactor vergil-tooling's subprocess hotspots
+  from the Phase-0 map, **bound to a measured target**: refactor until the
+  test-stage wall-clock reaches within an agreed margin of the sysmon+xdist
+  projection, or until the top-N sites by `--durations` are addressed, whichever
+  comes first — done-ness ties to Phase-0 evidence, not to an open-ended count.
+  Pure vergil-tooling, correctness-preserving, measured against the baseline.
 
 ## 8. Testing strategy
 
@@ -189,8 +217,10 @@ Each phase is independently shippable and gated on the prior phase's evidence.
 - **`TestConfig` parsing tests** — missing `[test]` → `parallel=True`; explicit
   `false`/`true`; malformed value raises `ConfigError` in the existing style.
 - **Fleet-sweep consumer tests** — idempotent (already-present → no PR), adds when
-  absent, dry-run touches no git/GitHub state; follows the `vrg-fleet-sync` test
-  patterns.
+  absent, dry-run touches no git/GitHub state; **one case per dev-dependency shape**
+  (uv `[dependency-groups]`, PEP-621 optional-dependencies, `requirements-dev.txt`,
+  poetry groups); and an **un-editable-shape case asserting a loud report + filed
+  follow-up, never a silent no-op**. Follows the `vrg-fleet-sync` test patterns.
 - **Not permanent tests, by design:** the coverage-equivalence proof (a Phase-0
   gate producing evidence, run once per configuration, not a suite fixture that
   would double CI cost) and the vergil-containers image verification (owned by
@@ -202,6 +232,14 @@ Each phase is independently shippable and gated on the prior phase's evidence.
   `[test].parallel = false` opt-out and the per-repo-PR sweep — one repo's break
   never blocks others and never lands known-broken. The validation task (#2952)
   samples repos green under parallel post-rollout.
+- **A repo silently never receives xdist** (unhandled dev-dependency shape) and
+  degrades to serial while carrying the parallel config. Mitigated by the Phase-0
+  dev-dependency-shape survey and the applicator's **loud-report-and-follow-up**
+  contract (never a silent no-op), reinforced by the validation task (#2952)
+  asserting `import xdist` succeeds in each swept repo's container.
+- **import-mode breaks collection in some repo.** Mitigated by gating import-mode
+  (now Phase 3) behind the Phase-0 collection-safety survey and a measured
+  speedup — it never ships in the no-opt-out sysmon phase.
 - **sysmon changes the measured coverage set.** Mitigated by the Phase-0
   equivalence proof gating the Phase-1 rollout.
 - **A fleet repo targets < 3.12.** Mitigated by the interpreter guard (sysmon set
@@ -213,14 +251,21 @@ Each phase is independently shippable and gated on the prior phase's evidence.
 ## 10. Acceptance criteria
 
 - Phase 0 evidence record (baseline, per-lever deltas, equivalence proof, hotspot
-  map) committed to this epic.
-- `sysmon` + `import-mode` live in the shared `languages.py` command; coverage
-  report proven identical to the C-tracer baseline.
+  map, **collection-safety survey, dev-dependency-shape survey**) committed to
+  this epic.
+- `sysmon` lives in the shared `languages.py` command; coverage report proven
+  identical to the C-tracer baseline.
 - `pytest-xdist` present in the vergil-containers dev image (deployment #587
-  closed SUCCESS) and in every Python repo's `dev` group.
+  closed SUCCESS) and in every Python repo's dev deps — or, for any repo whose
+  dependency shape the applicator can't edit, a filed follow-up (never a silent
+  skip).
 - `-n auto --dist worksteal` on-by-default via the shared command, with a working
   `[test].parallel = false` opt-out.
-- vergil-tooling's top subprocess hotspots refactored, wall-clock improvement
-  measured against the Phase-0 baseline.
+- `--import-mode=importlib` either shipped (fleet-wide or restricted to
+  survey-confirmed-safe repos) with a measured speedup, **or** explicitly dropped
+  with the Phase-0 evidence recording why.
+- vergil-tooling's subprocess hotspots refactored to the Phase-4 measured target
+  (within the agreed margin of the sysmon+xdist projection, or top-N by duration).
 - 100% branch coverage preserved across the 3.12/3.13/3.14 matrix throughout.
-- Validation task #2952 records SUCCESS (sampled repos green under parallel).
+- Validation task #2952 records SUCCESS (sampled repos green under parallel;
+  `import xdist` confirmed in each swept repo's container).
