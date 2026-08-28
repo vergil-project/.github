@@ -172,30 +172,43 @@ def test_differing_miss_is_reported(tmp_path: Path):
 
 **Repo:** vergil-tooling · **Depends-on:** none (parallel with Tasks 1–2)
 
+**Layering note (alignment finding [1]):** the two classifiers that **library**
+code consumes must live in `lib/`, not in a `scripts/` module — `languages.py`
+(Task 10) consumes the layout verdict and `lib/xdist_applicator.py` (Task 9)
+consumes the dev-dep shape, and `lib/` must not import from `scripts/`. So the
+classifiers live in `lib/`; the survey script imports them.
+
 **Files:**
-- Create: `scripts/perf/fleet_survey.py`
+- Create: `src/vergil_tooling/lib/test_layout.py` — `classify_test_layout`.
+- Create: `src/vergil_tooling/lib/dev_deps.py` — `DevDepShape` + `classify_dev_deps`.
+- Create: `scripts/perf/fleet_survey.py` — imports both `lib` classifiers, adds
+  `python_floor`, and renders the three evidence tables.
 - Create: `epics/333-python-test-perf/evidence/fleet-survey.md` — three tables.
-- Test: `tests/vergil_tooling/test_fleet_survey.py`
+- Test: `tests/vergil_tooling/test_test_layout.py`,
+  `tests/vergil_tooling/test_dev_deps.py`.
 
 **Interfaces:**
 - Produces:
-  - `fleet_survey.classify_test_layout(repo: Path) -> LayoutVerdict` with
+  - `lib.test_layout.classify_test_layout(repo: Path) -> LayoutVerdict` with
     `.packaged: bool`, `.duplicate_basenames: list[str]`, `.importlib_safe: bool`.
-  - `fleet_survey.classify_dev_deps(repo: Path) -> DevDepShape` — one of
-    `UV_GROUPS | PEP621_OPTIONAL | REQUIREMENTS_TXT | POETRY | UNKNOWN`.
+    Consumed by Task 10 (import-mode gate) and the survey script.
+  - `lib.dev_deps.DevDepShape` — enum
+    `UV_GROUPS | PEP621_OPTIONAL | REQUIREMENTS_TXT | POETRY | UNKNOWN` — and
+    `lib.dev_deps.classify_dev_deps(repo: Path) -> DevDepShape`. Consumed by
+    Task 9 (sweep applicator) and the survey script.
   - `fleet_survey.python_floor(repo: Path) -> str | None` — parsed
-    `requires-python`.
+    `requires-python` (survey-only; used as a Task 4 sysmon-guard sanity check).
 
-These three verdicts are consumed by Task 9 (import-mode gate: `importlib_safe`),
-Task 12 (sweep applicator: `DevDepShape`), and Task 4 (sysmon guard sanity:
-`python_floor`).
+Both `lib` modules stay import-graph leaves (stdlib `tomllib`/filesystem only),
+matching the `languages.py` leaf convention.
 
 - [ ] **Step 1: Write failing tests** — one per classifier, using `tmp_path` fixtures that materialize each layout/shape.
 
 ```python
-# tests/vergil_tooling/test_fleet_survey.py
+# tests/vergil_tooling/test_test_layout.py  +  test_dev_deps.py
 from pathlib import Path
-from scripts.perf.fleet_survey import classify_test_layout, classify_dev_deps, DevDepShape
+from vergil_tooling.lib.test_layout import classify_test_layout
+from vergil_tooling.lib.dev_deps import classify_dev_deps, DevDepShape
 
 def test_packaged_unique_basenames_is_importlib_safe(tmp_path: Path):
     t = tmp_path / "tests"; t.mkdir()
@@ -217,10 +230,13 @@ def test_uv_dependency_groups_shape(tmp_path: Path):
 ```
 
 - [ ] **Step 2: Run to verify they fail** → FAIL.
-- [ ] **Step 3: Implement the three classifiers** — filesystem + TOML parsing (stdlib `tomllib`), no network.
-- [ ] **Step 4: Run to verify pass** → PASS.
+- [ ] **Step 3: Implement the classifiers** — `lib/test_layout.py` and
+  `lib/dev_deps.py` (filesystem + stdlib `tomllib`, no network); then the
+  `scripts/perf/fleet_survey.py` driver that imports both and adds `python_floor`.
+- [ ] **Step 4: Run to verify pass** → PASS. (The two `lib` modules are under the
+  100% coverage gate; the survey script is a `scripts/` driver.)
 - [ ] **Step 5: Run the survey across the fleet** — enumerate Python repos (sibling clones), write the three tables to the evidence file. Flag any repo that is `UNKNOWN` shape or `importlib_safe is False`.
-- [ ] **Step 6: Commit** — `vrg-commit --type test --scope perf --message "add fleet surveys: collection-safety, dev-dep shape, python floor (#333)"`
+- [ ] **Step 6: Commit** — `vrg-commit --type feat --scope lib --message "add test-layout + dev-dep classifiers and fleet survey (#333)"`
 
 ---
 
@@ -396,10 +412,13 @@ def test_build_python_test_argv_truth_table(sysmon, xdist, parallel, expect_n, e
 - Modify: `pyproject.toml` — remove `addopts = ["-n", "auto"]` (the shared command
   now supplies parallelism); keep the `[tool.pytest.ini_options]` block otherwise.
 
-**Why:** #2880 added `-n auto` to this repo's `addopts` as a stopgap. Once Task 6
-lands, keeping it means double-specification (and a direct `pytest` run would
-diverge from `vrg-validate`). Removing it makes the shared command the single
-source of truth. `pytest-xdist` stays in the `dev` group.
+**Why (spec §7 Phase 2b — recorded, accepted tradeoff):** #2880 added `-n auto`
+to this repo's `addopts` as a stopgap. Once Task 6 lands, keeping it means
+double-specification. Removing it makes the shared command the single source of
+truth for gate parallelism. Accepted tradeoff: a bare `pytest` run (not via
+`vrg-validate`) then goes serial — fine, because the epic optimizes the
+validation gate and the inner loop is out of scope. `pytest-xdist` stays in the
+`dev` group.
 
 - [ ] **Step 1:** Remove the line; run `vrg-container-run -- vrg-validate`; confirm the suite still runs in parallel (via the shared command) at 100% coverage.
 - [ ] **Step 2: Commit** — `vrg-commit --type refactor --scope test --message "drop repo-local -n auto; shared command owns parallelism (#333)"`
@@ -433,7 +452,8 @@ signal that gates Task 9's sweep.
 
 **Interfaces:**
 - Consumes: `fleet_sweep.SweepSpec`, `fleet_sweep.run_sweep`,
-  `fleet_sweep.AppResult`, and `fleet_survey.DevDepShape` (Task 3).
+  `fleet_sweep.AppResult`, and `lib.dev_deps.DevDepShape` / `classify_dev_deps`
+  (Task 3).
 - Produces: `xdist_applicator.add_xdist(worktree: Path) -> AppResult` — adds
   `pytest-xdist` to the repo's dev deps in the correct shape; returns an
   `AppResult` whose summary says what changed. For `DevDepShape.UNKNOWN`, it makes
@@ -495,7 +515,8 @@ Task 1 (measured speedup)
 Task 1's `+import-mode` delta.
 - If **fleet-wide safe AND measurably faster** → enable unconditionally.
 - If **safe only for some repos** → gate at command-build time on a per-repo
-  `importlib_safe` probe (reuse `fleet_survey.classify_test_layout`).
+  `importlib_safe` probe (`lib.test_layout.classify_test_layout` — the `lib`
+  home from Task 3, so `languages.py` stays a leaf and imports no `scripts/`).
 - If **no measurable speedup** → **drop this task**; record the decision and the
   numbers in `evidence/baseline.md`. import-mode does not ship on hygiene alone.
 

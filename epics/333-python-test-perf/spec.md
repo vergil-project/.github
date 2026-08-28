@@ -185,7 +185,12 @@ Each phase is independently shippable and gated on the prior phase's evidence.
   - **(a)** vergil-containers: `pytest-xdist` into the Python dev image
     (**deployment task** #587 tracks the "image is live" signal).
   - **(b)** `languages.py`: `-n auto --dist worksteal` (guarded on
-    xdist-importable + `[test].parallel`); `TestConfig` in `config.py`.
+    xdist-importable + `[test].parallel`); `TestConfig` in `config.py`. The shared
+    command becomes the **single source of truth for gate parallelism**, so
+    vergil-tooling drops its repo-local `addopts = ["-n", "auto"]` (#2880). Accepted
+    tradeoff: a bare `pytest` run (not via `vrg-validate`) then executes serially —
+    acceptable because the epic optimizes the **validation gate**, and the inner
+    loop is explicitly out of scope (§2).
   - **(c)** fleet-sweep consumer adds `pytest-xdist` to every repo's dev deps —
     one PR per repo. The applicator **handles each dev-dependency shape from the
     Phase-0 survey**, and for any repo whose shape it cannot safely edit it emits
