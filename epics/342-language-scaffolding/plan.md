@@ -4,7 +4,7 @@
 
 **Goal:** Give `vrg-github-repo-init` a language-skeleton phase so a cpp repo is *born green*, and pay down the defensive workarounds that phase makes unnecessary.
 
-**Architecture:** First relocate Conan's generator output under `build/` and wire cmake through the Conan toolchain file (Task 1), so the skeleton template ships clean. Then add per-language skeleton templates + a containerized lock-resolve step to repo-init (Task 2). Then retrofit the one existing cpp repo and delete the now-dead workarounds (Tasks 3–5).
+**Architecture:** First relocate Conan's generator output under `build/` and wire cmake through the Conan toolchain file (Task 1), so the skeleton template ships clean. Then add per-language skeleton templates + a containerized lock-resolve step to repo-init (Task 2). Then delete the defensive workarounds Task 1 makes dead (Tasks 4–5, same-repo) and — once a vergil-tooling release carries those changes — retrofit the one existing cpp repo (Task 3, cross-repo). The release gate is why the same-repo cleanup lands and ships *before* the cross-repo retrofit; see the Self-review sequencing note.
 
 **Tech Stack:** Python (`vergil_tooling`), Conan 2, CMake, GoogleTest, pytest (100% coverage gate), the `vrg-*` CLI wrappers.
 
@@ -296,6 +296,17 @@ def test_repo_init_invokes_scaffold(monkeypatch, tmp_path) -> None:
 
 Not a scaffold run — a deliberate hand-edit, safe because the repo is still the placeholder skeleton.
 
+**Release gate (cross-repo).** `mq-protocol-gateway` consumes vergil-tooling at a
+pinned *release* tag — `vergil = "v2.1"`, a **moving** release tag currently
+resolving to 2.1.219, which predates Task 1. Merging Tasks 1/4 to `develop` is
+therefore **not** visible to this repo: the retrofit depends on a vergil-tooling
+**release** that carries Task 1+ (the toolchain-file change and the pruned cpp
+fragment), not merely a merge. So this task is blocked on: land all same-repo
+vergil-tooling tasks (1, 2, 4, 5) → **cut a vergil-tooling release** → then
+retrofit here against that release. Conflating *merged* with *released* here would
+have the retrofit edit `find_package` and `.gitignore` against a toolchain the repo
+does not yet pull.
+
 **Files (in `logical-minds-foundry/mq-protocol-gateway`):**
 
 - Modify: `CMakeLists.txt` — remove the `list(APPEND CMAKE_PREFIX_PATH …)` / `CMAKE_MODULE_PATH` block (the toolchain file from Task 1 now handles `find_package`).
@@ -312,32 +323,89 @@ vrg-commit --type refactor --scope build --message "drop Conan prefix-path hack 
 
 ---
 
-## Task 4: Revert the baseline `.gitignore` Conan blocks (`#2878`/`#2908`)
+## Task 4: Drop the dead Conan generator globs from the cpp gitignore fragment (`#2878`/`#2908`)
 
-With Task 1 landed, nothing writes Conan output to the source root, so the baseline blocks are dead.
+With Task 1 landed, `conan install --output-folder=build` writes its generator
+output under the already-ignored `build/`, so the Conan generator / CMakeDeps
+globs the cpp ignore set carried are dead. Post-#325 those patterns no longer
+live in a monolithic `gitignore.baseline` — that file was deleted (epic
+`vergil-project/.github#325`, Task 10). The ignore vocabulary is now
+**per-language fragments** under `src/vergil_tooling/data/gitignore/` (`base`,
+`cpp`, …), composed by `src/vergil_tooling/lib/gitignore.py` via `compose(lang)`.
+So this task edits the `cpp` fragment, not a baseline monolith, and there is no
+`repo_config._load_gitignore_baseline()` / `_gitignore_patterns()` accessor and
+no `test_baseline_is_subset_of_flagship_gitignore` drift guard to touch — all
+three were removed with the monolith in #325.
+
+The **compiled-artifact** patterns stay — `build-sanitize/`, `*.o`, `*.obj`,
+`*.a`, `*.so` are real object/archive output, unrelated to where Conan writes its
+generators. Only the 18 Conan generator + CMakeDeps globs go:
+
+- `CMakePresets.json`, `CMakeUserPresets.json`, `cmakedeps_macros.cmake`,
+  `conan_toolchain.cmake`, `conandeps_legacy.cmake`
+- `conanbuild*.sh`, `conanrun*.sh`, `conanbuildenv-*.sh`, `conanrunenv-*.sh`,
+  `deactivate_conanbuild*.sh`, `deactivate_conanrun*.sh`
+- `Find*.cmake`, `*Config.cmake`, `*ConfigVersion.cmake`, `*Targets.cmake`,
+  `*-Target-*.cmake`, `*-data.cmake`, `module-*.cmake`
 
 **Files:**
 
-- Modify: `src/vergil_tooling/data/gitignore.baseline` — remove the two `# C/C++ Conan …` blocks (keep `build/`, and `*.o`/`*.a`/etc.).
-- Modify: `.gitignore` (flagship) — mirror the removal (drift guard `test_baseline_is_subset_of_flagship_gitignore`).
-- Test: `tests/vergil_tooling/test_repo_init.py`, `test_repo_config.py`.
+- Modify: `src/vergil_tooling/data/gitignore/cpp` — drop the 18 Conan generator /
+  CMakeDeps globs above; keep `build-sanitize/`, `*.o`, `*.obj`, `*.a`, `*.so`.
+- Modify: `tests/vergil_tooling/test_gitignore.py` — update the frozen
+  `_LEGACY_GITIGNORE_PATTERNS` tuple (62 → 44) as an intentional, diffed edit,
+  and flip the cpp-fragment assertions to assert the Conan patterns are **gone**.
+- Modify (verified no-op): `.gitignore` (flagship) — the mirror step; see Step 6.
 
-- [ ] **Step 1: Failing test — baseline no longer lists the Conan CMakeDeps patterns**
+`_LEGACY_GITIGNORE_PATTERNS` is the lossless-split regression guard
+(`test_split_is_lossless_against_baseline`,
+`test_managed_vocabulary_equals_baseline_set`): `base ∪ all-fragments` must equal
+that frozen set exactly. Removing 18 patterns from the cpp fragment *without*
+updating the frozen set would fail that invariant — which is the point. The tuple
+is edited **deliberately**, 62 → 44, so the diff shows exactly which 18 patterns
+left the managed vocabulary; the guard then re-freezes the smaller set.
+
+- [ ] **Step 1: Failing test — the cpp fragment no longer composes the Conan globs**
 
 ```python
-def test_baseline_drops_conan_generator_blocks() -> None:
-    patterns = repo_config._gitignore_patterns(repo_config._load_gitignore_baseline())
-    for gone in ("conan_toolchain.cmake", "Find*.cmake", "module-*.cmake", "CMakePresets.json"):
-        assert gone not in patterns
-    assert "build/" in patterns  # still ignored
+def test_compose_cpp_drops_conan_generator_globs() -> None:
+    composed = gitignore.compose("cpp")
+    for gone in (
+        "Find*.cmake", "conan_toolchain.cmake", "CMakePresets.json",
+        "cmakedeps_macros.cmake", "module-*.cmake", "*Config.cmake",
+    ):
+        assert gone not in composed
+    for kept in ("build-sanitize/", "*.o", "*.obj", "*.a", "*.so"):
+        assert kept in composed  # compiled-artifact patterns stay
 ```
 
-- [ ] **Step 2:** run→FAIL.
-- [ ] **Step 3:** Remove both Conan blocks from `gitignore.baseline` **and** the flagship `.gitignore`.
-- [ ] **Step 4:** run→PASS; run `test_baseline_is_subset_of_flagship_gitignore` → PASS.
-- [ ] **Step 5:** `vrg-container-run -- vrg-validate` green; commit.
+  Also retire the now-inverted positive assertions:
+  `test_compose_cpp_contains_cmakedeps_line`'s `"Find*.cmake" in composed`, and the
+  `"conan_toolchain.cmake" in vocab` line in
+  `test_managed_vocabulary_contains_known_lines` — both now assert the opposite of
+  the intended state.
 
-*(Note: consuming cpp repos reconcile to the smaller baseline automatically — a smaller baseline is still a subset of their `.gitignore`. mq-protocol-gateway's own blocks are removed in Task 3.)*
+- [ ] **Step 2:** run→FAIL (patterns still present).
+- [ ] **Step 3:** Drop the 18 Conan globs from `data/gitignore/cpp`.
+- [ ] **Step 4:** Update `_LEGACY_GITIGNORE_PATTERNS` 62 → 44 (remove the same 18
+  lines) so the lossless-split invariant re-freezes on the smaller set.
+- [ ] **Step 5:** run→PASS, including `test_split_is_lossless_against_baseline`
+  and `test_managed_vocabulary_equals_baseline_set`.
+- [ ] **Step 6: Mirror the flagship `.gitignore` — verified no-op.** The flagship
+  declares `primary_language = "python"`, so its managed fence is `base + python`
+  and never carried the cpp Conan blocks. Confirm `git status` shows no change to
+  `.gitignore`; there is nothing to mirror.
+- [ ] **Step 7:** `vrg-container-run -- vrg-validate` green; commit.
+
+```bash
+vrg-commit --type fix --scope cpp --message "drop dead Conan generator globs from cpp gitignore fragment (#2878)"
+```
+
+*(Note: consuming cpp repos reconcile automatically — on the next sync
+`vrg-gitignore-sync` rewrites each repo's managed fence to the freshly
+`compose("cpp")`d block, **pruning** the 18 dropped globs from the fence. That
+pruning is the intended propagation. mq-protocol-gateway's own hand-authored
+Conan blocks are removed in Task 3.)*
 
 ---
 
@@ -376,10 +444,26 @@ This gates the epic's rollup and is the live acceptance of the born-green claim
 (the §Task-2g integration test proves `scaffold_language`; this proves the whole
 command).
 
+**Release gate.** Like Task 3, this bookend exercises the *released* tooling
+end to end (`vrg-github-repo-init` reads the pinned release tag, not `develop`),
+so it too depends on a vergil-tooling **release** carrying Task 1+, not a
+`develop` merge. It runs after that release, alongside or just after the Task 3
+retrofit — never before the release is cut.
+
 ## Self-review
 
-- **Spec coverage:** §3.1 flow → Task 2 (2e/2f); §3.2 components → Task 2 (2a/2c/2e/2f); §3.3 cpp skeleton + #2912 → Task 1 + Task 2c; §3.4 greenfield/retrofit → Task 2d + Task 3; §4 testing → tests in every task + 2g integration; §5.1 (`_WARMUP_REQUIRES`) → Task 5; §5.2 (gitignore/prefix-path) → Tasks 1/3/4; §6 sequencing → task order 1→5. Covered.
+- **Spec coverage:** §3.1 flow → Task 2 (2e/2f); §3.2 components → Task 2 (2a/2c/2e/2f); §3.3 cpp skeleton + #2912 → Task 1 + Task 2c; §3.4 greenfield/retrofit → Task 2d + Task 3; §4 testing → tests in every task + 2g integration; §5.1 (`_WARMUP_REQUIRES`) → Task 5; §5.2 (gitignore/prefix-path) → Tasks 1/3/4; §6 sequencing → the release-gated spine below. Covered.
 - **Container precondition / full-validate verify** (pushback [3]/[4]) → Task 2e steps 17–21.
-- **Ordering guard:** Tasks 4–5 must land after 1–3 (dependency noted in each). Task 3 is cross-repo (mq-protocol-gateway), filed there per the placement law.
+- **Ordering / release gate:** the true spine is **land all same-repo
+  vergil-tooling tasks (1, 2, 4, 5) → cut a vergil-tooling release → Task 3
+  retrofit + the live validation bookend → docs sweep → retrospective.** Task 4 is
+  a same-repo change whose only real dependency is Task 1 (the toolchain-file
+  relocation that makes the Conan generator globs dead), so Tasks 4/5 land — and
+  are *released* — **before** the cross-repo Task 3, not after it. The earlier
+  "Tasks 4–5 must land after 1–3" guard was untenable under this release gate: it
+  ordered same-repo cleanup behind the cross-repo retrofit, but Task 3 consumes a
+  *released* tag (`mq-protocol-gateway` pins `vergil = "v2.1"`), so Task 3 cannot
+  even begin until Tasks 1/4 are released. Task 3 is cross-repo
+  (mq-protocol-gateway), filed there per the placement law.
 - **Type consistency:** `render_skeleton`/`_write_skeleton`/`scaffold_language`/`language_lock_command`/`sanitize_project_name` used consistently across 2a–2f.
 - **Open empirical check folded in:** Task 1 Step 9 verifies the toolchain-file path end-to-end before the template (Task 2c) depends on it.
