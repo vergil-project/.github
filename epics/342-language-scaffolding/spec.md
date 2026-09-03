@@ -182,6 +182,14 @@ on absent token — graceful degradation for tokenless/fork contexts).
 Steps 4–5 land only after 1–3 are in and mq-protocol-gateway is confirmed green
 on the clean path.
 
+**Closing acceptance — live born-green validation.** The epic's headline claim
+("a new repo is born green") is proven by an operational **`validation`** bookend
+(run via `issue-validate`, `Blocked-by` the scaffold task): actually run
+`vrg-github-repo-init --language cpp` end to end and confirm the resulting repo is
+green with no hand-assembly. The mechanism-level integration test (§4) proves
+`scaffold_language`; this proves the real command. It closes on a recorded
+`Outcome: SUCCESS` and gates the epic's rollup.
+
 ## 7. Non-goals
 
 - Real application code or real dependencies — the skeleton carries only

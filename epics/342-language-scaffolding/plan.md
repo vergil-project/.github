@@ -356,6 +356,17 @@ def test_cpp_has_no_warmup_skip_entry(tmp_path) -> None:
 
 ---
 
+## Validation bookend (operational — not a PR task)
+
+**Validate: `vrg-github-repo-init --language cpp` yields a born-green repo, live.**
+Seeded as a `validation`-kind task (`vrg-issue-create --kind validation`),
+`Blocked-by` Task 2, run via `issue-validate` — **not** `issue-implement`. It runs
+the real repo-init end to end (create → config → skeleton → resolve → verify) and
+records `Outcome: SUCCESS` only if the repo is green with nothing hand-assembled.
+This gates the epic's rollup and is the live acceptance of the born-green claim
+(the §Task-2g integration test proves `scaffold_language`; this proves the whole
+command).
+
 ## Self-review
 
 - **Spec coverage:** §3.1 flow → Task 2 (2e/2f); §3.2 components → Task 2 (2a/2c/2e/2f); §3.3 cpp skeleton + #2912 → Task 1 + Task 2c; §3.4 greenfield/retrofit → Task 2d + Task 3; §4 testing → tests in every task + 2g integration; §5.1 (`_WARMUP_REQUIRES`) → Task 5; §5.2 (gitignore/prefix-path) → Tasks 1/3/4; §6 sequencing → task order 1→5. Covered.
