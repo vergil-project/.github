@@ -26,10 +26,12 @@
 Relocate Conan's generator output out of the source root and make cmake find packages through the Conan toolchain file instead of the source-root `CMAKE_PREFIX_PATH` hack. Fleet-wide cpp command change; no repo edits here (existing repos keep working — the toolchain file makes `find_package` resolve, and their in-tree prefix-path hack becomes a harmless no-op, removed in Task 3).
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/languages.py` — cpp `INSTALL`, `TYPECHECK`, `TEST` command lists; add a `_CPP_TOOLCHAIN_FILE` constant.
 - Test: `tests/vergil_tooling/test_languages.py`
 
 **Interfaces:**
+
 - Produces: cpp `language_commands(...)` output where (a) `conan install` carries `--output-folder=build`, and (b) every `cmake -S . -B <dir>` carries `-DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake`. `_CPP_BUILD_DIR = "build"`, `_CPP_SANITIZE_BUILD_DIR = "build-sanitize"` unchanged.
 
 - [ ] **Step 1: Failing test — INSTALL relocates Conan output**
@@ -79,6 +81,7 @@ vrg-commit --type fix --scope cpp --message "write Conan output under build/, cm
 Add a per-language skeleton phase to repo-init: host-render templates, containerized lock-resolve, full-`vrg-validate` verify, fail-fast container precondition. cpp is the first (and only) language implemented.
 
 **Files:**
+
 - Create: `src/vergil_tooling/data/skeletons/cpp/conanfile.txt`
 - Create: `src/vergil_tooling/data/skeletons/cpp/CMakeLists.txt.tmpl`
 - Create: `src/vergil_tooling/data/skeletons/cpp/src/{name}.hpp.tmpl`, `{name}.cpp.tmpl`
@@ -90,6 +93,7 @@ Add a per-language skeleton phase to repo-init: host-render templates, container
 - Test: `tests/vergil_tooling/test_lang_scaffold.py`, additions to `tests/vergil_tooling/test_languages.py`.
 
 **Interfaces:**
+
 - Produces:
   - `languages.language_lock_command(lang: str) -> list[str] | None` — cpp → `["conan", "lock", "create", ".", "-s", "build_type=Debug"]`; unknown/lockless → `None`.
   - `lang_scaffold.render_skeleton(lang: str, project: str) -> dict[str, str]` — maps repo-relative path → rendered file content (name-substituted). Empty dict for a language with no skeleton.
@@ -129,7 +133,8 @@ def test_sanitize_project_name() -> None:
 Author the templates (content below is the **clean, #2912-based** skeleton — no prefix-path hack, no gitignore blocks needed).
 
 `skeletons/cpp/conanfile.txt`:
-```
+
+```ini
 [requires]
 gtest/1.15.0
 
@@ -142,6 +147,7 @@ CMakeToolchain
 ```
 
 `skeletons/cpp/CMakeLists.txt.tmpl` (key point: no `CMAKE_PREFIX_PATH` hack — the pipeline passes `-DCMAKE_TOOLCHAIN_FILE`):
+
 ```cmake
 cmake_minimum_required(VERSION 3.20)
 project({project} CXX)
@@ -291,6 +297,7 @@ def test_repo_init_invokes_scaffold(monkeypatch, tmp_path) -> None:
 Not a scaffold run — a deliberate hand-edit, safe because the repo is still the placeholder skeleton.
 
 **Files (in `logical-minds-foundry/mq-protocol-gateway`):**
+
 - Modify: `CMakeLists.txt` — remove the `list(APPEND CMAKE_PREFIX_PATH …)` / `CMAKE_MODULE_PATH` block (the toolchain file from Task 1 now handles `find_package`).
 - Modify: `.gitignore` — remove the Conan generic + CMakeDeps blocks (Task 1 keeps output under the already-ignored `build/`).
 
@@ -310,6 +317,7 @@ vrg-commit --type refactor --scope build --message "drop Conan prefix-path hack 
 With Task 1 landed, nothing writes Conan output to the source root, so the baseline blocks are dead.
 
 **Files:**
+
 - Modify: `src/vergil_tooling/data/gitignore.baseline` — remove the two `# C/C++ Conan …` blocks (keep `build/`, and `*.o`/`*.a`/etc.).
 - Modify: `.gitignore` (flagship) — mirror the removal (drift guard `test_baseline_is_subset_of_flagship_gitignore`).
 - Test: `tests/vergil_tooling/test_repo_init.py`, `test_repo_config.py`.
@@ -338,6 +346,7 @@ def test_baseline_drops_conan_generator_blocks() -> None:
 Born-green means no half-bootstrapped cpp state, so the cpp warmup-skip is dead. Remove the cpp entry only; the mechanism stays for not-yet-scaffolded languages.
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/container_cache.py` — delete the `"cpp": [...]` line from `_WARMUP_REQUIRES`.
 - Test: `tests/vergil_tooling/test_container_cache.py`
 

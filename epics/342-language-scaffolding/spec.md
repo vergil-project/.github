@@ -37,7 +37,7 @@ mechanism produces a complete, correct, green language skeleton in one shot.**
 `vrg-github-repo-init <name> --language <lang>` gains one phase after its existing
 config scaffolding:
 
-```
+```text
 1. (existing, host)   config: vergil.toml, CLAUDE.md, .gitignore, workflows, …
 2. (NEW, host)        render the language SKELETON from per-language templates
 3. (NEW, container)   resolve locks: run the language's lock command → commit
@@ -88,7 +88,7 @@ file instead of the source-root `CMAKE_PREFIX_PATH` hack) across the `build` and
 commands in `languages.py`. The plan (writing-plans) details it.
 
 | file | purpose | templating |
-|---|---|---|
+| --- | --- | --- |
 | `conanfile.txt` | `[requires] gtest/<pinned>`; `[options] gtest/*:build_gmock=False`; `[generators] CMakeDeps CMakeToolchain` | fixed; gtest pinned |
 | `CMakeLists.txt` | the `VERGIL_CPP_STD/STDLIB/COVERAGE/SANITIZE` contract; `find_package(GTest)` **via the Conan toolchain file** (no source-root prefix-path hack, given `#2912`); placeholder lib + `gtest_discover_tests` | fixed except a repo-derived name |
 | `src/<name>.hpp`/`.cpp` | one trivial unit (`toolchain_ready() → true`), no domain logic, labeled "remove when real code lands" | name derived |
