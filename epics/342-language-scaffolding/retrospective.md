@@ -33,7 +33,7 @@ execution could expose.
 | [tooling#3050](https://github.com/vergil-project/vergil-tooling/pull/3050) | vergil-tooling | **Fix** — restore the `conan.lock` warmup prerequisite (born-green ordering, surfaced live) |
 | [.github#350](https://github.com/vergil-project/.github/pull/350) | .github | Reconcile plan to the post-#325 fragment world + record the cross-repo release gate |
 | [tooling#3054](https://github.com/vergil-project/vergil-tooling/pull/3054) | vergil-tooling | **Docs** — reflect born-green scaffolding + the clean Conan-output path in `docs/site` |
-| _(this PR)_ | .github | Retrospective (closing bookend — closes the epic) |
+| *(this PR)* | .github | Retrospective (closing bookend — closes the epic) |
 
 - **Repos touched:** 3 — `vergil-tooling` (mechanism + paydown + docs), `.github` (spec/plan/reconcile/retrospective), `logical-minds-foundry/mq-protocol-gateway` (lock prereq + retrofit).
 - **Tasks:** 11 epic children (10 closed + this retrospective); 5 planned code tasks (T1–T5), 2 unplanned live-surfaced fixes, 1 unplanned plan-reconcile, 1 cross-repo prereq (#20), 2 bookends (docs review, retrospective).
