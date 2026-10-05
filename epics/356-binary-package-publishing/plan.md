@@ -68,7 +68,7 @@ OP1 (human: keys, environments, repos)
  └─ DEP3 (packaged vergil-tooling indexed; vrg-vm update --all) → VAL1 (cold rebuild)
 ```
 
-P1 and P2 are filed in repos that OP1 creates, so **OP1's final step files them** under the epic.
+P1, DEP1, P2 and DEP2 are filed in repos that OP1 creates, so **OP1's final step files them** under the epic.
 
 ---
 
@@ -94,7 +94,12 @@ P1 and P2 are filed in repos that OP1 creates, so **OP1's final step files them*
   In `packages` **also**: create the environment `index-signing` (deployment branches restricted to `develop`) with the same two secrets.
 - [ ] **8.** Confirm that the org GitHub App (`APP_CLIENT_ID`/`APP_PRIVATE_KEY`) is installed on `vergil-project/packages` with `contents: write`, which `repository_dispatch` needs. Confirm the two secrets are available to `vergil-tooling` and `vergil-python`.
 - [ ] **9.** Post the SUCCESS comment. It must include the **40-hex primary fingerprint** (T3 pins it) and the public key's armored text (P1 commits it as `keys/vergil.asc`).
-- [ ] **10.** File P1 in `vergil-project/packages` and P2 in `vergil-project/vergil-python` under the epic, using the P1/P2 bodies below:
+- [ ] **10.** File the tasks that live in the new repos, under the epic:
+  - **P1** and **DEP1** (`--kind deployment --blocked-by vergil-project/packages#<P1>`) in `vergil-project/packages`;
+  - **P2** and **DEP2** (`--kind deployment --blocked-by vergil-project/vergil-python#<P2> --blocked-by vergil-project/packages#<DEP1>`) in `vergil-project/vergil-python`;
+  - then add `Blocked-by` reflinks from T11 (vergil-tooling) to DEP2.
+
+  Use the bodies below and this command form:
   `vrg-issue-create --epic vergil-project/.github#356 --repo vergil-project/<repo> --title …`.
 
 **Acceptance:** all of the above attested, plus the fingerprint posted.
