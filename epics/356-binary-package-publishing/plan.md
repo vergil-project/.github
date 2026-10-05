@@ -5,6 +5,7 @@
 **Goal:** Vergil releases build signed `.deb`/`.rpm` packages, publish them into a per-org package repository on GitHub Pages, and vergil-tooling itself is installed from that repository on Lima and cloud VMs.
 
 **Architecture:**
+
 - **vergil-tooling** gains a `[package]` config section, a target registry, two builders (`staged` and `python`), nFPM packaging, install tests and index generation, all behind one CLI, `vrg-package` (Tasks T1–T9). It also switches VM provisioning to `apt` (T10).
 - **vergil-actions** wires `vrg-package` into a PR gate (`ci-package.yml`), a split `cd-release.yml`, and a reusable `publish-index.yml` (A1–A3).
 - **Two new repos** carry the first products: `vergil-project/packages` (the keyring product, plus the index) and `vergil-project/vergil-python` (the runtime) (P1, P2).
@@ -1665,10 +1666,11 @@ def build_python(ctx: BuildContext) -> BuildResult:
     return BuildResult(contents=contents, depends=runtime_depends(runtime, pbs_version))
 ```
 
-  Notes for the implementer:
-  - In tests `_OPT` points at a temp dir and the asserted strings use the real `/opt` paths for the interpreter.
-  - In CI the build runs as root in the build container, so `/opt` is writable.
-  - The runtime package always comes from the **vergil** org (D7), whatever the product's vendor.
+Notes for the implementer:
+
+- In tests `_OPT` points at a temp dir and the asserted strings use the real `/opt` paths for the interpreter.
+- In CI the build runs as root in the build container, so `/opt` is writable.
+- The runtime package always comes from the **vergil** org (D7), whatever the product's vendor.
 
 - [ ] **Step 4: Run and verify PASS; validate; commit.**
   `vrg-commit --type feat --scope package --message "python builder: venv from lock on the pinned runtime (#<T4>)"`
@@ -1773,6 +1775,7 @@ def test_smoke_runs_with_sanitized_path(tmp_path: Path, monkeypatch: pytest.Monk
   It is split with `shlex.split` when it's passed to `run`. The smoke and the shim checks always run under it (spec §8.1).
 
   Write the three elided bodies out in full in the same style as the first test; each asserts what its comment states. The `run` fake returns exit 1 for `test -e` unless that path is listed as residue. The sequence is fixed, as follows.
+
   1. Prerequisites:
      - deb: `apt-get update`
      - rpm: no-op
@@ -1924,11 +1927,12 @@ def test_unsigned_rpm_is_fatal(tmp_path: Path) -> None:
     ...
 ```
 
-  Write the elided bodies in full. The `_fake_gh` helper is a `Run` fake:
-  - It answers `gh release list --repo R --limit 200 --json tagName,isDraft,isPrerelease` with JSON.
-  - It answers `gh release view TAG --repo R --json assets` with `{"assets": [{"name": ...}]}`.
-  - On `gh release download TAG --repo R --pattern NAME --dir D` it writes fixture files into `D`. The manifest is `json.dumps(manifest)`; package files get placeholder bytes.
-  - It answers `dpkg-deb -f FILE Package Version Architecture Depends` and `rpm -qp --qf ... FILE` / `rpm -qp --requires FILE` with deterministic metadata derived from the filename.
+Write the elided bodies in full. The `_fake_gh` helper is a `Run` fake:
+
+- It answers `gh release list --repo R --limit 200 --json tagName,isDraft,isPrerelease` with JSON.
+- It answers `gh release view TAG --repo R --json assets` with `{"assets": [{"name": ...}]}`.
+- On `gh release download TAG --repo R --pattern NAME --dir D` it writes fixture files into `D`. The manifest is `json.dumps(manifest)`; package files get placeholder bytes.
+- It answers `dpkg-deb -f FILE Package Version Architecture Depends` and `rpm -qp --qf ... FILE` / `rpm -qp --requires FILE` with deterministic metadata derived from the filename.
 
 - [ ] **Step 6: Run, verify FAIL, implement `collect.py`, verify PASS.** These are the implementation rules:
   - **Stable tags only:** `re.fullmatch(r"v\d+\.\d+\.\d+", tag)`, skipping drafts and prereleases.
@@ -2454,8 +2458,9 @@ runs:
 ```
 
   **Pin step (part of this task):** pick the current nFPM and uv releases, then replace the version and the two `NFPM_SHA256_*` values with the real entries from that release's `checksums.txt`. The `<from …>` markers must not survive this step. Also create `actions/package/setup/detect.sh`:
-  - if `pyproject.toml` declares `name = "vergil-tooling"`, print `.` (the self-repo checkout);
-  - otherwise print `vergil-tooling @ git+https://github.com/vergil-project/vergil-tooling@<[dependencies].vergil>`, read with `python3 -c 'import tomllib,…'` (uv's Python is available after the uv step: run `uv run --no-project python3 -c …`).
+
+- if `pyproject.toml` declares `name = "vergil-tooling"`, print `.` (the self-repo checkout);
+- otherwise print `vergil-tooling @ git+https://github.com/vergil-project/vergil-tooling@<[dependencies].vergil>`, read with `python3 -c 'import tomllib,…'` (uv's Python is available after the uv step: run `uv run --no-project python3 -c …`).
 
   `detect.test.sh` covers both branches, in the style of `actions/shared/setup/vergil/tests/derive.test.sh`.
 
@@ -2572,10 +2577,12 @@ jobs:
 - [ ] **Step 3: Validate locally.** Run `vrg-container-run -- vrg-validate`; actionlint, shellcheck and yamllint must be green. Run `bash actions/package/setup/tests/detect.test.sh`.
 
 - [ ] **Step 4: Live check.** Push the branch. In a scratch branch of vergil-tooling, add a caller job pinned to this branch:
+
   ```yaml
   package:
     uses: vergil-project/vergil-actions/.github/workflows/ci-package.yml@<branch>
   ```
+
   Confirm the build legs go green on both runners. Install-test legs for `python` products need DEP2; until then, confirm that the matrix/build legs work and that install-test fails **loudly** at bootstrap (the expected state). Record the run URL in the PR notes, then discard the scratch branch.
 
 - [ ] **Step 5: Commit.**
@@ -2713,7 +2720,7 @@ jobs:
           path: dist-packages
 ```
 
-  In `Resolve release artifacts`, append ` dist-packages/*` when `ENABLED == 'true'` (pass `needs.package-matrix.outputs.enabled` in via `env`). After `Tag and release`, add:
+  In `Resolve release artifacts`, append `dist-packages/*` (space-separated) when `ENABLED == 'true'` (pass `needs.package-matrix.outputs.enabled` in via `env`). After `Tag and release`, add:
 
 ```yaml
       - name: Dispatch package index
