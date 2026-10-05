@@ -26,7 +26,10 @@
 - **Install layout (§6.3):** runtime `/opt/<vendor>/python/<X.Y.Z>/`; product venv `/opt/<vendor>/<name>/venv/`; shims `/usr/bin/<cmd>`.
 - **Package revision:** `1` for shared builds, `1~<suite>` (deb) or `1.<suite>` (rpm) for `native` builds.
 - **Runtime dependency format:** deb `vergil-python<X.Y.Z> (>= <pbs-version>)`; rpm `vergil-python<X.Y.Z> >= <pbs-version>`.
-- **Signing environment name:** `package-signing`, with deployment branches restricted to `main`. Secrets inside it: `PACKAGE_SIGNING_KEY` (ASCII-armored secret subkey export) and `PACKAGE_SIGNING_PASSPHRASE`.
+- **Signing environments:**
+  - `package-signing`, restricted to `main`, in every repo that releases packages. Used only by `cd-release`'s `package-sign` job.
+  - `index-signing`, restricted to `develop`, in `vergil-project/packages` only. Used only by `publish-index`, which runs on the default branch because `repository_dispatch` and `schedule` always do.
+  - Both hold `PACKAGE_SIGNING_KEY` (ASCII-armored secret subkey export) and `PACKAGE_SIGNING_PASSPHRASE`.
 - **Attestation verification (verbatim, §7.2):** `--signer-workflow vergil-project/vergil-actions/.github/workflows/cd-release.yml --source-ref refs/heads/main`.
 - **Retention defaults:** `keep = 3`, `lines = 2`. **Size guard:** warn above 750,000,000 bytes; fail above 900,000,000 bytes.
 - **The vergil org repository base URL** is `https://vergil-project.github.io/packages`.
@@ -86,6 +89,8 @@ P1 and P2 are filed in repos that OP1 creates, so **OP1's final step files them*
 - [ ] **7.** In each of `vergil-tooling`, `vergil-python` and `packages`:
   - create the environment `package-signing`, with deployment branches restricted to `main`;
   - add the secrets `PACKAGE_SIGNING_KEY` (the contents of `subkey.asc`) and `PACKAGE_SIGNING_PASSPHRASE`.
+
+  In `packages` **also**: create the environment `index-signing` (deployment branches restricted to `develop`) with the same two secrets.
 - [ ] **8.** Confirm that the org GitHub App (`APP_CLIENT_ID`/`APP_PRIVATE_KEY`) is installed on `vergil-project/packages` with `contents: write`, which `repository_dispatch` needs. Confirm the two secrets are available to `vergil-tooling` and `vergil-python`.
 - [ ] **9.** Post the SUCCESS comment. It must include the **40-hex primary fingerprint** (T3 pins it) and the public key's armored text (P1 commits it as `keys/vergil.asc`).
 - [ ] **10.** File P1 in `vergil-project/packages` and P2 in `vergil-project/vergil-python` under the epic, using the P1/P2 bodies below:
@@ -1736,7 +1741,8 @@ def test_sequence_python_product_deb(tmp_path: Path, monkeypatch: pytest.MonkeyP
     install_test.run_install_test(repo, "test-ubuntu-24.04-amd64", arts, rep, run=run)
     assert boot == [("deb", "noble")]
     assert any(c.startswith("apt-get install -y ") and c.endswith("vergil-tooling_2.1.240-1_amd64.deb") for c in calls)
-    assert "bash -lc vrg-whoami --mode" in calls
+    assert f"{install_test.CLEAN_ENV} bash -c vrg-whoami --mode" in calls
+    assert f"{install_test.CLEAN_ENV} bash -c command -v vrg-whoami" in calls
     assert any(c == "apt-get purge -y vergil-tooling" for c in calls)
     assert json.loads(rep.read_text())["residue"] == []
 
@@ -1753,7 +1759,18 @@ def test_units_are_verified(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 def test_staged_product_does_not_bootstrap_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # builder = "staged" → repo_setup.bootstrap never called; installs the local file only
     ...
+
+def test_smoke_runs_with_sanitized_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The uv copy of vergil-tooling that drives the test lives in ~/.local/bin; the smoke must
+    # never resolve it. Assert the exact CLEAN_ENV prefix, that it contains no ".local", and that
+    # a shim resolving anywhere but /usr/bin/<cmd> (fake `command -v` stdout "/root/.local/bin/vrg-whoami")
+    # raises PackageError "shim vrg-whoami resolves to /root/.local/bin/vrg-whoami, expected /usr/bin/vrg-whoami".
+    ...
 ```
+
+  `install_test.CLEAN_ENV` is the module constant:
+  `"env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"`.
+  It is split with `shlex.split` when it's passed to `run`. The smoke and the shim checks always run under it (spec §8.1).
 
   Write the three elided bodies out in full in the same style as the first test; each asserts what its comment states. The `run` fake returns exit 1 for `test -e` unless that path is listed as residue. The sequence is fixed, as follows.
   1. Prerequisites:
@@ -1771,7 +1788,9 @@ def test_staged_product_does_not_bootstrap_repo(tmp_path: Path, monkeypatch: pyt
      - deb: `apt-get install -y systemd`
      - rpm: `dnf install -y systemd`
      - then `systemd-analyze verify <unit>` for each unit
-  6. Smoke: `bash -lc <smoke>`
+  6. Smoke and shims, all under `CLEAN_ENV`:
+     - run `bash -c <smoke>`;
+     - for each listed `/usr/bin/<cmd>`, run `bash -c "command -v <cmd>"` and require the output to be exactly `/usr/bin/<cmd>`.
   7. Remove:
      - deb: `apt-get purge -y <name>`
      - rpm: `dnf remove -y <name>`
@@ -2737,7 +2756,7 @@ jobs:
 
 **Interfaces:**
 
-- Consumes: `vrg-package index`, the `package-signing` environment of the calling repo, and the Pages environment `github-pages`.
+- Consumes: `vrg-package index`, the `index-signing` environment of the calling repo, and the Pages environment `github-pages`.
 - Produces: a deployed Pages site for the calling `<org>/packages` repo.
 
 - [ ] **Step 1: Write the workflow.**
@@ -2758,7 +2777,7 @@ concurrency:
 jobs:
   build-index:
     runs-on: ubuntu-latest
-    environment: package-signing
+    environment: index-signing   # develop-only: dispatch/schedule run on the default branch (spec §7.4)
     permissions:
       contents: read
       attestations: read
@@ -3121,7 +3140,7 @@ EOF
 
   §4.3 (LMF) is deliberately not a task here; LMF adds an `ORGS` entry and a `packages` repo in its own epic.
 
-- **Spec corrections surfaced while planning** (raised at alignment; the spec should be amended to match):
+- **Spec corrections surfaced while planning.** These were approved at alignment and are **applied to spec.md**, together with alignment [1] (the `index-signing` environment for the develop-branch index job) and [2] (the sanitized smoke environment):
   1. `package / evidence` is **required only in repos with `[package]`**, following the existing per-repo `_lang_has_check` ruleset pattern (`github_config.py:322-343`). It is not "trivially passing everywhere": rulesets are computed per repo, and the release-time harvester only recognizes registered gates (`ci_evidence.py:536`, `github_config.py:557-575`).
   2. `vrg-validate` checks the overlay's **shape** (mapping, allowed keys), not nFPM's own config check. nFPM isn't in the dev container; nFPM's validation runs at build time in CI.
   3. New `[package]` keys: `version` (an explicit package version, needed by `vergil-python`, whose package version is `<cpython>+<pbs>`, not the repo's semver) and `noarch` (the keyring is architecture-independent; building it per arch would collide in the index).
