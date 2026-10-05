@@ -71,13 +71,13 @@ agreed in the brainstorm).
 | D2 | **Guardrails that keep A a reconfiguration:** (a) the package repository is a host-agnostic static tree signed with *our* key; (b) package files are kept as **GitHub Release assets** of each product, and the index is a derived, rebuildable view; (c) consumers reference the repository only through a **repo-config package**. Package bytes never live in git. | Judgment. |
 | D3 | GitHub Packages is **not** an option. | Data: it supports only npm, RubyGems, Maven, Gradle, NuGet and Docker ([docs](https://docs.github.com/en/packages/learn-github-packages/introduction-to-github-packages)). |
 | D4 | Pages limits shape retention and the size guard (§7.3). | Data: published site ≤ 1 GB; soft limit of 100 GB/month bandwidth; 10-minute deploy timeout; not for commercial hosting ([limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)). |
-| D5 | **Packaging tool: nFPM.** A language-specific **builder** produces a staged install tree; a language-neutral step wraps it per format. | Data: nFPM produces deb, rpm and more from one config, as a single binary with no dpkg/rpmbuild dependency, with PGP signing and per-packager `overrides` ([nfpm](https://nfpm.goreleaser.com/), [config](https://nfpm.goreleaser.com/docs/configuration/)). Judgment: this fits the self-contained `/opt` product shape. |
+| D5 | **Packaging tool: nFPM.** A **builder** produces a staged install tree; a language-neutral step wraps it per format. v1 ships two builders: `python` (venv products) and `staged` (a repo-declared build command and/or overlay files, which covers the runtime package, the keyring package and, later, C++). | Data: nFPM produces deb, rpm and more from one config, as a single binary with no dpkg/rpmbuild dependency, with PGP signing and per-packager `overrides` ([nfpm](https://nfpm.goreleaser.com/), [config](https://nfpm.goreleaser.com/docs/configuration/)). Judgment: this fits the self-contained `/opt` product shape. |
 | D6 | **M2 implements the builder interface and the Python builder in vergil-tooling; M1 adopts it.** M1 decides layout and recipe rules for its components, expressed as builder configuration. | Judgment: the builder is generic tooling, and LMF depends on vergil-project, not the other way round. |
 | D7 | **The runtime is a side-by-side package per CPython patch** (`vergil-python3.14.N`) from a new `vergil-python` repo. Apps pin the CPython patch exactly and float on python-build-standalone (PBS) rebuilds of that patch. | Judgment: the tested interpreter is the deployed interpreter, and bundled-library security fixes need no product rebuild. Data: PBS Linux builds need glibc ≥ 2.17 ([PBS docs](https://gregoryszorc.com/docs/python-build-standalone/main/running.html)). |
 | D8 | **Default target matrix: the full 2×2**: Ubuntu 24.04/26.04 and RHEL 9/10, each on amd64 and arm64. Per-repo `exclude` or `targets` override; a `native` escape hatch provides per-OS builds. | Data: RHEL 9 and 10 support 64-bit ARM ([RHEL 9](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/interactively_installing_rhel_from_installation_media/system-requirements-and-supported-architectures_rhel-installer), [RHEL 10](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/10/html/interactively_installing_rhel_from_installation_media/system-requirements-and-supported-architectures)), and aarch64 ISOs are on the no-cost Developer subscription. The x86-only constraint the lab hit is **IBM MQ RDQM**, not RHEL ([MQ 9.4 requirements](https://www.ibm.com/support/pages/system-requirements-ibm-mq-94)). |
 | D9 | **Build per architecture, test per OS.** By default one `.deb` serves both Ubuntu releases and one `.rpm` serves both RHEL releases. Changing that is configuration, not re-architecture. | Judgment, with a hard requirement from the human. |
 | D10 | **Arm64 builds run on free GitHub-hosted arm64 runners.** | Data: `ubuntu-24.04-arm` and friends are standard runners, "free and unlimited on public repositories" ([runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)). |
-| D11 | **Signing: one OpenPGP identity per org.** The offline primary is held by the human; CI holds only a signing subkey. It signs every `.rpm`, apt `InRelease`/`Release.gpg`, and dnf `repomd.xml`. Sigstore build-provenance attestations are an additive layer, never the trust root. | Judgment. |
+| D11 | **Signing: one OpenPGP identity per org.** The offline primary is held by the human; CI holds only a signing subkey, in a **`main`-only protected environment**. It signs every `.rpm`, apt `InRelease`/`Release.gpg`, and dnf `repomd.xml`. Sigstore build-provenance attestations are an additive layer, never the trust root, and the index verifies them pinned to the release workflow on `main`. | Judgment; hardened in pushback (§7.4). |
 | D12 | **Pipeline topology:** a product's release attaches its signed packages to its own GitHub Release, then dispatches to `<org>/packages`. That repo rebuilds and signs the **whole** index. | Judgment: no cross-repo writes, no index races, publishing is idempotent. |
 | D13 | **Gating:** package build and install test gate PRs; packaging failures in CD are fatal before tagging; index publishing is deferred and retryable. | Judgment. |
 | D14 | **Dogfood:** vergil-tooling is published as a package. Lima and cloud VMs install it with `apt`, pinned to the major.minor line. The macOS host and the dev containers stay on `uv` **permanently, by design**. | Judgment, from the human: containers are a dynamic pipeline development tool. |
@@ -88,9 +88,9 @@ agreed in the brainstorm).
 
 | Component | Home | Role |
 |---|---|---|
-| Packaging tooling | vergil-tooling: `vrg-package` CLI + `lib/package/` | Target registry and matrix resolution, the builder interface + Python builder, nFPM packaging, install tests, index generation. |
+| Packaging tooling | vergil-tooling: `vrg-package` CLI + `lib/package/` | Target registry and matrix resolution, the builder interface + the `python` and `staged` builders, nFPM packaging, install tests, index generation. |
 | Reusable workflows | vergil-actions | `ci-package.yml` (PR gate), the split `cd-release.yml` (package build → sign/attest/attach → dispatch), `publish-index.yml`. |
-| Per-org package repository | new public `<org>/packages` git repo + Pages | Holds **config only** (products to index, retention, public key, keyring package definition). Its workflow builds, signs and deploys the index. |
+| Per-org package repository | new public `<org>/packages` git repo + Pages | A **normal released repo** (`VERSION`, `cd.yml`, `[package]` with `builder = "staged"`) whose one product is the keyring package. It also holds the index config (products to index, retention, public key). Its `publish-index` workflow builds, signs and deploys the index. Package bytes never live in it. |
 | Repo-config package | built and released by `<org>/packages` | `<org>-archive-keyring`: public key + `sources.list.d` / `yum.repos.d` entry. The only place a consumer references the repository URL. |
 | Pinned Python runtime | new `vergil-project/vergil-python` repo | Repackages a verified PBS build as `vergil-python3.14.N`. Also documents the **runtime-package pattern**, which applies to any language that needs a versioned interpreter or VM (Ruby, Perl, the JVM) and not to languages that compile to native binaries. |
 | vergil-tooling package | vergil-tooling itself | `/opt/vergil/vergil-tooling/` venv on the exact runtime, with `vrg-*` shims in `/usr/bin`. |
@@ -141,7 +141,7 @@ release. It needs no workflow change.
 
 ```toml
 [package]
-builder = "python"            # v1: python. Future: cmake, staged (pre-built tree)
+builder = "python"            # v1: python | staged. Future: cmake
 vendor  = "vergil"            # → /opt/<vendor>/<name>/ ; name defaults to the project name
 summary = "Shared development tooling for Vergil-managed repositories"
 smoke   = "vrg-whoami --mode" # the install test runs this after install
@@ -155,11 +155,16 @@ native  = []                  # e.g. ["ubuntu/26.04/*"]: own build cell, inside 
 [package.python]
 runtime  = "3.14.4"           # exact vergil-python CPython patch to build against and depend on
 # commands = ["vrg-git"]      # optional subset of [project.scripts] to shim; default: all
+
+# For builder = "staged" instead of [package.python]:
+# [package.staged]
+# build-command = "packaging/build.sh"  # optional; populates $VRG_STAGING_ROOT for $VRG_TARGET_ARCH
 ```
 
 Files beyond the builder's output (systemd units, `/etc` config, maintainer
 scripts) go in an optional `packaging/nfpm.overlay.yaml`, merged over the
-generated nFPM config. nFPM's schema is not re-encoded in TOML.
+generated nFPM config. nFPM's schema is not re-encoded in TOML. The overlay
+contract for systemd units is in §6.5.
 
 ### 5.3 Matrix resolution
 
@@ -182,7 +187,14 @@ These are **hard errors** in `vrg-validate`, never warnings:
 - a `native` pattern that matches no selected target;
 - `builder = "python"` without `[package.python].runtime`;
 - a missing `uv.lock` for the Python builder;
+- `builder = "staged"` with neither a `build-command` nor an overlay that
+  contributes files;
+- a `[package.python]` section with `builder = "staged"`, or a
+  `[package.staged]` section with `builder = "python"`;
 - an overlay file that fails nFPM's own config check.
+
+At build time, a `staged` build whose staging root ends up empty, or whose
+`build-command` exits non-zero, is also a hard error.
 
 ## 6. Builders and packages
 
@@ -223,6 +235,9 @@ These steps run as root in a clean container of the build cell's OS:
   shared interpreter.
 - **Provenance:** the repo pins the PBS release tag and a SHA-256 per
   architecture; a mismatch fails the build. Adopting a new patch is a reviewed PR.
+- **Built with the `staged` builder (§6.6):** its `build-command` fetches the
+  pinned PBS archive for the cell's architecture, verifies the checksum, unpacks
+  it into the staging root, and adds the `EXTERNALLY-MANAGED` marker.
 
 ### 6.3 Install layout (for the M1 cross-check)
 
@@ -241,14 +256,47 @@ A product's package version is its repo `VERSION` with package revision `1`
 (e.g. `2.1.240-1`). Only stable `vX.Y.Z` releases produce published packages;
 `develop-*` tags never do.
 
+### 6.5 Systemd units: the overlay contract
+
+Install tests run in plain containers without systemd as PID 1 (§8.1). So:
+
+- Overlay maintainer scripts that enable or start units **must** use the
+  standard helpers, which are a no-op when systemd isn't running:
+  `deb-systemd-helper`/`deb-systemd-invoke` on Ubuntu, and the
+  `%systemd_post`/`%systemd_preun`-equivalent idioms on RHEL. A raw
+  `systemctl enable --now` in a maintainer script is a hard error at package
+  build time.
+- Install-test verifies that each shipped unit file is installed and passes
+  `systemd-analyze verify`.
+- **"The service actually starts and works"** is not an M2 CI promise. It is
+  proven in the lab (M3 validation). See §14.
+
+### 6.6 The `staged` builder
+
+This is the generic builder for anything that isn't a Python venv product. In
+the build cell:
+
+1. If `[package.staged].build-command` is set, run it with `VRG_STAGING_ROOT`
+   (an empty directory standing in for `/`) and `VRG_TARGET_ARCH` set. It must
+   populate the staging root, for example `opt/vergil/python/3.14.N/…`. A
+   non-zero exit is a hard error.
+2. Merge the overlay's files over the staging root.
+3. Fail if the result is empty; otherwise hand off to nFPM.
+
+v1 users: `vergil-python` (fetch, verify and unpack PBS) and
+`<org>-archive-keyring` (overlay only: key + source entries). Future users: C++
+(`cmake --install` into the staging root), and any pre-built tree.
+
 ## 7. Indexing, signing and publishing
 
 ### 7.1 The `<org>/packages` repository
 
 ```text
-packages.toml        products to index + retention (default keep = 3)
+VERSION, vergil.toml, .github/workflows/{ci,cd}.yml
+                     a normal released repo; [package] builder = "staged"
+packages.toml        products to index + retention (default keep = 3, lines = 2)
 keys/<org>.asc       public key (primary + current subkey)
-keyring/             nFPM config for <org>-archive-keyring (this repo's own product)
+packaging/           nFPM overlay for <org>-archive-keyring (this repo's own product)
 ```
 
 ### 7.2 The `publish-index` workflow
@@ -260,12 +308,16 @@ keyring/             nFPM config for <org>-archive-keyring (this repo's own prod
   and a **weekly reconcile**, so a missed dispatch self-heals.
 - **Collect:** stable releases of each configured product, plus their assets.
 - **Verify before indexing:** every asset must pass `gh attestation verify`
-  against its product repo and workflow, and every `.rpm` must carry a valid org
+  **pinned to the release path**: `--repo <product repo>`,
+  `--signer-workflow vergil-project/vergil-actions/.github/workflows/cd-release.yml`,
+  and `--source-ref refs/heads/main`. Every `.rpm` must also carry a valid org
   signature. A failure is a **hard error**, never a skip. The index never
-  contains a package our own pipeline did not build.
-- **Retain:** the latest `keep` releases per product, **plus the dependency
-  closure** (any runtime a retained product depends on), so anything indexed is
-  installable.
+  contains a package that our own release pipeline did not build on `main`.
+- **Retain per line:** for each product, the newest `lines` major.minor lines
+  (default 2), and within each line the latest `keep` releases (default 3),
+  **plus the dependency closure** (any runtime a retained product depends on).
+  So anything indexed is installable, and a VM pinned to the previous line stays
+  installable until two newer lines exist.
 - **Index:** `apt-ftparchive` and `createrepo_c`. Both are stateless, so the
   index is a pure function of the release assets.
 - **Sign:** `InRelease` + `Release.gpg`; `repomd.xml.asc`.
@@ -292,12 +344,18 @@ bytes but changes no design.
 
 ### 7.4 Keys and secrets
 
-- Each org has an org-level Actions secret holding the signing subkey and its
-  passphrase, **scoped to selected repos**: the `packages` repo (to sign
-  metadata) and each product repo (for the `release` job's `rpmsign`).
-- Build cells never see the key.
-- Generating the primary key, minting subkeys, loading secrets and rotating keys
-  are **human-attested preconditions**; agents never handle the primary key.
+- The signing subkey and its passphrase live in a GitHub **environment**,
+  `package-signing`, in each participating repo: the `packages` repo (to sign
+  metadata) and each product repo (for the `release` job's `rpmsign`). The
+  environment's deployment-branch policy allows **only `main`**.
+- Only the `release` job (on `main`) and `publish-index` declare that
+  environment. A workflow on any other branch, including agent feature branches,
+  cannot read the key. Org-level secrets are deliberately **not** used, because
+  GitHub does not restrict them by branch.
+- Build cells and PR CI never see the key.
+- Generating the primary key, minting subkeys, creating the environments,
+  loading secrets and rotating keys are **human-attested preconditions**; agents
+  never handle the primary key.
 - **Rotation:** mint a new subkey offline, update `keys/<org>.asc`, and release a
   new `<org>-archive-keyring`. Consumers trust the primary, so rotation flows
   through ordinary upgrades.
@@ -310,7 +368,7 @@ bytes but changes no design.
 |---|---|
 | `matrix` | `vrg-package matrix` → build cells and test cells. |
 | `build` | Per build cell, on `ubuntu-24.04` / `ubuntu-24.04-arm`, inside the build OS container: builder → nFPM → **unsigned** artifacts. |
-| `install-test` | Per test cell, in a clean `ubuntu:24.04`, `ubuntu:26.04`, UBI 9 or UBI 10 container on the matching arch: enable the org repository as a consumer would; install the artifact (its runtime resolves from the **live** vergil repository); run `smoke`; uninstall; assert nothing remains under `/opt/<vendor>/<name>` or in the shims. |
+| `install-test` | Per test cell, in a clean `ubuntu:24.04`, `ubuntu:26.04`, UBI 9 or UBI 10 container on the matching arch: enable the org repository as a consumer would; install the artifact (its runtime resolves from the **live** vergil repository); verify any shipped systemd units are installed and pass `systemd-analyze verify` (§6.5); run `smoke`; uninstall; assert nothing remains under `/opt/<vendor>/<name>` or in the shims. |
 | `package / evidence` | One stable, version-agnostic gate. It passes trivially for repos without `[package]`, so one ruleset fits the whole org (the `.github#338` pattern). |
 
 Local `vrg-validate` validates the packaging **config** only (§5.4); there are no
@@ -319,8 +377,9 @@ container-in-container builds.
 ### 8.2 CD: the `cd-release.yml` split
 
 1. `package-build` runs the same build cells as PR CI.
-2. The `release` job runs `rpmsign` on every `.rpm`, attests every artifact, and
-   adds them to the release artifacts. Install-test evidence joins the
+2. The `release` job declares the `package-signing` environment (§7.4), runs
+   `rpmsign` on every `.rpm`, attests every artifact, and adds them to the
+   release artifacts. Install-test evidence joins the
    CI-evidence bundle. Any failure is **fatal before tagging**.
 3. After `tag-and-release`, a `repository_dispatch` to `<org>/packages` uses the
    org's GitHub App token (`create-github-app-token`), scoped to the `packages`
@@ -340,17 +399,39 @@ change.
 ## 9. Consumer side: VM provisioning
 
 `uv tool install` is **replaced**, not kept as a fallback, for Lima and cloud
-VMs (`lib/vm_guest.py`):
+VMs (`lib/vm_guest.py`).
+
+**Version source.** The version comes from the VM's **resolved identity
+version**, `resolve_vergil_version()` (`lib/identity.py:229`). That is the
+per-identity `vergil` setting in `identities.toml`, falling back to the
+config-level one. It does **not** come from the repo's `vergil.toml`. A
+`vrg-vm update --tag` value overrides it, exactly as today.
+
+**Packaged install** (the default, for any release version):
 
 1. **Bootstrap trust:** fetch `keys/<org>.asc` from the Pages site and verify its
    primary-key fingerprint against a value **pinned in vergil-tooling's code**. A
    mismatch fails provisioning loudly. Then write the apt source.
 2. `apt install vergil-archive-keyring`. The package then owns the key and the
    source entry.
-3. **Pin the line:** `[dependencies].vergil = "v2.1"` becomes an
-   `/etc/apt/preferences.d` pin to `2.1.*`, then `apt install vergil-tooling`.
+3. **Pin:** a line version `vX.Y` becomes an `/etc/apt/preferences.d` pin to
+   `X.Y.*`, followed by `apt install vergil-tooling`. An exact version `vX.Y.Z`
+   becomes `apt install vergil-tooling=X.Y.Z-1`, with a matching exact pin.
 4. `vrg-vm update` becomes
-   `apt-get update && apt-get install --only-upgrade vergil-tooling`.
+   `apt-get update && apt-get install --only-upgrade vergil-tooling`, within the
+   pin.
+
+**Explicit dev install** (only for a non-release ref, such as `develop` or a
+feature branch, passed via `--tag`):
+
+- This is a deliberate mode chosen by the argument, never a fallback after a
+  packaged-install failure. It does `uv tool install vergil-tooling @ git+…@<ref>`
+  into a separate, clearly named location that takes precedence on the VM user's
+  `PATH`.
+- Every `vrg-vm` command that touches the VM reports
+  `DEV tooling (ref <ref>) — not the packaged install`.
+- Running `vrg-vm update` with no `--tag` removes the dev install and returns
+  the VM to the packaged install.
 
 Unchanged: the macOS host (`uv tool install`), the dev-container cache
 (`uv tool install` from git), and this repo's dev-tree `.venv` override.
@@ -367,8 +448,12 @@ or swallowed.
 
 - **Unit tests** (vergil-tooling, 100% coverage bar): target registry and matrix
   resolution; every §5.4 config error; the glibc guard against fixture ELF files;
-  retention with dependency closure; index generation from fixture packages;
-  nFPM config generation and overlay merging; fingerprint-pinned bootstrap logic.
+  the `staged` builder (command contract, empty-root failure); the raw-`systemctl`
+  maintainer-script check; per-line retention with dependency closure; pinned
+  attestation-verification arguments; index generation from fixture packages;
+  nFPM config generation and overlay merging; fingerprint-pinned bootstrap logic;
+  VM version mapping (`vX.Y` → line pin, `vX.Y.Z` → exact, non-release ref → dev
+  install).
 - **Integration tests:** the PR install-test matrix itself. Every packaging PR
   proves install, smoke and clean removal on every target cell.
 - **Live proof:** the deployment and validation operational tasks (§12).
@@ -386,9 +471,10 @@ The pipeline is bootstrapped by itself, so the order is:
 
 The plan sequences the tasks; the operational tasks are:
 
-- **Precondition (human-attested):** vergil org key ceremony; org secrets;
-  `vergil-project/packages` created with Pages enabled; the GitHub App permitted
-  to dispatch to it.
+- **Precondition (human-attested):** the vergil org key ceremony;
+  `package-signing` environments (main-only) holding the subkey in each
+  participating repo; `vergil-project/packages` created with Pages enabled; and
+  the GitHub App permitted to dispatch to it.
 - **Deployment:** the first packaged vergil-tooling release (a human-gated
   release) is indexed, then `vrg-vm update --all` runs across existing VMs.
 - **Validation (cold rebuild):** a fresh Lima arm64 VM and a fresh cloud amd64 VM
@@ -423,5 +509,8 @@ configuration rather than a second implementation:
 - lock discipline: build from `uv.lock` only (`--frozen`);
 - the recipe for building the venv from source and lock (§6.1), run in CI;
 - where systemd units and config land (overlay), and the smoke-command contract;
+- **service-start verification:** M2's CI proves only that units are installed
+  and valid (§6.5); proving that services start and work belongs in the lab
+  (M3). M1 should confirm that its daemons fit the helper-macro contract;
 - native dependencies (pymqi): `native` build cells and their interaction with
   MQ SDK availability per target.
