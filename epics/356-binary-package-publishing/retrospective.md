@@ -213,7 +213,8 @@ graph. See §2.
   retrospective.
 - **CI apt is infrastructure, not a given.** Mirror failover, lock contention
   and full index downloads each turned a routine job into a hang that ran to the job timeout. The
-  hardened settings now live in one place, the setup action.
+  hardened settings live in two places: the CI setup action (actions#931) and
+  vergil-tooling's shared `APT_FAIL_FAST` (vergil-tooling#3131, #3149, #3150).
 - **Keep the evolution log as you go.** Rebuilding §1 from comments and the
   issue graph worked but was lossy: why each unplanned child was filed had to
   come from memory and issue bodies. Next time, append a dated line to
