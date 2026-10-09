@@ -155,8 +155,11 @@ packages 1.1.0.
 - nFPM treated `{name}.tmpl` as a glob (#3125).
 - amd64 build and sign jobs hung on apt. The cause is a known apt deadlock when
   delayed retries meet the Azure mirror-list failover (Launchpad #2003851). The
-  fix was `Retries::Delay "false"`, bounded timeouts, a scoped `apt-get update`,
-  and job `timeout-minutes` (actions#931, #3131).
+  CI setup action got `Retries::Delay "false"`, a 60 s `DPkg::Lock::Timeout`,
+  bounded retries and timeouts, and job `timeout-minutes` (actions#931).
+  vergil-tooling got `Acquire::Retries=3`, 20 s http/https timeouts and a
+  scoped `apt-get update` (#3131); vergil-tooling#3150 adds the other two
+  options there.
 - The full 8-cell install-test matrix on every PR was too slow and too costly,
   so package CI became tiered (actions#930, #3127). Feature PRs install-test
   the **oldest** release per format; release PRs run the full matrix.
@@ -245,8 +248,10 @@ graph. See §2.
 - **apt hardening covers bootstrap and CI, not every VM apt call.** The retry
   and timeout options apply to the trust-bootstrap and builder apt calls. The
   plain `apt-get update` and `apt-get install` in `vm_packages.py` run without
-  them. That is low risk: VMs use the plain Ubuntu archive and update only the
-  scoped `vergil.sources`. Triage: .github#364.
+  them, and that `apt-get update` is a full, unscoped update (only the
+  trust-bootstrap update is scoped to `vergil.sources`), so a slow or dead
+  mirror could stall a VM install. Fixed: vergil-tooling#3149 routes both calls
+  through the shared `apt_get()` options.
 
 ## §4 New problems & opportunities
 
@@ -257,12 +262,12 @@ graph. See §2.
 | CI-evidence gate failed open | Fixed with guards: actions#925; root cause logged, not yet acted on |
 | Corrupt `.pyc` on the macOS↔container bind mount | Fixed: vergil-tooling#3111 (ad-hoc) |
 | GitHub list-before-readable 404 lag | Fixed: vergil-tooling#3137 (ad-hoc) |
-| apt mirror deadlock and lock contention in CI | Fixed: actions#931, vergil-tooling#3131 |
+| apt mirror deadlock and lock contention in CI | Fixed: actions#931 (all five options, incl. `Retries::Delay`, `DPkg::Lock::Timeout`), vergil-tooling#3131 (retries and timeouts only); vergil-tooling#3150 adds the other two to vergil-tooling |
 | Non-idempotent trust bootstrap | Fixed: vergil-tooling#3138 |
 | `repo-init` adopt dropped hand-written `vergil.toml` tables | Fixed: vergil-tooling#3144 |
 | `vrg-validate` lints shell and Markdown only in fixed directories (`packaging/*.sh`, `docs/*.md` unchecked) | Triage: .github#362, open |
-| A retry for GitHub GraphQL "Something went wrong" errors (release recovery needed manual re-runs) | Triage: .github#363 |
-| VM-side apt calls lack the retry and timeout options (§3) | Triage: .github#364 |
+| A retry for GitHub GraphQL "Something went wrong" errors (release recovery needed manual re-runs) | Fixed: vergil-tooling#3148 (was .github#363); vergil-tooling#3151 extends retries to `pr_checks` and `failing_checks` |
+| VM-side apt calls lack the retry and timeout options (§3) | Fixed: vergil-tooling#3149 (was .github#364) |
 | A vanity domain for the package repository (once the business entity exists) | Idea: .github#365 (needs a keyring release to move the baked-in source URL) |
 
 ## §5 What's next
