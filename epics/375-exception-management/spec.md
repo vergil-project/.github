@@ -114,12 +114,12 @@ scope   = ["tests/**"]
 reason  = "pytest's assertion model requires bare assert in tests."
 added   = 2026-10-20
 
-[[rule]]                         # a rule-level entry adopting a fleet policy
+[[rule]]
 id      = "EXC-002"
 tool    = "mypy"
 rules   = ["import-untyped"]
-scope   = ["**"]
-fleet   = "VRG-004"              # reason inherited from the fleet register
+scope   = ["scripts/**"]
+reason  = "Build scripts import a vendored helper that ships no type stubs."
 added   = 2026-10-20
 
 [[inline]]                       # level 3
@@ -143,12 +143,11 @@ Field rules:
 
 | Field | `[[rule]]` | `[[inline]]` | Notes |
 |---|---|---|---|
-| `id` | required | required | `EXC-NNN`, unique in the file |
+| `id` | required | required | `EXC-NNN` (at least three digits), unique in the file |
 | `tool` | required | required | a supported plug-in name (§7) |
 | `rules` | required | required | non-empty list of the tool's rule IDs |
 | `scope` | required | — | globs; repo-wide must be written `["**"]` explicitly |
-| `reason` | required unless `fleet` | required | non-empty prose |
-| `fleet` | optional | — | a `VRG-NNN` ID; supplies the reason. For a fleet policy the repo applies in its own config by hand; ruff fleet policies arrive by managed block instead (§6.3) |
+| `reason` | required | required | non-empty prose |
 | `added` | required | required | date |
 | `expires` | optional | optional | date; required for `trivy` entries |
 | `issue` | required iff `expires` | required iff `expires` | `owner/repo#N` |
@@ -157,6 +156,10 @@ Field rules:
   scanning, so a stored list could only go stale.
 - Many sites may reference one `[[inline]]` entry (many-to-one), but every new
   site still needs human approval (§8).
+- `EXC-NNN` is the **only** ID namespace. A repo entry never cites a fleet
+  entry: fleet defaults reach the repo through the package or a managed block
+  (§6.3) and are documented once, in the fleet register. A rule the repo
+  disables in its own config is the repo's exception and needs its own entry.
 
 ### 5.2 Inline linkage
 
@@ -177,44 +180,66 @@ mypy 2.1.0 rejects `# type: ignore[return-value]  vrg-exc: EXC-002` as
 `Invalid "type: ignore" comment [syntax]`, while both ruff 0.15.13 and mypy
 accept the separate-comment form (verified 2026-10-15).
 
-For a tool that cannot take a second comment on the same line, the plug-in
-reads the ID from a `# vrg-exc: EXC-NNN` comment on the line immediately above.
-Each plug-in's accepted form is verified during planning. For file-based
-mechanisms such as `.trivyignore`, the ID sits in a comment on the line above the
-entry.
+In Markdown the marker is an HTML comment: `<!-- vrg-exc: EXC-005 -->`.
+
+**Line-above form.** The plug-in also reads the ID from a comment-only
+`# vrg-exc: EXC-NNN` line immediately above the suppression. It is used:
+
+- for any tool that cannot take a second comment on the same line;
+- for `nosemgrep`, because semgrep reads the rest of a `nosemgrep:` comment as
+  its rule-ID list;
+- for `.trivyignore`, where one marker covers a **group**: every CVE line that
+  follows it, up to the next blank line. This keeps the grouped-by-carrier
+  layout. The entry's `rules` must still list every CVE in the group, so adding
+  a CVE to a group still changes the register.
+
+Inline markers take only the repo's `EXC-NNN` IDs. Line-level exceptions are
+always per repo, because the line is in the repo: there are no fleet line-level
+entries, including for lines that Vergil tooling generates (§10, repo-init).
 
 ### 5.3 Fleet register
 
-A TOML file shipped as vergil-tooling package data (e.g.
-`src/vergil_tooling/configs/exceptions.toml`), with `VRG-NNN` IDs and the same
-`[[rule]]` shape. It documents every rule disabled by the shared configs Vergil
-ships (markdownlint, yamllint, ansible-lint, C++ and TypeScript configs, which
-`vrg-validate` passes to the tools directly from the package), the fleet ruff
-ignores delivered by managed block (§6.3), and any fleet policy a repo applies by
-hand (via the `fleet` field). It carries a monotonically increasing `revision`, and records the
-SHA-256 of each managed-block body (§6.3) for every revision it has ever shipped,
-so older blocks remain verifiable.
+A TOML file shipped as vergil-tooling package data
+(`src/vergil_tooling/configs/exceptions.toml`). It holds `[[rule]]` entries only,
+in the repo register's shape but with **no `id`**: a fleet default is identified
+by its tool and rule (for example "markdownlint `MD060`"), and each tool-and-rule
+pair appears in one entry at most. It has no `[[inline]]` entries.
+
+It documents every rule disabled by the shared configs Vergil ships
+(markdownlint, yamllint, ansible-lint, C++ and TypeScript configs, which
+`vrg-validate` passes to the tools directly from the package), the semgrep
+`DEFAULT_EXCLUDED_RULES`, and the fleet ruff ignores delivered by managed block
+(§6.3). Only the human decides what becomes a fleet default. It carries a
+monotonically increasing `revision`, and records the SHA-256 of each
+managed-block body (§6.3) for every revision it has ever shipped, so older
+blocks remain verifiable.
 
 ## 6. The audit — `vrg-exceptions audit`
 
 ### 6.1 Failures (exit non-zero)
 
 1. An inline suppression with no `vrg-exc:` ID.
-2. An ID not present in the register (or a `fleet` reference not in the fleet
-   register).
+2. An ID not present in the repo register (including any ID that is not
+   `EXC-NNN`).
 3. A site whose suppressed rule is not in its entry's `rules`.
 4. A site whose entry is `[[rule]]` rather than `[[inline]]`, or vice versa.
 5. A **dead** suppression — one that suppresses a rule the tool does not have
-   enabled, or (where the tool can report it) suppresses nothing. Where the tool
-   offers this natively (ruff `RUF100`, mypy `warn_unused_ignores`), the plug-in
-   uses it.
-6. A rule disabled in the repo's effective tool config that is neither a fleet
-   default nor covered by a `[[rule]]` entry whose `scope` matches.
+   enabled, or (where the tool can report it) suppresses nothing. Ruff's is
+   detected with `RUF100`. mypy and ty report unused ignores themselves in
+   strict mode (`warn_unused_ignores`), so their own run fails on those and the
+   audit does not repeat the check.
+6. A rule disabled in the repo's own config that is not covered by a repo
+   `[[rule]]` entry whose `scope` matches. Rules in a valid managed block are
+   covered by the fleet register.
 7. A `[[rule]]` entry that matches no disabled rule (stale register entry), and
    an `[[inline]]` entry referenced by no site.
-8. A managed block whose content hash does not match the revision it claims
-   (hand-edited; §6.3).
+8. A managed block whose content hash does not match the revision it claims, or
+   which claims a revision the fleet register does not know (hand-edited; §6.3).
 9. A register that fails schema validation (§5.1 field rules).
+10. A **blanket** suppression — one that names no rule (a bare `# noqa`,
+    `# type: ignore`, `# nosemgrep`, or `<!-- markdownlint-disable -->`),
+    whatever its marker says. An approval covers specific rules, and a blanket
+    suppression also silences rules added later.
 
 ### 6.2 Reported, not failed
 
@@ -277,6 +302,9 @@ The two kinds of drift are treated differently:
   produces an undocumented exception: a newly disabled fleet rule is still
   enforced (stricter), and a re-enabled one is still documented by the old
   revision. `vrg-exceptions sync` brings the block up to date.
+- **Missing → report, as behind.** A repo with no block is behind at revision 0:
+  it still enforces every fleet rule. So adding the first fleet ruff default
+  never fails the repos that have not synced yet.
 
 Repos follow a vergil-tooling release *line* (`vergil = "v2.1"`), so a check
 against the current revision would break every repo on every central change.
@@ -307,18 +335,27 @@ v1 plug-ins:
 |---|---|---|
 | ruff | `# noqa:` | `ignore`, `extend-ignore`, `per-file-ignores` (rules never selected are not exceptions) |
 | mypy | `# type: ignore[...]` | `disable_error_code`, per-module overrides |
+| ty | `# ty: ignore[...]` | rules set to `ignore` in `[tool.ty.rules]` |
 | coverage | `# pragma: no cover` | `exclude_lines` / `omit` |
 | markdownlint | `<!-- markdownlint-disable ... -->` | disabled rules; `vergil.toml` `[markdownlint].ignore` path exclusions |
 | shellcheck | `# shellcheck disable=` | `.shellcheckrc` `disable=` |
 | yamllint | `# yamllint disable` | disabled rules |
 | hadolint | `# hadolint ignore=` | `.hadolint.yaml` `ignored` |
 | actionlint | — | config ignores |
-| semgrep | `# nosemgrep:` | `--exclude-rule` |
+| semgrep | `# nosemgrep:` | `--exclude-rule` flags in workflows and shell scripts (scope `["**"]`); `.semgrepignore` paths |
 | trivy | — | `.trivyignore` entries (CVE IDs; `expires` required) |
 
 Notes:
 
 - A bare `# pragma: no cover` has no rule ID; its entry uses `rules = ["no-cover"]`.
+  It is the one bare form that is not a blanket (§6.1 item 10), because coverage
+  has nothing narrower to name.
+- A per-repo semgrep `--exclude-rule` disables the rule repo-wide, so it is
+  audited like any other config disable. The vergil-actions semgrep action has
+  no exclusion input, so a direct flag is the only route a repo has. The fleet's
+  `DEFAULT_EXCLUDED_RULES` are fleet defaults (§5.3).
+- ansible-lint has no plug-in in v1; its `skip_list` and similar keys are
+  reported as uncovered (§6.2).
 - The exact config keys and syntaxes for each plug-in are confirmed at planning.
 - Opaque policy files (e.g. trivy's Rego ignore policy) are covered by a
   `[[rule]]` entry naming the file in `scope`.
@@ -366,32 +403,45 @@ reminds the agent to run the skill immediately.
   submission of a cloud-developed branch from the Mac's main worktree, where the
   branch exists only as `origin/<branch>`. `vrg-submit-pr` always passes both refs
   (e.g. `origin/develop` and `origin/<branch>`) and includes the result as an
-  "Exceptions added or changed in this PR" section, omitted only when the diff
-  ran successfully and found nothing. A ref that cannot be resolved is a hard
-  error, never an empty section.
-- **Docs page.** `vrg-exceptions report --format markdown` renders the repo's
+  "Exceptions added or changed in this PR" section. The section always
+  appears; when the diff ran and found nothing it says "(none)", so an empty
+  result can never be mistaken for a check that did not run. A ref that cannot
+  be resolved is a hard error, never an empty section.
+- **Docs page.** `vrg-exceptions report` renders a Markdown page: the repo's
   rule-level exceptions with scopes, line-level entries with site counts,
-  inherited fleet defaults and the repo's fleet revision, expiring entries (soonest
-  first), and uncovered mechanisms. It is generated at docs-build time, never
-  committed. This is secondary and may wait for the docs-build rework.
+  inherited fleet defaults (by tool and rule) with the repo's fleet revision,
+  expiring entries (soonest first), and uncovered mechanisms. It is generated at
+  docs-build time, never committed. This is secondary and may wait for the
+  docs-build rework.
 
 ## 10. Adoption — cleanup, not grandfathering
 
-There is no legacy bucket. Each repo's adoption is a joint human + agent task,
-roughly half a day per repo:
+There is no legacy bucket. Each repo's adoption is a **"kill the exceptions"**
+series: a sequence of tasks whose only job is to purge exceptions while keeping
+all functionality, ending in one task that documents what is left. It is run
+with the human:
 
 1. **Inventory** every exception, grouped by tool × rule × directory.
 2. **Mechanical cleanup**: remove dead suppressions, apply auto-fixers
    (`ruff check --fix`, `ruff format`, equivalents), fix trivial cases.
-3. **Judgment calls**, group by group, with the human: fix the code; keep and
-   document; or disable the rule at the narrowest workable scope (itself a
-   `[[rule]]` entry, or a fleet default if it applies everywhere).
+3. **Judgment calls**, group by group, with the human: purge (fix the code — one
+   purge task per group or small batch); keep and document; or disable the rule
+   at the narrowest workable scope (a `[[rule]]` entry). Proposing a fleet
+   default is also an option, but what becomes a fleet default is the human's
+   decision alone. The series is also how the fleet register's contents get
+   decided, repo by repo.
 4. **Document** the remainder, tag inline sites with IDs, create
-   `vergil-exceptions.toml`, and enable the gate.
+   `vergil-exceptions.toml`, and enable the gate. This includes the
+   `secrets-inherit` `nosemgrep` that repo-init generated in a `[package]`
+   repo's `cd.yml`: each repo that has it adds its own entry (§5.2).
 
-This epic adopts in vergil-tooling only. Other repos follow as tasks under later
-work, each adding the plug-ins its languages need. vergil-containers (trivy) is
-the natural second.
+New repos start adopted: repo-init writes `vergil-exceptions.toml` (empty, or
+with the entry for the `nosemgrep` it generates) and tags that line, so the
+audit is active from the first commit.
+
+This epic runs the series for vergil-tooling only. Other repos run theirs later,
+each under its own epic and adding the plug-ins its languages need.
+vergil-containers (trivy) is the natural second.
 
 ## 11. Component boundaries
 
@@ -400,22 +450,34 @@ the natural second.
 - `lib/exceptions/audit.py` — combine sites, config disables and registers into
   findings (pure, unit-testable with fixture repos).
 - `lib/exceptions/managed.py` — managed-block render, parse, hash, sync.
+- `lib/exceptions/report.py` — the docs page renderer.
 - `bin/vrg_exceptions.py` — the `audit` / `sync` / `report` / `diff` CLI.
 - `vrg-validate` — runs `audit` as a common check.
 - `vrg-submit-pr` — calls `diff` for the preview section.
+- `vrg-docs-stage` / `vrg-docs-patch-nav` — publish the docs page.
+- `lib/repo_init.py` — seeds `vergil-exceptions.toml` and tags the generated
+  `nosemgrep`.
 - vergil-claude-plugin — the skill, the hook, and skill cross-references.
+- A deployment task (release both, then verify the command, the hook and the
+  skill in a consumer repo) gates closure; the releases themselves are
+  human-gated.
 
 ## 12. Testing
 
 - Register schema: every field rule in §5.1, including the conditional
-  `issue`/`expires` and `reason`/`fleet` requirements.
-- Each plug-in against fixture files: discovery, ID extraction (same-line and
-  line-above forms), config-level disables, enabled-rule detection.
-- Audit: one test per failure in §6.1 and per report item in §6.2.
+  `issue`/`expires` requirement; the fleet register's no-`id`, `[[rule]]`-only
+  and one-entry-per-tool-and-rule rules (§5.3).
+- Each plug-in against fixture files: discovery, ID extraction (same-line,
+  line-above and `.trivyignore` group forms), config-level disables (including
+  semgrep `--exclude-rule`), enabled-rule detection.
+- Audit: one test per failure in §6.1 (including blanket suppressions and a
+  non-`EXC` marker ID) and per report item in §6.2.
 - Managed blocks (ruff `extend-ignore` in `pyproject.toml`): hand-edit fails;
-  older valid revision reports and passes; sync round-trips and leaves the rest
-  of `pyproject.toml` byte-identical; repo-owned ignores beside the block are
-  untouched.
+  older valid revision reports and passes; a missing block reports and passes;
+  sync round-trips and leaves the rest of `pyproject.toml` byte-identical;
+  repo-owned ignores beside the block are untouched.
+- repo-init: a `[package]` release repo's generated `cd.yml` and seeded register
+  pass the audit together; every other repo gets an empty register that passes.
 - Expiry: an expired entry is reported and the audit still passes.
 - `diff`: added, removed, widened-scope and new-site cases, run between two refs
   with no worktree for the head; an unresolvable ref is a hard error.
@@ -435,6 +497,15 @@ the epic:
   the push toward zero exceptions) and extending to periodic refactoring
   reviews. This epic makes the register easy to review (`added`, `expires`, site
   counts, promotion candidates); the cadence itself is the follow-on.
+
+It also files one follow-on task:
+
+- **Revisit the generated `secrets: inherit`.** The `nosemgrep` repo-init writes
+  works around a GitHub limitation (environment secrets reach a cross-repo
+  reusable workflow only under `secrets: inherit`;
+  `vergil-project/packages#6`). It is a workaround, not a fix. Investigate a
+  design that needs no suppression; if one works, remove it from repo-init and
+  from existing repos.
 
 Out of scope:
 

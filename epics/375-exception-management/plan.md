@@ -40,8 +40,10 @@ plan; section references (§) point there.
   (`vergil_tooling.lib.cli`), registered in `[project.scripts]`.
 - No silent failures: every error path prints an actionable message via
   `vergil_tooling.lib.output.emit_error` and exits non-zero. No bare `except`.
-- Register file name: `vergil-exceptions.toml` (repo root). IDs: `EXC-NNN`
-  (repo), `VRG-NNN` (fleet); at least three digits.
+- Register file name: `vergil-exceptions.toml` (repo root). IDs: `EXC-NNN`, at
+  least three digits — the only ID namespace. Fleet register entries carry no ID;
+  they are identified by tool and rule (§5.3). Line-level exceptions are always
+  per repo; the fleet register has no `[[inline]]` entries.
 - Inline marker: a **separate** comment `# vrg-exc: <ID>` after the tool's own
   suppression on the same line, or alone on the line immediately above (§5.2).
 - `issue` is required iff `expires` is set; `expires` is required for `trivy`
@@ -54,9 +56,12 @@ plan; section references (§) point there.
   implementations carry `@typing.override` (ruff's `ARG002` skips overrides),
   narrowing uses `typing.cast`, not `assert`. This epic should not add the very
   exceptions it exists to manage.
-- Until Task T9 (adoption) lands, vergil-tooling has no register, so the audit
-  is inactive here; new code in T1–T8 may add suppressions the usual way, and T9
+- Until T9-final (the end of vergil-tooling's "kill the exceptions" series)
+  lands, vergil-tooling has no register, so the audit is inactive here; new code
+  in T1–T8 and T10 may add suppressions the usual way, and the series purges or
   documents them.
+- Every suppression must name its rules: a blanket suppression fails the audit
+  whatever its marker says (spec §6.1 item 10).
 
 ## Review Focus
 
@@ -66,8 +71,9 @@ plan; section references (§) point there.
    line regex (T2 test `test_noqa_inside_string_is_not_a_site`).
 2. **Blanket suppressions.** `# noqa` with no codes, or `# type: ignore` with no
    code, suppress everything and cannot be tied to a rule. Expected: a hard
-   finding `blanket` naming the file and line (T1 audit test
-   `test_blanket_site_fails`; T2 plug-in tests emit `rules=()`).
+   finding `blanket` naming the file and line, whatever its marker says (spec
+   §6.1 item 10; T1 audit test `test_blanket_site_fails`; T2 plug-in tests emit
+   `rules=()`).
 3. **A malformed or unreadable register.** Expected: a hard error naming
    `vergil-exceptions.toml` and the TOML parse message — never "not adopted",
    never a pass (T1 `test_malformed_toml_is_error`, T5 CLI test).
@@ -86,8 +92,11 @@ T1 core ──▶ T2 python plug-ins ──┐
    └──▶ T4 fleet register + ruff managed block ┘
 T7a (vergil-tooling: consumer rule + standards docs)   — independent
 T7b (vergil-claude-plugin: skill + hook)               — independent
-T9 vergil-tooling adoption (joint human session) ◀── T1–T6, T7a, T7b
-D1 deployment: release vergil-tooling + plugin   ◀── T1–T8, T7a, T7b
+T10 repo-init seeds the register + tags the generated nosemgrep ◀── T1, T3, T4
+T9 kill-the-exceptions in vergil-tooling (joint)  ◀── T1–T6, T7a, T7b
+   └──▶ purge tasks (filed by T9) ──▶ T9-final: document the remainder, enable the audit
+D1 deployment: release vergil-tooling + plugin   ◀── T1–T8, T10, T7a, T7b
+Follow-on: revisit the generated secrets: inherit — not blocking
 ```
 
 Bookends already filed: documentation `.github#376`, docs review
@@ -95,12 +104,14 @@ Bookends already filed: documentation `.github#376`, docs review
 retrospective `.github#377`.
 
 ---
+
 ## Task T1: core model, register parser, repo trees, markers and audit engine
 
 **Repo:** vergil-tooling. Blocked by: nothing. Spec: §4, §5.1, §5.2, §6.1, §6.2,
 §11.
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/exceptions/__init__.py` (empty docstring module)
 - Create: `src/vergil_tooling/lib/exceptions/model.py`
 - Create: `src/vergil_tooling/lib/exceptions/register.py`
@@ -119,7 +130,7 @@ retrospective `.github#377`.
 ```python
 # model.py
 Level = Literal["rule", "inline"]
-@dataclass(frozen=True) class Entry: id: str; level: Level; tool: str; rules: tuple[str, ...]; added: date; reason: str | None = None; scope: tuple[str, ...] = (); fleet: str | None = None; expires: date | None = None; issue: str | None = None
+@dataclass(frozen=True) class Entry: id: str; level: Level; tool: str; rules: tuple[str, ...]; added: date; reason: str; scope: tuple[str, ...] = (); expires: date | None = None; issue: str | None = None
 @dataclass(frozen=True) class Register: entries: tuple[Entry, ...]; def get(self, entry_id: str) -> Entry | None
 @dataclass(frozen=True) class Site: tool: str; path: str; line: int; rules: tuple[str, ...]; exc_id: str | None   # rules == () means blanket
 @dataclass(frozen=True) class ConfigDisable: tool: str; rule: str; scope: tuple[str, ...]; source: str; managed: bool = False
@@ -130,8 +141,9 @@ Level = Literal["rule", "inline"]
 # register.py
 REGISTER_FILE = "vergil-exceptions.toml"
 class RegisterError(Exception): source: str; problems: tuple[str, ...]
-def parse_register(text: str, *, source: str, prefix: str, known_tools: frozenset[str]) -> Register
-def register_from_data(raw: dict[str, Any], *, source: str, prefix: str, known_tools: frozenset[str], extra_tables: frozenset[str] = frozenset()) -> Register
+FLEET_LABEL_PREFIX = "fleet:"   # a fleet entry's Entry.id is the label "fleet:<tool>:<rule>[+<rule>…]"
+def parse_register(text: str, *, source: str, known_tools: frozenset[str], fleet: bool = False) -> Register
+def register_from_data(raw: dict[str, Any], *, source: str, known_tools: frozenset[str], fleet: bool = False, extra_tables: frozenset[str] = frozenset()) -> Register
 
 # tree.py
 class RepoTree(Protocol): def files(self) -> list[str]; def read(self, path: str) -> str | None
@@ -175,7 +187,7 @@ TOOLS = frozenset({"ruff", "mypy", "trivy"})
 
 
 def _parse(text: str):
-    return parse_register(text, source="vergil-exceptions.toml", prefix="EXC", known_tools=TOOLS)
+    return parse_register(text, source="vergil-exceptions.toml", known_tools=TOOLS)
 
 
 def test_parses_rule_and_inline_entries() -> None:
@@ -227,8 +239,8 @@ def test_malformed_toml_is_error() -> None:
          "added = 2026-10-20", "trivy entries require expires"),
         ('id = "EXC-001"\ntool = "ruff"\nrules = ["S1"]\nscope = ["**"]\nreason = "r"\n'
          'added = 2026-10-20\ncolour = "red"', "unknown key 'colour'"),
-        ('id = "EXC-001"\ntool = "ruff"\nrules = ["S1"]\nscope = ["**"]\nfleet = "EXC-002"\n'
-         "added = 2026-10-20", "fleet must match VRG-NNN"),
+        ('id = "EXC-001"\ntool = "ruff"\nrules = ["S1"]\nscope = ["**"]\nreason = "r"\n'
+         'added = 2026-10-20\nfleet = "VRG-004"', "unknown key 'fleet'"),
     ],
 )
 def test_rule_entry_validation(body: str, problem: str) -> None:
@@ -237,21 +249,11 @@ def test_rule_entry_validation(body: str, problem: str) -> None:
     assert any(problem in p for p in exc.value.problems)
 
 
-def test_inline_rejects_scope_and_fleet() -> None:
+def test_inline_rejects_scope() -> None:
     with pytest.raises(RegisterError) as exc:
         _parse('[[inline]]\nid = "EXC-002"\ntool = "ruff"\nrules = ["S1"]\nscope = ["**"]\n'
-               'fleet = "VRG-001"\nreason = "r"\nadded = 2026-10-20\n')
+               'reason = "r"\nadded = 2026-10-20\n')
     assert any("[[inline]] does not take scope" in p for p in exc.value.problems)
-    assert any("[[inline]] does not take fleet" in p for p in exc.value.problems)
-
-
-def test_fleet_supplies_reason_on_rule() -> None:
-    reg = _parse('[[rule]]\nid = "EXC-003"\ntool = "mypy"\nrules = ["import-untyped"]\n'
-                 'scope = ["**"]\nfleet = "VRG-004"\nadded = 2026-10-20\n')
-    entry = reg.get("EXC-003")
-    assert entry is not None
-    assert entry.fleet == "VRG-004"
-    assert entry.reason is None
 
 
 def test_duplicate_ids_rejected() -> None:
@@ -267,11 +269,32 @@ def test_unknown_top_level_table_rejected() -> None:
     assert any("unknown table 'rules'" in p for p in exc.value.problems)
 
 
-def test_fleet_prefix() -> None:
-    reg = parse_register('[[rule]]\nid = "VRG-001"\ntool = "ruff"\nrules = ["D400"]\n'
-                         'scope = ["**"]\nreason = "r"\nadded = 2026-10-20\n',
-                         source="fleet", prefix="VRG", known_tools=TOOLS)
-    assert reg.get("VRG-001") is not None
+def _parse_fleet(text: str):
+    return parse_register(text, source="fleet", known_tools=TOOLS, fleet=True)
+
+
+def test_fleet_entries_are_keyed_by_tool_and_rule() -> None:
+    reg = _parse_fleet('[[rule]]\ntool = "ruff"\nrules = ["D400", "D415"]\nscope = ["**"]\n'
+                       'reason = "r"\nadded = 2026-10-20\n')
+    assert reg.get("fleet:ruff:D400+D415") is not None
+
+
+@pytest.mark.parametrize(
+    ("text", "problem"),
+    [
+        ('[[rule]]\nid = "EXC-001"\ntool = "ruff"\nrules = ["D400"]\nscope = ["**"]\nreason = "r"\n'
+         "added = 2026-10-20\n", "fleet entries take no id"),
+        ('[[inline]]\ntool = "ruff"\nrules = ["D400"]\nreason = "r"\nadded = 2026-10-20\n',
+         "unknown table 'inline'"),
+        ('[[rule]]\ntool = "ruff"\nrules = ["D400"]\nscope = ["**"]\nreason = "r"\nadded = 2026-10-20\n'
+         '[[rule]]\ntool = "ruff"\nrules = ["D400"]\nscope = ["tests/**"]\nreason = "r"\nadded = 2026-10-20\n',
+         "duplicate fleet rule 'ruff D400'"),
+    ],
+)
+def test_fleet_validation(text: str, problem: str) -> None:
+    with pytest.raises(RegisterError) as exc:
+        _parse_fleet(text)
+    assert any(problem in p for p in exc.value.problems)
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -305,9 +328,8 @@ class Entry:
     tool: str
     rules: tuple[str, ...]
     added: date
-    reason: str | None = None
+    reason: str
     scope: tuple[str, ...] = ()
-    fleet: str | None = None
     expires: date | None = None
     issue: str | None = None
 
@@ -380,10 +402,13 @@ from typing import Any, cast
 from vergil_tooling.lib.exceptions.model import Entry, Level, Register
 
 REGISTER_FILE = "vergil-exceptions.toml"
+#: A fleet entry has no ID; its ``Entry.id`` is this prefix plus ``<tool>:<rule>[+<rule>…]``,
+#: a display label that no ``# vrg-exc:`` marker can name (markers take ``EXC-NNN``).
+FLEET_LABEL_PREFIX = "fleet:"
 
+_ID_RE = re.compile(r"^EXC-\d{3,}$")
 _ISSUE_RE = re.compile(r"^[\w.-]+/[\w.-]+#\d+$")
-_RULE_KEYS = frozenset({"id", "tool", "rules", "scope", "reason", "fleet", "added", "expires", "issue"})
-_INLINE_KEYS = _RULE_KEYS
+_KEYS = frozenset({"id", "tool", "rules", "scope", "reason", "added", "expires", "issue"})
 
 
 class RegisterError(Exception):
@@ -395,47 +420,54 @@ class RegisterError(Exception):
         super().__init__(f"{source}: " + "; ".join(problems))
 
 
-def _id_re(prefix: str) -> re.Pattern[str]:
-    return re.compile(rf"^{prefix}-\d{{3,}}$")
-
-
-def parse_register(text: str, *, source: str, prefix: str, known_tools: frozenset[str]) -> Register:
+def parse_register(text: str, *, source: str, known_tools: frozenset[str], fleet: bool = False) -> Register:
     try:
         raw = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
         raise RegisterError(source, [f"invalid TOML: {exc}"]) from exc
-    return register_from_data(raw, source=source, prefix=prefix, known_tools=known_tools)
+    return register_from_data(raw, source=source, known_tools=known_tools, fleet=fleet)
 
 
 def register_from_data(
     raw: dict[str, Any],
     *,
     source: str,
-    prefix: str,
     known_tools: frozenset[str],
+    fleet: bool = False,
     extra_tables: frozenset[str] = frozenset(),
 ) -> Register:
-    """Validate already-parsed TOML. *extra_tables* are keys owned by the caller
-    (the fleet register's ``revision``/``managed``/``history``, Task T4)."""
+    """Validate already-parsed TOML. *fleet* selects the fleet register's rules
+    (``[[rule]]`` only, no ``id``; spec §5.3). *extra_tables* are keys owned by the
+    caller (the fleet register's ``revision``/``managed``/``history``, Task T4)."""
     problems: list[str] = []
     entries: list[Entry] = []
+    levels: tuple[Level, ...] = ("rule",) if fleet else ("rule", "inline")
     for table in raw:
-        if table not in ("rule", "inline") and table not in extra_tables:
-            problems.append(f"unknown table '{table}' (expected [[rule]] or [[inline]])")
-    for level in ("rule", "inline"):
+        if table not in levels and table not in extra_tables:
+            expected = " or ".join(f"[[{level}]]" for level in levels)
+            problems.append(f"unknown table '{table}' (expected {expected})")
+    for level in levels:
         items = raw.get(level, [])
         if not isinstance(items, list):
             problems.append(f"'{level}' must be an array of tables ([[{level}]])")
             continue
         for index, item in enumerate(items):
-            entry = _entry(level, index, item, prefix, known_tools, problems)
+            entry = _entry(level, index, item, fleet, known_tools, problems)
             if entry is not None:
                 entries.append(entry)
-    seen: set[str] = set()
-    for entry in entries:
-        if entry.id in seen:
-            problems.append(f"duplicate id '{entry.id}'")
-        seen.add(entry.id)
+    if fleet:
+        claimed: set[tuple[str, str]] = set()
+        for entry in entries:
+            for rule in entry.rules:
+                if (entry.tool, rule) in claimed:
+                    problems.append(f"duplicate fleet rule '{entry.tool} {rule}'")
+                claimed.add((entry.tool, rule))
+    else:
+        seen: set[str] = set()
+        for entry in entries:
+            if entry.id in seen:
+                problems.append(f"duplicate id '{entry.id}'")
+            seen.add(entry.id)
     if problems:
         raise RegisterError(source, problems)
     return Register(entries=tuple(entries))
@@ -451,7 +483,7 @@ def _entry(
     level: Level,
     index: int,
     item: Any,
-    prefix: str,
+    fleet: bool,
     known_tools: frozenset[str],
     problems: list[str],
 ) -> Entry | None:
@@ -461,13 +493,16 @@ def _entry(
         problems.append(f"{where}: must be a table")
         return None
     for key in item:
-        if key not in _RULE_KEYS:
+        if key not in _KEYS:
             problems.append(f"{where}: unknown key '{key}'")
     entry_id = item.get("id")
-    if not isinstance(entry_id, str) or not _id_re(prefix).match(entry_id):
-        problems.append(f"{where}: id '{entry_id}' must match {prefix}-NNN")
+    if fleet:
+        if entry_id is not None:
+            problems.append(f"{where}: fleet entries take no id (they are identified by tool and rule)")
+    elif not isinstance(entry_id, str) or not _ID_RE.match(entry_id):
+        problems.append(f"{where}: id '{entry_id}' must match EXC-NNN")
     else:
-        where = f"{entry_id}"
+        where = entry_id
     tool = item.get("tool")
     if tool not in known_tools:
         problems.append(f"{where}: unknown tool '{tool}'")
@@ -475,25 +510,19 @@ def _entry(
     if rules is None:
         problems.append(f"{where}: rules must be a non-empty list of strings")
     scope: tuple[str, ...] = ()
-    fleet = item.get("fleet")
     if level == "rule":
         parsed_scope = _str_list(item.get("scope"))
         if parsed_scope is None:
             problems.append(f"{where}: [[rule]] requires scope (a non-empty list of globs; repo-wide is [\"**\"])")
         else:
             scope = parsed_scope
-        if fleet is not None and (not isinstance(fleet, str) or not _id_re("VRG").match(fleet)):
-            problems.append(f"{where}: fleet must match VRG-NNN")
-    else:
-        if "scope" in item:
-            problems.append(f"{where}: [[inline]] does not take scope")
-        if "fleet" in item:
-            problems.append(f"{where}: [[inline]] does not take fleet")
+    elif "scope" in item:
+        problems.append(f"{where}: [[inline]] does not take scope")
     reason = item.get("reason")
-    if reason is not None and (not isinstance(reason, str) or not reason.strip()):
-        problems.append(f"{where}: reason must be non-empty text")
-    if reason is None and not (level == "rule" and fleet is not None):
+    if reason is None:
         problems.append(f"{where}: reason is required")
+    elif not isinstance(reason, str) or not reason.strip():
+        problems.append(f"{where}: reason must be non-empty text")
     added = item.get("added")
     if not isinstance(added, date):
         problems.append(f"{where}: added must be a date (YYYY-MM-DD)")
@@ -512,15 +541,16 @@ def _entry(
     if len(problems) > start:
         return None
     # Every field below was validated above (no new problems were recorded).
+    rules = cast("tuple[str, ...]", rules)
+    label = f"{FLEET_LABEL_PREFIX}{tool}:{'+'.join(rules)}" if fleet else cast("str", entry_id)
     return Entry(
-        id=cast("str", entry_id),
+        id=label,
         level=level,
         tool=cast("str", tool),
-        rules=cast("tuple[str, ...]", rules),
+        rules=rules,
         added=cast("date", added),
-        reason=reason,
+        reason=cast("str", reason),
         scope=scope,
-        fleet=fleet,
         expires=expires,
         issue=issue,
     )
@@ -546,8 +576,10 @@ def test_same_line_marker() -> None:
     assert marker_id("x = 1  # noqa: S603  # vrg-exc: EXC-014", None) == "EXC-014"
 
 
-def test_fleet_marker() -> None:
-    assert marker_id("  secrets: inherit  # nosemgrep: r  # vrg-exc: VRG-007", None) == "VRG-007"
+def test_non_exc_id_is_returned_for_the_audit_to_reject() -> None:
+    # Only EXC-NNN IDs exist; any other ID is read so the audit can fail it as unknown-id
+    # rather than reporting the site as having no marker at all.
+    assert marker_id("x = 1  # noqa: S603  # vrg-exc: VRG-007", None) == "VRG-007"
 
 
 def test_line_above_marker_must_be_comment_only() -> None:
@@ -667,9 +699,10 @@ from __future__ import annotations
 import re
 
 #: A separate comment naming a register ID: ``# vrg-exc: ID`` (or, in Markdown,
-#: ``<!-- vrg-exc: ID -->``). Must start its own comment.
-MARKER_RE = re.compile(r"(?:#|<!--)\s*vrg-exc:\s*((?:EXC|VRG)-\d{3,})\b")
-_COMMENT_ONLY_RE = re.compile(r"^\s*(?:#|<!--)\s*vrg-exc:\s*((?:EXC|VRG)-\d{3,})\b\s*(?:-->)?\s*$")
+#: ``<!-- vrg-exc: ID -->``). Must start its own comment. Valid IDs are ``EXC-NNN``;
+#: any ``PREFIX-NNN`` is captured so the audit reports a wrong ID as ``unknown-id``.
+MARKER_RE = re.compile(r"(?:#|<!--)\s*vrg-exc:\s*([A-Z]+-\d+)\b")
+_COMMENT_ONLY_RE = re.compile(r"^\s*(?:#|<!--)\s*vrg-exc:\s*([A-Z]+-\d+)\b\s*(?:-->)?\s*$")
 
 
 def marker_id(line: str, previous: str | None) -> str | None:
@@ -882,10 +915,12 @@ def test_site_pointing_at_rule_entry_is_level_mismatch() -> None:
     assert _codes(result) == ["level-mismatch"]
 
 
-def test_inline_site_may_reference_fleet_inline_entry() -> None:
-    fleet = Register(entries=(Entry(id="VRG-007", level="inline", tool="fake", rules=("S603",),
-                                    added=ADDED, reason="generated"),))
-    assert _run(sites=[_site("VRG-007", "S603")], fleet=fleet).ok
+def test_inline_site_cannot_reference_a_fleet_entry() -> None:
+    # Line-level exceptions are always per repo (spec §5.2): a non-EXC ID, or a fleet
+    # entry's label, is unknown.
+    fleet = Register(entries=(Entry(id="fleet:fake:S603", level="rule", tool="fake", rules=("S603",),
+                                    added=ADDED, reason="r", scope=("**",)),))
+    assert _codes(_run(sites=[_site("VRG-007", "S603")], fleet=fleet)) == ["unknown-id"]
 
 
 def test_dead_site_fails() -> None:
@@ -911,20 +946,21 @@ def test_wider_disable_than_entry_scope_fails() -> None:
     assert _codes(result) == ["undocumented-disable"]
 
 
-def test_disable_covered_by_fleet_rule() -> None:
-    fleet = Register(entries=(Entry(id="VRG-001", level="rule", tool="fake", rules=("D400",),
-                                    added=ADDED, reason="r", scope=("**",)),))
+FLEET_D400 = Register(entries=(Entry(id="fleet:fake:D400", level="rule", tool="fake", rules=("D400",),
+                                     added=ADDED, reason="r", scope=("**",)),))
+
+
+def test_managed_disable_covered_by_fleet_rule() -> None:
     result = _run(disables=[ConfigDisable("fake", "D400", ("**",), "managed block", managed=True)],
-                  fleet=fleet)
+                  fleet=FLEET_D400)
     assert result.ok
 
 
-def test_unknown_fleet_reference_fails() -> None:
-    entry = Entry(id="EXC-001", level="rule", tool="fake", rules=("D400",), added=ADDED, scope=("**",),
-                  fleet="VRG-099")
-    result = _run(disables=[ConfigDisable("fake", "D400", ("**",), "cfg")], entries=[entry])
-    assert _codes(result) == ["unknown-id"]
-    assert "VRG-099" in result.findings[0].message
+def test_repo_disable_needs_a_repo_entry_even_when_the_fleet_has_the_rule() -> None:
+    # A fleet default reaches a repo by package or managed block; a repo that disables
+    # the rule in its own config owns that exception (spec §5.1: no fleet field).
+    result = _run(disables=[ConfigDisable("fake", "D400", ("**",), "pyproject.toml")], fleet=FLEET_D400)
+    assert _codes(result) == ["undocumented-disable"]
 
 
 def test_stale_rule_entry_fails() -> None:
@@ -1095,10 +1131,6 @@ def collect(
     return Collected(tuple(sites), tuple(disables), tuple(dead), names)
 
 
-def _lookup(entry_id: str, register: Register, fleet: Register) -> Entry | None:
-    return (fleet if entry_id.startswith("VRG-") else register).get(entry_id)
-
-
 def _overlaps(entry: Entry, disable: ConfigDisable) -> bool:
     """Same tool and rule with any scope in common — the entry is not stale."""
     return (
@@ -1144,9 +1176,10 @@ def audit(
             findings.append(Finding("missing-id", f"{label} of {', '.join(site.rules)} has no '# vrg-exc: <ID>' "
                                     "marker; use /vergil:exception-request", **where))
             continue
-        entry = _lookup(site.exc_id, register, fleet)
+        entry = register.get(site.exc_id)
         if entry is None:
-            findings.append(Finding("unknown-id", f"{site.exc_id} is not in the register", **where))
+            findings.append(Finding("unknown-id", f"{site.exc_id} is not in vergil-exceptions.toml (inline "
+                                    "markers take the repo's EXC-NNN IDs only)", **where))
             continue
         used[entry.id] += 1
         if entry.level != "inline":
@@ -1162,16 +1195,14 @@ def audit(
                                     "enabled, or nothing to suppress); remove it", **where))
 
     for disable in collected.disables:
-        pool = fleet.entries if disable.managed else register.entries + fleet.entries
+        # A managed-block rule is documented by the fleet; anything else in repo config is the repo's own.
+        pool = fleet.entries if disable.managed else register.entries
         if not any(_covers(e, disable) for e in pool):
             findings.append(Finding("undocumented-disable", f"{disable.tool} rule {disable.rule} is disabled for "
                                     f"{', '.join(disable.scope)} in {disable.source} with no [[rule]] entry "
                                     "covering that scope"))
 
     for entry in register.entries:
-        if entry.fleet is not None and fleet.get(entry.fleet) is None:
-            findings.append(Finding("unknown-id", f"{entry.id} references fleet entry {entry.fleet}, which is not "
-                                    "in the fleet register"))
         if entry.level == "rule" and not any(_overlaps(entry, d) for d in collected.disables):
             findings.append(Finding("stale-entry", f"{entry.id} documents {entry.tool} {', '.join(entry.rules)} "
                                     f"for {', '.join(entry.scope)} but no config disables it; remove the entry"))
@@ -1210,11 +1241,13 @@ vrg-commit --type feat --scope exceptions --message "add exception register, rep
 ```
 
 ---
+
 ## Task T2: Python plug-ins — ruff, mypy, ty, coverage
 
 **Repo:** vergil-tooling. Blocked by: T1. Spec: §5.2, §6.1 items 5–6, §7.
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/exceptions/plugins/__init__.py` (registry)
 - Create: `src/vergil_tooling/lib/exceptions/plugins/_python.py` (comment scanner)
 - Create: `src/vergil_tooling/lib/exceptions/plugins/_config.py` (TOML config reader)
@@ -1222,6 +1255,7 @@ vrg-commit --type feat --scope exceptions --message "add exception register, rep
 - Test: `tests/vergil_tooling/test_exceptions_plugins_python.py`
 
 **Interfaces:**
+
 - Consumes (T1): `Plugin`, `UncoveredDetector`, `Site`, `ConfigDisable`,
   `RepoTree`, `TreeReadError`, `marker_id`.
 - Produces:
@@ -1812,11 +1846,13 @@ vrg-commit --type feat --scope exceptions --message "add ruff, mypy, ty and cove
 ```
 
 ---
+
 ## Task T3: common-check and security plug-ins, plus uncovered-mechanism detection
 
 **Repo:** vergil-tooling. Blocked by: T2 (registry). Spec: §5.2, §6.2, §7.
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/exceptions/plugins/_text.py` (line scanner shared by non-Python tools)
 - Create: `plugins/markdownlint.py`, `shellcheck.py`, `yamllint.py`, `hadolint.py`,
   `actionlint.py`, `semgrep.py`, `trivy.py`, `uncovered.py` (all under
@@ -1825,6 +1861,7 @@ vrg-commit --type feat --scope exceptions --message "add ruff, mypy, ty and cove
 - Test: `tests/vergil_tooling/test_exceptions_plugins_text.py`
 
 **Interfaces:**
+
 - Consumes (T1/T2): `Plugin`, `Site`, `ConfigDisable`, `marker_id`, `read_toml`,
   `table`, `str_list`, `PLUGINS`, `UNCOVERED`, `TreeReadError`.
 - Produces:
@@ -1854,7 +1891,15 @@ planning):
 - **`.trivyignore` grouping:** a comment-only `# vrg-exc: EXC-NNN` line applies to
   every following non-comment, non-blank entry until the next blank line. This
   keeps vergil-containers' grouped-by-carrier layout (spec §5.2 "line above"),
-  without a marker per CVE.
+  without a marker per CVE. The entry's `rules` must still list every CVE in the
+  group, so adding a CVE to a group still edits the register.
+- **`nosemgrep` markers** go on the line above (spec §5.2): semgrep reads the
+  rest of a `nosemgrep:` comment as its rule-ID list.
+- **semgrep `--exclude-rule`** flags in `.github/workflows/*.yml` and shell
+  scripts are config disables with scope `["**"]` (spec §7). The vergil-actions
+  semgrep action has no exclusion input, so a direct flag is the only per-repo
+  route; no repo uses one today. The fleet's `DEFAULT_EXCLUDED_RULES` are not
+  scanned here — they are fleet defaults (T4).
 - **Shellcheck in workflows:** `# shellcheck disable=` lines inside
   `.github/workflows/*.yml` `run:` blocks are scanned too (actionlint runs
   shellcheck over them).
@@ -1945,16 +1990,31 @@ def test_actionlint_config_ignores() -> None:
 
 def test_semgrep_sites_any_language_and_semgrepignore() -> None:
     tree = FakeTree({
-        ".github/workflows/cd.yml": "    secrets: inherit  # nosemgrep: yaml.r.secrets-inherit  # vrg-exc: VRG-007\n",
+        ".github/workflows/cd.yml": ("    # vrg-exc: EXC-001\n"
+                                     "    secrets: inherit  # nosemgrep: yaml.r.secrets-inherit\n"),
         "web/a.ts": "eval(x) // nosemgrep\n",
         ".semgrepignore": "# comment\nvendor/\n",
     })
     plugin = SemgrepPlugin()
     assert plugin.sites(tree) == [
-        Site("semgrep", ".github/workflows/cd.yml", 1, ("yaml.r.secrets-inherit",), "VRG-007"),
+        Site("semgrep", ".github/workflows/cd.yml", 2, ("yaml.r.secrets-inherit",), "EXC-001"),
         Site("semgrep", "web/a.ts", 1, (), None),
     ]
     assert plugin.config_disables(tree) == [ConfigDisable("semgrep", "*", ("vendor/",), ".semgrepignore")]
+
+
+def test_semgrep_exclude_rule_flags_are_config_disables() -> None:
+    # spec §7: a per-repo --exclude-rule disables the rule repo-wide, so it needs a [[rule]] entry.
+    tree = FakeTree({
+        ".github/workflows/scan.yml": "      - run: vrg-semgrep-scan --exclude-rule a.b.c --exclude-rule=d.e\n",
+        "scripts/scan.sh": "semgrep scan \\\n  --exclude-rule f.g\n",
+        "docs/x.md": "pass `--exclude-rule z` to drop a rule\n",
+    })
+    assert SemgrepPlugin().config_disables(tree) == [
+        ConfigDisable("semgrep", "a.b.c", ("**",), ".github/workflows/scan.yml:1 --exclude-rule"),
+        ConfigDisable("semgrep", "d.e", ("**",), ".github/workflows/scan.yml:1 --exclude-rule"),
+        ConfigDisable("semgrep", "f.g", ("**",), "scripts/scan.sh:2 --exclude-rule"),
+    ]
 
 
 def test_trivyignore_groups_share_the_marker_above() -> None:
@@ -2327,8 +2387,13 @@ class ActionlintPlugin(Plugin):
 """semgrep: ``nosemgrep`` comments in any language and ``.semgrepignore`` paths.
 
 The fleet's ``DEFAULT_EXCLUDED_RULES`` (``lib/semgrep.py``) are fleet defaults
-documented in the fleet register (Task T4). Per-repo ``--exclude-rule`` inputs in
-workflow files are reported as uncovered (``uncovered.py``).
+documented in the fleet register (Task T4). A per-repo ``--exclude-rule`` flag (the
+only way a repo can add one: the vergil-actions semgrep action exposes no exclusion
+input) in a workflow or shell script is a repo-wide config disable (spec §7).
+
+``nosemgrep`` sites take their ``# vrg-exc:`` marker on the line above (spec §5.2):
+semgrep reads the rest of a ``nosemgrep:`` comment as its rule-ID list, so a
+trailing marker on the same line is not relied on.
 """
 
 from __future__ import annotations
@@ -2339,13 +2404,14 @@ from typing import TYPE_CHECKING
 from vergil_tooling.lib.exceptions.markers import marker_id
 from vergil_tooling.lib.exceptions.model import ConfigDisable, Site
 from vergil_tooling.lib.exceptions.plugin import Plugin
-from vergil_tooling.lib.exceptions.plugins._text import by_suffix, lines_of, split_rules
+from vergil_tooling.lib.exceptions.plugins._text import by_suffix, lines_of, shell_scripts, split_rules
 
 if TYPE_CHECKING:
     from vergil_tooling.lib.exceptions.tree import RepoTree
 
 _SUFFIXES = (".py", ".sh", ".bash", ".yml", ".yaml", ".js", ".ts", ".tsx", ".go", ".java", ".rs", ".rb", ".cpp", ".hpp", ".c", ".h")
 _NOSEM_RE = re.compile(r"(?:^|\s)(?:#|//)\s*nosemgrep(?::\s*(?P<rules>[\w.-]+(?:\s*,\s*[\w.-]+)*))?")
+_EXCLUDE_RE = re.compile(r"--exclude-rule(?:=|\s+)(?P<rule>[\w.-]+)")
 
 
 class SemgrepPlugin(Plugin):
@@ -2364,11 +2430,18 @@ class SemgrepPlugin(Plugin):
         return sites
 
     def config_disables(self, tree: RepoTree) -> list[ConfigDisable]:
-        return [
+        out = [
             ConfigDisable(self.name, "*", (line.text.strip(),), ".semgrepignore")
             for line in lines_of(tree, [".semgrepignore"])
             if line.text.strip() and not line.text.lstrip().startswith("#")
         ]
+        callers = [p for p in tree.files() if p.startswith(".github/workflows/") and p.endswith((".yml", ".yaml"))]
+        for line in lines_of(tree, callers + shell_scripts(tree)):
+            out.extend(
+                ConfigDisable(self.name, match.group("rule"), ("**",), f"{line.path}:{line.number} --exclude-rule")
+                for match in _EXCLUDE_RE.finditer(line.text)
+            )
+        return out
 ```
 
 > Python files are scanned here with the line scanner, not `tokenize`: a
@@ -2479,7 +2552,6 @@ DETECTORS: tuple[RegexDetector, ...] = (
     RegexDetector("codeql", (".py", ".js", ".ts", ".go", ".java", ".cpp"), re.compile(r"(codeql|lgtm)\[")),
     RegexDetector("ansible-lint", (".ansible-lint", ".ansible-lint.yml", ".ansible-lint.yaml"),
                   re.compile(r"^\s*(skip_list|exclude_paths|warn_list)\s*:", re.MULTILINE)),
-    RegexDetector("semgrep-workflow-exclude", (".yml", ".yaml"), re.compile(r"exclude-rule\s*:")),
 )
 ```
 
@@ -2509,20 +2581,21 @@ vrg-commit --type feat --scope exceptions --message "add common-check, semgrep a
 ```
 
 ---
+
 ## Task T4: fleet register and the ruff managed block
 
 **Repo:** vergil-tooling. Blocked by: T1, T2 (ruff plug-in). Spec: §4, §5.3, §6.3.
 
 **Files:**
+
 - Create: `src/vergil_tooling/configs/exceptions.toml` (the fleet register)
 - Create: `src/vergil_tooling/lib/exceptions/fleet.py`
 - Create: `src/vergil_tooling/lib/exceptions/managed.py`
 - Modify: `src/vergil_tooling/lib/exceptions/plugins/ruff.py` (mark managed-block rules)
-- Modify: `src/vergil_tooling/lib/repo_init.py:877` (tag the generated `nosemgrep`)
-- Test: `tests/vergil_tooling/test_exceptions_fleet.py`, `test_exceptions_managed.py`;
-  update `tests/vergil_tooling/test_repo_init.py` for the new template line.
+- Test: `tests/vergil_tooling/test_exceptions_fleet.py`, `test_exceptions_managed.py`.
 
 **Interfaces:**
+
 - Consumes (T1/T2): `register_from_data`, `Register`, `Finding`, `Notice`,
   `ConfigDisable`, `RuffPlugin`, `known_tools`, `gitignore.MANAGED_END`.
 - Produces:
@@ -2544,14 +2617,19 @@ def check_block(block: ManagedBlock | None, fleet: Fleet, *, path: str) -> tuple
 def sync_pyproject(text: str, fleet: Fleet) -> str
 ```
 
-Finding codes added: `managed-edited`, `managed-unknown-revision`,
-`managed-missing`. Notice code added: `fleet-behind`.
+Finding codes added: `managed-edited`, `managed-unknown-revision`. Notice code
+added: `fleet-behind` — also used for a **missing** block, which is behind at
+revision 0 (spec §6.3).
 
-**Fleet register format** (`configs/exceptions.toml`):
+**Fleet register format** (`configs/exceptions.toml`). Entries are `[[rule]]`
+only and carry **no `id`**: a fleet default is identified by tool and rule, and a
+`(tool, rule)` pair may appear in only one entry (spec §5.3). There are no
+`[[inline]]` fleet entries — line-level exceptions always belong to the repo
+holding the line.
 
 ```toml
 # The fleet exception register (epic vergil-project/.github#375, spec §5.3).
-# VRG entries document every rule Vergil disables for all repos. Bump
+# Entries document every rule Vergil disables for all repos. Bump
 # `revision` and append to [[history]] whenever [managed.ruff].rules changes;
 # a test enforces it.
 revision = 1
@@ -2565,7 +2643,6 @@ revision = 1
 sha256 = "<body_digest([]) — computed in Step 4>"
 
 [[rule]]
-id     = "VRG-001"
 tool   = "markdownlint"
 rules  = ["MD060"]
 scope  = ["**"]
@@ -2593,7 +2670,6 @@ added  = 2026-10-20
 | yamllint | `truthy` (keys) | `yamllint.yaml` `truthy.check-keys: false` |
 | yamllint | `line-length` scope `.github/workflows/**` | `yamllint.yaml` `line-length.ignore` |
 | semgrep | `yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag` | `lib/semgrep.py` `DEFAULT_EXCLUDED_RULES` (#2513) |
-| semgrep (inline) | `yaml.github-actions.security.secrets-inherit.secrets-inherit` | generated by `lib/repo_init.py:877` — an `[[inline]]` VRG entry |
 | cppcheck | `missingIncludeSystem`, `unmatchedSuppression`, `checkersReport`, `missingInclude` | `configs/cpp/cppcheck-suppressions.txt` |
 | clang-tidy | `modernize-use-trailing-return-type`, `readability-identifier-length`, `readability-magic-numbers`, `cppcoreguidelines-avoid-magic-numbers`, `cppcoreguidelines-pro-bounds-array-to-pointer-decay` | `configs/cpp/.clang-tidy` (negated checks) |
 | gcovr | `exclude .*/build.*/.*`, `exclude .*/tests?/.*`, `exclude-unreachable-branches`, `exclude-throw-branches`, `gcov-ignore-errors source_not_found` | `configs/cpp/gcovr.cfg` (#3026) |
@@ -2602,6 +2678,10 @@ added  = 2026-10-20
 
 Related rules may share one entry (e.g. the four cppcheck suppressions), as
 long as the reason covers all of them.
+
+Not in the fleet register: the `nosemgrep` for `secrets-inherit` that
+`lib/repo_init.py:877` generates. It is a line-level exception, so each repo
+documents it in its own register — Task T10 makes `repo-init` seed that entry.
 
 - [ ] **Step 1: Write the failing fleet tests**
 
@@ -2669,8 +2749,8 @@ def test_history_missing_current_revision_is_error() -> None:
         parse_fleet('revision = 2\n[managed.ruff]\nrules = []\n[[history]]\nrevision = 1\nsha256 = "x"\n')
 
 
-def test_fleet_ids_must_be_vrg() -> None:
-    with pytest.raises(RegisterError, match="VRG-NNN"):
+def test_fleet_entries_take_no_id() -> None:
+    with pytest.raises(RegisterError, match="fleet entries take no id"):
         parse_fleet('revision = 1\n[managed.ruff]\nrules = []\n[[history]]\nrevision = 1\n'
                     f'sha256 = "{body_digest([])}"\n[[rule]]\nid = "EXC-001"\ntool = "ruff"\n'
                     'rules = ["D400"]\nscope = ["**"]\nreason = "r"\nadded = 2026-10-20\n')
@@ -2779,10 +2859,13 @@ def test_check_unknown_revision_fails() -> None:
     assert [f.code for f in findings] == ["managed-unknown-revision"]
 
 
-def test_check_missing_block_with_fleet_rules_fails() -> None:
-    findings, _ = check_block(None, FLEET2, path="pyproject.toml")
-    assert [f.code for f in findings] == ["managed-missing"]
-    assert "vrg-exceptions sync" in findings[0].message
+def test_check_missing_block_with_fleet_rules_is_behind_not_failure() -> None:
+    # spec §6.3: a missing block is behind at rev 0 — the repo still enforces the
+    # fleet rules (stricter), so it is reported, never failed (no flag day).
+    findings, notices = check_block(None, FLEET2, path="pyproject.toml")
+    assert findings == []
+    assert [n.code for n in notices] == ["fleet-behind"]
+    assert "vrg-exceptions sync" in notices[0].message
 
 
 def test_check_missing_block_with_empty_fleet_is_notice() -> None:
@@ -2892,11 +2975,9 @@ def find_block(text: str) -> ManagedBlock | None:
 
 def check_block(block: ManagedBlock | None, fleet: Fleet, *, path: str) -> tuple[list[Finding], list[Notice]]:
     if block is None:
-        if fleet.ruff_rules:
-            return [Finding("managed-missing", f"{path} has no fleet-exceptions managed block; run "
-                            "'vrg-exceptions sync'", path=path)], []
-        return [], [Notice("fleet-behind", f"{path} has no fleet-exceptions block (fleet ruff rules are empty; "
-                           "'vrg-exceptions sync' adds it)")]
+        # Behind at rev 0, never a failure (spec §6.3): the fleet rules are still enforced here.
+        return [], [Notice("fleet-behind", f"{path} has no fleet-exceptions managed block (current rev "
+                           f"{fleet.revision}); run 'vrg-exceptions sync'")]
     where = {"path": path, "line": block.begin + 1}
     expected = fleet.history.get(block.revision)
     if expected is None:
@@ -3010,7 +3091,7 @@ def parse_fleet(text: str) -> Fleet:
         raw = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
         raise RegisterError(source, [f"invalid TOML: {exc}"]) from exc
-    register = register_from_data(raw, source=source, prefix="VRG", known_tools=known_tools() | FLEET_ONLY_TOOLS,
+    register = register_from_data(raw, source=source, known_tools=known_tools() | FLEET_ONLY_TOOLS, fleet=True,
                                   extra_tables=frozenset({"revision", "managed", "history"}))
     revision = raw.get("revision")
     rules = raw.get("managed", {}).get("ruff", {}).get("rules")
@@ -3044,29 +3125,24 @@ In `RuffPlugin.config_disables`, for `pyproject.toml` only: call
 `managed=True` on each `extend-ignore` disable whose rule is in `block.rules`.
 A `ManagedBlockError` from `find_block` propagates (the CLI reports it).
 
-- [ ] **Step 8: Tag the generated `nosemgrep`**
+- [ ] **Step 8: Run the tests, full validation, commit**
 
-`lib/repo_init.py:877` emits
-`"  # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit\n"`.
-Append `  # vrg-exc: VRG-<n>` (the `[[inline]]` VRG entry from the inventory) and
-update `tests/vergil_tooling/test_repo_init.py` expectations accordingly.
-
-- [ ] **Step 9: Run the tests, full validation, commit**
-
-Run: `vrg-container-run -- uv run pytest tests/vergil_tooling/test_exceptions_fleet.py tests/vergil_tooling/test_exceptions_managed.py tests/vergil_tooling/test_exceptions_plugins_python.py tests/vergil_tooling/test_repo_init.py -q --no-cov` — Expected: PASS.
+Run: `vrg-container-run -- uv run pytest tests/vergil_tooling/test_exceptions_fleet.py tests/vergil_tooling/test_exceptions_managed.py tests/vergil_tooling/test_exceptions_plugins_python.py -q --no-cov` — Expected: PASS.
 Run: `vrg-container-run -- vrg-validate` — Expected: PASS, coverage 100%.
 
 ```bash
-vrg-git add src/vergil_tooling/configs/exceptions.toml src/vergil_tooling/lib/exceptions src/vergil_tooling/lib/repo_init.py tests/vergil_tooling
+vrg-git add src/vergil_tooling/configs/exceptions.toml src/vergil_tooling/lib/exceptions tests/vergil_tooling
 vrg-commit --type feat --scope exceptions --message "add the fleet exception register and ruff managed block" --body "Ref #<task>"
 ```
 
 ---
+
 ## Task T5: `vrg-exceptions` CLI (`audit`, `sync`) and the `vrg-validate` common check
 
 **Repo:** vergil-tooling. Blocked by: T1, T2, T3, T4. Spec: §6.4, §11.
 
 **Files:**
+
 - Create: `src/vergil_tooling/bin/vrg_exceptions.py`
 - Modify: `pyproject.toml` `[project.scripts]` — add
   `vrg-exceptions = "vergil_tooling.bin.vrg_exceptions:main"` (alphabetical position)
@@ -3074,6 +3150,7 @@ vrg-commit --type feat --scope exceptions --message "add the fleet exception reg
 - Test: `tests/vergil_tooling/test_vrg_exceptions.py`, extend `tests/vergil_tooling/test_validate_common.py`
 
 **Interfaces:**
+
 - Consumes: `REGISTER_FILE`, `parse_register`, `RegisterError`, `WorkTree`,
   `TreeReadError`, `collect`, `audit`, `PLUGINS`, `UNCOVERED`, `known_tools`,
   `load_fleet`, `find_block`, `check_block`, `sync_pyproject`, `ManagedBlockError`,
@@ -3089,6 +3166,7 @@ def load_repo_register(root: Path) -> Register | None   # None when not adopted;
 ```
 
 Output contract (`audit`):
+
 - Not adopted: prints `vrg-exceptions: not adopted (no vergil-exceptions.toml); skipping` and returns 0.
 - Each finding: `emit_error(f"[{code}] {message}", file=path, line=line)` (GitHub
   annotation in CI, `error:` line locally).
@@ -3239,8 +3317,7 @@ def load_repo_register(root: Path) -> Register | None:
     path = root / REGISTER_FILE
     if not path.is_file():
         return None
-    return parse_register(path.read_text(encoding="utf-8"), source=REGISTER_FILE, prefix="EXC",
-                          known_tools=known_tools())
+    return parse_register(path.read_text(encoding="utf-8"), source=REGISTER_FILE, known_tools=known_tools())
 
 
 def run_audit(root: Path, *, today: date) -> int:
@@ -3336,6 +3413,7 @@ vrg-commit --type feat --scope exceptions --message "add vrg-exceptions audit an
 **Repo:** vergil-tooling. Blocked by: T5. Spec: §9 (PR preview), pushback finding [4].
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/exceptions/diff.py`
 - Modify: `src/vergil_tooling/bin/vrg_exceptions.py` (add `diff` subcommand)
 - Modify: `src/vergil_tooling/bin/vrg_submit_pr.py` (`_open_pr`, around line 697)
@@ -3343,6 +3421,7 @@ vrg-commit --type feat --scope exceptions --message "add vrg-exceptions audit an
   and `tests/vergil_tooling/test_vrg_submit_pr.py`
 
 **Interfaces:**
+
 - Consumes: `GitTree`, `TreeReadError`, `collect`, `parse_register`,
   `REGISTER_FILE`, `PLUGINS`, `UNCOVERED`, `known_tools`, `Entry`, `Site`, `ConfigDisable`.
 - Produces:
@@ -3361,6 +3440,7 @@ def _exceptions_preview(branch: str, base: str, *, push: bool) -> str   # System
 ```
 
 Rules:
+
 - Sites compare **without line numbers** (lines shift with unrelated edits): a
   multiset of `(tool, path, rules, exc_id)`. Added = head − base, removed = base − head.
 - An entry is "changed" when its ID exists on both sides with any field
@@ -3556,7 +3636,7 @@ class ExceptionDiff:
 def snapshot(tree: RepoTree) -> Snapshot:
     text = tree.read(REGISTER_FILE)
     register = (
-        parse_register(text, source=REGISTER_FILE, prefix="EXC", known_tools=known_tools())
+        parse_register(text, source=REGISTER_FILE, known_tools=known_tools())
         if text is not None
         else Register(entries=())
     )
@@ -3596,8 +3676,7 @@ def diff(base: Snapshot, head: Snapshot) -> ExceptionDiff:
 
 def _entry_line(e: Entry) -> str:
     scope = f" scope {', '.join(e.scope)}" if e.scope else ""
-    why = e.reason or f"fleet {e.fleet}"
-    return f"- `{e.id}` {e.level} {e.tool} {', '.join(e.rules)}{scope} — {why}"
+    return f"- `{e.id}` {e.level} {e.tool} {', '.join(e.rules)}{scope} — {e.reason}"
 
 
 def render(d: ExceptionDiff) -> str:
@@ -3704,22 +3783,39 @@ vrg-commit --type feat --scope exceptions --message "add vrg-exceptions diff and
 the docs-build rework; nothing else depends on it.
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/exceptions/report.py`
-- Modify: `src/vergil_tooling/bin/vrg_exceptions.py` (add `report`)
-- Modify: `src/vergil_tooling/lib/docs.py` (`stage_docs` writes `exceptions.md`; `patch_nav` adds it)
-- Test: `tests/vergil_tooling/test_exceptions_report.py`, extend `tests/vergil_tooling/test_docs.py`
+- Modify: `src/vergil_tooling/bin/vrg_exceptions.py` (add `report` and `build_report`)
+- Modify: `src/vergil_tooling/lib/docs.py` (`stage_docs` takes `exceptions_page`; `patch_nav` takes `exceptions`)
+- Modify: `src/vergil_tooling/bin/vrg_docs_stage.py`, `src/vergil_tooling/bin/vrg_docs_patch_nav.py`
+- Test: `tests/vergil_tooling/test_exceptions_report.py`, extend
+  `tests/vergil_tooling/test_vrg_exceptions.py`, `tests/vergil_tooling/test_docs.py`,
+  `tests/vergil_tooling/test_vrg_docs_stage.py`, `tests/vergil_tooling/test_vrg_docs_patch_nav.py`
 
 **Interfaces:**
+
 - Consumes: `Register`, `Collected`, `AuditResult`, `Fleet`, `load_repo_register`,
-  `collect`, `audit`, `WorkTree`.
-- Produces: `def render_report(register: Register, collected: Collected, fleet: Fleet, result: AuditResult, *, repo: str) -> str`.
+  `load_fleet`, `collect`, `audit`, `WorkTree`, `find_block`, `check_block`.
+- Produces:
+
+```python
+# report.py
+def render_report(register: Register, collected: Collected, fleet: Fleet, result: AuditResult, *, repo: str, block_revision: int | None) -> str
+# bin/vrg_exceptions.py
+def build_report(root: Path, *, repo: str, today: date) -> str | None   # None when not adopted; RegisterError/TreeReadError/ManagedBlockError propagate
+# lib/docs.py (new keyword-only parameters, default off)
+def stage_docs(*, ..., exceptions_page: str | None = None) -> int
+def patch_nav(mkdocs_yml: Path, releases_dir: Path, *, exceptions: bool = False) -> None
+```
 
 Page content, in order (spec §9):
+
 1. Title `# Exceptions` and a one-paragraph explanation linking to the standard.
 2. **Rule-level exceptions** — table: ID, tool, rules, scope, reason.
 3. **Line-level exceptions** — table: ID, tool, rules, sites (count), reason.
-4. **Inherited fleet defaults** — the VRG entries that apply, and "fleet
-   exceptions at rev N (current rev M)".
+4. **Inherited fleet defaults** — table: tool, rules, scope, reason (fleet
+   entries have no ID; spec §5.3), then "Fleet exceptions in this repo: rev N
+   (current rev M)", or "no managed block (current rev M)".
 5. **Expiring** — entries with `expires`, soonest first, with the tracking issue.
 6. **Not yet audited** — the uncovered mechanisms.
 
@@ -3739,14 +3835,15 @@ from vergil_tooling.lib.exceptions.model import AuditResult, Entry, Register, Si
 from vergil_tooling.lib.exceptions.report import render_report
 
 ADDED = date(2026, 10, 20)
-FLEET = Fleet(revision=1, ruff_rules=(), history={1: body_digest([])},
-              register=Register(entries=(Entry(id="VRG-001", level="rule", tool="markdownlint",
+FLEET = Fleet(revision=2, ruff_rules=(), history={1: body_digest([]), 2: body_digest([])},
+              register=Register(entries=(Entry(id="fleet:markdownlint:MD060", level="rule", tool="markdownlint",
                                                rules=("MD060",), added=ADDED, reason="tables", scope=("**",)),)))
 
 
-def _report(entries: tuple[Entry, ...], sites: tuple[Site, ...] = (), uncovered: tuple[str, ...] = ()) -> str:
+def _report(entries: tuple[Entry, ...], sites: tuple[Site, ...] = (), uncovered: tuple[str, ...] = (),
+            block_revision: int | None = 1) -> str:
     return render_report(Register(entries=entries), Collected(sites, (), (), uncovered), FLEET,
-                         AuditResult((), ()), repo="vergil-project/x")
+                         AuditResult((), ()), repo="vergil-project/x", block_revision=block_revision)
 
 
 def test_rule_section_lists_scope_and_reason() -> None:
@@ -3771,27 +3868,296 @@ def test_expiring_sorted_soonest_first() -> None:
     assert section.index("EXC-001") < section.index("EXC-002")
 
 
-def test_fleet_and_uncovered_sections() -> None:
+def test_fleet_section_lists_tool_and_rule_without_ids() -> None:
+    text = _report(())
+    assert "## Inherited fleet defaults" in text
+    assert "| markdownlint | MD060 | ** | tables |" in text
+    assert "fleet:" not in text                      # the internal label is never shown
+    assert "rev 1 (current rev 2)" in text
+
+
+def test_fleet_section_without_block() -> None:
+    assert "no managed block (current rev 2)" in _report((), block_revision=None)
+
+
+def test_uncovered_section() -> None:
     text = _report((), uncovered=("eslint",))
-    assert "VRG-001" in text
-    assert "rev 1" in text
     assert "## Not yet audited" in text
-    assert "eslint" in text
+    assert "- eslint" in text
+
+
+def test_pipe_in_reason_is_escaped() -> None:
+    entry = Entry(id="EXC-001", level="inline", tool="ruff", rules=("S603",), added=ADDED, reason="a | b")
+    sites = (Site("ruff", "a.py", 1, ("S603",), "EXC-001"),)
+    assert r"| a \| b |" in _report((entry,), sites)
 
 
 def test_empty_sections_say_none() -> None:
-    assert "_None._" in _report(())
+    text = _report(())
+    for heading in ("## Rule-level exceptions", "## Line-level exceptions", "## Expiring", "## Not yet audited"):
+        assert text[text.index(heading):].split("\n## ", 1)[0].rstrip().endswith("_None._")
 ```
 
-- [ ] **Step 2–4:** implement `render_report` (plain string building, Markdown
-  tables, `|` in reasons escaped as `\|`), add `vrg-exceptions report [--output
-  PATH]` (stdout by default; "not adopted" → exit 0 with a one-line page saying
-  so), and in `docs.stage_docs` write `docs_dir / "exceptions.md"` from
-  `render_report` when the repo has a register, with `patch_nav` adding an
-  `Exceptions: exceptions.md` nav entry beside the release notes. Tests for both
-  docs.py changes follow `test_docs.py`'s existing fixtures.
+- [ ] **Step 2: Run to verify failure**
 
-- [ ] **Step 5: Full validation and commit**
+Run: `vrg-container-run -- uv run pytest tests/vergil_tooling/test_exceptions_report.py -q --no-cov`
+Expected: FAIL — `ModuleNotFoundError: vergil_tooling.lib.exceptions.report`.
+
+- [ ] **Step 3: Implement `report.py`**
+
+```python
+# src/vergil_tooling/lib/exceptions/report.py
+"""Render a repo's exceptions as a Markdown docs page (spec §9)."""
+
+from __future__ import annotations
+
+from collections import Counter
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from vergil_tooling.lib.exceptions.audit import Collected
+    from vergil_tooling.lib.exceptions.fleet import Fleet
+    from vergil_tooling.lib.exceptions.model import AuditResult, Register
+
+STANDARD_URL = "https://vergil-project.github.io/vergil-tooling/standards/development/exceptions/"
+NONE = "_None._"
+
+
+def _cell(text: str) -> str:
+    return text.replace("|", r"\|").replace("\n", " ")
+
+
+def _table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
+    if not rows:
+        return [NONE]
+    out = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    out += ["| " + " | ".join(_cell(c) for c in row) + " |" for row in rows]
+    return out
+
+
+def render_report(
+    register: Register,
+    collected: Collected,
+    fleet: Fleet,
+    result: AuditResult,
+    *,
+    repo: str,
+    block_revision: int | None,
+) -> str:
+    counts = Counter(s.exc_id for s in collected.sites if s.exc_id is not None)
+    rules = [e for e in register.entries if e.level == "rule"]
+    inline = [e for e in register.entries if e.level == "inline"]
+    # ISO dates sort correctly as text, which keeps the key a plain str for mypy.
+    expiring = sorted((e for e in register.entries if e.expires is not None), key=lambda e: (str(e.expires), e.id))
+    out = [
+        "# Exceptions",
+        "",
+        f"Every exception to a quality or security gate in `{repo}` is documented in "
+        f"`vergil-exceptions.toml` and checked by `vrg-exceptions audit` "
+        f"([the exceptions standard]({STANDARD_URL})). The goal is zero.",
+        "",
+        "## Rule-level exceptions",
+        "",
+        *_table(("ID", "Tool", "Rules", "Scope", "Reason"),
+                [(e.id, e.tool, ", ".join(e.rules), ", ".join(e.scope), e.reason) for e in rules]),
+        "",
+        "## Line-level exceptions",
+        "",
+        *_table(("ID", "Tool", "Rules", "Sites", "Reason"),
+                [(e.id, e.tool, ", ".join(e.rules), str(counts[e.id]), e.reason) for e in inline]),
+        "",
+        "## Inherited fleet defaults",
+        "",
+        *_table(("Tool", "Rules", "Scope", "Reason"),
+                [(e.tool, ", ".join(e.rules), ", ".join(e.scope), e.reason) for e in fleet.register.entries]),
+        "",
+        (f"Fleet exceptions in this repo: rev {block_revision} (current rev {fleet.revision})."
+         if block_revision is not None else f"Fleet exceptions in this repo: no managed block (current rev "
+         f"{fleet.revision})."),
+        "",
+        "## Expiring",
+        "",
+        *_table(("ID", "Expires", "Issue", "Reason"),
+                [(e.id, str(e.expires), e.issue or "", e.reason) for e in expiring]),
+        "",
+        "## Not yet audited",
+        "",
+        *([f"- {name}" for name in collected.uncovered] or [NONE]),
+    ]
+    if result.findings:
+        out += ["", f"> **Audit status:** {len(result.findings)} finding(s) — run `vrg-exceptions audit`."]
+    return "\n".join(out) + "\n"
+```
+
+Run the report tests — Expected: PASS.
+
+- [ ] **Step 4: Add `build_report` and the `report` subcommand (tests first)**
+
+Tests in `tests/vergil_tooling/test_vrg_exceptions.py`, in the style of T5's
+tests there (`tmp_path` as the root, `collect` mocked via `_MOD`):
+
+```python
+def test_report_not_adopted_prints_one_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert vrg_exceptions.run_report(tmp_path, repo="o/r", output=None, today=TODAY) == 0
+    out = capsys.readouterr().out
+    assert "not adopted" in out
+    assert "# Exceptions" in out
+
+
+def test_report_writes_page(tmp_path: Path) -> None:
+    (tmp_path / "vergil-exceptions.toml").write_text(
+        '[[inline]]\nid = "EXC-001"\ntool = "ruff"\nrules = ["S603"]\nreason = "fixed argv"\n'
+        "added = 2026-10-20\n", encoding="utf-8")
+    page = tmp_path / "page.md"
+    with mock.patch(_MOD + "collect", return_value=_collected(Site("ruff", "a.py", 1, ("S603",), "EXC-001"))):
+        assert vrg_exceptions.run_report(tmp_path, repo="o/r", output=page, today=TODAY) == 0
+    text = page.read_text(encoding="utf-8")
+    assert "| EXC-001 | ruff | S603 | 1 | fixed argv |" in text
+    assert "no managed block" in text                 # tmp_path has no pyproject.toml
+
+
+def test_report_malformed_register_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "vergil-exceptions.toml").write_text("[[rule]\n", encoding="utf-8")
+    assert vrg_exceptions.run_report(tmp_path, repo="o/r", output=None, today=TODAY) == 1
+    assert "invalid TOML" in capsys.readouterr().err
+
+
+def test_main_dispatches_report(tmp_path: Path) -> None:
+    with mock.patch(_MOD + "git.repo_root", return_value=tmp_path), \
+         mock.patch(_MOD + "run_report", return_value=0) as run:
+        assert vrg_exceptions.main(["report", "--repo", "o/r"]) == 0
+    assert run.call_args.kwargs["repo"] == "o/r"
+```
+
+Implementation in `bin/vrg_exceptions.py`:
+
+```python
+# in main(), beside the other subparsers
+    report = sub.add_parser("report", help="render the exceptions docs page (Markdown)")
+    report.add_argument("--repo", required=True, help="owner/name shown on the page")
+    report.add_argument("--output", type=Path, default=None, help="write here instead of stdout")
+# … and the dispatch
+    if args.command == "report":
+        return run_report(root, repo=args.repo, output=args.output, today=datetime.now(tz=UTC).date())
+
+
+def build_report(root: Path, *, repo: str, today: date) -> str | None:
+    """The docs page for *root*, or None when the repo has no register."""
+    register = load_repo_register(root)
+    if register is None:
+        return None
+    fleet = load_fleet()
+    collected = collect(WorkTree(root), PLUGINS, UNCOVERED, root=root)
+    pyproject = root / "pyproject.toml"
+    block = find_block(pyproject.read_text(encoding="utf-8")) if pyproject.is_file() else None
+    findings, notices = check_block(block, fleet, path="pyproject.toml")
+    result = audit(collected, register, fleet.register, today=today, extra_findings=findings,
+                   extra_notices=notices)
+    return render_report(register, collected, fleet, result, repo=repo,
+                         block_revision=block.revision if block is not None else None)
+
+
+def run_report(root: Path, *, repo: str, output: Path | None, today: date) -> int:
+    try:
+        page = build_report(root, repo=repo, today=today)
+    except RegisterError as exc:
+        for problem in exc.problems:
+            emit_error(f"{exc.source}: {problem}")
+        return 1
+    except (TreeReadError, ManagedBlockError) as exc:
+        emit_error(str(exc))
+        return 1
+    if page is None:
+        page = f"# Exceptions\n\n`{repo}` has not adopted the exception register (no {REGISTER_FILE}).\n"
+        print(f"vrg-exceptions: not adopted (no {REGISTER_FILE})")
+    if output is None:
+        print(page, end="")
+    else:
+        output.write_text(page, encoding="utf-8")
+    return 0
+```
+
+`Path` moves from the `TYPE_CHECKING` block to a runtime import (argparse uses
+it). Add `from vergil_tooling.lib.exceptions.report import render_report`.
+
+- [ ] **Step 5: Publish the page from the docs build (tests first)**
+
+`lib/docs.py` stays pure: the caller renders the page and passes it in.
+
+```python
+# tests/vergil_tooling/test_docs.py — TestStageDocs
+    def test_writes_exceptions_page_when_given(self, tmp_path: Path) -> None:
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        stage_docs(docs_dir=docs_dir, releases_dir=tmp_path / "none", changelog=None,
+                   exceptions_page="# Exceptions\n")
+        assert (docs_dir / "exceptions.md").read_text(encoding="utf-8") == "# Exceptions\n"
+
+    def test_no_exceptions_page_by_default(self, tmp_path: Path) -> None:
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        stage_docs(docs_dir=docs_dir, releases_dir=tmp_path / "none", changelog=None)
+        assert not (docs_dir / "exceptions.md").exists()
+
+# TestPatchNav
+    def test_adds_exceptions_entry_once(self, tmp_path: Path) -> None:
+        mkdocs = tmp_path / "mkdocs.yml"
+        mkdocs.write_text(_NAV_TEMPLATE)
+        releases = tmp_path / "releases"
+        releases.mkdir()
+        patch_nav(mkdocs, releases, exceptions=True)
+        patch_nav(mkdocs, releases, exceptions=True)
+        content = mkdocs.read_text()
+        assert content.count("- Exceptions: exceptions.md") == 1
+        assert content.index("- Changelog:") < content.index("- Exceptions:") < content.index("- Release Notes:")
+
+    def test_exceptions_entry_off_by_default(self, tmp_path: Path) -> None:
+        mkdocs = tmp_path / "mkdocs.yml"
+        mkdocs.write_text(_NAV_TEMPLATE)
+        releases = tmp_path / "releases"
+        releases.mkdir()
+        patch_nav(mkdocs, releases)
+        assert "Exceptions" not in mkdocs.read_text()
+```
+
+```python
+# lib/docs.py — stage_docs: add the keyword parameter and, before `return`:
+    exceptions_page: str | None = None,
+    ...
+    if exceptions_page is not None:
+        (docs_dir / "exceptions.md").write_text(exceptions_page, encoding="utf-8")
+
+# lib/docs.py — patch_nav(mkdocs_yml, releases_dir, *, exceptions: bool = False):
+# after the release entries are spliced in, and before writing:
+    if exceptions and not any(ln.strip() == "- Exceptions: exceptions.md" for ln in lines):
+        notes = next((i for i, ln in enumerate(lines) if ln.lstrip().startswith("- Release Notes:")), None)
+        if notes is not None:
+            pad = lines[notes][: len(lines[notes]) - len(lines[notes].lstrip())]
+            lines.insert(notes, f"{pad}- Exceptions: exceptions.md")
+```
+
+`patch_nav` returns early when there is no `releases/index.md` entry; move the
+exceptions insertion above that early return so it applies either way, and add
+a test with a nav that has `- Release Notes:` but no index line.
+
+Callers:
+
+- `bin/vrg_docs_stage.py`: before `stage_docs`, compute
+  `page = vrg_exceptions.build_report(git.repo_root(), repo=repo, today=datetime.now(tz=UTC).date())`
+  and pass `exceptions_page=page`. `RegisterError`, `TreeReadError` and
+  `ManagedBlockError` are not caught there: a broken register fails the docs
+  build loudly (`cli_main` reports it). Test: a repo with a register stages
+  `exceptions.md`; a repo without one does not (mock `build_report`).
+- `bin/vrg_docs_patch_nav.py`: pass
+  `exceptions=(args.releases_dir.parent / "exceptions.md").is_file()` — the
+  releases dir is `<docs>/releases`, so the page sits beside it. Test both values.
+
+Run: `vrg-container-run -- uv run pytest tests/vergil_tooling/test_docs.py tests/vergil_tooling/test_vrg_docs_stage.py tests/vergil_tooling/test_vrg_docs_patch_nav.py tests/vergil_tooling/test_vrg_exceptions.py -q --no-cov`
+Expected: PASS.
+
+- [ ] **Step 6: Full validation and commit**
 
 Run: `vrg-container-run -- vrg-validate` — Expected: PASS, coverage 100%.
 
@@ -3801,6 +4167,7 @@ vrg-commit --type feat --scope exceptions --message "publish a per-repo exceptio
 ```
 
 ---
+
 ## Task T7a: consumer CLAUDE.md rule and standards docs
 
 **Repo:** vergil-tooling. Blocked by: nothing (text only; it names
@@ -3808,6 +4175,7 @@ vrg-commit --type feat --scope exceptions --message "publish a per-repo exceptio
 order does not matter because the rule is guidance). Spec: §8, §10.
 
 **Files:**
+
 - Modify: `src/vergil_tooling/data/claude_md_consumer.md` (new section)
 - Create: `docs/site/docs/standards/development/exceptions.md` (the standard)
 - Modify: `docs/site/docs/standards/development/python/testing-and-coverage.md`
@@ -3875,6 +4243,7 @@ vrg-commit --type docs --scope exceptions --message "add the exceptions standard
 **Repo:** vergil-claude-plugin. Blocked by: nothing. Spec: §8.
 
 **Files:**
+
 - Create: `skills/exception-request/SKILL.md`
 - Create: `hooks/scripts/detect-new-suppressions.sh`
 - Create: `hooks/tests/detect-new-suppressions.test.sh`
@@ -4005,8 +4374,11 @@ register entry. Silence or an ambiguous reply is a "no".
 4. **On yes:** write the entry with the wording you and the human agreed, and tag
    each site with a *separate* comment after the tool's own directive:
    `# noqa: S603  # vrg-exc: EXC-014` (Markdown:
-   `<!-- vrg-exc: EXC-014 -->`). If the tool rejects a second comment on the same
-   line, put `# vrg-exc: EXC-014` alone on the line above. Run
+   `<!-- vrg-exc: EXC-014 -->`). Put `# vrg-exc: EXC-014` alone on the line
+   above instead for `nosemgrep` (semgrep reads the rest of that comment as rule
+   IDs), for a `.trivyignore` group, and for any tool that rejects a second
+   comment on the same line. Only `EXC-NNN` IDs exist. Every suppression names
+   its rules. Run
    `vrg-container-run -- vrg-validate`; `vrg-exceptions audit` must pass.
 5. **On no:** fix the code, or ask how the human wants to proceed.
 
@@ -4033,45 +4405,258 @@ vrg-commit --type feat --scope skills --message "add exception-request skill and
 
 ---
 
-## Task T9: adopt the register in vergil-tooling (joint human + agent session)
+## Task T9: "kill the exceptions" in vergil-tooling — inventory, mechanical cleanup, purge tasks
 
-**Repo:** vergil-tooling. Blocked by: T1–T6, T7a, T7b. Spec: §10. **This task is
-run together with the human**, roughly half a day; every keep/disable decision is
-theirs (it is the exception-request rule applied in bulk).
+**Repo:** vergil-tooling. Blocked by: T1–T6, T7a, T7b. Spec: §10. **Run together
+with the human**; every keep/fix/disable decision is theirs.
+
+Spec §10 makes adoption a per-repo **"kill the exceptions"** series: a sequence
+of tasks whose only job is to purge exceptions without losing functionality,
+ending in one task that documents what is left and turns the gate on. In this
+epic the series runs for vergil-tooling and is filed as sibling tasks under
+epic #375: **T9** (this task), the **purge tasks** T9 files, and **T9-final**.
+Other repos run their own series later, under their own epics.
 
 **Files:**
-- Create: `vergil-exceptions.toml`
-- Modify: source files carrying suppressions (tag or remove), `pyproject.toml`
-  (narrowed ignores; managed block via `vrg-exceptions sync`)
 
-- [ ] **Step 1: Inventory.** Run `vrg-container-run -- uv run vrg-exceptions audit`
-  after creating an empty `vergil-exceptions.toml`. Group the findings by
-  tool × rule × top-level directory into a table (expected ≈54 ruff groups;
-  S603/S607/S108 ≈75% of `noqa` sites; plus coverage, mypy, semgrep).
+- Modify: source files carrying dead or auto-fixable suppressions; nothing else.
+
+- [ ] **Step 1: Inventory.** In the worktree, create an empty
+  `vergil-exceptions.toml` (not committed), run
+  `vrg-container-run -- uv run vrg-exceptions audit`, then delete the file. Group
+  the findings by tool × rule × top-level directory into a table (expected ≈54
+  ruff groups; S603/S607/S108 ≈75% of `noqa` sites; plus coverage, mypy,
+  semgrep — including the generated `secrets-inherit` `nosemgrep` in
+  `.github/workflows/cd.yml`).
 - [ ] **Step 2: Mechanical cleanup** (no human decision needed): delete every
   `dead` suppression (`RUF100` output — e.g. `ANN001`, `PLR2004`, `PLC0415`,
   `BLE001`, which are not selected); run `ruff check --fix` and `ruff format`
   through `vrg-validate`'s toolchain; fix trivially fixable sites. Commit.
-- [ ] **Step 3: Joint decisions.** Walk the remaining groups with the human, one
-  group at a time, largest first. For each: fix the code; keep and document; or
-  disable the rule at the narrowest workable directory scope (a `[[rule]]`
-  entry). Record each decision in the session; commit per group.
-- [ ] **Step 4: Document.** Write the agreed entries into
-  `vergil-exceptions.toml`, tag every remaining site with `# vrg-exc: EXC-NNN`,
-  run `vrg-exceptions sync` for the managed block, and get
+- [ ] **Step 3: Plan the purge with the human.** Walk the remaining groups,
+  largest first. For each group, the human decides: **purge** (fix the code —
+  file a purge task), **keep** (document it in T9-final, at line level or as a
+  narrowly scoped `[[rule]]`), or **propose a fleet default** (a decision for
+  vergil-tooling's fleet register, also recorded for T9-final). File one purge
+  task per group or small batch of related groups:
+
+  ```bash
+  vrg-issue-create --epic vergil-project/.github#375 --repo vergil-project/vergil-tooling \
+    --title "Kill the exceptions: <tool> <rule> in <dirs>" --body-file <tmp>
+  ```
+
+  Each body names the sites, states "remove every suppression in this group
+  without changing behaviour; tests stay at 100% coverage", and records the
+  human's decision. Then file **T9-final** (title
+  `Kill the exceptions: document the remainder and enable the audit`) with the
+  agreed keep list in its body, `--blocked-by` every purge task.
+- [ ] **Step 4: Hand off** the cleanup PR with `report-ready`; its notes link
+  the inventory table and the filed tasks.
+
+**Each purge task** (filed in Step 3) is an ordinary `issue-implement` task:
+fix the code so that the group's suppressions are no longer needed, delete
+them, keep `vrg-validate` green. If a site turns out not to be fixable, stop and
+ask the human — moving it to the keep list is their call.
+
+**T9-final** (filed in Step 3; blocked by every purge task):
+
+- Create `vergil-exceptions.toml` with the agreed entries: `[[inline]]` for kept
+  line-level groups, narrowly scoped `[[rule]]` entries for kept rule disables
+  (directories over files).
+- Tag every remaining site with `# vrg-exc: EXC-NNN`. This includes the
+  `nosemgrep` that repo-init generated in `.github/workflows/cd.yml`: the marker
+  goes on the line above, and its entry carries the same reason T10 seeds
+  (line-level exceptions are always per repo; spec §5.2).
+- Run `vrg-exceptions sync` for the managed block, and get
   `vrg-container-run -- vrg-validate` green with the audit active.
-- [ ] **Step 5: Hand off** with `report-ready`. The PR's own exceptions preview
-  (T6) lists every entry — the human reviews it before submitting.
+- Hand off with `report-ready`. The PR's own exceptions preview (T6) lists every
+  entry — the human reviews it before submitting. The `cd.yml` edit means the
+  agent's push is refused (expected; see the handoff rules) and the human's
+  `vrg-submit-pr` pushes it.
+
+---
+
+## Task T10: repo-init seeds the register and tags the generated `nosemgrep`
+
+**Repo:** vergil-tooling. Blocked by: T1, T3, T4. Spec: §5.2, §6.4, §10.
+
+`render_cd_workflow` (`lib/repo_init.py:868-878`) emits
+`secrets: inherit  # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit`
+for a `[package]` repo that publishes releases. That is a line-level exception
+in the new repo, so the new repo documents it: repo-init tags the line and seeds
+`vergil-exceptions.toml` with the entry. Every new repo then starts with a
+register, so the audit is active from day one (§6.4). Repos bootstrapped before
+this task add the entry during their own adoption (§10); vergil-tooling's is in
+T9-final.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/repo_init.py`
+- Test: `tests/vergil_tooling/test_repo_init.py`
+
+**Interfaces:**
+
+- Consumes: `parse_register`, `REGISTER_FILE` (T1), `PLUGINS`, `UNCOVERED`,
+  `known_tools` (T2/T3), `collect`, `audit` (T1), `load_fleet` (T4),
+  `FakeTree` (T1 test helper).
+- Produces:
+
+```python
+SECRETS_INHERIT_EXC_ID = "EXC-001"
+def cd_inherits_secrets(ctx: RepoInitContext) -> bool   # ctx.publish_release and ctx.package — the one condition both renderers use
+def render_exceptions_register(ctx: RepoInitContext, *, today: date) -> str
+```
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/vergil_tooling/test_repo_init.py — new tests
+from datetime import date
+
+from tests.vergil_tooling.exceptions_fakes import FakeTree
+from vergil_tooling.lib.exceptions.audit import audit, collect
+from vergil_tooling.lib.exceptions.fleet import load_fleet
+from vergil_tooling.lib.exceptions.plugins import PLUGINS, UNCOVERED, known_tools
+from vergil_tooling.lib.exceptions.register import parse_register
+from vergil_tooling.lib.repo_init import render_cd_workflow, render_exceptions_register
+
+TODAY = date(2026, 11, 1)
+
+
+def _ctx(*, publish_release: bool, package: bool) -> RepoInitContext:
+    ctx = RepoInitContext(org="vergil-project", name="vergil-vm")
+    ctx.primary_language = "python"
+    ctx.ci_versions = ["3.14"]
+    ctx.publish_release = publish_release
+    ctx.package = package
+    return ctx
+
+
+def _audit(files: dict[str, str]):
+    register = parse_register(files["vergil-exceptions.toml"], source="vergil-exceptions.toml",
+                              known_tools=known_tools())
+    return audit(collect(FakeTree(files), PLUGINS, UNCOVERED, root=None), register, load_fleet().register,
+                 today=TODAY)
+
+
+def test_package_release_repo_gets_tagged_line_and_entry() -> None:
+    ctx = _ctx(publish_release=True, package=True)
+    cd = render_cd_workflow(ctx)
+    lines = cd.splitlines()
+    index = next(i for i, ln in enumerate(lines) if "secrets: inherit" in ln)
+    assert lines[index - 1].strip() == "# vrg-exc: EXC-001"
+    register = render_exceptions_register(ctx, today=TODAY)
+    assert 'id      = "EXC-001"' in register
+    assert "yaml.github-actions.security.secrets-inherit.secrets-inherit" in register
+    result = _audit({".github/workflows/cd.yml": cd, "vergil-exceptions.toml": register})
+    assert result.ok, result.findings
+
+
+def test_other_repos_get_an_empty_register_that_passes() -> None:
+    ctx = _ctx(publish_release=True, package=False)
+    register = render_exceptions_register(ctx, today=TODAY)
+    assert "[[inline]]" not in register
+    assert parse_register(register, source="x", known_tools=known_tools()).entries == ()
+    assert _audit({".github/workflows/cd.yml": render_cd_workflow(ctx), "vergil-exceptions.toml": register}).ok
+```
+
+And in the existing `TestStepScaffoldConfigFiles.test_creates_all_files`, after
+the `.gitignore` assertion:
+
+```python
+        register = tmp_path / "vergil-exceptions.toml"
+        assert register.exists()
+        assert parse_register(register.read_text(), source="x", known_tools=known_tools()).entries == ()
+```
+
+(That context has `publish_release` False, so the register is the header only.)
+
+Run: `vrg-container-run -- uv run pytest tests/vergil_tooling/test_repo_init.py -q --no-cov`
+Expected: FAIL — `render_exceptions_register` is not defined.
+
+- [ ] **Step 2: Implement**
+
+```python
+# lib/repo_init.py
+SECRETS_INHERIT_EXC_ID = "EXC-001"
+
+_REGISTER_HEADER = """\
+# Exception register (vergil-project/.github#375). Every inline suppression and
+# rule disable in this repo must have an entry here; `vrg-exceptions audit`
+# (run by vrg-validate) fails on anything undocumented. Add entries only with
+# explicit human approval (/vergil:exception-request).
+"""
+
+
+def cd_inherits_secrets(ctx: RepoInitContext) -> bool:
+    """True when the generated cd.yml uses ``secrets: inherit`` (a [package] release repo)."""
+    return ctx.publish_release and ctx.package
+
+
+def render_exceptions_register(ctx: RepoInitContext, *, today: date) -> str:
+    if not cd_inherits_secrets(ctx):
+        return _REGISTER_HEADER
+    return _REGISTER_HEADER + (
+        "\n[[inline]]\n"
+        f'id      = "{SECRETS_INHERIT_EXC_ID}"\n'
+        'tool    = "semgrep"\n'
+        'rules   = ["yaml.github-actions.security.secrets-inherit.secrets-inherit"]\n'
+        'reason  = "cd-release needs secrets: inherit. GitHub passes environment secrets to a job in '
+        "a cross-repo reusable workflow only under inherit; an explicit map leaves the package-sign "
+        'job an empty PACKAGE_SIGNING_KEY (vergil-project/packages#6). The callee is first-party."\n'
+        f"added   = {today.isoformat()}\n"
+    )
+```
+
+In `render_cd_workflow`, replace the `if ctx.package:` condition with
+`if cd_inherits_secrets(ctx):` (it is already inside `if ctx.publish_release:`)
+and insert `"    # vrg-exc: EXC-001\n"` immediately before the
+`"    secrets: inherit"` element (build it from `SECRETS_INHERIT_EXC_ID`). In
+`step_scaffold_config_files`, after `.gitignore`:
+
+```python
+    # vergil-exceptions.toml — the exception register, so the audit is active
+    # from the first commit (epic vergil-project/.github#375).
+    today = datetime.datetime.now(tz=datetime.UTC).date()
+    (wd / REGISTER_FILE).write_text(render_exceptions_register(ctx, today=today))
+```
+
+Import `REGISTER_FILE` from `vergil_tooling.lib.exceptions.register` and `date`
+under `TYPE_CHECKING`. Update existing `render_cd_workflow` expectations in
+`test_repo_init.py` for the added marker line.
+
+- [ ] **Step 3: Run the tests, full validation, commit**
+
+Run: `vrg-container-run -- uv run pytest tests/vergil_tooling/test_repo_init.py -q --no-cov` — Expected: PASS.
+Run: `vrg-container-run -- vrg-validate` — Expected: PASS, coverage 100%.
+
+```bash
+vrg-git add src/vergil_tooling/lib/repo_init.py tests/vergil_tooling/test_repo_init.py
+vrg-commit --type feat --scope repo-init --message "seed vergil-exceptions.toml and tag the generated secrets-inherit nosemgrep" --body "Ref #<task>"
+```
+
+---
+
+## Follow-on task: revisit the generated `secrets: inherit`
+
+**Repo:** vergil-tooling (filed with the other tasks). Not blocking. The
+`nosemgrep` that T10 documents works around a GitHub limitation rather than
+fixing a defect of ours: environment secrets reach a cross-repo reusable
+workflow only under `secrets: inherit` (vergil-project/packages#6). Investigate
+whether package signing can be restructured so no generated workflow needs
+`inherit` — for example, signing in a same-repo job, or passing the key by
+another route. If a design works, remove the suppression from repo-init and
+from existing repos; if not, record why on the task and close it.
 
 ---
 
 ## Task D1 (deployment): release vergil-tooling and vergil-claude-plugin
 
-**Kind:** `deployment`. **Repo:** vergil-tooling. Blocked by: T1–T8, T7a, T7b.
+**Kind:** `deployment`. **Repo:** vergil-tooling. Blocked by: T1–T8, T10, T7a, T7b.
 Precondition (human-attested, never agent-performed): a vergil-tooling release
 and a vergil-claude-plugin release containing the work have been cut.
 
 **Procedure:**
+
 1. In a consumer repo's dev container, `vrg-container-run -- vrg-exceptions audit`
    prints `not adopted` (proves the command ships and is on `PATH`).
 2. In a managed repo, an agent edit adding `# noqa: S603` triggers the
