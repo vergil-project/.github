@@ -64,8 +64,9 @@ Measured across the nine repos checked out on 2026-10-15:
    constrain it where its ecosystem expects.
 3. **The release never fails because of dependencies.** The update runs after
    the release is complete, and its failure is deferred, not fatal.
-4. **A failed or pending update is never silent.** A validation failure leaves
-   an open PR, and the next release is gated on it. A failure before validation
+4. **A failed or pending update is never silent.** A failure that leaves work
+   behind (local validation or remote CI) leaves an open labelled PR and a fix
+   task, and the next release is gated on the PR. A failure before validation
    has no diff to gate on, so it is recorded on the tracking issue of every
    release until it is fixed (§5.2).
 5. **Tooling carries no repo-specific logic.** A repo with bespoke dependencies
@@ -120,9 +121,12 @@ audit → preflight → prepare → merge-release → confirm-main → back-merg
   root checkout to be on a clean develop that is in sync with `origin/develop`.
   The stage fetches and fast-forwards develop before invoking the pipeline. If
   that sync fails, the stage fails (deferred), and nothing is updated.
-- **Branch name:** `chore/dep-update-<new-develop-version>` (for example
-  `chore/dep-update-2.1.224`), replacing the current `chore/dep-update-<date>`.
-  Repos release several times a day, so a date-based name collides.
+- **Branch name:** `deps/update-<new-develop-version>` (for example
+  `deps/update-2.1.224`), replacing the current `chore/dep-update-<date>`.
+  Repos release several times a day, so a date-based name collides. `deps/` is
+  deliberately not an issue-branch prefix (`lib/branch_names.py`): only the
+  driver commits to this branch, and it carries no issue number. Fixes happen
+  on a separate issue branch (§5.2).
 - **No-op:** if no updater changes anything, no branch is pushed and no PR is
   opened. The held-back report (§7) is still posted.
 - **Tracking:** the stage takes part in the release tracking issue like any
@@ -138,18 +142,42 @@ audit → preflight → prepare → merge-release → confirm-main → back-merg
 
 ### 5.2 Failure handling
 
-On a validation failure the stage does **not** abandon the work locally, which
-is what the 2026-06-10 spec did. Instead it:
+**Every dependency-update PR is labelled `dependency-update` when it is
+created**, on every path. The label is created idempotently with
+`vrg-ensure-label`. The gate (§5.3) therefore sees any open deps PR, whatever
+left it open.
 
-1. pushes the update branch and opens its PR, labelled `dependency-update`, with
-   the failing validation output in the PR body;
-2. does not merge it;
+A run can fail in a way that leaves work behind in two places:
+
+- **local validation fails** (the single `vrg-validate` run), or
+- **remote CI fails or the merge aborts** (`pr_merge.MergeAbortError`). This is
+  expected to be the more common case: local validation runs one interpreter,
+  while PR CI runs the full `[ci].versions` matrix.
+
+Both are handled the same way. The 2026-06-10 spec abandoned the work locally;
+this spec does not. The stage:
+
+1. ensures the `deps/update-<version>` branch is pushed and its labelled PR is
+   open (on a local validation failure it pushes and opens it now), and does not
+   merge it;
+2. files a **fix task** in the repo under its ad-hoc epic
+   (`vrg-issue-create --epic adhoc`), titled
+   `Fix failed dependency update for <version>`, linking the PR;
 3. records the failure on the release tracking issue (`comment_phase_failed`)
    and in `publish-status`.
 
-The open PR is the concrete diff a human or agent fixes. It is worked like any
-other red PR (`pr-watch` applies). The `dependency-update` label is created
-idempotently with `vrg-ensure-label`.
+**Failure output.** The PR body and the fix task carry the **last ~200 lines**
+of the failing output, plus the command that reproduces it on the branch
+(`vrg-container-run -- vrg-validate`, or the failing CI job's link). They never
+carry the full output: GitHub rejects bodies over 65,536 characters, and a
+rejected body would leave no PR for the gate to see.
+
+**Fixing.** The fix task is ordinary framework work. Its branch,
+`chore/<N>-dep-update-<version>`, is cut from the `deps/update-<version>` branch,
+so it starts from the failed update. It is fixed and handed off like any other
+task (`issue-implement`, `report-ready`, human submit and merge). When the fix PR
+merges, the deps PR's commits are in develop, so GitHub marks the deps PR merged.
+The label is gone from the open set, and the gate clears with no manual close.
 
 An updater or hook that fails *before* validation (for example a resolution
 error or a non-zero hook exit) produces no diff to push. The stage records the
@@ -160,8 +188,8 @@ opens no PR.
 
 `vrg-release` preflight refuses to start while the repo has **any open PR
 labelled `dependency-update`**. That covers both a failed update and one still
-waiting to merge. The refusal names the PR and says how to clear it: merge it,
-or close it deliberately.
+waiting to merge. The refusal names the PR and its fix task (if any), and says
+how to clear it: land the fix task, merge the PR, or close it deliberately.
 
 **`--allow-pending-deps`** overrides the gate, for an urgent release such as a
 security hotfix. When it is used, the release posts a comment on its tracking
@@ -259,9 +287,9 @@ being dropped.
 
 | Source | Held back when |
 |---|---|
-| `python` | A package's latest release is outside its `pyproject.toml` / `[tool.uv]` bounds |
-| `vergil` | A newer vergil-python *minor* exists than `[package.python] runtime` |
-| `images` | A newer image series exists than a series-tagged ref (`python:3.14-slim` with 3.15 out) |
+| `python` | A **directly declared** dependency's latest release is outside its `pyproject.toml` / `[tool.uv]` bounds |
+| `vergil` | A newer vergil-python *minor* exists in the package index than `[package.python] runtime` |
+| `images` | A newer image series exists than a series-tagged ref (`python:3.14-slim` with 3.15 out), or a newer major than an exact-tagged ref |
 | vergil-vm hook | `minimumLimaVersion` or the NodeSource major is behind |
 | vergil-python hook | A newer CPython minor exists |
 
@@ -270,8 +298,13 @@ being dropped.
 ### 8.1 `python`
 
 Unchanged upgrade behaviour (`uv lock --upgrade` in the dev container). It gains
-held-back report entries: after the lock, it compares each locked package with
-its latest release and reports any held back by declared bounds.
+held-back report entries: after the lock, it compares each **directly declared**
+dependency with its latest release and reports any held back by the repo's own
+bounds. "Directly declared" means `[project] dependencies`, every dependency
+group, `[build-system] requires`, and `[tool.uv] constraint-dependencies`.
+Transitive packages are never reported: their holds come from other packages'
+bounds, which the repo cannot act on. (CVEs in transitive packages are already
+caught by `pip-audit` in validation.)
 
 ### 8.2 `vergil`
 
@@ -279,8 +312,12 @@ its latest release and reports any held back by declared bounds.
   `.github/workflows/*.yml|*.yaml` to every `action.yml`/`action.yaml` in the
   repo (for example vergil-actions' `actions/**`).
 - **Bump the vergil-python runtime patch.** When `[package.python] runtime` is
-  set, bump it to the newest *released* vergil-python patch in the same minor.
-  A newer minor is reported (§7.3), not bumped.
+  set, bump it to the newest vergil-python patch in the same minor that the
+  **live vergil package repository serves**. That is exactly what
+  `lib/package/python_builder.py` installs. A version that is tagged or released
+  on GitHub but not yet indexed is never a candidate; picking one would merge
+  green and then fail the next release's package build. A newer minor is
+  reported (§7.3), not bumped.
 
 ### 8.3 `images` (new)
 
@@ -289,7 +326,7 @@ files, and image defaults in `action.yml` inputs.
 
 | Ref form | Action |
 |---|---|
-| Exact `x.y.z` tag (`trivy:0.71.0`) | Bump to the newest `x.y.z` tag in the registry |
+| Exact `x.y.z` tag (`trivy:0.71.0`) | Bump to the newest `x.y.z` tag **with the same major** (major 0 included, so `0.71.0 → 0.74.0`). Report a newer major; never bump across it |
 | Series tag (`python:3.14-slim`, `ubuntu:24.04`, `ubi9`) | Leave it; it floats. Report a newer series |
 | `:latest`, a digest, or `ghcr.io/vergil-project/*` | Skip |
 
@@ -310,7 +347,7 @@ it is built generically because further repos will carry more.
 |---|---|---|
 | `vrg-release` `update-deps` stage | Placement, deferral, tracking-issue comment, `--without-deps` | Updating anything itself |
 | `vrg-release` preflight gate | Refusing on an open `dependency-update` PR; `--allow-pending-deps` | Fixing the PR |
-| `vrg-update-deps` driver | Worktree, commits, single validation, PR, failure push, report collection | Any category's upgrade logic |
+| `vrg-update-deps` driver | Worktree, commits, single validation, labelled PR, failure push, fix-task filing, report collection | Any category's upgrade logic |
 | Built-in updaters | One category each: upgrade at the source of truth, produce report entries | Git, validation, PRs |
 | Hook runner | Running the repo hook, the HEAD check, `$VRG_DEPS_REPORT` | What the hook does |
 | Repo hooks | Their repo's bespoke dependencies | Git history |
@@ -323,9 +360,9 @@ it is built generically because further repos will carry more.
 | Docker and VM "extensions" enabled by config opt-in, with code in tooling | Repo-owned hooks; tooling carries no repo-specific logic (§6) |
 | `[dependency-update]` override/pin schema (TBD) | No override schema; bounds live in native manifests (§3.2) |
 | Warn-only entries declared in `[dependency-update]` | The held-back report, from updaters and hooks (§7) |
-| A red validation aborts and leaves the worktree locally | The branch is pushed and a labelled PR opened (§5.2) |
+| A red validation aborts and leaves the worktree locally | The branch is pushed, the labelled PR stays open, and a fix task is filed (§5.2) |
 | `vrg-release --with-deps` opt-in, then default-on | Default-on now, with `--without-deps` (§5.1) |
-| Branch `chore/dep-update-<date>` | `chore/dep-update-<new-develop-version>` (§5.1) |
+| Branch `chore/dep-update-<date>` (fails `vrg-commit`'s issue-branch check) | `deps/update-<new-develop-version>`; fixes on `chore/<N>-…` (§5.1, §5.2) |
 
 The rest of that design (the stage pipeline, the updater interface, a single
 validation run, no-op as first-class) stands. The documentation-review task
@@ -360,10 +397,19 @@ marks the old spec as partly superseded.
   a malformed report line.
 - **Config:** valid, empty, non-string and unknown-key `[dependency-update]`
   tables.
-- **Release stage and gate:** orchestrator tests for success, no-op, validation
-  failure (PR opened, not merged, failure recorded), pre-validation failure (no
-  PR), `--without-deps`, the gate refusing on an open labelled PR, and
-  `--allow-pending-deps` logging its bypass.
+- **Release stage and gate:** orchestrator tests for:
+  - success and no-op;
+  - local validation failure and merge abort, each leaving the labelled PR open
+    and unmerged, filing the fix task, and recording the failure;
+  - failure output trimmed to the tail plus the reproduce command, staying under
+    the body limit;
+  - pre-validation failure (no PR);
+  - `--without-deps`;
+  - the gate refusing on an open labelled PR;
+  - `--allow-pending-deps` logging its bypass.
+- **Updater rules:** `images` never crosses a major; the vergil-python runtime is
+  never bumped to a version missing from the package index; `python` reports
+  only direct dependencies.
 - **Coverage:** vergil-tooling's 100% coverage gate applies.
 - **End to end:** a validation task runs a live release cycle in vergil-tooling,
   vergil-vm and vergil-python. It checks the PR or no-op, the report comment, and
