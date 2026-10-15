@@ -64,9 +64,15 @@ alone is not enough; an explicit, recorded justification is required.
   trust anchor, and an agent that set out to forge a register entry could.
 - **Two layers.** Guidance (rules and a skill) catches most cases up front; a
   deterministic gate catches what guidance misses.
-- **Hard gates, not warnings** (#763) — with one deliberate, reasoned exception:
-  fleet-default staleness (§6.3) is reported, never failed, because failing it
-  turns every central change into a fleet-wide flag day.
+- **Hard gates, not warnings** (#763) — with two deliberate, reasoned
+  exceptions, both reported rather than failed because failing them blocks
+  unrelated work on a trigger outside the PR: fleet-default staleness (§6.3),
+  which would turn every central change into a fleet-wide flag day; and expired
+  entries (§6.2), which would fail every PR in a repo on a date. Both are made
+  actionable by a scheduled review (§13), not by blocking.
+- **Exceptions are temporary by default.** An exception should exist only until
+  it can be removed; a permanent exception should itself be the exception.
+  `expires` (§5.1) and the scheduled review are how that is tracked.
 - **Never silent.** Anything the audit cannot check is reported as uncovered, not
   passed quietly.
 - **Minimum scope.** A rule-level exception covers the smallest set of
@@ -110,8 +116,8 @@ added   = 2026-10-20
 
 [[rule]]                         # a rule-level entry adopting a fleet policy
 id      = "EXC-002"
-tool    = "ruff"
-rules   = ["D400"]
+tool    = "mypy"
+rules   = ["import-untyped"]
 scope   = ["**"]
 fleet   = "VRG-004"              # reason inherited from the fleet register
 added   = 2026-10-20
@@ -142,7 +148,7 @@ Field rules:
 | `rules` | required | required | non-empty list of the tool's rule IDs |
 | `scope` | required | — | globs; repo-wide must be written `["**"]` explicitly |
 | `reason` | required unless `fleet` | required | non-empty prose |
-| `fleet` | optional | — | a `VRG-NNN` ID; supplies the reason |
+| `fleet` | optional | — | a `VRG-NNN` ID; supplies the reason. For a fleet policy the repo applies in its own config by hand; ruff fleet policies arrive by managed block instead (§6.3) |
 | `added` | required | required | date |
 | `expires` | optional | optional | date; required for `trivy` entries |
 | `issue` | required iff `expires` | required iff `expires` | `owner/repo#N` |
@@ -154,18 +160,25 @@ Field rules:
 
 ### 5.2 Inline linkage
 
-Each inline suppression names its register ID in the same comment:
+The canonical form is a **separate** `# vrg-exc: EXC-NNN` comment after the
+tool's own suppression, on the same line:
 
 ```python
-subprocess.run(cmd, check=True)  # noqa: S603  vrg-exc: EXC-014
+subprocess.run(cmd, check=True)  # noqa: S603  # vrg-exc: EXC-014
+return x  # type: ignore[return-value]  # vrg-exc: EXC-002
 ```
 
 ```bash
-# shellcheck disable=SC2086  vrg-exc: EXC-020
+# shellcheck disable=SC2086  # vrg-exc: EXC-020
 ```
 
-For a tool that rejects trailing text in its suppression comment, the plug-in
-reads the ID from a `vrg-exc: EXC-NNN` comment on the line immediately above.
+The ID must be its own comment, not trailing text inside the suppression:
+mypy 2.1.0 rejects `# type: ignore[return-value]  vrg-exc: EXC-002` as
+`Invalid "type: ignore" comment [syntax]`, while both ruff 0.15.13 and mypy
+accept the separate-comment form (verified 2026-10-15).
+
+For a tool that cannot take a second comment on the same line, the plug-in
+reads the ID from a `# vrg-exc: EXC-NNN` comment on the line immediately above.
 Each plug-in's accepted form is verified during planning. For file-based
 mechanisms such as `.trivyignore`, the ID sits in a comment on the line above the
 entry.
@@ -175,8 +188,10 @@ entry.
 A TOML file shipped as vergil-tooling package data (e.g.
 `src/vergil_tooling/configs/exceptions.toml`), with `VRG-NNN` IDs and the same
 `[[rule]]` shape. It documents every rule disabled by the shared configs Vergil
-ships, plus fleet-wide policies that repos adopt in their own configs (via the
-`fleet` field). It carries a monotonically increasing `revision`, and records the
+ships (markdownlint, yamllint, ansible-lint, C++ and TypeScript configs, which
+`vrg-validate` passes to the tools directly from the package), the fleet ruff
+ignores delivered by managed block (§6.3), and any fleet policy a repo applies by
+hand (via the `fleet` field). It carries a monotonically increasing `revision`, and records the
 SHA-256 of each managed-block body (§6.3) for every revision it has ever shipped,
 so older blocks remain verifiable.
 
@@ -200,13 +215,15 @@ so older blocks remain verifiable.
 8. A managed block whose content hash does not match the revision it claims
    (hand-edited; §6.3).
 9. A register that fails schema validation (§5.1 field rules).
-10. An entry past its `expires` date.
 
 ### 6.2 Reported, not failed
 
 - Managed blocks behind the current fleet revision (§6.3).
 - `[[inline]]` entries with several sites — promotion candidates (§4).
-- Entries expiring within 30 days.
+- Entries past their `expires` date, and entries expiring within 30 days.
+  Expiry never fails the gate: a date-triggered failure would block every PR in
+  the repo, including unrelated ones. Acting on expired entries is the job of the
+  scheduled review (§13).
 - Exception mechanisms found in the repo that no plug-in covers yet.
 
 The report is written to stdout and, in CI, to the job summary.
@@ -215,17 +232,40 @@ The report is written to stdout and, in CI, to the job summary.
 
 How a fleet default reaches a repo depends on the tool:
 
-- **Tool supports include/extend** (markdownlint, yamllint, ESLint, ruff
-  `extend`): the repo config references the shipped file; changes arrive with the
-  vergil-tooling version.
-- **Tool has no include mechanism:** the setting is copied into the repo config as
-  a managed block, the way `vrg-gitignore-sync` maintains `.gitignore`:
+- **Passed from the package:** markdownlint, yamllint, ansible-lint and the C++
+  and TypeScript configs are handed to the tools by `vrg-validate` directly from
+  `vergil_tooling.configs` (`validate_common.py`, `languages.py` `{configs}`).
+  Repos hold no copy, so there is nothing to drift; the fleet register only
+  documents them.
+- **Repo-local config:** the setting is copied into the repo config as a managed
+  block, the way `vrg-gitignore-sync` maintains `.gitignore`:
 
   ```text
   # >>> vergil-managed: fleet-exceptions rev 7 sha256:… (do not edit) >>>
   …
   # <<< vergil-managed <<<
   ```
+
+**v1 builds managed blocks for one tool: ruff, in `pyproject.toml`.** Ruff is
+configured per repo, carries the richest set of exceptions, and is the only v1
+tool whose fleet defaults must live in the repo. The block sits inside
+`[tool.ruff.lint]` `extend-ignore`, delimited by comments, so a repo's own
+ignores can sit beside it:
+
+```toml
+[tool.ruff.lint]
+extend-ignore = [
+    # >>> vergil-managed: fleet-exceptions rev 3 sha256:… (do not edit) >>>
+    "D400",
+    # <<< vergil-managed <<<
+]
+```
+
+`sync` rewrites the block as text, preserving the rest of the file's formatting
+and comments, and reuses the block handling in `lib/gitignore.py` where it fits.
+The block machinery (render, parse, hash, revision check, sync) is written
+tool-agnostically so other tools can adopt it; extending it to other tools — and
+to fleet syncs generally — is the follow-on brainstorm in §13.
 
 The two kinds of drift are treated differently:
 
@@ -246,7 +286,7 @@ The revision stamp is what decouples them.
 
 The audit runs as a common check in `vrg-validate` (locally and in PR CI, with no
 workflow change). It is active in any repo that has a `vergil-exceptions.toml`;
-without one it reports "not adopted" and passes. Adoption (§9) creates the file.
+without one it reports "not adopted" and passes. Adoption (§10) creates the file.
 Once the fleet has adopted it, making it mandatory everywhere is a follow-on
 decision.
 
@@ -268,7 +308,7 @@ v1 plug-ins:
 | ruff | `# noqa:` | `ignore`, `extend-ignore`, `per-file-ignores` (rules never selected are not exceptions) |
 | mypy | `# type: ignore[...]` | `disable_error_code`, per-module overrides |
 | coverage | `# pragma: no cover` | `exclude_lines` / `omit` |
-| markdownlint | `<!-- markdownlint-disable ... -->` | disabled rules |
+| markdownlint | `<!-- markdownlint-disable ... -->` | disabled rules; `vergil.toml` `[markdownlint].ignore` path exclusions |
 | shellcheck | `# shellcheck disable=` | `.shellcheckrc` `disable=` |
 | yamllint | `# yamllint disable` | disabled rules |
 | hadolint | `# hadolint ignore=` | `.hadolint.yaml` `ignored` |
@@ -319,10 +359,16 @@ reminds the agent to run the skill immediately.
 
 ## 9. Visibility
 
-- **PR preview.** `vrg-exceptions diff --base <branch>` lists exceptions added,
-  removed or changed (entries, scopes, sites). `vrg-submit-pr` includes it as an
-  "Exceptions added or changed in this PR" section in the preview, omitted when
-  empty.
+- **PR preview.** `vrg-exceptions diff --base <ref> --head <ref>` lists
+  exceptions added, removed or changed (entries, scopes, sites). It reads both
+  sides from git objects and never from the working tree, so it gives the same
+  answer however the branch reaches submission — including worktree-free
+  submission of a cloud-developed branch from the Mac's main worktree, where the
+  branch exists only as `origin/<branch>`. `vrg-submit-pr` always passes both refs
+  (e.g. `origin/develop` and `origin/<branch>`) and includes the result as an
+  "Exceptions added or changed in this PR" section, omitted only when the diff
+  ran successfully and found nothing. A ref that cannot be resolved is a hard
+  error, never an empty section.
 - **Docs page.** `vrg-exceptions report --format markdown` renders the repo's
   rule-level exceptions with scopes, line-level entries with site counts,
   inherited fleet defaults and the repo's fleet revision, expiring entries (soonest
@@ -366,18 +412,34 @@ the natural second.
 - Each plug-in against fixture files: discovery, ID extraction (same-line and
   line-above forms), config-level disables, enabled-rule detection.
 - Audit: one test per failure in §6.1 and per report item in §6.2.
-- Managed blocks: hand-edit fails; older valid revision reports and passes; sync
-  round-trips.
-- `diff`: added, removed, widened-scope and new-site cases.
+- Managed blocks (ruff `extend-ignore` in `pyproject.toml`): hand-edit fails;
+  older valid revision reports and passes; sync round-trips and leaves the rest
+  of `pyproject.toml` byte-identical; repo-owned ignores beside the block are
+  untouched.
+- Expiry: an expired entry is reported and the audit still passes.
+- `diff`: added, removed, widened-scope and new-site cases, run between two refs
+  with no worktree for the head; an unresolvable ref is a hard error.
 - Coverage stays at 100% under `vrg-validate`.
 
-## 13. Out of scope
+## 13. Follow-on and out of scope
+
+This epic deliberately enables two follow-on brainstorms, seeded as tasks under
+the epic:
+
+- **Managed blocks beyond ruff, and fleet syncs generally.** Apply the §6.3
+  mechanism to other tools with repo-local config, and rethink fleet syncs that
+  today create flag days (CLAUDE.md delivery is the hardest case).
+- **A scheduled review cadence.** How Vergil schedules and triggers recurring
+  reviews and actions that need planning with the human — starting with the
+  exception review (expired entries, promotion candidates, stale fleet blocks,
+  the push toward zero exceptions) and extending to periodic refactoring
+  reviews. This epic makes the register easy to review (`added`, `expires`, site
+  counts, promotion candidates); the cadence itself is the follow-on.
+
+Out of scope:
 
 - Defending against a malicious agent (Mimir).
-- The recurring quarterly exception review — belongs to a scheduled-operations
-  epic alongside periodic refactoring reviews; this epic makes the register easy
-  to review (`added`, `expires`, site counts, promotion candidates).
-- Rethinking fleet syncs in general (they currently create flag days).
-- A shared, centrally shipped ruff baseline config.
+- A shared, centrally shipped ruff baseline config beyond the managed fleet
+  ignore block.
 - Adoption beyond vergil-tooling.
 - Making the gate mandatory in repos without a register.
