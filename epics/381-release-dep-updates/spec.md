@@ -144,8 +144,9 @@ audit → preflight → prepare → merge-release → confirm-main → back-merg
 
 **Every dependency-update PR is labelled `dependency-update` when it is
 created**, on every path. The label is created idempotently with
-`vrg-ensure-label`. The gate (§5.3) therefore sees any open deps PR, whatever
-left it open.
+`vrg-ensure-label`, and is also added to the canonical label registry
+(`data/labels.json`) so `vrg-ensure-label --sync` provisions it fleet-wide. The
+gate (§5.3) therefore sees any open deps PR, whatever left it open.
 
 A run can fail in a way that leaves work behind in two places:
 
@@ -241,12 +242,19 @@ It applies only when `[dependency-update].hook` is set.
 
 - `tofu init -upgrade` per module, within the existing `~>` provider ranges,
   refreshing `.terraform.lock.hcl`;
-- `NERDCTL_VERSION` in `cloud-init.yaml.skel`, then regenerating
-  `cloud-init.yaml` via `scripts/build-cloud-init.sh`;
-- report entries for `minimumLimaVersion` and the NodeSource major.
+- `NERDCTL_VERSION` in `cloud-init.yaml.skel`, bumped to the newest release
+  **within its current major** (the same rule as exact image tags, §8.3), then
+  regenerating `cloud-init.yaml` via `scripts/build-cloud-init.sh`. A newer
+  nerdctl major is reported, not bumped;
+- report entries for Lima and the NodeSource major. `minimumLimaVersion` is a
+  floor, not a pin, so it is reported only when Lima's latest **major** is above
+  the floor's major. A new Lima minor is not noise-worthy. NodeSource is reported
+  when the newest Node LTS major is above the `setup_<N>.x` major.
 
-The hook needs `tofu` in vergil-vm's dev container. If it is not already there,
-the plan adds it through `[container]` configuration.
+The hook needs `tofu` in vergil-vm's dev container. vergil-containers already
+installs it in every base image (`docker/common/opentofu.dockerfile`), so no
+`[container]` change is expected. The implementation confirms this before
+relying on it.
 
 **vergil-python:** resolve the newest python-build-standalone release for the
 current CPython minor, refetch its `SHA256SUMS`, and rewrite `runtime.toml`
@@ -268,7 +276,8 @@ sanity check: it shows what the repo is behind on, and why.
 
 It appears in the dependency-update PR body (when there is a PR) and in the
 `update-deps` stage's completion comment on the release tracking issue
-(always). An empty report says so explicitly.
+(always). A standalone `vrg-update-deps` run also prints it, a no-op run
+included. An empty report says so explicitly.
 
 ### 7.2 Entry format
 
@@ -290,7 +299,7 @@ being dropped.
 | `python` | A **directly declared** dependency's latest release is outside its `pyproject.toml` / `[tool.uv]` bounds |
 | `vergil` | A newer vergil-python *minor* exists in the package index than `[package.python] runtime` |
 | `images` | A newer image series exists than a series-tagged ref (`python:3.14-slim` with 3.15 out), or a newer major than an exact-tagged ref |
-| vergil-vm hook | `minimumLimaVersion` or the NodeSource major is behind |
+| vergil-vm hook | Lima's latest major is above the `minimumLimaVersion` major; the newest Node LTS major is above the NodeSource major; a newer nerdctl major exists |
 | vergil-python hook | A newer CPython minor exists |
 
 ## 8. Built-in updater changes
@@ -313,11 +322,15 @@ caught by `pip-audit` in validation.)
   repo (for example vergil-actions' `actions/**`).
 - **Bump the vergil-python runtime patch.** When `[package.python] runtime` is
   set, bump it to the newest vergil-python patch in the same minor that the
-  **live vergil package repository serves**. That is exactly what
-  `lib/package/python_builder.py` installs. A version that is tagged or released
-  on GitHub but not yet indexed is never a candidate; picking one would merge
-  green and then fail the next release's package build. A newer minor is
-  reported (§7.3), not bumped.
+  **live vergil package repository serves in every index the release reads it
+  from**. That means the shared deb build suite for both architectures, where
+  `lib/package/python_builder.py` installs it for non-native cells, plus every
+  target the repo's `[package]` selects: a native cell installs it from its own
+  suite, and install-test resolves `Depends: vergil-python<runtime>` from each
+  target's deb or rpm index. A version that is tagged or released on GitHub, or
+  indexed for only some of those targets, is never a candidate; picking one
+  would merge green and then fail the next release's package build or
+  install-test. A newer minor is reported (§7.3), not bumped.
 
 ### 8.3 `images` (new)
 
@@ -327,8 +340,9 @@ files, and image defaults in `action.yml` inputs.
 | Ref form | Action |
 |---|---|
 | Exact `x.y.z` tag (`trivy:0.71.0`) | Bump to the newest `x.y.z` tag **with the same major** (major 0 included, so `0.71.0 → 0.74.0`). Report a newer major; never bump across it |
-| Series tag (`python:3.14-slim`, `ubuntu:24.04`, `ubi9`) | Leave it; it floats. Report a newer series |
-| `:latest`, a digest, or `ghcr.io/vergil-project/*` | Skip |
+| Numeric series tag: one or two numeric parts plus an optional suffix (`python:3.14-slim`, `ubuntu:24.04`, `postgres:16`) | Leave it; it floats. Report a newer series with the same suffix |
+| `:latest`, a digest, an expression (`${{ … }}`, `$ARG`), or `ghcr.io/vergil-project/*` | Skip |
+| Any other tag: codenames (`debian:trixie-slim`), or a series in the image name (`ubi9/ubi`) | Skip. These float and are never bumped; their series rollovers are not detected in this epic |
 
 Registry lookups are injected so tests never touch the network. A lookup failure
 fails loud. Today this updater changes one ref (vergil-actions' trivy default);
@@ -408,7 +422,7 @@ marks the old spec as partly superseded.
   - the gate refusing on an open labelled PR;
   - `--allow-pending-deps` logging its bypass.
 - **Updater rules:** `images` never crosses a major; the vergil-python runtime is
-  never bumped to a version missing from the package index; `python` reports
+  never bumped to a version missing from any index the build or install-test reads; `python` reports
   only direct dependencies.
 - **Coverage:** vergil-tooling's 100% coverage gate applies.
 - **End to end:** a validation task runs a live release cycle in vergil-tooling,

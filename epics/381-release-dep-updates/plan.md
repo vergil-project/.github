@@ -1500,6 +1500,19 @@ def test_update_failure_opens_no_pr_and_files_no_task(monkeypatch) -> None:
     assert calls == []
 
 
+def test_finalize_prints_report_on_noop(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(_MOD + ".pr.cleanup_worktree", lambda ctx: None)
+    state, ctx = _state()
+    ctx.results = [UpdateResult(updater="python", changed=False, summary="", commit_message="",
+                                held_back=[HeldBack(source="python", name="p", current="1",
+                                                    latest="2")])]
+    finalize_stage(state)
+    out = capsys.readouterr().out
+    assert "Held back by declared bounds:" in out
+    assert "| python | p | 1 | 2 |" in out
+    assert "No updates found" in out
+
+
 def test_status_stage_raises_on_recorded_failure() -> None:
     state, ctx = _state()
     ctx.version = "2.1.243"
@@ -1541,8 +1554,8 @@ def test_run_update_cleans_up_when_a_stage_raises(monkeypatch) -> None:
     assert order == ["finalize"]
 ```
 
-Import `DepsFailure`, `fix_task_stage`, `status_stage` and `run_update` at the
-top of the test file.
+Import `DepsFailure`, `HeldBack`, `fix_task_stage`, `status_stage` and
+`run_update` at the top of the test file.
 
 - [ ] **Step 17: Run. Expect FAIL**
 
@@ -1556,9 +1569,12 @@ In `src/vergil_tooling/lib/update_deps/orchestrator.py` (keep `UpdateDepsState`,
 imports:
 
 ```python
+from vergil_tooling.lib.update_deps import pr, report, validate
 from vergil_tooling.lib.update_deps.context import DepsFailure, UpdateDepsContext, UpdateDepsError
 from vergil_tooling.lib.update_deps.failure import failure_summary, tail_output
 ```
+
+(This replaces the existing `from vergil_tooling.lib.update_deps import pr, validate`.)
 
 Then replace the stage functions:
 
@@ -1621,6 +1637,9 @@ def fix_task_stage(state: UpdateDepsState) -> None:
 
 def finalize_stage(state: UpdateDepsState) -> None:
     ctx = _require_ctx(state)
+    # Every run reports what the bounds hold back, a no-op run included (spec §7.1).
+    print("Held back by declared bounds:")
+    print(report.render_markdown(report.collect(ctx.results)))
     if ctx.failure is not None:
         print(f"Dependency update did not land ({ctx.failure.kind}).")
     elif not ctx.any_changes:
@@ -2709,7 +2728,7 @@ Covers spec §7.3 (the `vergil` row) and §8.2.
 
 - Create: `src/vergil_tooling/lib/update_deps/vergil_index.py`
 - Modify: `src/vergil_tooling/lib/update_deps/updaters/vergil_eco.py`
-- Modify: `src/vergil_tooling/lib/release/package_index.py` (public `deb_package_names`)
+- Modify: `src/vergil_tooling/lib/release/package_index.py` (public `deb_package_names`, `rpm_package_names`)
 - Modify: `src/vergil_tooling/lib/package/python_builder.py` (public `SHARED_SUITE`)
 - Test: `tests/vergil_tooling/test_update_deps_vergil_index.py` (new)
 - Test: `tests/vergil_tooling/test_update_deps_vergil_eco.py`
@@ -2718,19 +2737,36 @@ Covers spec §7.3 (the `vergil` row) and §8.2.
 **Interfaces:**
 
 - Consumes: `report.HeldBack` (Task 1); `package_index._fetch`,
-  `orgs.for_vendor("vergil").base_url`.
+  `orgs.for_vendor("vergil").base_url`, `matrix.select_targets(pkg)` (each
+  `Target` has `.fmt`, `.suite`, `.arch`, `.rpm_arch`), `config.read_config`.
 - Produces:
   - `package_index.deb_package_names(base_url: str, suite: str, arch: str, fetch: Fetch) -> set[str]`
+  - `package_index.rpm_package_names(base_url: str, el: str, rpm_arch: str, fetch: Fetch) -> set[str]`
   - `python_builder.SHARED_SUITE: str`
-  - `vergil_index.served_runtimes(*, fetch: Fetch = package_index._fetch) -> set[str]`
-    (`{"3.14.8", "3.14.9", …}`, present for both `amd64` and `arm64`; raises
+  - `vergil_index.runtime_indexes(pkg: PackageConfig) -> list[tuple[str, str, str]]`
+    (the `(fmt, suite, arch)` indexes the build and install-test resolve
+    `vergil-python<runtime>` from: the shared deb suite for both arches, plus
+    every selected target)
+  - `vergil_index.served_runtimes(pkg: PackageConfig, *, fetch: Fetch = package_index._fetch) -> set[str]`
+    (runtimes served by **every** index in `runtime_indexes`; raises
     `UpdateDepsError` when empty)
+  - `vergil_index.served_runtimes_for(base: Path) -> set[str]` (reads `[package]` from `base/vergil.toml`)
   - `vergil_index.newest_patch(current: str, served: set[str]) -> str | None`
   - `vergil_index.newer_minor(current: str, served: set[str]) -> str | None`
   - `vergil_eco.normalize_refs(base, target)` now also rewrites every `action.yml`/`action.yaml`
   - `vergil_eco.bump_runtime(base: Path, served: set[str]) -> tuple[str | None, HeldBack | None]`
     (the new runtime if bumped, and the newer-minor entry)
-  - `VergilUpdater(served_runtimes: Callable[[], set[str]] = vergil_index.served_runtimes)`
+  - `VergilUpdater(served_runtimes: Callable[[Path], set[str]] = vergil_index.served_runtimes_for)`
+
+**Why every index (spec §8.2, alignment decision):** non-native cells install
+the runtime from the shared deb suite (`python_builder.py:135-138`). A native
+cell installs it from its own target's suite, which may be rpm. Install-test
+then installs the product on every selected target, each of which resolves
+`Depends: vergil-python<runtime>` from its own index. A runtime missing from any
+one of these would merge green and fail the next release. The rpm package name
+is assumed to match the deb name (`vergil-python<runtime>`, set by
+vergil-python's `[package].name`). Before relying on that, confirm it once by
+running `rpm_package_names` against a live rpm index in a REPL.
 
 - [ ] **Step 1: Failing index tests**
 
@@ -2738,28 +2774,90 @@ Covers spec §7.3 (the `vergil` row) and §8.2.
 # tests/vergil_tooling/test_update_deps_vergil_index.py
 from __future__ import annotations
 
+import gzip
+from pathlib import Path
+
 import pytest
 
+from vergil_tooling.lib.config import PackageConfig, PackagePythonConfig
+from vergil_tooling.lib.package import matrix, python_builder
 from vergil_tooling.lib.update_deps import vergil_index
 from vergil_tooling.lib.update_deps.context import UpdateDepsError
 
+_MOD = "vergil_tooling.lib.update_deps.vergil_index"
+_PKG = PackageConfig(builder="python", vendor="vergil", summary="s", smoke="x",
+                     python=PackagePythonConfig(runtime="3.14.8"))
 
-def _packages(*names: str) -> bytes:
+
+def _deb(*names: str) -> bytes:
     return "\n\n".join(f"Package: {n}\nVersion: 1\nArchitecture: all" for n in names).encode()
 
 
-def test_served_runtimes_intersects_arches() -> None:
+def _rpm(*names: str) -> tuple[bytes, bytes]:
+    repomd = (b'<repomd xmlns="http://linux.duke.edu/metadata/repo"><data type="primary">'
+              b'<location href="repodata/primary.xml.gz"/></data></repomd>')
+    primary = ('<metadata xmlns="http://linux.duke.edu/metadata/common">'
+               + "".join(f'<package><name>{n}</name><version ver="1" rel="1"/></package>'
+                         for n in names)
+               + "</metadata>")
+    return repomd, gzip.compress(primary.encode())
+
+
+def _fetch(deb_names: tuple[str, ...], rpm_names: tuple[str, ...]):
+    repomd, primary = _rpm(*rpm_names)
+
     def fetch(url: str) -> bytes:
-        if "binary-amd64" in url:
-            return _packages("vergil-python3.14.8", "vergil-python3.14.9", "vergil-tooling")
-        return _packages("vergil-python3.14.8")  # arm64 not yet published for 3.14.9
+        if url.endswith("/Packages"):
+            return _deb(*deb_names)
+        if url.endswith("repomd.xml"):
+            return repomd
+        if url.endswith("primary.xml.gz"):
+            return primary
+        raise AssertionError(url)
 
-    assert vergil_index.served_runtimes(fetch=fetch) == {"3.14.8"}
+    return fetch
 
 
-def test_served_runtimes_empty_fails_loud() -> None:
+def test_runtime_indexes_cover_shared_suite_and_every_target() -> None:
+    indexes = vergil_index.runtime_indexes(_PKG)
+    assert ("deb", python_builder.SHARED_SUITE, "amd64") in indexes
+    assert ("deb", python_builder.SHARED_SUITE, "arm64") in indexes
+    for t in matrix.select_targets(_PKG):
+        expected = (t.fmt, t.suite, t.arch if t.fmt == "deb" else t.rpm_arch)
+        assert expected in indexes
+    assert len(indexes) == len(set(indexes))
+
+
+def test_served_runtimes_requires_every_index(monkeypatch) -> None:
+    monkeypatch.setattr(_MOD + ".runtime_indexes",
+                        lambda pkg: [("deb", "noble", "amd64"), ("rpm", "el9", "x86_64")])
+    fetch = _fetch(("vergil-python3.14.8", "vergil-python3.14.9", "vergil-tooling"),
+                   ("vergil-python3.14.8",))  # rpm not yet published for 3.14.9
+    assert vergil_index.served_runtimes(_PKG, fetch=fetch) == {"3.14.8"}
+
+
+def test_served_runtimes_empty_fails_loud(monkeypatch) -> None:
+    monkeypatch.setattr(_MOD + ".runtime_indexes", lambda pkg: [("deb", "noble", "amd64")])
     with pytest.raises(UpdateDepsError, match="no vergil-python runtime"):
-        vergil_index.served_runtimes(fetch=lambda url: b"")
+        vergil_index.served_runtimes(_PKG, fetch=lambda url: b"")
+
+
+def test_served_runtimes_for_reads_package(monkeypatch) -> None:
+    class _Cfg:
+        package = _PKG
+
+    monkeypatch.setattr(_MOD + ".config.read_config", lambda base: _Cfg())
+    monkeypatch.setattr(_MOD + ".served_runtimes", lambda pkg: {"3.14.9"})
+    assert vergil_index.served_runtimes_for(Path("/r")) == {"3.14.9"}
+
+
+def test_served_runtimes_for_without_package_fails_loud(monkeypatch) -> None:
+    class _Cfg:
+        package = None
+
+    monkeypatch.setattr(_MOD + ".config.read_config", lambda base: _Cfg())
+    with pytest.raises(UpdateDepsError, match=r"\[package\]"):
+        vergil_index.served_runtimes_for(Path("/r"))
 
 
 @pytest.mark.parametrize(
@@ -2779,13 +2877,32 @@ def test_newer_minor() -> None:
     assert vergil_index.newer_minor("3.14.8", {"3.14.9"}) is None
 ```
 
-Add a `deb_package_names` test to the package-index test file:
+Add the listing tests to the package-index test file. Reuse the `_rpm` helper
+shape above, or import it from a shared test helper:
 
 ```python
 def test_deb_package_names_lists_every_package() -> None:
     text = b"Package: a\nVersion: 1\n\nPackage: b\nVersion: 2\n"
     assert package_index.deb_package_names("https://x", "noble", "amd64",
                                            lambda url: text) == {"a", "b"}
+
+
+def test_rpm_package_names_lists_every_package() -> None:
+    repomd = (b'<repomd xmlns="http://linux.duke.edu/metadata/repo"><data type="primary">'
+              b'<location href="repodata/primary.xml.gz"/></data></repomd>')
+    primary = gzip.compress(
+        b'<metadata xmlns="http://linux.duke.edu/metadata/common">'
+        b'<package><name>a</name><version ver="1" rel="1"/></package>'
+        b'<package><name>b</name><version ver="2" rel="1"/></package></metadata>')
+
+    def fetch(url: str) -> bytes:
+        return repomd if url.endswith("repomd.xml") else primary
+
+    assert package_index.rpm_package_names("https://x", "el9", "x86_64", fetch) == {"a", "b"}
+
+
+def test_rpm_package_names_unpublished_repo_is_empty() -> None:
+    assert package_index.rpm_package_names("https://x", "el9", "x86_64", lambda url: b"") == set()
 ```
 
 - [ ] **Step 2: Run. Expect FAIL**
@@ -2795,15 +2912,37 @@ Expected: FAIL.
 
 - [ ] **Step 3: Expose the index helpers**
 
-In `src/vergil_tooling/lib/release/package_index.py`, extract the stanza parse
-that `deb_has` does into `_stanzas(text) -> list[dict[str, str]]`, rewrite
-`deb_has` on top of it (no behaviour change), and add:
+In `src/vergil_tooling/lib/release/package_index.py`:
+
+1. Extract the stanza parse that `deb_has` does into
+   `_stanzas(text) -> list[dict[str, str]]`, and rewrite `deb_has` on top of it
+   (no behaviour change).
+2. Extract the body of `rpm_has` that locates and decompresses the primary
+   metadata into
+   `_rpm_primary(base_url, el, rpm_arch, fetch) -> ET.Element | None`, which
+   returns `None` where `rpm_has` returns `False` today (missing `repomd.xml`
+   or primary file). It still raises `ReleaseError` when `repomd.xml` has no
+   primary location. Rewrite `rpm_has` on top of it (no behaviour change).
+3. Add the two listing helpers:
 
 ```python
 def deb_package_names(base_url: str, suite: str, arch: str, fetch: Fetch) -> set[str]:
     """Every ``Package:`` name in the suite's ``binary-<arch>/Packages`` index."""
     text = fetch(_deb_url(base_url, suite, arch)).decode("utf-8")
     return {s["Package"] for s in _stanzas(text) if "Package" in s}
+
+
+def rpm_package_names(base_url: str, el: str, rpm_arch: str, fetch: Fetch) -> set[str]:
+    """Every package name in ``<el>/<rpm_arch>``'s primary metadata (empty if unpublished)."""
+    meta = _rpm_primary(base_url, el, rpm_arch, fetch)
+    if meta is None:
+        return set()
+    names: set[str] = set()
+    for pkg in meta:
+        name_el = next((c for c in pkg if _local(c.tag) == "name"), None)
+        if name_el is not None and name_el.text:
+            names.add(name_el.text)
+    return names
 ```
 
 In `src/vergil_tooling/lib/package/python_builder.py`, add below
@@ -2820,43 +2959,81 @@ SHARED_SUITE = _SHARED_SUITE
 # src/vergil_tooling/lib/update_deps/vergil_index.py
 """vergil-python runtimes the live vergil package repository serves (spec §8.2).
 
-``python_builder`` installs ``vergil-python<runtime>`` from that repository, so
-a runtime is a bump candidate only once it is indexed for every architecture the
-build uses. A version tagged on GitHub but not yet indexed would merge green and
-then fail the next release's package build.
+The package build installs ``vergil-python<runtime>`` from the shared deb suite
+(non-native cells) or the target's own suite (native cells), and install-test
+resolves it from every selected target's index. A runtime is therefore a bump
+candidate only when **every** one of those indexes serves it. A version missing
+from any of them would merge green and then fail the next release.
 """
 
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
-from vergil_tooling.lib.package import orgs, python_builder
+from vergil_tooling.lib import config
+from vergil_tooling.lib.package import matrix, orgs, python_builder
+from vergil_tooling.lib.package.targets import ARCHES
 from vergil_tooling.lib.release import package_index
 from vergil_tooling.lib.update_deps.context import UpdateDepsError
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from vergil_tooling.lib.config import PackageConfig
+
 _RUNTIME_RE = re.compile(r"^vergil-python(\d+\.\d+\.\d+)$")
-_ARCHES = ("amd64", "arm64")
 
 
 def _key(v: str) -> tuple[int, ...]:
     return tuple(int(p) for p in v.split("."))
 
 
-def served_runtimes(*, fetch: package_index.Fetch = package_index._fetch) -> set[str]:  # noqa: SLF001
+def runtime_indexes(pkg: PackageConfig) -> list[tuple[str, str, str]]:
+    """``(fmt, suite, arch)`` of every index the build or install-test reads the runtime from.
+
+    ``arch`` is the deb arch for deb indexes and the rpm arch for rpm ones.
+    """
+    indexes = [("deb", python_builder.SHARED_SUITE, arch) for arch in ARCHES]
+    for t in matrix.select_targets(pkg):
+        entry = (t.fmt, t.suite, t.arch if t.fmt == "deb" else t.rpm_arch)
+        if entry not in indexes:
+            indexes.append(entry)
+    return indexes
+
+
+def served_runtimes(
+    pkg: PackageConfig,
+    *,
+    fetch: package_index.Fetch = package_index._fetch,  # noqa: SLF001
+) -> set[str]:
     base = orgs.for_vendor("vergil").base_url
-    per_arch: list[set[str]] = []
-    for arch in _ARCHES:
-        names = package_index.deb_package_names(base, python_builder.SHARED_SUITE, arch, fetch)
-        per_arch.append({m.group(1) for n in names if (m := _RUNTIME_RE.match(n))})
-    served = set.intersection(*per_arch)
+    per_index: list[set[str]] = []
+    for fmt, suite, arch in runtime_indexes(pkg):
+        if fmt == "deb":
+            names = package_index.deb_package_names(base, suite, arch, fetch)
+        else:
+            names = package_index.rpm_package_names(base, suite, arch, fetch)
+        per_index.append({m.group(1) for n in names if (m := _RUNTIME_RE.match(n))})
+    served = set.intersection(*per_index)
     if not served:
         raise UpdateDepsError(
             phase="update",
-            command=f"GET {base}/deb/dists/{python_builder.SHARED_SUITE}/…/Packages",
-            message="The vergil package index lists no vergil-python runtime for every "
-                    "architecture; refusing to treat a failed lookup as 'no change'.",
+            command=f"list vergil-python runtimes in {base}",
+            message="The vergil package index lists no vergil-python runtime served by every "
+                    "build and install-test index; refusing to treat a failed lookup as "
+                    "'no change'.",
         )
     return served
+
+
+def served_runtimes_for(base: Path) -> set[str]:
+    """``served_runtimes`` for the ``[package]`` block in ``base/vergil.toml``."""
+    pkg = config.read_config(base).package
+    if pkg is None:
+        raise UpdateDepsError(phase="update", command="served_runtimes_for",
+                              message="[package] is missing, so there is no runtime to resolve.")
+    return served_runtimes(pkg)
 
 
 def newest_patch(current: str, served: set[str]) -> str | None:
@@ -2927,7 +3104,7 @@ def test_bump_runtime_absent_is_noop(tmp_path) -> None:
 def test_apply_skips_index_when_no_runtime(tmp_path) -> None:
     (tmp_path / "vergil.toml").write_text('[dependencies]\nvergil = "v2.1"\n')
 
-    def must_not_call() -> set[str]:
+    def must_not_call(base) -> set[str]:
         raise AssertionError("index lookup without [package.python]")
 
     ctx = UpdateDepsContext(repo="o/r", repo_root=tmp_path, worktree_path=tmp_path)
@@ -2938,12 +3115,15 @@ def test_apply_skips_index_when_no_runtime(tmp_path) -> None:
 def test_apply_combines_runtime_bump(tmp_path) -> None:
     (tmp_path / "vergil.toml").write_text('[dependencies]\nvergil = "v2.1"\n\n' + _TOML)
     ctx = UpdateDepsContext(repo="o/r", repo_root=tmp_path, worktree_path=tmp_path)
-    result = vergil_eco.VergilUpdater(served_runtimes=lambda: {"3.14.9"}).apply(ctx)
+    seen: list[Path] = []
+    updater = vergil_eco.VergilUpdater(served_runtimes=lambda base: seen.append(base) or {"3.14.9"})
+    result = updater.apply(ctx)
+    assert seen == [tmp_path]
     assert result.changed is True
     assert "vergil-python runtime 3.14.9" in result.commit_message
 ```
 
-Import `HeldBack` and `UpdateDepsContext` in the test file if needed.
+Import `HeldBack`, `UpdateDepsContext` and `pathlib.Path` in the test file if needed.
 
 - [ ] **Step 7: Run. Expect FAIL**
 
@@ -3018,14 +3198,14 @@ Import `UpdateDepsError` from `context`. In `VergilUpdater`:
 
 ```python
     def __init__(
-        self, served_runtimes: Callable[[], set[str]] = vergil_index.served_runtimes
+        self, served_runtimes: Callable[[Path], set[str]] = vergil_index.served_runtimes_for
     ) -> None:
         self._served_runtimes = served_runtimes
 
     def _runtime(self, base: Path) -> tuple[str | None, list[HeldBack]]:
         if not _declares_runtime(base):
             return None, []
-        new, entry = bump_runtime(base, self._served_runtimes())
+        new, entry = bump_runtime(base, self._served_runtimes(base))
         return new, [entry] if entry is not None else []
 ```
 
