@@ -1181,10 +1181,19 @@ Blocked by Task 2 (rumdl in the published dev image) and Task 4.
 - Consumes: `markdown_fixers()` (Task 4).
 - Produces: `markdown_fixers()` returns, for the strict pass,
   `("rumdl fmt (strict)", [...])` followed by `("markdownlint --fix (strict)", [...])`.
+  The rumdl entry lists only strict files that have an over-long line
+  (`_has_overlong_line`), and is omitted when none does.
 
 **Scope note:** the prose pass's config disables MD013 entirely
 (`markdownlint-prose.yaml`), so there is nothing to reflow there. rumdl runs on
 the **strict** pass only. The prose pass keeps `markdownlint --fix` alone.
+
+**Churn note (spec §5.3):** rumdl's reflow can rewrap paragraphs that already
+pass MD013, so rumdl is given only files with a line MD013 would flag. A file
+with no such line is never touched. The scan mirrors the strict config: fenced
+code blocks and table rows are exempt, and, as in markdownlint's default
+non-strict MD013, a line is flagged only when it has whitespace beyond column
+100 (a long bare URL is not flagged).
 
 - [ ] **Step 1: Write the rumdl config, mirroring `markdownlint.yaml`**
 
@@ -1220,7 +1229,9 @@ re-run. Record the rumdl version used in the commit body.
 
 - [ ] **Step 3: Write the failing tests**
 
-In `test_validate_common.py`, update `test_markdown_fixers_both_passes`:
+In `test_validate_common.py`, update `test_markdown_fixers_both_passes` so
+`README.md` has an over-long line (write
+`"# r\n\n" + "word " * 30 + "\n"` instead of `"# r\n"`), then assert:
 
 ```python
     assert labels == [
@@ -1237,6 +1248,54 @@ In `test_validate_common.py`, update `test_markdown_fixers_both_passes`:
 
 `test_markdown_fixers_empty_scope_yields_nothing` stays as is. It now also
 proves rumdl is never called with no paths (Review Focus 2).
+
+Add the selection tests:
+
+```python
+from vergil_tooling.bin.validate_common import _has_overlong_line
+
+_LONG_PROSE = ("word " * 30).strip()  # 149 characters, spaces throughout
+_FENCE = "`" * 3
+
+
+def test_rumdl_gets_only_files_with_overlong_lines(tmp_path: Path) -> None:
+    _write_minimal_config(tmp_path)
+    (tmp_path / "README.md").write_text(f"# r\n\n{_LONG_PROSE}\n")
+    site = tmp_path / "docs" / "site" / "docs"
+    site.mkdir(parents=True)
+    (site / "clean.md").write_text("# c\n\nshort line\n")
+    fixers = dict(markdown_fixers(tmp_path))
+    assert fixers["rumdl fmt (strict)"][4:] == [str(tmp_path / "README.md")]
+    assert str(site / "clean.md") in fixers["markdownlint --fix (strict)"]
+
+
+def test_no_overlong_lines_means_no_rumdl(tmp_path: Path) -> None:
+    _write_minimal_config(tmp_path)
+    (tmp_path / "README.md").write_text("# r\n\nshort line\n")
+    labels = [label for label, _ in markdown_fixers(tmp_path)]
+    assert labels == ["markdownlint --fix (strict)"]
+
+
+def test_overlong_line_exemptions(tmp_path: Path) -> None:
+    doc = tmp_path / "d.md"
+    doc.write_text(f"{_FENCE}text\n{_LONG_PROSE}\n{_FENCE}\n")
+    assert not _has_overlong_line(doc)  # fenced code is exempt
+    doc.write_text(f"| a | b |\n| --- | --- |\n| {_LONG_PROSE} | x |\n")
+    assert not _has_overlong_line(doc)  # table rows are exempt
+    doc.write_text("see https://example.com/" + "x" * 120 + "\n")
+    assert not _has_overlong_line(doc)  # no whitespace beyond column 100
+    doc.write_text(f"# h\n\n{_LONG_PROSE}\n")
+    assert _has_overlong_line(doc)
+
+
+def test_overlong_scan_read_error_is_raised(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        _has_overlong_line(tmp_path / "missing.md")
+```
+
+The read-error test pins "no silent failures": an unreadable file fails the
+`format-common` stage instead of being quietly skipped. (The file list comes
+from discovery, so this only happens on a race or permissions problem.)
 
 Create `tests/vergil_tooling/test_rumdl_convergence.py`. This is a real-tool
 test: it requires `rumdl` and `markdownlint` in the dev container and **fails**
@@ -1293,7 +1352,8 @@ def test_fix_is_idempotent(tmp_path: Path) -> None:
 - [ ] **Step 4: Run the tests to verify they fail**
 
 Run: `vrg-container-run -- vrg-validate --check test`
-Expected: `test_markdown_fixers_both_passes` FAILS (labels mismatch). The
+Expected: `test_markdown_fixers_both_passes` FAILS (labels mismatch), and the
+selection tests FAIL with `ImportError` (`_has_overlong_line`). The
 convergence tests PASS or FAIL on the tools alone. If
 `test_rumdl_then_markdownlint_fix_passes_markdownlint` fails, read its output.
 A markdownlint rule tripped by rumdl's output is the loop that spec §7 warns
@@ -1302,24 +1362,65 @@ report it as a blocker; do not weaken the test.
 
 - [ ] **Step 5: Implement**
 
+In `validate_common.py`, add the scan:
+
+```python
+_MD013_LINE_LENGTH = 100  # keep in sync with configs/markdownlint.yaml MD013
+
+
+def _has_overlong_line(path: Path) -> bool:
+    """True if *path* has a line the strict MD013 config would flag.
+
+    Mirrors configs/markdownlint.yaml: fenced code blocks and table rows are
+    exempt, and (markdownlint's non-strict default) a line is flagged only
+    when there is whitespace beyond the limit. Used to give rumdl only files
+    that need reflow, because rumdl can rewrap already-compliant paragraphs
+    (epic vergil-project/.github#388). Read errors propagate.
+    """
+    fence: str | None = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.lstrip()
+        if fence is not None:
+            if stripped.startswith(fence):
+                fence = None
+            continue
+        if stripped.startswith(("```", "~~~")):
+            fence = stripped[:3]
+            continue
+        if stripped.startswith("|"):
+            continue
+        if len(line) > _MD013_LINE_LENGTH and any(
+            c.isspace() for c in line[_MD013_LINE_LENGTH:]
+        ):
+            return True
+    return False
+```
+
 In `markdown_fixers`, before the strict markdownlint fixer:
 
 ```python
-    if strict_md:
+    reflow_md = [f for f in strict_md if _has_overlong_line(Path(f))]
+    if reflow_md:
         fixers.append((
             "rumdl fmt (strict)",
-            ["rumdl", "fmt", "--config", str(configs / "rumdl.toml"), *strict_md],
+            ["rumdl", "fmt", "--config", str(configs / "rumdl.toml"), *reflow_md],
         ))
 ```
 
 - [ ] **Step 6: Convergence on real docs**
 
 Run in this worktree: `vrg-container-run -- vrg-validate --fix-format --check common`
-Expected: the run passes. The change report lists whatever rumdl reflowed in
-`docs/site/` and `README.md`. Review the diff: only line wrapping should
-change. Do not commit the rewritten docs in this task. Revert them with
-`vrg-git checkout -- docs/site README.md`, and record the file count in the PR
-notes. A one-time reflow of existing docs is a separate decision.
+Expected: the run passes and prints `format: no changes`. The repo's docs
+already pass the markdownlint gate, so no strict file has an over-long line and
+rumdl is never invoked. Any change here means the scan or `markdownlint --fix`
+is touching clean files: stop and fix that before going on.
+
+Then append one over-long prose paragraph (spaces throughout, over 100
+characters) to one page under `docs/site/docs/`, and re-run the same command.
+Expected: the run passes, and the change report lists only that page, under
+`rumdl fmt (strict)`. Review the diff: only that file's line wrapping should
+change. Revert it with `vrg-git checkout -- docs/site`, and record both runs'
+change reports in the PR notes.
 
 - [ ] **Step 7: Update docs**
 
@@ -1361,10 +1462,18 @@ Blocked by Task 4. This task ships **only what it verifies** (spec §7).
 - Consumes: `Formatter`, `language_formatters` (Task 3).
 - Produces: the ruby and go formatter tuples. Their LINT lists are unchanged.
 
-- [ ] **Step 1: Verify Ruby in a real Ruby repo**
+vergil-project has no Ruby or Go consuming repo, so both checks run in a
+**throwaway local repo** (spec §9): a new scratch directory outside any
+existing repo, with `git init`, a `vergil.toml` naming the language as
+`primary-language`, the build files the language's `install` stage needs, and
+one source file. First confirm the clean baseline:
+`vrg-container-run -- vrg-validate --check lint` passes before any defect is
+added. Record every file you created in the PR notes; Task 8 reuses the recipe.
 
-In a Ruby consuming repo (see the target-repo table in Task 8), on a scratch
-branch, introduce only Layout offences (for example, wrong indentation and
+- [ ] **Step 1: Verify Ruby in a throwaway Ruby repo**
+
+In the Ruby repo (`Gemfile` with `rubocop`, and `Gemfile.lock` from
+`vrg-container-run -- bundle install`), introduce only Layout offences (for example, wrong indentation and
 trailing whitespace). Run
 `vrg-container-run -- bundle exec rubocop` and expect a failure that lists only
 `Layout/*` cops. Then run `vrg-container-run -- bundle exec rubocop --fix-layout`
@@ -1372,10 +1481,11 @@ followed by `vrg-container-run -- bundle exec rubocop`, and expect exit 0.
 Record the commands and output in the PR notes. If it fails, Ruby gets no
 companion: drop Steps 3–4's Ruby part and record the gap.
 
-- [ ] **Step 2: Verify Go in a real Go repo**
+- [ ] **Step 2: Verify Go in a throwaway Go repo**
 
-In a Go consuming repo, confirm that `.golangci.yml` enables at least one
-formatter under `formatters:`. Then confirm `vrg-container-run -- golangci-lint fmt --help`
+In the Go repo (`go.mod` and a `main.go`), add a `.golangci.yml` (golangci-lint
+v2 format) that enables `gofmt` under `formatters:`. Real Go repos that adopt
+`--fix-format` need the same, which the docs must say. Then confirm `vrg-container-run -- golangci-lint fmt --help`
 works (v2), introduce a gofmt-only defect, check that
 `vrg-container-run -- golangci-lint run ./...` fails on it, and check that
 `golangci-lint fmt` followed by `golangci-lint run ./...` passes. Record the
@@ -1441,36 +1551,49 @@ vrg-commit --type feat --scope validate --message "add verified Ruby and Go fix-
 Create with `vrg-issue-create --kind validation` blocked by Tasks 5, 6 and 7.
 
 **Precondition (self-check):** Tasks 5–7 are merged to vergil-tooling
-`develop`. Task 2 is closed (`Outcome: SUCCESS`). Each target repo below
-exists locally.
+`develop`. Task 2 is closed (`Outcome: SUCCESS`).
 
-**Target repos (one per language):**
+**Targets (spec §9).** vergil-project has no consuming repo for TypeScript,
+Rust, Java, Ruby or Go, and only a skeleton for C++, so every language except
+Python uses a **throwaway local repo**. Permanent test-only repos are the
+subject of a follow-on brainstorm under epic #388.
 
-| Language | Target repo |
-|---|---|
-| Python | `vergil-project/vergil-tooling` |
-| TypeScript | (to be confirmed at alignment) |
-| Rust | (to be confirmed at alignment) |
-| Java | (to be confirmed at alignment) |
-| C++ | (to be confirmed at alignment) |
-| Ruby | (to be confirmed at alignment) |
-| Go | (to be confirmed at alignment) |
-| Markdown | any of the above, using `docs/site/` and `README.md` |
+| Language | Target | Minimal contents besides `vergil.toml` |
+|---|---|---|
+| Python | `vergil-project/vergil-tooling` (scratch branch) | — |
+| TypeScript | throwaway | `package.json` and `package-lock.json` (for `npm ci`), `tsconfig.json`, `src/index.ts` |
+| Rust | throwaway | `Cargo.toml`, `Cargo.lock`, `src/main.rs` |
+| Java | throwaway | Maven wrapper (`mvnw`, `.mvn/`), `pom.xml` with the spotless and checkstyle plugins, one class |
+| C++ | throwaway, from the existing C++ skeleton | the skeleton's files |
+| Ruby | throwaway, reuse Task 7's | `Gemfile`, `Gemfile.lock`, one `.rb` file |
+| Go | throwaway, reuse Task 7's | `go.mod`, `main.go`, `.golangci.yml` enabling `gofmt` |
+| Markdown | every target | `README.md` |
 
-**Procedure (per target, on a scratch branch that is discarded afterwards):**
+A throwaway repo is a new scratch directory outside any existing repo, with
+`git init`, a `vergil.toml` naming the language as `primary-language`, and the
+files above. Before adding any defect, confirm the baseline:
+`vrg-container-run -- vrg-validate --check common` and `--check lint` both pass.
+If a language's baseline cannot be made to pass its lint checks, record that
+and its output as a FAILURE for that language; do not change the registry to
+get there. Record each repo's exact files in the results comment, so the
+recipe can be reused.
+
+**Procedure (per target; the throwaway repos and the scratch branch are discarded afterwards):**
 
 1. `export VRG_DOCKER_INSTALL_TAG=develop` so the container installs
    vergil-tooling `develop`.
 2. Introduce one formatting-only defect for the language's formatter, plus an
    over-long paragraph line in `README.md`.
-3. Run `vrg-container-run -- vrg-validate`. Expected: non-zero, and the right
+3. Run `vrg-container-run -- vrg-validate --check common`, then the same
+   with `--check lint`. (A throwaway repo has no meaningful typecheck, test or
+   audit stages, so only the two stages `--fix-format` touches are run.)
+   Expected: non-zero, and the right
    hint (firm for Python, TypeScript, Rust, Java and C++; soft for Ruby, Go and
    markdownlint).
-4. Run `vrg-container-run -- vrg-validate --fix-format`. Expected: the change
-   report names the defect files.
-5. Run `vrg-container-run -- vrg-validate`. Expected: the formatting checks
-   pass. Unrelated pre-existing failures, if any, are recorded but don't count
-   against this check.
+4. Run `vrg-container-run -- vrg-validate --fix-format --check common`, then
+   the same with `--check lint`. Expected: the change reports name the defect
+   files and nothing else.
+5. Re-run step 3's two commands. Expected: both pass.
 
 **Acceptance:** every language's pair clears its defect, or a failing pair is
 recorded with its output and a follow-up task is filed to remove it.

@@ -90,7 +90,7 @@ registered as a formatter check (see §5.1 for the hint consequence).
 | C++ | find … `\| xargs clang-format --dry-run --Werror` | pure | same find … `\| xargs clang-format -i` |
 | Ruby | `bundle exec rubocop` | mixed | `bundle exec rubocop --fix-layout` † |
 | Go | `golangci-lint run ./...` | mixed | `golangci-lint fmt` † |
-| Markdown | `markdownlint` (strict and prose passes) | mixed | `rumdl fmt` (reflow) then `markdownlint --fix`, same file lists † |
+| Markdown | `markdownlint` (strict and prose passes) | mixed | `markdownlint --fix` on each pass's file list, preceded on the strict pass by `rumdl fmt` (reflow) on files with an over-long line † |
 
 † Not yet confirmed. See §7.
 
@@ -101,6 +101,9 @@ registered as a formatter check (see §5.1 for the hint consequence).
   the agent as findings.
 - yamllint, shellcheck, hadolint and actionlint. None of them has a formatter,
   so they stay check-only.
+- shfmt. It is installed in the dev images but no gate audits shell
+  formatting today, so there is no check for a fix to match. Adding a shell
+  formatting gate is separate work.
 - Replacing markdownlint with rumdl as the Markdown gate. That is a fleet-wide
   gate change and is the subject of follow-on brainstorm
   `vergil-project/.github#392`.
@@ -198,7 +201,7 @@ class Formatter:
     name: str                 # label for reports, e.g. "ruff format"
     check: list[str] | None   # pure gate argv, or None for a fix-only companion
     fix: list[str]            # write-mode argv
-    soft_hint_for: str | None = None  # mixed gate command this companion fixes
+    soft_hint_for: list[str] | None = None  # argv of the mixed gate this companion fixes
 ```
 
 `Language` gains `formatters: list[Formatter]`, empty by default.
@@ -229,14 +232,24 @@ class Formatter:
   reuses the existing file discovery (`_find_strict_markdown_files`,
   `_find_prose_markdown_files`, honouring `[markdownlint].ignore`) and the
   matching packaged config (`markdownlint.yaml`, `markdownlint-prose.yaml`).
-  The fix for each pass is `rumdl fmt` and then `markdownlint --fix`, both on
-  that pass's file list.
+  The fix for each pass is `markdownlint --fix` on that pass's file list. The
+  strict pass first runs `rumdl fmt` (below). The prose pass has no rumdl step:
+  its config turns MD013 off, so reflowing those files would enforce a rule the
+  gate does not check.
+- **rumdl runs only on files with an over-long line.** rumdl's reflow can
+  rewrap a paragraph that already passes MD013 ([rumdl MD013
+  docs](https://github.com/rvben/rumdl/blob/main/docs/md013.md)), so running it
+  on every strict file would rewrite documents nobody touched. Before rumdl,
+  the tooling scans the strict file list and passes rumdl only files with a
+  line longer than 100 characters outside fenced code blocks and table rows
+  (the lines MD013 ignores in our config). A file with no such line is never
+  given to rumdl. A file that has one may have its other paragraphs normalized
+  too; it was being fixed anyway. If no file qualifies, rumdl does not run.
 - **rumdl configuration.** rumdl reads markdownlint config files, but our
   packaged configs leave MD013 reflow off, which is rumdl's default. The
-  tooling passes rumdl its own packaged config per pass, which mirrors the
-  matching markdownlint config and adds `reflow: true` to MD013
-  (`line-length: 100`, `tables: false`, `code-blocks: false` for the strict
-  pass; the prose pass mirrors its relaxed MD013 settings). rumdl's reflow
+  tooling passes rumdl its own packaged config, which mirrors the strict
+  markdownlint config and adds `reflow: true` to MD013 (`line-length: 100`,
+  `tables: false`, `code-blocks: false`). rumdl's reflow
   leaves code blocks, tables, headings and reference definitions alone. A long
   heading therefore still needs a manual fix.
 - **C++.** One helper builds the `find … -print0 | xargs -0 -r clang-format …`
@@ -255,9 +268,13 @@ changes".
 ### 5.5 Container work (vergil-containers)
 
 rumdl is added to the shared layer that installs markdownlint today
-(`node-markdownlint.dockerfile`), so it reaches every dev image. It is pinned
-to an exact version, because rumdl is pre-1.0 and its output may change between
-releases. The pin joins the tools that `bump-tools` keeps current.
+(`node-markdownlint.dockerfile`), in the same `npm install -g` step as
+`markdownlint-cli`. Like `markdownlint-cli`, it floats, following the
+containers' pin policy for package-manager tools (`docker/pins/pins.yml`).
+rumdl is pre-1.0, so a rebuilt image may bring different reflow output. That
+cannot break CI, because rumdl only fixes and markdownlint stays the gate. The
+convergence tests (§8) run against whatever rumdl the image ships, so a
+release that stops converging fails vergil-tooling's own validation.
 
 The tooling depends on rumdl being in the images. A vergil-containers release
 that publishes the new images is a **human-gated precondition** for the
@@ -278,8 +295,9 @@ by an agent.
 
 ## 7. Verification of unconfirmed commands
 
-Three fixes must be confirmed against the real container tool and a real
-consuming-repo configuration before they ship:
+Three fixes must be confirmed against the real container tool and a
+representative repo configuration (a throwaway local repo, §9) before they
+ship:
 
 - **Ruby:** `rubocop --fix-layout` (`-x`) corrects only Layout cops. Confirm
   that, in a repo whose only `rubocop` failures are Layout offences, this
@@ -291,8 +309,9 @@ consuming-repo configuration before they ship:
 - **Markdown (rumdl):** confirm that `rumdl fmt` with the packaged configs,
   followed by `markdownlint --fix`, leaves files that markdownlint passes. In
   particular, check that rumdl's reflow and markdownlint's rules do not loop
-  (rumdl rewrites something markdownlint then flags). Run it on this
-  repository's `docs/site/` and on the `.github` repository's `epics/`.
+  (rumdl rewrites something markdownlint then flags). Run it on
+  vergil-tooling's `docs/site/` and `README.md`, and confirm that files with no
+  over-long line are left byte-identical.
 
 If a fix cannot be shown to clear what it targets, that language ships with no
 `Formatter` entry for it, and the gap is recorded in the retrospective. A
@@ -326,18 +345,27 @@ In vergil-tooling, run in the dev container through `vrg-validate`:
 - **Real-tool tests (Python and Markdown, whose tools exist in this repo's
   container):** a badly formatted fixture is run through the fix command, and
   the matching check then exits 0. The Markdown fixture includes over-long
-  paragraphs, so rumdl reflow is exercised. The rumdl tests need the
-  vergil-containers release (§5.5).
+  paragraphs, so rumdl reflow is exercised. A unit test proves that only
+  files with an over-long line are passed to rumdl, and that rumdl is not run
+  when none qualifies. The rumdl tests need the vergil-containers release
+  (§5.5).
 
 ## 9. Operational validation
 
 A `validation` task, run after the implementation merges. It uses a dev ref of
 vergil-tooling: the consuming repo's container install is pointed at `develop`
 with `VRG_DOCKER_INSTALL_TAG=develop`, so the check does not wait for a tooling
-release. It needs the vergil-containers release (§5.5). It runs in one
-consuming repo per language that has a formatter: Python, TypeScript, Rust,
-Java, C++, Ruby, Go. Markdown, including rumdl reflow, is covered by any repo.
-For each:
+release. It needs the vergil-containers release (§5.5).
+
+vergil-project has no consuming repo for TypeScript, Rust, Java, Ruby or Go,
+and only a skeleton for C++. The validation therefore runs in a **throwaway
+local repo per language**, built inside that language's dev container: `git
+init`, a minimal `vergil.toml`, the build files the `install` stage needs, and
+one source file. The plan records the recipe for each language so the check is
+repeatable. Python also runs in vergil-tooling itself. Markdown, including
+rumdl reflow, is covered by any of them. Permanent test-only repos for this
+kind of check are the subject of a follow-on brainstorm under this epic. For
+each language:
 
 1. Introduce a formatting-only defect.
 2. Confirm plain `vrg-validate` fails and prints the right hint, firm or soft.
@@ -366,6 +394,11 @@ Any pair that fails is removed in a follow-up task, and the gap is recorded.
 2. vergil-tooling ships `--fix-format`. The Markdown companion depends on step 1.
 3. The cross-language validation (§9) runs against a tooling dev ref.
 4. Agents get the feature through a normal vergil-tooling release, which is
-   human-gated. No separate deployment task is seeded, because the container
-   release and the tooling release are both human-gated preconditions rather
-   than agent-run steps.
+   human-gated.
+
+Step 1 is tracked as a **deployment task** in vergil-containers. Its
+precondition is the human-cut container release, which the agent attests and
+never performs. The task closes when `rumdl --version` succeeds in
+vergil-tooling's dev container. The rumdl work (step 2) and the validation
+(step 3) are blocked by it. The tooling release in step 4 is an ordinary
+human-gated release and gets no task.
