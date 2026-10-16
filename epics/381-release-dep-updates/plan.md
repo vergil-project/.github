@@ -457,13 +457,13 @@ class DependencyUpdateConfig:
     hook: str | None = None
 ```
 
-3. Add the field to `VergilConfig`, after `package`:
+**3.** Add the field to `VergilConfig`, after `package`:
 
 ```python
     dependency_update: DependencyUpdateConfig = field(default_factory=DependencyUpdateConfig)
 ```
 
-4. Add the parser next to `_parse_test_config`:
+**4.** Add the parser next to `_parse_test_config`:
 
 ```python
 def _parse_dependency_update(
@@ -485,9 +485,9 @@ def _parse_dependency_update(
     return DependencyUpdateConfig(hook=hook)
 ```
 
-5. In `_parse_raw_config`'s `return VergilConfig(...)`, add
+**5.** In `_parse_raw_config`'s `return VergilConfig(...)`, add
    `dependency_update=_parse_dependency_update(raw, source),`.
-6. Add the accessor next to `validation_container_command`:
+**6.** Add the accessor next to `validation_container_command`:
 
 ```python
 def dependency_update_hook(repo_root: Path) -> str | None:
@@ -2002,7 +2002,7 @@ In `src/vergil_tooling/lib/release/orchestrator.py`:
         Stage("update-deps", _tracked("update-deps", update_deps), mode="fail_defer"),
 ```
 
-4. In `_phase_details`, before `return`:
+**4.** In `_phase_details`, before `return`:
 
 ```python
     elif phase == "update-deps":
@@ -2016,7 +2016,7 @@ In `src/vergil_tooling/lib/release/orchestrator.py`:
             lines.append("No dependency changes; no PR opened.")
 ```
 
-5. Replace `_publish_status_stage` so it reports either failure or both:
+**5.** Replace `_publish_status_stage` so it reports either failure or both:
 
 ```python
 def _publish_status_stage(state: ReleaseState) -> None:
