@@ -167,18 +167,52 @@ this spec does not. The stage:
 3. records the failure on the release tracking issue (`comment_phase_failed`)
    and in `publish-status`.
 
-**Failure output.** The PR body and the fix task carry the **last ~200 lines**
-of the failing output, plus the command that reproduces it on the branch
-(`vrg-container-run -- vrg-validate`, or the failing CI job's link). They never
-carry the full output: GitHub rejects bodies over 65,536 characters, and a
-rejected body would leave no PR for the gate to see.
+**Failure output.** The PR body and the fix task carry the **failing
+`vrg-validate` stage's output** followed by `vrg-validate`'s closing summary,
+plus the command that reproduces it on the branch
+(`vrg-container-run -- vrg-validate`, or the failing CI job's link). The output
+is bounded to the last 200 lines and at most 20,000 characters, with a marker
+line saying what was dropped. It never carries the full output: GitHub rejects
+bodies over 65,536 characters, and a rejected body would leave no PR for the
+gate to see.
+
+If no failing stage can be isolated from the output, the section falls back to
+the raw tail of the combined output, under a heading that labels it as the raw
+tail. A failed update that fails nothing else counts **once** in the release
+summary: the update-deps stage fails, and publish-status repeats it as a
+warning rather than a second failure.
+
+> **Amended after implementation** (vergil-project/vergil-tooling#3283, PR
+> vergil-project/vergil-tooling#3285). The original text said "the last ~200
+> lines of the failing output". The raw tail of a whole validation run is
+> mostly passing stages and container noise, and the cause can sit hundreds of
+> lines earlier, so the shipped code isolates the failing stage instead. It
+> also stopped a deps-only failure being counted twice.
 
 **Fixing.** The fix task is ordinary framework work. Its branch,
 `chore/<N>-dep-update-<version>`, is cut from the `deps/update-<version>` branch,
 so it starts from the failed update. It is fixed and handed off like any other
-task (`issue-implement`, `report-ready`, human submit and merge). When the fix PR
-merges, the deps PR's commits are in develop, so GitHub marks the deps PR merged.
-The label is gone from the open set, and the gate clears with no manual close.
+task (`issue-implement`, `report-ready`, human submit and merge).
+
+The fix PR is squash-merged, so GitHub never marks the deps PR merged; it stays
+open with its label. `vrg-release` preflight clears it: an open
+`dependency-update` PR whose body links a fix task (the `Fix task:` line) that
+is **closed as completed** is closed by the preflight. Before closing it, the
+preflight comments on the PR naming the fix task, and the release records the
+closed PR in its prepare-stage tracking comment. A fix task closed any other
+way (not planned, duplicate, or with no state reason) means the update did not
+land, so the PR keeps blocking with a message that says so; what to do with it
+is a human call.
+
+Every fix task is looked up before any PR is closed. A lookup, comment or close
+that cannot complete raises and stops the release, naming the state the PR was
+left in, so nothing is half-cleared.
+
+> **Amended after implementation** (vergil-project/vergil-tooling#3286, PR
+> vergil-project/vergil-tooling#3287). The original text said the fix PR's merge
+> marks the deps PR merged and clears the gate with no manual close. That is
+> false under squash merges, which left every landed deps PR blocking the next
+> release.
 
 An updater or hook that fails *before* validation (for example a resolution
 error or a non-zero hook exit) produces no diff to push. The stage records the
@@ -189,13 +223,40 @@ opens no PR.
 
 `vrg-release` preflight refuses to start while the repo has **any open PR
 labelled `dependency-update`**. That covers both a failed update and one still
-waiting to merge. The refusal names the PR and its fix task (if any), and says
-how to clear it: land the fix task, merge the PR, or close it deliberately.
+waiting to merge. The refusal names each blocking PR and says how to clear it.
+
+The gate runs on a **fresh start only**; `vrg-release --resume` skips it, since
+the release it resumes already passed it. On a fresh start it runs in this
+order:
+
+1. **Auto-close.** Deps PRs whose fix task closed as completed are closed and
+   recorded (§5.2, "Fixing"). They no longer block.
+2. **Refuse on what remains.** Each remaining PR falls into one of three cases,
+   and the refusal describes the one that applies:
+   - **No fix task linked** (for example an update still waiting to merge):
+     merge the PR, or close it deliberately.
+   - **Fix task open:** land the fix task; preflight then closes the PR on the
+     next release.
+   - **Fix task closed but not completed:** the update did not land, so a human
+     decides whether to merge the PR, close it, or reopen the work.
+
+A lookup that cannot complete — listing the open deps PRs, or reading a fix
+task's state — **fails closed**: preflight refuses with "refusing to release
+blind" rather than treating an unknown answer as "nothing pending".
 
 **`--allow-pending-deps`** overrides the gate, for an urgent release such as a
-security hotfix. When it is used, the release posts a comment on its tracking
-issue naming the pending PR it bypassed. A stale dependency update can therefore
-never block a fix, and bypassing the gate is never silent.
+security hotfix. It bypasses only what still blocks after the auto-close step.
+When it is used, preflight prints a warning, and the bypassed PRs are recorded
+in the release's prepare-stage tracking comment. A stale dependency update can
+therefore never block a fix, and bypassing the gate is never silent.
+
+> **Amended after implementation** (vergil-project/vergil-tooling#3286, PR
+> vergil-project/vergil-tooling#3287). Added the resume skip, the auto-close
+> step that runs first, the fail-closed lookups, and the per-case advice. The
+> bypass record moved into the prepare-stage tracking comment rather than a
+> separate comment. The exact refusal wording is owned by
+> vergil-project/vergil-tooling#3297, so this section describes the cases
+> rather than quoting messages.
 
 ## 6. The per-repo hook
 
@@ -219,8 +280,12 @@ depends on. `[dependency-update]` configures *how updating behaves*.
 
 - **When:** after every built-in updater, so the hook sees lockfiles the
   built-in updaters have already refreshed.
-- **Where:** `vrg-container-run -- <hook>`, from the root of the managed
-  worktree. The hook gets the same dev container and tools as validation.
+- **Where:**
+  `vrg-container-run -- env VRG_DEPS_REPORT=/workspace/.vergil/deps-report.jsonl <hook>`,
+  from the root of the managed worktree. The hook gets the same dev container
+  and tools as validation. *Amended after implementation* (the hook
+  runner as shipped in PR vergil-project/vergil-tooling#3263): the command is wrapped in `env` so `$VRG_DEPS_REPORT` reaches the hook inside
+  the container, at the container path of a gitignored file in the worktree.
 - **What it may do:** edit files in the worktree.
 - **What it must not do:** commit, or move HEAD in any other way. The driver
   records HEAD before the hook and verifies it after; a moved HEAD fails the run
