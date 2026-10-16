@@ -147,6 +147,14 @@ with the real host**.
   install method.
 - **Docker Desktop and macOS are report-only.** Both update through their own
   updaters, which may need privileged helpers, and `vrg-host` never escalates.
+- **vergil-tooling is `auto` upgrade but in practice a no-op on the
+  maintainer's host.** The release workflow installs an exact release tag
+  (`@v2.1.244`). For that install, `vrg-host upgrade` re-resolves the same tag
+  and changes nothing, so the release workflow still decides when the host
+  tooling moves. A host installed on a release line (`@v2.1`) would instead
+  follow that line, which is the right behaviour for someone who only uses
+  Vergil. We kept the entry `auto` rather than special-casing the contributor
+  host.
 - **Re-evaluation-due pins rate WARN, not OK.** This deliberately departs from
   the spec's "pinned = OK, tracked debt", so that `vrg-host status` exits
   non-zero once a newer release has passed the pin's inducing release. A
@@ -175,9 +183,14 @@ with the real host**.
   become its own epic.
 - **The first real `vrg-host status` showed 7 of 9 dependencies behind**,
   including a 23-minor-version Docker Desktop gap. The tool's value was
-  demonstrated immediately. The maintainer is pushing the host to the leading
-  edge with `vrg-host upgrade --all`. The outcome of that first upgrade run is
-  **unknown at time of writing**.
+  demonstrated immediately. The maintainer then ran the first real
+  `vrg-host upgrade --all` (2026-10-16, recorded after this retrospective
+  merged, #396). It upgraded every `auto` dependency (uv, gh, gcloud, lima,
+  opentofu, git-cliff) and skipped the two `manual` ones. It also ran a no-op
+  `uv tool upgrade` on vergil-tooling (see §3). The follow-up `vrg-host status`
+  showed 7 of 9 dependencies OK. The only WARNs left were the two report-only
+  dependencies: Docker Desktop (4.71.0 → 4.95.0) and macOS (minor 26.7.1,
+  major 27.0.1). Both are waiting on a manual update.
 - **Plan sample-code defects** (the 6-vs-7-argument `HostPin` in T6's sample
   test, and the `<=1.x` constraint) were caught by implementers, not by
   pushback or alignment. → Not acted on. This is a hint that pushback could
