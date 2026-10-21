@@ -241,6 +241,7 @@ A single data file is the source of truth for the window. Each entry holds:
 
 **The manifest records what is built, and labels each version in or out of
 policy.**
+
 - For a language whose automation is on, the two always converge: the PRs
   remove every out-of-policy version.
 - For a report-only language, an out-of-policy version stays in the manifest
@@ -302,9 +303,10 @@ concern, owned by other work.
 **not** use `continue-on-error`, unlike the existing `pin-exposure` job in
 `ops.yml`, which is documented as "never a gate". When one language's adapter
 fails:
+
 - the run still finishes the other languages;
 - it opens or refreshes **one tracked issue** for the failing language
-  ("lifecycle check failing for Go: <error>");
+  (`lifecycle check failing for Go: <error>`);
 - the next successful run closes that issue.
 
 That way, no PR and no open issue reliably means "in sync".
@@ -414,6 +416,7 @@ Rules:
 
 **One resolver.** Resolution is implemented **once**, as a `vergil-tooling`
 command (for example `vrg-ci-resolve`). It outputs as JSON:
+
 - the resolved versions;
 - the primary version;
 - the image tags.

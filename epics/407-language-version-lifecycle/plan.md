@@ -118,6 +118,7 @@ generated from it. There is no behaviour change: the generated output must
 reproduce today's matrix exactly.
 
 **Files:**
+
 - Create: `docker/versions/manifest.yml` (seeded with the exact current
   publish matrix: python 3.12/3.13/3.14, ruby 3.2/3.3/3.4, java 17/21,
   go 1.26, rust 1.92/1.93, cpp-clang 20/19, cpp-gcc 14/13, ts-node 24/22)
@@ -145,6 +146,7 @@ reproduce today's matrix exactly.
     tests`.
 
 **Interfaces:**
+
 - Produces, in `manifest.py`:
 
   ```python
@@ -225,6 +227,7 @@ reproduce today's matrix exactly.
 ### Task 2: Per-language support policies [`vergil-containers`]
 
 **Files:**
+
 - Create: `docs/site/docs/languages/lifecycle.md` (the shared rules:
   principles 1-13, written for readers) and
   `docs/site/docs/languages/<key>.md` for `python`, `go`, `rust`, `java`,
@@ -268,6 +271,7 @@ such on the page.
 ### Task 3: Lifecycle core, upstream sources, and the Python and Go adapters [`vergil-containers`]
 
 **Files:**
+
 - Create:
   - `docker/versions/lifecycle/__init__.py`, `core.py`, `sources.py` and
     `report.py`;
@@ -280,6 +284,7 @@ such on the page.
     are copies of the 2026-10-17 responses.
 
 **Interfaces:**
+
 - Consumes: `load_manifest`, `Family` and `ManifestVersion` (Task 1).
 - Produces, in `core.py`:
 
@@ -390,6 +395,7 @@ such on the page.
 ### Task 4: Report-only adapters (Rust, Java, Node, Clang, GCC) [`vergil-containers`]
 
 **Files:**
+
 - Create: `docker/versions/lifecycle/adapters/{rust,java,node,clang,gcc}.py`,
   `docker/versions/test_adapters_report_only.py`, and fixtures
   (`endoflife-{rust,eclipse-temurin,nodejs}.json`, `gcc-releases.html`,
@@ -402,6 +408,7 @@ such on the page.
 
 **Interfaces:** Each class implements `Adapter` (Task 3), applying the window
 rules listed in Task 2.
+
 - `installable` for clang checks the `apt.llvm.org` trixie index for
   `llvm-toolchain-trixie-<n>`.
 - `installable` for gcc checks the Debian trixie package list for
@@ -427,6 +434,7 @@ rules listed in Task 2.
 ### Task 5: Scheduled lifecycle job: report, issues and failure issues [`vergil-containers`]
 
 **Files:**
+
 - Modify: `.github/workflows/ops.yml`, adding a job `language-lifecycle`.
   - It has **no** `continue-on-error`.
   - It runs in `prod-base`, mints an App token with
@@ -438,6 +446,7 @@ rules listed in Task 2.
   `docker/versions/test_publish.py`
 
 **Interfaces:**
+
 - Consumes: the `FamilyResult` JSON (Task 3).
 - Produces, in `publish.py`:
   - `sync_issues(results, gh: GhClient) -> None`, where `GhClient` is a
@@ -476,6 +485,7 @@ rules listed in Task 2.
 ### Task 6: Add/drop PR automation for `pr` families [`vergil-containers`]
 
 **Files:**
+
 - Create: `docker/versions/lifecycle/apply.py`, `docker/versions/test_apply.py`
 - Modify:
   - `docker/versions/lifecycle/publish.py`: adds `sync_prs`;
@@ -485,6 +495,7 @@ rules listed in Task 2.
     `pull-requests: write`, through the App token.
 
 **Interfaces:**
+
 - Consumes: `Change`, `Adapter.extra_changes` (Task 3), `dump_manifest`,
   `render_all` (Task 1), `GhClient` (Task 5), extended with
   `find_open_pr(head) -> int | None`, `create_pr(head, title, body) -> int`
@@ -521,6 +532,7 @@ rules listed in Task 2.
 ### Task 7: Drop Ruby and GCC 13 [`vergil-containers`]
 
 **Files:**
+
 - Modify: `docker/versions/manifest.yml` (remove the `ruby` family and
   `cpp-gcc` 13), then regenerate.
 - Delete: `docker/ruby/`.
@@ -548,10 +560,12 @@ rules listed in Task 2.
 Tasks 1 and 7 has been cut and promoted to `v2.1`.
 
 **Procedure:**
+
 1. `curl -fsSL https://raw.githubusercontent.com/vergil-project/vergil-containers/v2.1/docker/versions/window.json`
    returns schema 1, with no `ruby` and `cpp-gcc` = [14].
 
 **Acceptance:**
+
 - The fetch succeeds.
 - The nightly `cd-docker-publish` matrix (now driven by `fromJSON`) built the
   same image set minus Ruby and GCC 13.
@@ -559,6 +573,7 @@ Tasks 1 and 7 has been cut and promoted to `v2.1`.
 ### Task 8: Window loading and the single resolver [`vergil-tooling`]
 
 **Files:**
+
 - Create:
   - `src/vergil_tooling/lib/versions/__init__.py`, `window.py`, `resolve.py`;
   - `src/vergil_tooling/lib/versions/extensions/__init__.py` (the registry,
@@ -579,6 +594,7 @@ Tasks 1 and 7 has been cut and promoted to `v2.1`.
     `ResolutionError` fails validation.
 
 **Interfaces:**
+
 - Produces, in `window.py`:
 
   ```python
@@ -697,6 +713,7 @@ Tasks 1 and 7 has been cut and promoted to `v2.1`.
 ### Task 9: Python extension, toolchain selection and floors [`vergil-tooling`]
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/versions/extensions/python.py` and
   `src/vergil_tooling/lib/versions/floors.py`, with tests
   `tests/vergil_tooling/test_versions_python_ext.py` and `test_versions_floors.py`.
@@ -712,6 +729,7 @@ Tasks 1 and 7 has been cut and promoted to `v2.1`.
     exact-patch pin whose `x.y` must be in the window.
 
 **Interfaces:**
+
 - Consumes: `Resolution`, `Window`, `EXTENSIONS` (Task 8).
 - Produces:
   - `python_extension(ctx, candidates) -> candidates`: for a repo with
@@ -759,6 +777,7 @@ Tasks 1 and 7 has been cut and promoted to `v2.1`.
 ### Task 10: Finish the Go 1.25 retirement and the Ruby removal in `vergil-tooling` docs [`vergil-tooling`]
 
 **Files:**
+
 - Modify:
   - `docs/site/docs/guides/ci-architecture.md:463` (it still says `dev-go`
     1.25/1.26);
@@ -780,6 +799,7 @@ Tasks 1 and 7 has been cut and promoted to `v2.1`.
 Tasks 8-10 has been cut and promoted to `v2.1`.
 
 **Procedure:**
+
 1. In a consumer checkout (the lab), run `vrg-ci-resolve --format json`.
    Expected:
    - `versions: ["3.14"]`: the lab's existing pin is honoured;
@@ -793,6 +813,7 @@ Tasks 8-10 has been cut and promoted to `v2.1`.
 ### Task 11: `derive.sh` calls the resolver, and CI asserts the running interpreter [`vergil-actions`]
 
 **Files:**
+
 - Modify:
   - `actions/shared/setup/vergil/derive.sh`: replace the inline Python
     resolution with `vrg-ci-resolve --format github-output >> "$GITHUB_OUTPUT"`.
@@ -846,6 +867,7 @@ action outputs as today.
 Task 11 has been cut and promoted to `v2.1`.
 
 **Acceptance:** A PR CI run in `vergil-tooling` shows:
+
 - the `Derive` step output coming from `vrg-ci-resolve`;
 - the `assert-toolchain` step passing on every leg.
 
@@ -857,6 +879,7 @@ Task 11 has been cut and promoted to `v2.1`.
 nightly `language-lifecycle` job is green.
 
 **Procedure:**
+
 1. Confirm that the nightly opened exactly two PRs:
    `feat(versions): add python 3.15` and `feat(versions): add go 1.27`.
 2. Confirm the PR CI built and scanned `dev-python:3.15` and `dev-go:1.27`.
@@ -882,6 +905,7 @@ spec §8.1 item 8 requires.
 ### Task 13: Per-`x.y` runtime packages, and the runtime-published signal [`vergil-python`]
 
 **Files:**
+
 - Modify:
   - `vergil.toml` `[package]`: `name = "vergil-python<x.y>"` (for example
     `vergil-python3.14`), `version = "<x.y.z>+<pbs_tag>"`, and smoke path
@@ -952,6 +976,7 @@ passes.
 
 There is one task per repo (the placement law), and each one is a single PR.
 Each PR does the following:
+
 - removes `[ci].versions`, unless the repo needs a pin. A kept pin is
   recorded with a linked issue titled `Remove the <language> version pin`;
 - removes `.python-version` and `[tool.uv] python-preference`;
@@ -969,6 +994,7 @@ Each PR does the following:
 | 15f | `diogenes-project/diogenes` | `library` | remove the list |
 
 Not swept:
+
 - `mq-protocol-gateway` (C++ must pin `clang-20` until its turn).
 - The on-hold mq-rest-admin ports.
 - `wphillipmoore/the-infrastructure-mindset` (`primary-language = "none"`).
@@ -979,6 +1005,7 @@ Not swept:
 
 Archiving a repo is a human action (`gh repo archive` is outside the agent's
 allowlist), so this is an operational task: `--kind deployment`.
+
 - **Precondition (human-attested):** `mq-rest-admin-project/mq-rest-admin-ruby`
   is archived.
 - **Acceptance:** `vrg-gh repo view mq-rest-admin-project/mq-rest-admin-ruby --json isArchived` returns `true`.
@@ -1038,6 +1065,7 @@ Why this order is deadlock-free:
 | T16 Archive `mq-rest-admin-ruby` | mq-rest-admin-project/.github | deployment | — |
 
 Bookends already filed:
+
 - `vergil-project/.github#408` (docs, closed by this PR);
 - `vergil-project/vergil-containers#610` (documentation review, blocked by
   every row above);
