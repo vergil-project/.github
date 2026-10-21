@@ -54,9 +54,8 @@ All repositories use `develop` as the integration branch.
    `chore/<issue>-<slug>`, where `<issue>` is the GitHub issue number.
 
 2. **Commit with `vrg-commit`.**
-   This enforces conventional commit format, branch policy, and
-   co-author attribution. Raw `git commit` is blocked by the
-   pre-commit hook.
+   This enforces conventional commit format and branch policy. Raw
+   `git commit` is blocked by the pre-commit hook.
 
 3. **Validate locally.**
    ```bash
@@ -100,13 +99,14 @@ responsibility for it.
 
 ### In practice
 
-- All AI-assisted work is committed under the agent identity with
-  a `Co-Authored-By` trailer
+- All AI-assisted work is committed under the agent identity, with
+  no AI co-author trailer (Claude Code attribution is turned off in
+  `.claude/settings.json`; vergil-project/vergil-tooling#3200)
 - All reviews and approvals are performed under your human identity
 - At 2+ human contributors, cross-human review is required — you
   cannot approve your own agent's PRs
-- The specific AI tool and model used are recorded in commit metadata
-  for auditing, but the security boundary is human vs. not-human
+- The specific AI tool and model used are not recorded in commit
+  metadata; the security boundary is human vs. not-human
 
 ## For contributors not using AI
 
