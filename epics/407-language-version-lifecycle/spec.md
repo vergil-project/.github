@@ -106,9 +106,12 @@ matrix:
 Two more findings:
 
 - **The two 3.14.8 pins have already drifted apart** on their build tag.
-- **`vergil-tooling` is effectively an app.** Nothing under `~/dev/projects`
-  depends on or imports it. It still tests on 3.12–3.14 while it always deploys
-  on 3.14.8.
+- **Nothing imports `vergil-tooling`, but it runs everywhere.** Nothing under
+  `~/dev/projects` depends on or imports it, and it always deploys on 3.14.8.
+  However, CI installs it with a bare `uv tool install` inside each consumer's
+  image (`vergil-actions/actions/shared/setup/vergil/action.yml:88`), so it runs
+  on every version a consumer builds. Its 3.12–3.14 test matrix is therefore
+  needed.
 
 ## 3. Principles
 
@@ -334,8 +337,9 @@ a design bug to fix in this epic.
 ### 6.3 Consumer resolution (in `vergil-tooling` and `vergil-actions`)
 
 **Library or app: reuse `[project].repository-type` and define it properly.**
-Whether a repo **provides libraries** (anyone imports its code) is expressed
-through the existing `repository-type` field, not a new attribute.
+Whether a repo **provides libraries** (its code runs in other repos'
+environments) is expressed through the existing `repository-type` field, not a
+new attribute.
 
 - **The field was never well defined.** Today
   `vergil-tooling/src/vergil_tooling/lib/config.py:29` allows `library`,
@@ -343,14 +347,16 @@ through the existing `repository-type` field, not a new attribute.
   except `repo_init` reads it.
 - **This epic writes a definition for every value** and gives it a
   behavioural effect:
-  - `library` means the repo provides importable code.
+  - `library` means the repo provides code that runs in other repos'
+    environments, whether it is imported there or installed there as a tool.
   - Every other value means the repo is an app, for version resolution.
 - **A repo with no language matrix is unaffected,** whatever its type. For
   example, `vergil-claude-plugin` and `vergil-actions` are `library` but have no
   language, so there is nothing to resolve.
 - **The epic re-checks each repo's current value against the new definitions.**
-  For example, `vergil-tooling` (`tooling`) resolves as an app, which matches
-  the recon finding that nothing imports it.
+  For example, `vergil-tooling` (today `tooling`) becomes `library`. Nothing
+  imports it, but CI installs it in every consumer's image, so it must support
+  the whole window (§2.3).
 - *Direction from the human, with the caveat that the field needs this
   clean-up to carry the meaning.*
 
@@ -423,9 +429,13 @@ must let the change that publishes a new version, and the tooling that reads it,
 build under the new window without a release deadlock. The plan must state that
 order explicitly.
 
-**Left to the builder:** how the window is
-published and fetched (pinned to the 2.1 line, with caching for offline and local
-runs).
+**Fetching the window.** The window is fetched at the consumer's pinned Vergil
+ref (the 2.1 line), and **it is never cached**. A failed fetch is a loud error
+that names the URL and the explicit override, a local file path. Offline work
+uses that override deliberately. A cached copy would go stale exactly when the
+window changes, and it could hide a drop. *(The human's call, at alignment.)*
+
+**Left to the builder:** the publishing mechanism and the name of the override.
 
 ### 6.4 Language floors
 

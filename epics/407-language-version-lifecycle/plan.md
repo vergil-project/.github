@@ -656,9 +656,8 @@ Tasks 1 and 7 has been cut and promoted to `v2.1`.
 > (`vergil-actions/actions/shared/setup/vergil/action.yml:88`). So it runs on
 > whatever window version a consumer is building, and must support the whole
 > window. The `library` definition above covers this case, and Task 15 sets
-> `vergil-tooling`'s `repository-type` to `library` in its sweep. This departs
-> from the spec §6.3 example ("`vergil-tooling` … resolves as an app") and is
-> raised at alignment.
+> `vergil-tooling`'s `repository-type` to `library` in its sweep (spec §2.3,
+> §6.3).
 
 - [ ] **Step 1: Write the window tests.**
   - `test_load_window_parses_schema_1`.
@@ -852,7 +851,7 @@ Task 11 has been cut and promoted to `v2.1`.
 
 ### Task 12: Validation: the first automated adds, Python 3.15 and Go 1.27 [`vergil-containers`, `--kind validation`]
 
-**Blocked by:** D3, Tasks 2-6, Task 13.
+**Blocked by:** D3, T6, T13b.
 
 **Precondition:** D3 is closed (consumers resolve from the window), and the
 nightly `language-lifecycle` job is green.
@@ -915,6 +914,16 @@ package dependency `vergil-python<x.y>`) lands in Task 9's PR. **Task D4 must
 release this task first,** so `vergil-tooling` never depends on a package that
 doesn't exist yet.
 
+- [ ] **Step 1: Write the tests,** in `vergil-python`'s test suite under
+  `tests/`.
+  - `test_build_rejects_series_mismatch`.
+  - `test_update_hook_stays_within_series`: with 3.14.8 available and 3.15.0
+    available, the hook picks 3.14.x only.
+- [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expected: FAIL.
+- [ ] **Step 3: Implement** the code.
+- [ ] **Step 4:** Run `vrg-validate`. Expected: PASS.
+- [ ] **Step 5: Commit.** `feat(runtime)!: publish one runtime package per Python series`.
+
 ### Task D4: Deployment: release the per-series `vergil-python3.14` [`vergil-python`, `--kind deployment`]
 
 **Blocked by:** Task 13.
@@ -926,16 +935,6 @@ Task 13 has been cut and published to the vergil apt repo.
 version. Installing it on a scratch VM gives
 `/opt/vergil/python/3.14/bin/python3.14`. The smoke command from `vergil.toml`
 passes.
-
-- [ ] **Step 1: Write the tests,** in `vergil-python`'s test suite under
-  `tests/`.
-  - `test_build_rejects_series_mismatch`.
-  - `test_update_hook_stays_within_series`: with 3.14.8 available and 3.15.0
-    available, the hook picks 3.14.x only.
-- [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expected: FAIL.
-- [ ] **Step 3: Implement** the code.
-- [ ] **Step 4:** Run `vrg-validate`. Expected: PASS.
-- [ ] **Step 5: Commit.** `feat(runtime)!: publish one runtime package per Python series`.
 
 ### Task 14: Make an app's multi-version pin fatal [`vergil-tooling`]
 
