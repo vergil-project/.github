@@ -40,11 +40,13 @@ File each task in the repo where its PR lands, under `vergil-project/.github#420
 | Part 1: alerts side (settings flip + `vrg-dependabot-audit`) | vergil-tooling | task | — |
 | Part 2: file side (renderer, sync CLI, scaffolding, validate guard, fleet target) | vergil-tooling | task | — |
 | Part 3: `dependabot-audit` ops job | vergil-actions | task | Part 1 |
-| Deploy: App permission walk-through | vergil-actions | deployment | **exists: vergil-actions#999** |
+| Deploy: App permission walk-through (also confirms **Administration: Read & write** on each App, which `apply` needs) | vergil-actions | deployment | **exists: vergil-actions#999** |
 | Deploy: fleet `diff` + `apply` (same day as release A) | vergil-tooling | deployment | Part 1 |
 | Deploy: `dependabot.yml` fleet sweep | vergil-tooling | deployment | Part 2 |
 | Part 4: release-B local audit check | vergil-tooling | task | Deploy: sweep |
 | Validate: end-to-end fleet check + Scorecard | vergil-actions | validation | Part 3, #999, Deploy: apply, Part 4 |
+
+The Part 3 **PR** is blocked only by Part 1, because merging it is harmless. The vergil-actions **release** that ships it has three preconditions: release A published, #999 done, and the fleet `apply` deployment done. Otherwise every repo with alerts still off would exit 2 the next night (spec §6).
 
 Releases A (Parts 1+2), B (Part 4), and the vergil-actions release (Part 3) are **human-gated preconditions**, attested in the deployment tasks, never cut by an agent. Release A is followed by the `apply` deployment the same day (accepted red window, spec §6).
 
@@ -217,7 +219,8 @@ Releases A (Parts 1+2), B (Part 4), and the vergil-actions release (Part 3) are 
 - Modify: the vergil-actions site docs for the App permission table (`docs/site/docs/configuration.md`, `APP_CLIENT_ID` section), adding the row `Dependabot alerts | Read-only | Nightly dependabot-audit (ops)`.
 
 **Interfaces:**
-- Consumes: `vrg-dependabot-audit --repo OWNER/REPO` (Part 1; must be in a released vergil-tooling). Requires vergil-actions#999 done before this is released.
+- Consumes: `vrg-dependabot-audit --repo OWNER/REPO` (Part 1; must be in a released vergil-tooling).
+- Release preconditions (human-attested, not merge blockers): release A published, vergil-actions#999 done, and the fleet `apply` deployment done.
 
 - [ ] **Step 1: Add the job**, modelled on `github-config` (same `runs-on`, `container`, checkout, and `./actions/shared/setup/vergil`). The token step uses `actions/create-github-app-token@v3` with `app-id`/`private-key` from secrets, no `owner`/`repositories` (so it's scoped to the calling repo only), and `permission-vulnerability-alerts: read`, with a comment in the style of `branch-sweep` explaining the narrowest scope and why `GITHUB_TOKEN` can't be used. Final step: `run: vrg-dependabot-audit --repo "${{ github.repository }}"` with `GH_TOKEN` from the token step. Leave the workflow-level `permissions: contents: read` unchanged, and change no consumer `ops.yml`.
 - [ ] **Step 2: Confirm the input name** `permission-vulnerability-alerts` against the `actions/create-github-app-token` README at the pinned major version. A wrong name fails token creation loudly, which is acceptable but wastes a release.
