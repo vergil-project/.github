@@ -4,7 +4,10 @@
 - **Status:** Draft design (2026-10-22): superpowers brainstorming, builder
   check run, and three human decisions folded in (accepted red window;
   exact-match `dependabot.yml`; App/account inventory before the permission
-  change). Pending pushback and human review.
+  change). Hardened by paad pushback the same day: the nightly file check moves
+  to a second release, public-repo reports show counts only, the file check
+  becomes a local audit, and `diff` runs before the fleet-wide `apply`. Pending
+  human review.
 - **Repos:** vergil-project/vergil-tooling and vergil-project/vergil-actions
   (implementation); every fleet repo (rollout). The epic is homed in `.github`.
 - **Related work:**
@@ -144,11 +147,21 @@ within fleet `vrg-*` conventions):
     denied (403), repo not found, or any other API/auth error. It prints a clean
     diagnostic that names the cause, e.g. "Dependabot alerts are disabled for
     <repo>" vs. "token lacks Dependabot alerts: Read". Never a pass (A2).
-- **Report** on exit 1: one line per alert, sorted by severity (critical → low),
-  then package. Each line has severity, ecosystem/package, the vulnerable
-  manifest path, GHSA ID, and the alert's `html_url`, plus a total count by
-  severity. The goal is that the failure email and the run log tell a human
-  *what to upgrade* without opening the Security tab.
+- **Report** on exit 1 depends on repo visibility, because Actions logs on a
+  public repo are world-readable while Dependabot alerts are restricted to users
+  with admin or security access:
+  - **Private repo:** one line per alert, sorted by severity (critical → low),
+    then package. Each line has severity, ecosystem/package, the vulnerable
+    manifest path, GHSA ID, and the alert's `html_url`, plus a total count by
+    severity. The run log tells a human *what to upgrade* without opening the
+    Security tab.
+  - **Public repo:** only the total count by severity, plus a link to the repo's
+    Dependabot alerts page (`https://github.com/<repo>/security/dependabot`).
+    Details stay behind GitHub's access control. The log must never carry
+    package names, manifest paths, or advisory IDs for a public repo.
+  - Visibility comes from the repo's API metadata at run time. If visibility
+    cannot be determined, the command falls back to the public (counts-only)
+    format.
 - **Dismissal is the escape hatch.** Only `state=open` counts. A human who
   dismisses an alert on GitHub (false positive, not reachable, accepted risk)
   clears it from the audit. There is no in-repo suppression file.
@@ -220,14 +233,15 @@ from the repo's `vergil.toml`, used by:
   fails too, because Dependabot's default is 5. This runs locally and in CI for
   every repo. It does **not** require the file to exist, so releasing it cannot
   break validation in repos the sweep has not reached yet.
-- **Nightly, `vrg-github-repo-config audit`.** Reads `.github/dependabot.yml`
-  from the default branch via the contents API and reports the repo as
-  non-compliant if the file is **missing or differs from the canonical render**
-  (exact match). That covers the limit-0 rule and catches a file edited outside
-  the PR flow. *Builder's call:* whether "missing file" is
-  enforced from day one or only after the sweep completes. Recommended: ship it
-  in the same release as the sweep, and run the sweep before the release reaches
-  the fleet's ops runs.
+- **Nightly, the local repo-config audit.** A `_check_dependabot_yml` in
+  `lib/repo_config.py`'s `audit_local_config()` reads the file from the nightly
+  job's checkout. It reports the repo as non-compliant if
+  `.github/dependabot.yml` is **missing or differs from the canonical render**
+  (exact match), which covers the limit-0 rule and catches a file edited outside
+  the PR flow. This mirrors `_check_gitignore`: `repo_init` and the audit check
+  render through **one shared function**, so scaffolding and audit cannot
+  disagree. No contents-API read. This check ships in **release B**, after the
+  sweep has landed (§6), never before.
 
 ### 5.5 GitHub App permission (human-gated deployment)
 
@@ -263,20 +277,26 @@ This is accepted. It is kept short by running step 3 as a scripted, fleet-wide
 apply on the **same day** as the release, before the next nightly window. There
 is no staged release and no temporary dual-state acceptance.
 
-1. **vergil-tooling:** settings flip (§5.1), `vrg-dependabot-audit` (§5.2),
-   renderer + scaffolding + validate guard + repo-config audit check +
-   sweep applicator (§5.4). Human-gated **release**.
+1. **vergil-tooling release A:** settings flip (§5.1), `vrg-dependabot-audit`
+   (§5.2), the renderer, scaffolding, the `vrg-validate` limit-0 guard, and the
+   sweep applicator (§5.4). **Not** the nightly missing/non-canonical file
+   check. Human-gated **release**.
 2. **App permission:** vergil-actions#999 (human walk-through). It can run in
-   parallel with step 1 and must finish **before** step 5.
-3. **Apply settings fleet-wide, same day as step 1's release:** the human runs
-   a scripted loop of `vrg-github-repo-config apply --repo <r>` over every fleet
-   repo (a `deployment` task; Administration-write is a human action), then
-   confirms alerts are on.
-4. **`dependabot.yml` sweep:** run the applicator across the fleet; the human
-   submits and merges the PRs.
-5. **vergil-actions:** the `dependabot-audit` job (§5.3). Human-gated
+   parallel with step 1 and must finish **before** step 6.
+3. **Apply settings fleet-wide, same day as release A:** first run
+   `vrg-github-repo-config diff --repo <r>` across the fleet and review any drift
+   **unrelated to alerts**. `apply` pushes *all* desired state, so unrelated
+   pending changes must not land in bulk as a side effect. Then the human runs a
+   scripted loop of `vrg-github-repo-config apply --repo <r>` (a `deployment`
+   task; Administration-write is a human action) and confirms alerts are on.
+4. **`dependabot.yml` sweep:** run the released applicator across the fleet; the
+   human submits and merges every PR.
+5. **vergil-tooling release B:** turn on the nightly missing/non-canonical
+   `dependabot.yml` check (§5.4) **only after every sweep PR has merged**, so no
+   repo goes red over a file it was never sent. Human-gated **release**.
+6. **vergil-actions:** the `dependabot-audit` job (§5.3). Human-gated
    **release**. From the next nightly run, the fleet is live.
-6. **Validation:** a `workflow_dispatch` of `ops.yml` on a sample of repos (one
+7. **Validation:** a `workflow_dispatch` of `ops.yml` on a sample of repos (one
    per org, plus one known to have alerts) confirms exit 0 / exit 1 behaviour
    and the absence of exit 2. Then confirm Scorecard's Dependency-Update-Tool
    result on one public repo.
@@ -297,7 +317,9 @@ alerts-off desired state until step 1 ships.
   `vrg-github-repo-config audit`.
 - The nightly ops run includes `dependabot-audit`. It fails with an itemized
   report on any open alert, fails loudly on any inability to check, and passes
-  only when there are verifiably no open alerts.
+  only when there are verifiably no open alerts. A public repo's run log
+  carries only severity counts and the Security-tab link, never package names,
+  manifest paths, or advisory IDs.
 - No Dependabot-authored PR appears anywhere in the fleet.
 - `vrg-repo-init` scaffolds the file for new repos.
 - Scorecard's Dependency-Update-Tool check passes on a sampled public repo.
@@ -308,9 +330,7 @@ alerts-off desired state until step 1 ships.
 - Composite action vs. inline step for the ops job.
 - `maven` vs `gradle` detection for Java; final ecosystem keys per F-verified
   docs.
-- Whether "missing or non-canonical `dependabot.yml`" goes live in repo-config
-  audit in the same release as the sweep or one release later (§5.4).
 - Canonical ecosystem selection beyond `github-actions` + primary language. The
   §5.4 mapping is a reasonable default, not a human decision.
-- The granularity of operational tasks: §6 steps 2, 3 and 6 are natural
+- The granularity of operational tasks: §6 steps 2, 3 and 7 are natural
   `deployment` / `validation` tasks, to be seeded at plan time.
