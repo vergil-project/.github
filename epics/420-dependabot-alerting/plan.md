@@ -24,7 +24,7 @@
 ## Review Focus
 
 1. **The App token lacks "Dependabot alerts: Read", or the installation hasn't accepted it.** The audit must exit 2 with a message naming the missing permission, not 1 and not 0. `cli_main` maps auth errors to exit 1, so the audit must catch `GitHubAPIError` / auth errors itself (precedent: `vrg_github_repo_config.py` lines 64 and 83). Test: `test_audit_permission_denied_exits_2`.
-2. **Alerts disabled on the repo.** The API returns 403 "Dependabot alerts are disabled for this repository." That must exit 2 with "Dependabot alerts are disabled for <repo>". Test: `test_audit_alerts_disabled_exits_2`.
+2. **Alerts disabled on the repo.** The API returns 403 "Dependabot alerts are disabled for this repository." That must exit 2 with `Dependabot alerts are disabled for OWNER/REPO`. Test: `test_audit_alerts_disabled_exits_2`.
 3. **More than 100 open alerts.** Every page must count. Use `read_json_paginated`, never a bare `read_json`. Test: `test_audit_counts_all_pages`.
 4. **A public repo with alerts.** The output must contain no package name or GHSA ID. Test: `test_audit_public_repo_counts_only`.
 5. **A `dependabot.yml` entry with no `open-pull-requests-limit` key.** It must fail the `vrg-validate` guard, because Dependabot's default is 5. Test: `test_dependabot_guard_missing_limit_fails`.
@@ -57,10 +57,12 @@ Releases A (Parts 1+2), B (Part 4), and the vergil-actions release (Part 3) are 
 ### Task 1.1: Flip desired security settings to alerts on
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/github_config.py` (`desired_security_settings`, ~line 147)
 - Test: `tests/vergil_tooling/test_github_config_lib.py`
 
 **Interfaces:**
+
 - Produces: `desired_security_settings(*, ghas: bool) -> DesiredSecuritySettings` with `vulnerability_alerts=True` regardless of `ghas`.
 
 - [ ] **Step 1: Update the existing tests.** Every `assert s.vulnerability_alerts is False` for the `desired_security_settings` results becomes `is True`, for both the `ghas=True` and `ghas=False` cases. `dependabot_security_updates == "disabled"` stays. Add `test_desired_security_settings_alerts_on_without_ghas`: `desired_security_settings(ghas=False).vulnerability_alerts is True`.
@@ -72,6 +74,7 @@ Releases A (Parts 1+2), B (Part 4), and the vergil-actions release (Part 3) are 
 ### Task 1.2: `vrg-dependabot-audit`
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/dependabot_alerts.py`
 - Create: `src/vergil_tooling/bin/vrg_dependabot_audit.py`
 - Modify: `pyproject.toml` (`[project.scripts]`: `vrg-dependabot-audit = "vergil_tooling.bin.vrg_dependabot_audit:main"`)
@@ -79,6 +82,7 @@ Releases A (Parts 1+2), B (Part 4), and the vergil-actions release (Part 3) are 
 - Test: `tests/vergil_tooling/test_dependabot_alerts.py`, `tests/vergil_tooling/test_vrg_dependabot_audit.py`
 
 **Interfaces:**
+
 - Produces (lib):
   - `@dataclass(frozen=True) class Alert: severity: str; ecosystem: str; package: str; manifest_path: str; ghsa_id: str; html_url: str`
   - `class AuditUnavailable(Exception)`: its message is the human diagnostic.
@@ -119,11 +123,13 @@ Releases A (Parts 1+2), B (Part 4), and the vergil-actions release (Part 3) are 
 ### Task 2.1: Canonical renderer and scaffolding
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/dependabot.py`
 - Modify: `src/vergil_tooling/lib/repo_init.py` (config-files step, next to the `.gitignore` write around line 1309)
 - Test: `tests/vergil_tooling/test_dependabot.py`, `tests/vergil_tooling/test_repo_init.py`
 
 **Interfaces:**
+
 - Produces:
   - `DEPENDABOT_PATH = Path(".github/dependabot.yml")`
   - `LANGUAGE_ECOSYSTEMS: dict[str, str] = {"python": "uv", "go": "gomod", "rust": "cargo", "java": "maven", "typescript": "npm"}`. cpp and anything else map to nothing. Java is `maven` only, because the fleet's Java uses Maven (`pom.xml`/`mvnw`). Gradle is YAGNI.
@@ -169,10 +175,12 @@ Releases A (Parts 1+2), B (Part 4), and the vergil-actions release (Part 3) are 
 ### Task 2.2: `vrg-validate` limit-0 guard
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/validate_common.py` (`main`, after the yamllint block)
 - Test: `tests/vergil_tooling/test_validate_common.py`
 
 **Interfaces:**
+
 - Consumes: `dependabot.limit_violations(text: str) -> list[str]`, `dependabot.DEPENDABOT_PATH`.
 
 - [ ] **Step 1: Write the failing tests**:
@@ -188,12 +196,14 @@ Releases A (Parts 1+2), B (Part 4), and the vergil-actions release (Part 3) are 
 ### Task 2.3: Single-repo sync CLI and fleet-sweep target
 
 **Files:**
+
 - Create: `src/vergil_tooling/bin/vrg_dependabot_sync.py`
 - Modify: `src/vergil_tooling/bin/vrg_fleet_sync.py`
 - Modify: `pyproject.toml` (`vrg-dependabot-sync = "vergil_tooling.bin.vrg_dependabot_sync:main"`)
 - Test: `tests/vergil_tooling/test_vrg_dependabot_sync.py`, plus the existing fleet-sync tests (find with `grep -rl vrg_fleet_sync tests/`)
 
 **Interfaces:**
+
 - Consumes: `dependabot.render`, `dependabot.check`, `dependabot.resolve_language`, `DEPENDABOT_PATH`.
 - Produces:
   - `vrg-dependabot-sync [--repo PATH] [--check | --write]`, mirroring `vrg-gitignore-sync`. Exit 0 ok, 1 `--check` drift, 2 usage error. `--write` prints `already in sync` when the file is unchanged, else `wrote .github/dependabot.yml (<lang or none>)`.
@@ -215,10 +225,12 @@ Releases A (Parts 1+2), B (Part 4), and the vergil-actions release (Part 3) are 
 ### Task 3.1: `dependabot-audit` job in `ops-github-config.yml`
 
 **Files:**
+
 - Modify: `.github/workflows/ops-github-config.yml`
 - Modify: the vergil-actions site docs for the App permission table (`docs/site/docs/configuration.md`, `APP_CLIENT_ID` section), adding the row `Dependabot alerts | Read-only | Nightly dependabot-audit (ops)`.
 
 **Interfaces:**
+
 - Consumes: `vrg-dependabot-audit --repo OWNER/REPO` (Part 1; must be in a released vergil-tooling).
 - Release preconditions (human-attested, not merge blockers): release A published, vergil-actions#999 done, and the fleet `apply` deployment done.
 
@@ -237,11 +249,13 @@ Releases A (Parts 1+2), B (Part 4), and the vergil-actions release (Part 3) are 
 ### Task 4.1: `_check_dependabot_yml` in the local repo-config audit
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/repo_config.py` (new `_check_dependabot_yml`, called from `audit_local_config` after `_check_gitignore`)
 - Modify: `docs/site/docs/reference/config-audit.md` (document the `local.dependabot` item)
 - Test: `tests/vergil_tooling/test_repo_config.py`
 
 **Interfaces:**
+
 - Consumes: `dependabot.check(text: str | None, lang: str | None) -> list[str]`, `dependabot.resolve_language`, `DEPENDABOT_PATH`.
 - Produces: a `DiffItem(field="local.dependabot", expected="canonical report-only dependabot.yml", actual=<reason>)` per reason.
 

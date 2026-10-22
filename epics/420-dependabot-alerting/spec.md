@@ -56,7 +56,7 @@ cycle and CI remain the primary dependency hygiene.
 
 ## 3. Goals, non-goals, anti-goals
 
-**Goals**
+### Goals
 
 - G1. Every managed repo has Dependabot alerts enabled, enforced by desired
   state, so new repos and drift are covered automatically.
@@ -66,7 +66,7 @@ cycle and CI remain the primary dependency hygiene.
   Scorecard's Dependency-Update-Tool check passes.
 - G4. New repos get all of the above from scaffolding, with no manual step.
 
-**Non-goals**
+### Non-goals
 
 - **Pin-drift reporting** (how far pins lag latest, beyond known CVEs). #155
   delegated an "upstream-distance" view here; the human ruled it an **optional
@@ -80,7 +80,7 @@ cycle and CI remain the primary dependency hygiene.
   produces the failure; it does not define who triages it or how.
 - **Auto-remediation.** No fix PRs, no auto-bumps.
 
-**Anti-goals** (failure even if everything "works")
+### Anti-goals (failure even if everything "works")
 
 - A1. **Dependabot opens a PR anywhere.** PRs created outside `vrg-submit-pr` and
   the human-gated merge flow are incompatible with the fleet's workflow.
@@ -145,8 +145,8 @@ within fleet `vrg-*` conventions):
     severity filter). The human decided "fail on anything, no nits."
   - `2`: the audit could not complete: alerts disabled on the repo, permission
     denied (403), repo not found, or any other API/auth error. It prints a clean
-    diagnostic that names the cause, e.g. "Dependabot alerts are disabled for
-    <repo>" vs. "token lacks Dependabot alerts: Read". Never a pass (A2).
+    diagnostic that names the cause, e.g. `Dependabot alerts are disabled for
+    OWNER/REPO` vs. `token lacks Dependabot alerts: Read`. Never a pass (A2).
 - **Report** on exit 1 depends on repo visibility, because Actions logs on a
   public repo are world-readable while Dependabot alerts are restricted to users
   with admin or security access:
