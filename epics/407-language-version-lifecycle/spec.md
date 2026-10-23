@@ -30,7 +30,8 @@ upstream metadata**:
     - **Library:** tests across the whole window.
     - **App:** builds on the newest version.
   - A pin naming a version that has been dropped is a **fatal error**.
-- The deployed Python runtime (`vergil-python`) moves with the window.
+- The deployed Python runtime (`vergil-python`) follows the window, one
+  series at a time (§7).
 
 **Python and Go are built together** in this epic. Two languages at once keep the
 generic machinery honest. Ruby is dropped. The other kept languages get written
@@ -207,7 +208,7 @@ windows are judgment that applies principle 1.
 | Go | The two newest releases are supported | the two newest | `golang:<v>` base. `GOTOOLCHAIN=local` makes some tool pins depend on the Go version (`case` block, `pins.yml`) |
 | Rust | Only the newest stable release is supported; a new one every 6 weeks | newest and newest−1 (a decision, §5.1) | `rust:<v>-slim` base. Fast cadence, so auto-PRs matter most here |
 | Java (Temurin) | LTS releases have fixed EOL dates; non-LTS releases last 6 months | LTS releases that are not EOL (decision for the Java policy) | `eclipse-temurin:<v>-jdk` base |
-| Node | Even-numbered majors become LTS, with fixed EOL dates | LTS majors that are not EOL | NodeSource `setup_<n>.x` on trixie. The separate `vergil-vm` Node pin must line up |
+| Node | Majors become LTS, with fixed EOL dates. The adapter reads the LTS status itself, not the parity of the major, because from Node.js 27 every major becomes LTS | LTS majors that are not EOL | NodeSource `setup_<n>.x` on trixie. The separate `vergil-vm` Node pin must line up |
 | C++ Clang | Only the newest LLVM major gets patches | set in the Clang policy | Limited to majors that `apt.llvm.org` publishes for the Debian base |
 | C++ GCC | Several release lines are maintained in parallel | set in the GCC policy | Limited to Debian base packages. A newer GCC usually means a newer Debian base. Report "a newer upstream version exists but the base can't install it" separately from "behind" |
 
@@ -234,10 +235,20 @@ A single data file is the source of truth for the window. Each entry holds:
 - the build argument and upstream base image;
 - the upstream GA date and EOL date (if the upstream publishes dates);
 - the state;
-- **for each Python version, whether a `vergil-python` runtime is published.**
-  `vergil-python`'s release updates this field, and it travels in the published
-  window (item 6 below). Resolution then reads one source and never queries
-  package repositories.
+- **for each Python version, whether a `vergil-python` runtime is published**
+  (`runtime_published`). The nightly lifecycle job sets this field by reading
+  the vergil apt index for `vergil-python<x.y>`; `vergil-python`'s release only
+  publishes the package. The field travels in the published window (item 6
+  below), so resolution reads one source and never queries package
+  repositories.
+
+> **Amended after implementation** (vergil-project/vergil-containers#621, PR
+> vergil-project/vergil-containers#638). The original text said
+> `vergil-python`'s release updates the field. As built, the lifecycle job
+> reads the apt index: a newly published package is a `runtime` change that
+> opens a PR setting the flag to `true`, and a recorded runtime that disappears
+> from the index is a `runtime_missing` issue. An added version always starts
+> as `false`.
 
 **The manifest records what is built, and labels each version in or out of
 policy.**
@@ -267,14 +278,35 @@ Generated from it:
 A validation gate fails if any generated file is out of date with the manifest,
 following the same pattern as `CATALOG.md` from `pins.yml`.
 
+**Not generated: Go and scanner leftovers.** Three of the hand-kept places in
+§2.2 stay hand-kept: the Go tool `case` block in
+`docker/go/Dockerfile.template`, the version constraints in `pins.yml`, and the
+version notes in `.trivyignore` comments. The Go adapter lists the `case`
+branch and each `pins.yml` constraint that names a dropped version as manual
+checklist items in the drop PR's body (§6.2). Nothing lists the `.trivyignore`
+comments.
+
 **Left to the builder:** the file format (JSON or YAML; never XML), the exact
 schema, and whether the manifest is only the computed window or also records
 per-language policy settings.
+
+> **Decided by the builder** (vergil-project/vergil-containers#613). The
+> manifest is `docker/versions/manifest.yml`, in YAML, with a top-level
+> `schema: 1`. It records policy settings as well as the window: `automation`
+> (`pr` or `report`) is set per family, and `in_policy` per version entry. The
+> generated machine outputs are `docker/versions/matrix.json` (the publish
+> matrix) and `docker/versions/window.json` (the published window).
 
 ### 6.2 The lifecycle check and the adapters
 
 **Scheduling.** The check runs from `vergil-containers`' existing `ops.yml`
 scheduled workflow. Daily or weekly is the builder's call.
+
+> **Decided by the builder** (vergil-project/vergil-containers#617). The check
+> is the `language-lifecycle` job in `ops.yml`, which runs daily on that
+> workflow's `37 6 * * *` schedule. The look-ahead is 90 days. The report is
+> written to the job summary and uploaded as the `language-lifecycle-report`
+> artifact.
 
 **Each run:**
 
@@ -291,9 +323,25 @@ scheduled workflow. Daily or weekly is the builder's call.
 3. It writes a **matrix report** covering every language, every run.
 4. **For a language whose automation is turned on,** it opens (or refreshes) one
    **add/drop PR** per change. The PR updates the manifest and regenerates every
-   derived file. Its CI builds and scans the new images.
+   derived file.
+   - `vergil-containers`' PR CI builds no images. An add PR's new images are
+     first built, scanned and published by the CD run on `develop` after the
+     PR merges. Building the images a PR changes in PR CI is deferred to
+     `vergil-project/.github#213`.
+   - The automation never enables auto-merge. A human reviews and merges every
+     lifecycle PR.
+   - A change that no PR can carry (`blocked`, `eol_soon` and
+     `runtime_missing`) opens or refreshes a tracked issue, as for a
+     report-only language.
 5. **For a language that is report-only,** it opens or refreshes one tracked issue
    per change.
+
+> **Amended after implementation** (vergil-project/vergil-containers#618 and
+> #622, vergil-project/vergil-containers#637 / PR #670). The original text said
+> the PR's CI builds and scans the new images; it never did, and the human
+> deferred PR-CI image builds to `vergil-project/.github#213` during #622. The
+> temporary hold that marked add PRs "do not merge while #622 is open" was
+> removed by #637 once #622 passed.
 
 PRs and issues are the only signals, and no new notification channel is
 introduced. Getting failing scheduled jobs in front of the human is a separate
@@ -305,8 +353,9 @@ concern, owned by other work.
 fails:
 
 - the run still finishes the other languages;
-- it opens or refreshes **one tracked issue** for the failing language
-  (`lifecycle check failing for Go: <error>`);
+- it opens or refreshes **one tracked issue** for the failing language, titled
+  `lifecycle check failing for <family>` (for example
+  `lifecycle check failing for go`), with the error text in the body;
 - the next successful run closes that issue.
 
 That way, no PR and no open issue reliably means "in sync".
@@ -319,7 +368,8 @@ An adapter supplies:
 - the window rule;
 - how to check that the base image or package can actually install a version;
 - any changes beyond the matrix itself (for example, Go's per-version tool
-  holds).
+  holds). These are listed in the PR body as manual checklist items; they are
+  not generated (§6.1).
 
 **Fail loud.** If an adapter can't fetch or parse upstream data, the run reports
 an error for that language. It never treats "no data" as "in sync".
@@ -390,12 +440,27 @@ Rules:
   - The epic sweeps every Vergil-owned repo in every org the human owns. Each
     repo gets a small PR that deletes its list, so the repo follows the window.
   - A repo keeps a list only if it genuinely needs a pin. That pin is recorded
-    with an issue.
+    with an issue. For example, `mq-resiliency-lab-for-linux` keeps `["3.14"]`
+    (`logical-minds-foundry/mq-resiliency-lab-for-linux#1685`), and
+    `mq-protocol-gateway` keeps `["clang-20"]`
+    (`logical-minds-foundry/mq-protocol-gateway#25`).
   - The on-hold mq-rest-admin ports are excluded (§8.2).
-- **Transition rule for an app with a list of more than one version:**
-  - During the sweep it gets a **warning**, not a fatal error, so nothing goes
-    red mid-sweep.
-  - The rule becomes **fatal** once the sweep is done.
+  - The sweep covers only the active repos. The on-hold repos
+    (`mq-resiliency-observability`, `mq-gateway-replay-lab`, `melete` and
+    `diogenes`) were moved to their own repos' or orgs' ad-hoc epics, and are
+    swept when work on them resumes.
+- **An app with a list of more than one version is a fatal configuration
+  error.** The message tells the repo to pin a single version, or to set
+  `repository-type = "library"` if it really provides code that runs in other
+  repos' environments.
+
+> **Amended after implementation** (vergil-project/vergil-tooling#3372 / PR
+> #3445, vergil-project/vergil-tooling#3442; scope decision on
+> `vergil-project/.github#407`, 2026-10-22). The original text gave a
+> transition rule: a warning during the sweep, fatal once it was done. The
+> rule went fatal in #3372 at the end of the sweep, and #3442 removed the
+> transition switch and the resolver's warnings channel, so only the fatal rule
+> remains. The sweep was also cut down to the active repos.
 
 **Further resolution rules (builder-check calls, marked as my calls):**
 
@@ -419,7 +484,9 @@ command (for example `vrg-ci-resolve`). It outputs as JSON:
 
 - the resolved versions;
 - the primary version;
-- the image tags.
+- the image tags;
+- the image suffixes (the image family for each resolved version, for example
+  `cpp-clang` for `clang-20`).
 
 `vrg-validate` uses that command. So does `vergil-actions`' `derive.sh`, which
 calls it rather than reimplementing it. CI already installs `vergil-tooling` in
@@ -439,6 +506,24 @@ uses that override deliberately. A cached copy would go stale exactly when the
 window changes, and it could hide a drop. *(The human's call, at alignment.)*
 
 **Left to the builder:** the publishing mechanism and the name of the override.
+
+> **Decided by the builder** (vergil-project/vergil-tooling#3367 and #3392).
+> The window is read from
+> `https://raw.githubusercontent.com/vergil-project/vergil-containers/<ref>/docker/versions/window.json`,
+> where `<ref>` is the consumer's `[dependencies].vergil` (for example `v2.1`).
+> The override is `VRG_VERSION_WINDOW`, set to a local file path; when it is
+> set it always wins, and `vrg-container-run` mounts that file into the
+> container.
+
+**Open problem: one release can read two windows.** "Fetched at the ref, never
+cached" means every reader fetches the moving `v2.1` window on its own. The
+parallel package-build cells of one release each derive the runtime from their
+own fetch, so a window change mid-release splits the release:
+`vergil-tooling` 2.1.258 shipped its amd64 packages on the 3.15 runtime and
+its arm64 packages on 3.14, because it was released minutes after the 3.15
+runtime was marked published. The fix is undecided and tracked in
+`vergil-project/vergil-tooling#3478`. This wording is updated once that issue
+decides it.
 
 ### 6.4 Language floors
 
@@ -471,31 +556,52 @@ Automating floors for other languages is left to each language's turn.
 ### 6.5 Toolchain selection belongs to Vergil
 
 A repo's own files can choose the interpreter or toolchain behind Vergil's
-back, and a CI run can then pass on a version it never ran. Today the lab has
-`.python-version` = `3.14` and `python-preference = "only-managed"`. The CI
-setup runs `uv sync`, so uv would use a managed 3.14 inside a `python:3.15`
-image.
+back, and a CI run can then pass on a version it never ran. For example, the
+lab keeps uv `python-preference = "only-managed"` so that its VM venv is never
+seeded from the host interpreter. The CI setup runs `uv sync`, so without a
+guard that setting would make uv download its own managed interpreter inside
+a `python:3.15` image instead of using the image's. Vergil's
+`UV_PYTHON_PREFERENCE=only-system` (requirement 1) is that guard.
 
 | Language | "Which toolchain" settings (remove; Vergil owns this) | "Minimum supported" settings (keep, as a floor with no upper bound; §6.4) |
 |---|---|---|
-| Python | `.python-version`, uv `python-preference` | `requires-python` |
+| Python | `.python-version` | `requires-python` |
 | Rust | `rust-toolchain.toml` | `rust-version` in `Cargo.toml` |
 | Go | — | `go` directive in `go.mod` |
 | Java | — | `release` in `pom.xml` |
 
 Requirements:
 
-1. **Vergil hands the resolved version to the language tool directly.** For uv,
-   that is `UV_PYTHON`, so uv uses the image's interpreter.
+1. **Vergil hands the resolved version to the language tool directly, and pins
+   the source.** For uv, that is `UV_PYTHON` (the version) plus
+   `UV_PYTHON_PREFERENCE=only-system` (use the image's interpreter, never a
+   managed download). Both are set by `vrg-container-run` and
+   `vrg-container-test`, by the cached dev-image build, and on every Python CI
+   leg. The docs jobs and `vrg-container-docs` set only
+   `UV_PYTHON_PREFERENCE=only-system`, since they resolve no version.
 2. **`vrg-validate` flags any toolchain-selection setting** as a pin that
-   conflicts with the window.
+   conflicts with the window. For Python that is only `.python-version`.
 3. **The CI setup step asserts that the interpreter or toolchain actually
    running the job is the resolved `x.y`,** and fails loudly if it isn't. This
    backstop catches any selection mechanism the list above misses.
 4. **The fleet sweep (§6.3) removes these settings** along with the
-   `[ci].versions` lists. During the plan, check whether the lab still needs
+   `[ci].versions` lists. The plan was to check whether the lab still needs
    `python-preference` to keep the VM's system Python out of local runs, and
-   whether `UV_PYTHON` covers that case.
+   whether `UV_PYTHON` covers that case. It does not: the lab builds its venv
+   outside `vrg-container-run`, so it keeps `python-preference = "only-managed"`
+   with `python-downloads = "manual"`.
+
+uv's `python-preference` and `python-downloads` choose where an interpreter
+comes from, not which version, so repos may keep them.
+
+> **Amended after implementation** (decision on `vergil-project/.github#407`,
+> 2026-10-22; vergil-project/vergil-tooling#3410, #3421 and #3414;
+> vergil-project/vergil-actions#994 and #1002;
+> `logical-minds-foundry/mq-resiliency-lab-for-linux#1681`). The original text
+> listed `python-preference` as a "which toolchain" setting to remove, and
+> relied on `UV_PYTHON` alone. Measured on the lab VM, `UV_PYTHON` picks the
+> version but not the source, so the human chose to allow `python-preference`
+> and have Vergil pin the source itself.
 
 Only Python and Go are enforced in this epic. Rust's `rust-toolchain.toml` is
 handled in Rust's turn.
@@ -507,8 +613,9 @@ interpreter it's installed with.** For Python that is `vergil-python`, plus the
 lab's separate guest-runtime pin (§2.3).
 
 - **Packaging is opt-in per repo,** through a `[package]` block in
-  `vergil.toml`. Today the only packaged Python app is `vergil-tooling`
-  (`[package.python] runtime = "3.14.8"`). `vergil-python` and `packages` package
+  `vergil.toml`. Today the only packaged Python repo is `vergil-tooling`, a
+  **library** (§6.3) whose runtime is derived, with no
+  `[package.python].runtime` set. `vergil-python` and `packages` package
   runtimes and infrastructure. Every other repo is unpackaged and simply follows
   the window.
 - **Two things must be ready before a packaged app can move to a new version.**
@@ -522,33 +629,50 @@ lab's separate guest-runtime pin (§2.3).
     `vergil-python` runtime**.
   - If the newest version has no runtime yet, fall back to the next newest, and
     so on.
+  - For a packaged **app**, this rule picks the version its CI builds. For a
+    packaged **library**, it picks only the deployed runtime: the library's CI
+    keeps the whole window, since its code runs on every window version in
+    other repos (§2.3). Either kind fails loud if no window version has a
+    published runtime.
 
-  Nothing breaks during the gap. The packaged app stays on 3.14 until the 3.15
-  runtime is published, then moves on its next build. Unpackaged repos are
+  Nothing breaks during the gap. The packaged repo deploys on 3.14 until the
+  3.15 runtime is published, then moves on its next build. Unpackaged repos are
   unaffected and move as soon as the containers have the version. The rule is
   Python-specific, so it lives in the Python adapter or resolver extension,
   never in the shared code (§8.3).
-- **`[package.python].runtime` stops being a hand-set exact patch.** Today
-  validation requires an exact CPython patch (`config.py:781`). Under this design
-  the runtime is derived from the resolved `x.y` and the patch `vergil-python`
-  publishes for it. An explicit value remains possible as a pin, and it obeys the
-  fatal check on dropped versions.
-- **`vergil-python` publishes one co-installable runtime per supported `x.y`**,
-  with the patch level floating inside it (principle 8). It follows the window:
-  - It adds a runtime when the window gains a version.
-  - It drops a runtime at EOL.
-  - It is rebuilt regularly enough to stay current.
-
-  Its own add/drop is driven by the same lifecycle check. Prior art: the
-  repo's existing update-deps hook already refreshes its runtime pin
-  (`vergil-python#12`, commit 5648357), and it is the starting point for
-  refreshing the per-`x.y` runtimes. The package naming, install path and how
-  the checksums are refreshed are left to the builder.
+- **`[package.python].runtime` stops being a hand-set exact patch.** It is
+  optional. When it is absent, the runtime is derived from the resolved `x.y`
+  and the patch `vergil-python` publishes for it. An explicit value remains
+  possible as a pin: it must be an exact `x.y.z`, and its `x.y` obeys the fatal
+  check on versions outside the window.
+- **`vergil-python` publishes one series at a time.** The package is
+  `vergil-python<x.y>`, installed at `/opt/vergil/python/<x.y>`, with the patch
+  level floating inside the series (principle 8). Its update-deps hook
+  refreshes the patch and build within the series, and never moves the series.
+  - Today the series is 3.15. The 3.14 package is frozen at `3.14.8+20261013`:
+    it is no longer rebuilt, and it stays in the apt repo only while the
+    repo's retention keeps it.
+  - Moving to a new series is a manual, reviewed PR
+    (`vergil-project/vergil-python#34`), made after the containers add the
+    version.
+  - Nothing drops a series at EOL.
+  - Publishing several co-installable series at once is deferred to
+    `vergil-project/vergil-python#36`, for when a second consumer needs an
+    older series.
 - **Compiled languages (Go, Rust) need no runtime package.** For each new
   interpreted language, the need for one is assessed when the language is added.
 - **The lab's guest runtime pin** (`lab/versions.yaml`) is a consumer of the same
   rule. Moving it onto `vergil-python`, or onto the window, is recorded as a
   follow-on for the lab repo. It is outside this epic's repos.
+
+> **Amended after implementation** (vergil-project/vergil-tooling#3368 / PR
+> #3401, #3400, #3455; vergil-project/vergil-python#25, #34 and #36). The
+> original text called `vergil-tooling` a packaged app with a hand-set
+> `runtime = "3.14.8"`, and had `vergil-python` publish one co-installable
+> runtime per window `x.y`, added and dropped by the lifecycle check. As built,
+> `vergil-tooling` is a packaged library with a derived runtime, the
+> newest-with-a-runtime rule governs only a library's deployed runtime, and
+> `vergil-python` publishes a single series that moves by hand.
 
 ## 8. Scope
 
@@ -565,7 +689,8 @@ lab's separate guest-runtime pin (§2.3).
 5. Python and Go floors (§6.4), and Vergil-owned toolchain selection, including
    the CI assertion of the running version (§6.5).
 6. `vergil-python` alignment (§7). This covers:
-   - one runtime per `x.y`;
+   - one runtime package per series, `vergil-python<x.y>`, publishing one
+     series at a time;
    - the packaged-repo resolution rule;
    - the derived `[package.python].runtime`.
 7. The fleet sweep that removes existing `[ci].versions` lists and
@@ -577,7 +702,10 @@ lab's separate guest-runtime pin (§2.3).
      path is proven with a test fixture and recorded).
 9. **Dropping Ruby and GCC 13:**
    - remove Ruby from the matrix, the generated lists, the `vergil-tooling`
-     defaults and the docs, and archive `mq-rest-admin-ruby`;
+     defaults and the docs, and archive `mq-rest-admin-ruby` (archived);
+   - remove Ruby support from the tooling itself, so
+     `primary-language = "ruby"` is a configuration error
+     (`vergil-project/vergil-tooling#3377`);
    - remove the GCC 13 image, which is past upstream support (§6.1).
 10. **Finishing the Go 1.25 retirement** in the Vergil repos (the stale
    `ci-architecture.md:463` and the like).
@@ -604,7 +732,10 @@ lab's separate guest-runtime pin (§2.3).
 
 - The shared machinery contains Python- or Go-specific branches.
 - An adapter treats an upstream fetch failure as "nothing to do".
-- A version list survives anywhere as a hand-maintained copy.
+- A version list survives anywhere as a hand-maintained copy. (The Go tool
+  `case` block, the `pins.yml` constraints and the `.trivyignore` notes in §6.1
+  are per-version settings, not version lists. They stay hand-kept, and only
+  the first two appear as drop-PR checklist items.)
 - A dropped version can still be pinned without a hard failure.
 - An app's CI resolves to a Python version that `vergil-python` can't deploy.
 - A CI job passes for a version it did not actually run.
@@ -636,6 +767,15 @@ the report and handled when Node's turn comes. It is not implemented here.
 - `vergil-project/.github#410`: rank the next languages for full lifecycle
   support, with Rust first.
 - `vergil-project/.github#411`: retrospective (terminal).
+- `vergil-project/.github#424`: brainstorm advisory pre-release toolchain
+  support, promoted to required CI at GA.
+- `vergil-project/.github#425`: brainstorm version resolution for apps whose
+  runtime lives on a host (for example the lab's VM venv), to retire pins like
+  the lab's `["3.14"]`.
+- `vergil-project/.github#213`: the container-build epic, which now holds
+  building and scanning a PR's changed images in PR CI (§6.2).
+- `vergil-project/vergil-python#36`: publish several co-installable runtime
+  series at once (§7).
 - **Follow-on recorded, not seeded here:** move the lab guest runtime pin onto
   `vergil-python` or the window (in `mq-resiliency-lab-for-linux`).
 

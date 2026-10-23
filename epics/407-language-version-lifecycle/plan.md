@@ -18,7 +18,9 @@ PRs for Python and Go. Consumers follow the window by default.
 - **`vergil-tooling`** gains the single resolver (`vrg-ci-resolve`), which reads
   the published window. `vrg-validate` and `vergil-actions`' `derive.sh` both
   call it.
-- **`vergil-python`** publishes one runtime package per `x.y`.
+- **`vergil-python`** publishes one runtime package per `x.y`. (As built,
+  2026-10-23: it publishes one series at a time, now 3.15, with 3.14 frozen at
+  `3.14.8+20261013`; see spec §7 and `vergil-project/vergil-python#36`.)
 - A per-repo sweep removes the hand-kept `[ci].versions` lists.
 
 **Tech Stack:**
@@ -255,7 +257,7 @@ spec §11):
 | go | the two newest releases |
 | rust | newest and newest−1 |
 | java | LTS releases that are not EOL (no-backfill keeps 11 out) |
-| ts-node | LTS (even-numbered) majors that are not EOL |
+| ts-node | LTS (even-numbered) majors that are not EOL (As built, 2026-10-23: the adapter reads the LTS status itself, not the major's parity, since from Node.js 27 every major becomes LTS; see `vergil-project/vergil-containers` PR #627.) |
 | cpp-clang | the newest LLVM major and newest−1 that `apt.llvm.org` publishes for the Debian base |
 | cpp-gcc | release lines gcc.gnu.org lists as maintained, limited to Debian base packages |
 
@@ -649,6 +651,14 @@ Tasks 1 and 7 has been cut and promoted to `v2.1`.
   Task 9 adds `"python"`.
 - `strict_app_pins` comes from a module constant
   `STRICT_APP_PINS = False`. Task 14 flips it.
+
+  (As built, 2026-10-23: Task 14 flipped it, then
+  `vergil-project/vergil-tooling#3442` removed the switch. `STRICT_APP_PINS`,
+  the `strict_app_pins` parameter and `Resolution.warnings` no longer exist.
+  An app multi-pin is always a `ResolutionError`, and `resolve()` takes only
+  `cfg`, `window` and `repo_root`. `Resolution` also gained
+  `container_suffixes`, and the CLI's `json` output a `container-suffixes`
+  object.)
 - `REPOSITORY_TYPE_DEFINITIONS: Mapping[str, str]` holds one sentence per
   type.
   - `library`: provides code that runs in other repos' environments, whether
@@ -753,6 +763,23 @@ Tasks 1 and 7 has been cut and promoted to `v2.1`.
 
     For Go there's nothing to check. `rust-toolchain.toml` is out of scope
     (spec §6.5).
+
+- (As built, 2026-10-23, after the §6.5 amendment on
+  `vergil-project/.github#407`:)
+  - `python-preference` is **not** an error; the check flags only
+    `.python-version` (`vergil-project/vergil-tooling#3410`). uv's
+    `python-downloads` is not flagged either.
+  - The container env is `UV_PYTHON=<primary>` **plus**
+    `UV_PYTHON_PREFERENCE=only-system`, in `vrg-container-run`,
+    `vrg-container-test` and the cached dev-image build
+    (`vergil-project/vergil-tooling#3410`, #3421). `vrg-container-docs` sets only
+    `UV_PYTHON_PREFERENCE` (#3414). Every Python CI leg sets both, and the docs
+    jobs only the source (`vergil-project/vergil-actions#994`, #1002).
+  - `python_extension` narrows only a packaged **app** to the newest version
+    with a runtime. A packaged **library** keeps every candidate in CI, and the
+    rule picks only its deployed runtime through `derived_runtime`
+    (`vergil-project/vergil-tooling#3368`, PR #3401). Either kind fails loud if
+    no candidate has a published runtime.
 
 - [ ] **Step 1: Write the tests.**
   - `test_python_packaged_falls_back_to_newest_with_runtime`: the window has
@@ -921,7 +948,12 @@ spec §8.1 item 8 requires.
 - Process: the package is built from the newest window `x.y`. Moving
   `series` to a new `x.y` is one PR, made after the containers add.
   Previously published series stay in the apt repo, so they remain
-  co-installable (spec §7).
+  co-installable (spec §7). (As built, 2026-10-23: a single series is
+  published at a time. The series moved to 3.15 by a manual PR
+  (`vergil-project/vergil-python#34`), and 3.14 is frozen at
+  `3.14.8+20261013`, kept in the apt repo only while retention keeps it.
+  Nothing drops a series at EOL, and multi-series publishing is deferred to
+  `vergil-project/vergil-python#36`.)
 - Create, in `vergil-containers` (same PR author, separate task row in the
   filing map: **Task 13b**): `docker/versions/lifecycle/runtime.py`.
   - `runtime_published(series: str, fetch) -> bool` reads the vergil apt
@@ -979,7 +1011,9 @@ Each PR does the following:
 
 - removes `[ci].versions`, unless the repo needs a pin. A kept pin is
   recorded with a linked issue titled `Remove the <language> version pin`;
-- removes `.python-version` and `[tool.uv] python-preference`;
+- removes `.python-version` and `[tool.uv] python-preference`; (As built,
+  2026-10-23: the sweep keeps `python-preference`, which the §6.5 amendment
+  allows, and removes only `.python-version`.)
 - removes any `requires-python` upper bound, keeping the floor;
 - runs `vrg-container-run -- vrg-validate` and `vrg-ci-resolve`, and pastes
   the resolved versions into the PR body.
@@ -992,6 +1026,21 @@ Each PR does the following:
 | 15d | `logical-minds-foundry/mq-gateway-replay-lab` | `tooling` → app | remove the list |
 | 15e | `mnemosys-project/melete` | `application` → app | remove the list |
 | 15f | `diogenes-project/diogenes` | `library` | remove the list |
+
+(As built, 2026-10-23, per the scope decision on `vergil-project/.github#407`
+of 2026-10-22:)
+
+- **15a** is done (`vergil-project/vergil-tooling#3371`).
+- **15b** kept a pin. Lab#1681 removed `.python-version` and the `<3.15`
+  bound, kept `python-preference = "only-managed"` and added
+  `python-downloads = "manual"`. It kept `[ci].versions = ["3.14"]`, recorded by
+  `logical-minds-foundry/mq-resiliency-lab-for-linux#1685`.
+- **15c–15f** moved out of this epic, to their repos' or orgs' ad-hoc epics,
+  on hold: `logical-minds-foundry/mq-resiliency-observability#49`,
+  `logical-minds-foundry/mq-gateway-replay-lab#314`,
+  `mnemosys-project/melete#246` and `diogenes-project/diogenes#248`.
+- `mq-protocol-gateway`'s `clang-20` pin is recorded by
+  `logical-minds-foundry/mq-protocol-gateway#25`.
 
 Not swept:
 
@@ -1071,6 +1120,13 @@ Bookends already filed:
   every row above);
 - `vergil-project/.github#409` and `#410` (follow-on brainstorms);
 - `vergil-project/.github#411` (retrospective, terminal).
+
+Follow-ons filed during the epic (2026-10-23):
+
+- `vergil-project/.github#424` (brainstorm: advisory pre-release toolchain
+  support, promoted to required CI at GA);
+- `vergil-project/.github#425` (brainstorm: version resolution for apps whose
+  runtime lives on a host).
 
 **Cross-org rows.** T15b–f and T16 are in other orgs. Cross-org linking is out
 of scope (epic-create Notes), so each of those rows is filed under its own
