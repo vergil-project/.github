@@ -1,211 +1,468 @@
 # Every issue belongs to an epic
 
+> **Revision 2 (2026-10-23, task #430).** This revision absorbs
+> `vergil-project/.github#429` (formalize intake review) into this epic. The
+> original design contained intake in per-repo intake epics and kept the three
+> intake kind labels. This revision replaces that with a two-stage **intake →
+> planning** pipeline: **one** intake epic and **one** planning epic per org, both
+> in `<org>/.github`. The parent epic is an issue's state, so the kind labels are
+> retired. None of the original implementation tasks had started, so the
+> breakdown is rewritten rather than patched (see *Task breakdown*).
+
 ## Problem
 
-The issue framework lets issues exist with **no epic parent**, from two sources:
+The issue framework has two gaps that turn out to be one.
 
-1. **Intake kinds created unlinked by design.** `vrg-triage-create` mints
-   `triage` / `idea` / `research` issues with no parent epic — a deliberate
-   "capture now, groom later" intake queue.
+**Orphans.** Issues can exist with **no epic parent**:
+
+1. **Intake created unlinked by design.** `vrg-triage-create` mints `triage` /
+   `idea` / `research` issues with no parent, as a "capture now, groom later"
+   queue.
 2. **Issues born outside the tools.** Anything holding the app credential (a
    direct API call, the web UI, a script, CI) can open a bare issue the agent
    sandbox never sees. This is how `vergil-tooling#2461` and `#2468` appeared.
 
-Orphaned issues do not roll up to any epic and, when legacy, link with `Ref`
-rather than `Closes`, so they never auto-close — surfaced when `#2461`/`#2468`
-stayed open after their PRs merged. That behaviour is correct-by-design for
-legacy `Ref` issues, but it exposed the real gap: **the framework's core promise
-— every unit of work lives under an epic that manages it — was only half
-enforced.** The optionality was the bug.
+Orphans don't roll up to any epic and, linked with `Ref`, never auto-close. The
+framework's core promise, that every unit of work lives under an epic that
+manages it, was only half enforced.
+
+**Unprocessed intake has no defined lifecycle.** Captured work collects under
+three ad hoc labels with no end state. `triage-review` reads only `triage`, so on
+2026-10-23 the org had 30 open `idea` and 3 `research` issues nobody had
+reviewed, many over a year old. Epic processing works well. Intake processing
+does not. It isn't possible to look at the org's issues and tell which are
+ready to build and which are still raw. And there is no place to queue, or track,
+the deliberate multi-hour (sometimes multi-day) work of expanding an idea into a
+full epic.
 
 ## Goals
 
-- **The invariant:** in any repo with a `vergil.toml`, every issue has an epic
-  parent. Asserted, universal, no opt-out.
-- Contain the intake kinds (`triage`/`idea`/`research`) in a standing epic,
-  mirroring the existing ad-hoc epic, without making them PR-workable.
-- Make the invariant hold regardless of *how* an issue is born — including the
-  credential/web-UI paths the sandbox cannot police — by auto-healing, not
-  rejecting.
-- Retro-attach every existing orphan across all managed repos in every org.
+- **The invariant:** in any repo with a `vergil.toml`, every issue is an epic or
+  has an epic parent. Asserted, universal, no opt-out.
+- **Every issue's state is visible from its parent:**
+  1. **Intake:** captured, not reviewed. Lives under the org's intake epic.
+  2. **Planning:** reviewed, judged to need a full epic, waiting for (or
+     undergoing) `epic-create`. Lives under the org's planning epic.
+  3. **Ready:** under a repo's ad-hoc epic (a one-off) or under a fully expanded
+     finite epic (part of a collection of work). Only ready work is buildable.
+- **Capture has near-zero friction.** A one-line "don't forget X" is a valid
+  intake item. No category decision at capture time.
+- **Intake review is one skill** that reviews everything in intake, oldest first,
+  and routes each item.
+- **Epic creation is always tracked** in a planning issue, so a planning session
+  can pause and resume days later from a written record.
+- The invariant holds regardless of how an issue is born, by auto-healing rather
+  than rejecting.
+- Retro-attach every existing orphan, and migrate the existing intake backlog,
+  across all managed repos in every org.
 
 ## Non-goals
 
-- **Perfect placement.** The migration and the safety net attach orphans to a
-  catch-all standing epic (intake or ad-hoc); *re-homing* to the right finite
-  epic happens later through normal grooming (`triage-review`), not here.
-- **Rejecting or closing issues.** Enforcement heals (auto-attach); it never
-  fights creation. A hard-reject mode is explicitly out of scope.
-- **Reopening merged work.** `#2461`/`#2468` are already merged; attaching them to
-  an epic is about the invariant, not their code.
-- **Cross-org linkage.** Each org has its own `.github`; the invariant is
-  enforced per-org, never across orgs.
+- **Perfect placement by the sweep.** The sweep attaches every orphan to intake.
+  Putting it in the right place is intake review's job.
+- **Rejecting issue creation.** Enforcement heals (auto-attach). It never fights
+  creation.
+- **A stale-item mechanism.** Oldest-first ordering is the pressure. There is no
+  separate stale flag or auto-close.
+- **Reviewing the wider label set.** That is the follow-on brainstorm bookend
+  (see *Bookends*).
+- **Intake review cadence** (when and how often it runs). Tracked elsewhere.
+- **Cross-org linkage.** Each org has its own `.github` and its own intake and
+  planning epics.
+- **Public → private visibility changes.** Unsupported by policy (see *Private
+  repos and visibility*). The audit detects them; nothing migrates or retracts.
+- **Reviving closed intake.** A closed item stays searchable. Bringing one back
+  is a manual act with no tooling.
+
+## Anti-goals
+
+- **Making capture costly.** Any required field, category, or triage step at
+  capture time defeats the purpose. Ideas get lost when capturing them is work.
+- **More planning states.** Waiting / in progress / completed. Adding a fourth
+  (blocked, deferred, needs-research, …) is out. Detail goes in the progress
+  comments.
+- **Labels that duplicate the parent.** State is carried by the parent epic. A
+  label that restates it can drift out of sync with the parent.
 
 ## Invariant (the assertion)
 
-**Every issue is either an epic (top-level) or has an epic parent.** Using Vergil
-means using the issue tooling; the resolver that decides "which epic" is
-data-driven and extensible in principle, but the invariant is non-negotiable and
-carries no per-repo opt-out. Epics are the sole top-level issues — they have no
-parent by design and are never swept.
+**Every issue is either a legitimate top-level kind or has an epic parent.** The
+legitimate top-level kinds are:
+
+- **epics** (`epic` label), including the standing intake, planning, and ad-hoc
+  epics;
+- **archives** (`archive` label): the per-quarter ad-hoc, intake, and planning
+  archive buckets;
+- **release tracking issues** (`release: X.Y.Z`, recognized by
+  `release.is_release_tracking_issue`), which `vrg-release` creates top-level and
+  keeps open for the length of a release.
+
+These are defined once, in a single predicate shared with `epic_audit`'s existing
+exemptions (`stray_dotgithub_issue` already exempts archives, and task drift
+already exempts release tracking issues), so the sweep and the audit cannot
+disagree. Legitimate top-level issues are never swept. There is no per-repo
+opt-out and no "unlinked" terminal state.
 
 ## Design
 
-### Standing intake epic (per-repo)
+### Standing epics: intake and planning (one each per org)
 
-Add `ensure_intake_epic(repo)` in `lib/epics.py` alongside the existing
-`ensure_adhoc_epic`, reusing the same machinery: a **perpetual, never-auto-close**
-`Epic (intake): <bare repo>`, labelled `epic` + `intake`, homed via
-`resolve_epic_home` (public repo → `<org>/.github`; private → itself), created and
-reused **idempotently**. It holds the three intake kinds. The ad-hoc epic keeps
-holding actual ad-hoc *work*; the two are distinct grooming-source buckets.
+Generalize the existing ad-hoc machinery in `lib/epics.py` (`ensure_adhoc_epic`)
+into a shared standing-epic helper, then add two **org-level** standing epics,
+both in `<org>/.github`:
 
-The intake epic reuses the ad-hoc epic's perpetual, never-rolls-up handling (the
-`ad-hoc` branch of the closure logic generalizes to "a standing epic"), so it
-never gates or triggers rollup.
+| Epic | Title | Labels | Holds |
+| --- | --- | --- | --- |
+| Intake | `Epic (intake): <org>` | `epic`, `intake` | every unreviewed item, and every orphan the sweep finds |
+| Planning | `Epic (planning): <org>` | `epic`, `planning` | items that need a full epic, waiting for or undergoing `epic-create` |
 
-### The shared orphan resolver
+Both are perpetual and never auto-close, reusing the ad-hoc epic's
+never-rolls-up handling (the `ad-hoc` branch of the closure logic generalizes to
+"a standing epic"). Both are created and reused idempotently.
 
-One function — **given an issue, which epic does it belong to?** — with a single
-rule:
+Unlike ad-hoc epics, which exist per member repo, there is **exactly one** intake
+epic and **one** planning epic per org. No member repo has either.
 
-- the issue carries a `triage` / `idea` / `research` label → the repo's **intake**
-  epic (`ensure_intake_epic`);
-- otherwise → the repo's **ad-hoc** epic (`ensure_adhoc_epic`).
+**The 100-sub-issue cap.** GitHub caps an issue at 100 sub-issues, which the
+ad-hoc epics already handle with the quarterly archive-and-drain
+(`_ADHOC_ARCHIVE_SEGMENT_CAP`, #2872). Intake and planning reuse that drain
+unchanged: closed children (dropped, split, completed) move into per-quarter
+`Archive (intake): <org> …` / `Archive (planning): <org> …` buckets (labels
+`archive` + `intake`/`planning`), so only open items count against the cap. If
+attaching would push an epic's open children past the cap, the sweep and the
+migration **stop and report loudly** (the overflowing issues, the count). They
+never drop or skip silently. A full intake queue is a signal to run intake
+review, not something to engineer around. *(Builder's call, recorded here.)*
 
-Built once and consumed by **both** the safety-net Action and the migration, so
-the two can never diverge. The resolver is pure/deterministic given (issue,
-labels, repo); the "attach" side effect is a separate step.
+### Private repos and visibility
 
-### Enforcement — two layers
+**Private work stays private.** Intake and planning follow the existing epic-home
+rule (`resolve_epic_home`): a public repo's items live in the org's `.github`
+intake and planning epics, while a **private repo self-homes its own** `Epic
+(intake): <repo>` and `Epic (planning): <repo>`, exactly as it already self-homes
+its epics. "One intake and one planning epic per org" therefore means one pair
+for the org's public repos, plus one pair in each private repo. Capture, the
+orphan resolver, intake review, the queue view, and `epic-create` all resolve the
+home from the item's repo:
 
-1. **Client (removes the intentional orphan surface).** `vrg-triage-create` stops
-   creating unlinked issues: it resolves and attaches each new intake issue to the
-   repo's intake epic (born-linked, exactly as `vrg-issue-create` born-links under
-   its `--epic`). After this, **no sanctioned tool can birth an orphan**
-   (`vrg-issue-create` already requires `--epic`; `vrg-epic-create` makes epics;
-   raw `gh` is hook-blocked; `vrg-gh issue create` is denied).
+- `vrg-intake-create` run inside (or `--repo`-targeted at) a private repo files in
+  that repo. Everything else files in `<org>/.github`.
+- A private repo's orphans go to that repo's own intake epic, never to `.github`.
+- Intake review never routes a private repo's item to a public repo or epic.
+  (GitHub also refuses private → public transfers.)
 
-2. **Safety net — extend the existing centralized org-wide sweep (makes the
-   invariant hold for every other path).** The fleet already runs a scheduled
-   reconciliation sweep: `vrg-epic-audit` scans the whole org (it auto-detects the
-   org and reconciles drift across every repo; automated closes are gated by
-   `VRG_EPIC_SWEEP=1`), driven on a schedule by the reusable `ops-epic-sweep`
-   workflow (`vergil-actions`), which mints an **org-wide app token**
-   (`create-github-app-token` with no `repositories` scope) and is called by
-   `.github/workflows/epic-sweep.yml`. We **extend that same sweep to also attach
-   orphans** via the shared resolver, healing them in the pass that already closes
-   drift. Auto-heal, never reject. Rationale:
-   - **Reuse, not rebuild** — the org-wide token + single central workflow already
-     solve "one sweep, all repos," so no per-repo workflow or repo registry is
-     needed. The "a `.github` Action can't see member repos" constraint is moot
-     because the sweep runs org-wide *as the app*, not as a repo-scoped Action.
-   - **Scheduled, not event-driven** — the orphan hole is tiny (everything real
-     goes through the tooling), so eventually-consistent healing on a schedule is
-     proportionate.
+**Visibility is one-way: private → public only.**
 
-**Sweep domain.** The resolver and the sweep act only on **open** issues that are
-**not** pull requests, **not** labelled `epic`, and **not already** epic-parented.
-Closed issues are left untouched — the invariant governs live work, not history.
+- **Private → public is supported.** Making a repo public discloses nothing new.
+  Its existing self-homed epics finish where they are. New work homes in
+  `.github`. Its self-homed intake and planning items are **re-linked** under the
+  `.github` intake and planning epics and stay in their repo, exactly like a
+  public member-repo orphan, for intake review to route. Its now-empty standing
+  epics are then closed. That is the only closure the sweep makes (see
+  *Migration*).
+- **Public → private is not supported.** Once a repo has been public, its
+  contents (and anything about it in the public `.github`, including epic
+  bodies, specs, and plans) may already have been cloned and redistributed.
+  Making it private cannot undo that, and pretending otherwise gives false
+  assurance. Decide at repo creation whether something is private. If it is
+  public, it stays public. **To take public work private, create a new
+  repository that starts life private and migrate the code into it.** The new
+  repo self-homes its epics and queues from day one, and the public original is
+  left as it was (archived if appropriate). This is not expected to happen often,
+  but it is the only supported path, and the architecture docs must say so.
+  `vrg-epic-audit` reports a private repo that has
+  issues linked under `.github` epics as a likely unsupported flip, loudly, for a
+  human to resolve. Tooling never tries to migrate or retract anything.
 
-### Intake issues stay non-PR-workable (closes `#175`)
+### Capture: `vrg-intake-create` / `intake-capture`
 
-Being epic-attached must **not** make a `triage`/`idea`/`research` issue
-PR-workable — otherwise a raw intake seed could acquire a PR and close as though
-groomed. So the PR path refuses an intake-labelled issue the same way it already
-refuses an operational-labelled one: `vrg-pr-workflow report-ready` and
-`vrg-submit-pr` (and, upstream, `issue-implement`) detect the intake label and
-refuse with "groom this into a real task first." This directly answers and closes
-`vergil-project/.github#175`.
+`vrg-triage-create` is renamed `vrg-intake-create`, with a one-release deprecated
+`vrg-triage-create` alias that warns and forwards. The new command:
 
-Grooming is the sanctioned exit: `intake-review` (renamed from `triage-review`
-and generalized to all three intake kinds) converts an accepted intake issue into
-a real task — dropping *whichever* intake label it carries and re-homing it under
-a finite epic — at which point the PR path accepts it. The refusal gates only
-*un-groomed* intake kinds.
+- takes `--title` and a body (`--body` or `--body-file`); **`--kind` is removed**
+  (the deprecated alias accepts and ignores it, with a warning);
+- files in `<org>/.github` and links the issue under the intake epic when it is
+  created; there is no unlinked path.
 
-### Rename the intake tool family (fix the naming mistake)
+The `triage-capture` skill becomes `intake-capture` and drops the "pick the kind"
+step. Paraphrasing voice-to-text input is unchanged.
 
-The tools that handle intake were named for just one of their three kinds. Rename
-the family to match the concept this epic establishes:
-`triage-review → intake-review`, `triage-capture → intake-capture`,
-`vrg-triage-create → vrg-intake-create`. The three **kind labels**
-(`triage`/`idea`/`research`) are unchanged — `triage` stays a legitimate kind;
-"intake" is the family/queue. `intake-review` is generalized to collect and groom
-all three kinds (both its listing query and its promote-in-place label removal).
-The console-script rename ships with a **one-release deprecated `vrg-triage-create`
-alias** that warns and forwards, so nothing in flight breaks.
+### The orphan resolver: every orphan goes to intake
 
-### Migration — the same sweep, run once
+An orphan is by definition something nobody has reviewed, so the resolver has
+one rule: **every orphan is attached to the intake epic of its home**: the org's
+`.github` intake epic for a public repo, the repo's own intake epic for a private
+one (see *Private repos and visibility*). GitHub sub-issue links may cross repos within an org, so a
+member-repo orphan stays in its repo, linked under `.github`'s intake epic, until
+intake review routes it.
 
-The migration is not a separate mechanism: it is the **same `vrg-epic-audit`
-orphan-attach**, run once org-wide for immediacy, after which the scheduled
-`ops-epic-sweep` maintains the invariant. It attaches every open orphan (per the
-sweep domain above) via the shared resolver, is **idempotent and re-runnable**
-(already-parented issues are skipped), reports a tally, and never closes or
-relabels — it only attaches.
+**Sweep domain:** open issues that are not pull requests, not a legitimate
+top-level kind (see *Invariant*), and not already epic-parented, in **managed**
+repos only: non-archived repos with
+a `vergil.toml`, matching the invariant's scope. Unmanaged repos in the org
+(forks, archived or experimental repos) are never written to. Closed issues are
+left alone. A parent declared only by a body `Parent:` line counts as parented,
+but the migration converts such links to native sub-issue links, so intake
+review's child listing and the PR refusal's parent check agree. *(Builder's
+call.)*
 
-Because it mutates live GitHub state across the org, the one-shot run is proven by
-*running* it and recording the outcome, not by a code PR — see the operational
-task in the breakdown.
+**Enforcement.** Two layers:
 
-## Data model — what varies and what does not
+1. **Client:** `vrg-intake-create` creates every issue already linked (above).
+   With `vrg-issue-create` requiring `--epic`, no sanctioned tool can create an
+   orphan.
+2. **Safety net:** extend the existing org-wide `vrg-epic-audit` sweep (driven on
+   a schedule by the reusable `ops-epic-sweep` workflow with an org-wide app token
+   and `VRG_EPIC_SWEEP=1`) to attach orphans via the resolver. Orphan-attach is
+   part of the existing `--close` write pass, the one the scheduled workflow
+   already runs, so the workflow needs no change. Without `--close` the audit
+   lists the orphans it would attach (preview). It runs on a schedule and is
+   eventually consistent. No new workflow and no per-repo rollout. *(Builder's
+   call.)*
 
-- **Varies (data-driven / extensible):** the set of intake kinds and their labels;
-  the resolver's label→epic mapping; the standing-epic titles/labels. These live
-  as constants beside the existing `_ADHOC_EPIC_*` definitions.
-- **Does not vary (the invariant):** every issue is either an epic or has an epic
-  parent. No repo may opt out; there is no "unlinked" terminal state.
+### Intake review: `intake-review`
+
+`triage-review` is renamed `intake-review` and redesigned.
+
+**Collect.** List every open child of the intake epic, **sorted by creation
+date, oldest first**. Report the count and a one-line list.
+
+**Present in batches of about four.** For each item the agent first **checks
+current state** (has the bug already been fixed? is there an overlapping issue
+or epic?) and then writes a short paragraph: what it is, why it matters, where it
+stands now, and a recommended route. The human confirms or redirects the whole
+batch in one reply. The agent applies the decisions and moves to the next batch.
+The human can stop at any point. Unreviewed items simply stay in intake, so there
+is nothing to resume.
+
+**Routes:**
+
+| Route | Effect |
+| --- | --- |
+| **Drop** | The agent closes the item with the reason. Closed is archived and stays searchable. "Good idea, not feasible for years" is a drop. |
+| **Defer** | Leave it in intake and add a dated comment with the reason. It keeps its age, so it comes up first again next time. Not a new state. |
+| **One-off** | Move it into the target repo and link it under that repo's ad-hoc epic, or under an existing finite epic where it clearly belongs. |
+| **Split** | Create several ready tasks (ad-hoc or under existing epics, across repos as needed), each linking back to the original, then close the original with links to them. |
+| **To planning** | Reparent it from the intake epic to the planning epic. It stays in `.github`. |
+
+**Moving an issue to another repo** transfers it (`vrg-gh issue transfer`),
+keeping its history. If transfer is unavailable or fails, the agent recreates it
+in the target repo with a link back, and closes the original with a pointer.
+Either way the resulting issue is re-linked under its new parent (a transfer may
+not keep the sub-issue link). A one-off whose PR will land in `.github` itself
+stays put and is just reparented.
+
+**Agents close issues.** The current `triage-review` skill says closing is a
+human action and that agents are denied `issue close`. That is wrong: `vrg-gh
+issue close` works for the user identity. `intake-review` closes dropped and
+split items itself, after the human confirms the batch.
+
+The routing mechanics (transfer-or-recreate, reparent, re-link, close with
+pointer) are deterministic. A single routing command should own them so the
+skill does not hand-roll them.
+
+### Planning: the planning queue and `epic-create`
+
+**A planning issue records its own epic-creation process.** It stays open and
+unchanged in substance until the epic is fully expanded. `epic-create` records
+progress as comments: what has been done, what is blocked ("waiting on research
+from X"), and where to resume. A planning session that pauses for a day or a week
+resumes from that record.
+
+**Three states, nothing more:**
+
+| State | Representation |
+| --- | --- |
+| Waiting | Open under the planning epic, no `in-progress` label |
+| In progress | Open under the planning epic, `in-progress` label; detail in the latest progress comment |
+| Completed | Closed with "planned as #N". Also closed, with the reason, if planning concludes the idea is not worth doing. |
+
+**Machine-readable link.** `epic-create` records the planning state as marker
+lines in planning-issue progress comments: `Epic: <org>/.github#N` when it creates
+the epic, `Docs task: <ref>` when it creates the docs task, and `Tasks filed: yes`
+after it files the implementation tasks. The latest of each line wins. It also
+adds a `Planning: <org>/.github#M` line to the epic body. The queue view computes
+**ready to close** as: `in-progress` label present, all three markers present,
+and the docs task closed (closed means the docs PR merged). Explicit markers are
+used instead of inferring "implementation tasks exist", which cannot tell
+bookend tasks from implementation tasks and would report ready while filing is
+still under way. *(Builder's call.)*
+
+**Completed means fully expanded:** the epic exists, its spec + plan docs PR is
+**merged**, and its implementation tasks are **filed**. The docs merge is a human
+action, so `epic-create` may finish its work before it can close the planning
+issue. It then records "waiting on docs PR merge" and leaves the item in
+progress. Closure happens on the next `epic-create` touch, or the planning-queue
+summary flags it as ready to close.
+
+**`epic-create` always works through a planning issue.** Its entry points:
+
+| Invocation | Behaviour |
+| --- | --- |
+| `epic-create <issue>`, issue is in planning | Start it, or resume it from its progress comments |
+| `epic-create <issue>`, issue is in intake | Reparent it to planning (a one-item intake review), then start |
+| `epic-create` with no argument | Summarize the planning queue (waiting, in progress with latest note, ready to close) and ask which one to work on |
+| `epic-create` with a free-text idea | Create a planning issue for it first (skipping intake), then start |
+
+**Visibility.** A read-only queue view shows each standing queue at a glance:
+intake (count, oldest first) and planning (grouped by state, with each in-progress
+item's latest note). `epic-create`'s no-argument summary and `intake-review`'s
+collect step both use it.
+
+### Intake and planning items are not PR-workable (closes `#175`)
+
+An item under the intake or planning epic must not acquire a PR and close as
+though it were groomed work. `vrg-pr-workflow report-ready` and `vrg-submit-pr`
+(and, upstream, `issue-implement`) refuse an issue **whose parent is the org's
+intake or planning epic**, with "route this through intake review / epic-create
+first". This mirrors the existing operational-task refusal, but checks the
+**parent** rather than a label. Routing out of those epics is the only way to
+lift the refusal. This answers and closes `vergil-project/.github#175`.
+
+### Labels: parent is state
+
+- The `triage`, `idea`, and `research` labels are **retired**. The migration
+  removes them from every issue it moves, and no tool or skill applies them after
+  this epic. Their definitions stay in `labels.json` (so the label sync still
+  creates them) until the label-set follow-on decides the namespace. Removing
+  them is that follow-on's job, deliberately not this epic's.
+- `intake` and `planning` label only the two standing epics, so tooling can find
+  them, the way `ad-hoc` labels the ad-hoc epics.
+- `in-progress` is the single new per-item label, used only on planning items.
+- Code that currently keys off `_INTAKE_LABELS` (e.g. `epic_audit`'s drift skip
+  and stray-issue check) keys off the parent instead.
+
+### Migration
+
+The migration is not a separate mechanism. It is the same `vrg-epic-audit`
+orphan-attach, run once org-wide for immediacy, plus a one-time conversion of the
+existing intake backlog:
+
+- every open **unparented** `triage`/`idea`/`research` issue is attached under the
+  intake epic and loses its kind label, whatever repo it lives in;
+- a kind-labelled issue that **already has an epic parent** keeps its parent and
+  only loses the label (someone already routed it, as with `#428` → `#139`);
+- every other open orphan is attached under the intake epic.
+
+It is idempotent and re-runnable, reports a tally, and never closes an item. The
+one exception is closing a now-public repo's emptied self-homed standing epics
+(see *Private repos and visibility*). The
+one-shot run is triggered by a human through `workflow_dispatch` on
+`ops-epic-sweep` (the app identity, `VRG_EPIC_SWEEP=1`), not from an agent
+session. *(Builder's call.)*
+After it runs, the scheduled `ops-epic-sweep` maintains the invariant. Because it
+mutates live GitHub state across the org, it is proven by running it and
+recording the outcome (an operational task), not by a code PR. It runs per org
+(`vergil-project`, `logical-minds-foundry`, …).
+
+Existing finite epics are untouched. Planning issues for them are not created
+retroactively.
+
+### Bootstrapping
+
+This epic builds the planning queue, so it cannot be planned through one. Its own
+revision is tracked the old way (this spec, docs task `#430`).
+
+## Data model: what varies and what does not
+
+- **Varies (data-driven):** standing-epic titles and labels, the batch size, and
+  the routing table. These live as constants beside the existing `_ADHOC_EPIC_*`
+  definitions.
+- **Does not vary (the invariant):** every issue is a legitimate top-level kind
+  or has an epic parent; every orphan resolves to intake; nothing under intake or planning is
+  PR-workable.
 
 ## Testing
 
-- `ensure_intake_epic`: idempotent create/reuse; correct home per visibility;
-  perpetual/never-auto-close classification.
-- Resolver: intake-labelled → intake epic; everything else → ad-hoc; pure and
-  deterministic; unknown/multiple labels resolve deterministically.
-- `vrg-intake-create`: new intake issues are born-linked under the intake epic;
-  no unlinked path remains.
-- PR-workability gate: `report-ready`/`vrg-submit-pr` refuse an intake-labelled
-  issue with the grooming message; a groomed (re-kinded) issue is accepted.
-- Orphan-attach in `vrg-epic-audit`: enumerates open orphans org-wide; excludes
-  epics/PRs/closed/already-parented; attaches via the resolver; idempotent re-run
-  is a no-op; never closes/relabels; automated attach gated by `VRG_EPIC_SWEEP`.
-- `ops-epic-sweep` extension: the workflow runs the orphan-attach; follows
-  `vergil-actions` workflow-test conventions (actionlint + a dispatch dry run).
-- Rename: the deprecated `vrg-triage-create` alias warns and forwards;
-  `intake-review` collects and re-kinds all three intake labels.
+- Standing epics: intake and planning are idempotent to create and reuse, both
+  homed in `<org>/.github`, and perpetual (never auto-close, never gate rollup).
+- Resolver: a sweepable orphan in a public repo resolves to the org's `.github`
+  intake epic, and one in a private repo to that repo's own intake epic. PRs,
+  closed and already-parented issues, legitimate top-level kinds (epics, open
+  ad-hoc/intake/planning archives, an in-flight `release: X.Y.Z` tracking issue),
+  and unmanaged repos are all excluded.
+- Visibility: a private repo's capture, orphans, and routes never reach a public
+  repo or epic; private → public migration moves the queue items; the audit flags
+  a private repo with issues under `.github` epics.
+- `vrg-intake-create`: creates every issue already linked under intake, with no
+  kind label; the deprecated alias warns, ignores `--kind`, and forwards.
+- Routing command: transfer + re-link; the recreate + close fallback;
+  reparent to planning; split; drop. Each leaves the issue (or its replacement)
+  correctly parented.
+- PR refusal: `report-ready` / `vrg-submit-pr` refuse a child of intake or
+  planning, and accept the same issue once it has been routed to an ad-hoc or
+  finite epic.
+- Queue view: intake is ordered oldest first; planning is grouped into waiting,
+  in progress, and ready to close.
+- Orphan-attach in `vrg-epic-audit`: org-wide enumeration, correct exclusions,
+  idempotent re-run, never closes, gated by `VRG_EPIC_SWEEP`.
+- `epic_audit` code that keyed off intake labels now keys off the parent.
 
 ## Task breakdown (this epic)
 
-Documentation and closing bookends are already seeded (`#177`, `#178`,
-`vergil-tooling#2474`). Implementation tasks, each filed in the repo where its PR
-lands and linked under this epic:
+Bookends: `#177` (original docs, done), `#430` (this revision), the docs review
+`vergil-tooling#2474`, the retrospective (to seed), and `#178`, retargeted to the
+label-set follow-on brainstorm (see *Bookends*).
 
-1. **`lib/epics.py`** — `ensure_intake_epic`, the shared resolver, and the
-   sweep-domain predicate (open, non-PR, non-epic) (`vergil-tooling`).
-2. **`vrg-intake-create`** — born-link intake issues under the intake epic
-   (`vergil-tooling`; lands after task 7's rename).
-3. **PR-workability gate** — refuse un-groomed intake-labelled issues in
-   `report-ready`/`vrg-submit-pr`; closes `#175` (`vergil-tooling`).
-4. **Extend `vrg-epic-audit`** — add an org-wide orphan-attach pass
-   (`orphan_drift` + attach via the resolver) to the existing audit/sweep, gated
-   by `VRG_EPIC_SWEEP` like its `--close` (`vergil-tooling`).
-5. **Extend `ops-epic-sweep`** — the existing scheduled reusable workflow runs the
-   orphan-attach alongside the drift-close; no new workflow, no per-repo rollout
-   (`vergil-actions`).
-6. **Operational: run the one-shot org-wide sweep** — a `validation` task that
-   runs `vrg-epic-audit` orphan-attach once across the org and confirms no open,
-   non-PR, non-epic, unparented issue remains (proven by an `Outcome: SUCCESS`
-   comment), blocked-by tasks 1 and 4 and their deployment.
-7. **Rename the intake family** — `triage-review → intake-review` (generalized to
-   all three kinds), `triage-capture → intake-capture`,
-   `vrg-triage-create → vrg-intake-create` (with a one-release deprecated alias);
-   update all references and the `vrg-gh` denial message (`vergil-tooling` plus
-   the plugin/skills repo for the skill renames).
+The original implementation tasks have not started. Each is rewritten in place
+where its scope survives, and new tasks are filed for new scope. All are filed in
+the repo where their PR lands. `plan.md` holds the detail. Order: 1 → 2 →
+(3–7) → 8 → 9 → 10.
 
-## Follow-ons
+1. **Standing kinds, queue homes, resolver, and predicates** (`lib/epics.py`):
+   the shared standing-epic helper, `ensure_intake_epic` / `ensure_planning_epic`
+   with visibility-based homes, the legitimate-top-level predicate, the
+   managed-repo check, and the parent-based queue-kind check. Rollup and roadmap
+   treat every standing kind as perpetual (`vergil-tooling`; rewrites `#2481`).
+2. **Generalized archive drain:** closed intake and planning children drain into
+   per-quarter archives under the 95-child segment cap (`vergil-tooling`; new).
+3. **Rename + capture:** `vrg-triage-create → vrg-intake-create` (no `--kind`,
+   linked under intake when created, private repos self-home, deprecated alias)
+   (`vergil-tooling`; merges `#2484` with the tool half of `#2482`).
+4. **PR refusal by parent** for intake and planning items; closes `#175` via
+   `Ref` (`vergil-tooling`; rewrites `#2485`).
+5. **Orphan pass + migration in `vrg-epic-audit`:** orphan-attach with the cap
+   stop, kind-label retirement, body-`Parent:` nativization, moving
+   `_INTAKE_LABELS` consumers to parent checks, the private → public queue
+   re-link, and the unsupported-flip report (`vergil-tooling`; rewrites `#2483`).
+6. **`vrg-intake-route`:** the deterministic routes (drop, defer, one-off with
+   transfer-or-recreate, split, planning) (`vergil-tooling`; new).
+7. **`vrg-queue`:** the read-only intake (oldest first) and planning (waiting /
+   in progress / ready to close) views (`vergil-tooling`; new).
+8. **Skills:** `triage-capture → intake-capture`, `triage-review → intake-review`
+   (the redesign above, including the fix for the wrong claim about closing
+   issues), and the `epic-create` planning-issue entry points and progress
+   tracking. Also update **every other intake producer**, so no skill applies a
+   retired label or names a retired tool:
+   - `migrate-repo` links uncertain items under the intake epic instead of
+     labelling them `triage` in place;
+   - `issue-implement` refuses intake and planning items (the upstream half of
+     task 4);
+   - `memory-audit`, `issue-validate`, `issue-deploy`, and
+     `issue-validate/references/operational-task-lifecycle.md` switch to
+     `intake-capture`;
+   - the plugin docs (`docs/development/skills-architecture.md`,
+     `docs/site/docs/skills/index.md`) use the new names.
 
-- Whether the intake epic should ever *split* per kind if a single bucket grows
-  unwieldy (deferred; start with one).
-- Grooming ergonomics: `intake-review` re-homing swept orphans out of the
-  catch-all epics is the ongoing counterpart to this one-shot invariant.
+   (`vergil-claude-plugin`; takes the skill half of `#2482`.)
+9. **Deployment:** releases of vergil-tooling and vergil-claude-plugin carrying
+   tasks 1–8 are installed on the host, agent VMs, and the sweep runners. The
+   releases themselves are a human-gated precondition (`vergil-tooling`,
+   `--kind deployment`; new).
+10. **Validation: run the one-shot migration per org.** After `workflow_dispatch`
+    of `ops-epic-sweep`, a re-run preview shows no orphan, retired-label issue,
+    body-only parent, or public self-homed queue; legitimate top-level issues are
+    untouched; a second run changes nothing. Blocked by task 9 (`.github`,
+    `--kind validation`; rewrites `#185`).
+
+`ops-epic-sweep` needs no change: it already runs `vrg-epic-audit` with
+`VRG_EPIC_SWEEP=1` (`vergil-actions#786`, closed not planned).
+
+## Bookends
+
+- **Docs review** (`vergil-tooling#2474`): the site docs describing the issue
+  model, intake, and `epic-create` reflect intake → planning → ready.
+- **Follow-on brainstorm** (`#178`, retargeted): **review the wider label set.**
+  With state moved to parents, the remaining labels need a deliberate, minimal
+  namespace. This chains directly from this epic.
+- **Retrospective:** terminal, authored with `epic-retrospective`.
