@@ -155,8 +155,11 @@ home from the item's repo:
 
 - **Private → public is supported.** Making a repo public discloses nothing new.
   Its existing self-homed epics finish where they are. New work homes in
-  `.github`. Its self-homed intake and planning items are moved into the `.github`
-  queues (a public → public transfer) and its now-empty standing epics are closed.
+  `.github`. Its self-homed intake and planning items are **re-linked** under the
+  `.github` intake and planning epics and stay in their repo, exactly like a
+  public member-repo orphan, for intake review to route. Its now-empty standing
+  epics are then closed. That is the only closure the sweep makes (see
+  *Migration*).
 - **Public → private is not supported.** Once a repo has been public, its
   contents (and anything about it in the public `.github`, including epic
   bodies, specs, and plans) may already have been cloned and redistributed.
@@ -274,12 +277,16 @@ resumes from that record.
 | In progress | Open under the planning epic, `in-progress` label; detail in the latest progress comment |
 | Completed | Closed with "planned as #N". Also closed, with the reason, if planning concludes the idea is not worth doing. |
 
-**Machine-readable link.** When `epic-create` creates the epic, it records the
-link on both sides: an `Epic: <org>/.github#N` line in a planning-issue progress
-comment, and a `Planning: <org>/.github#M` line in the epic body. The queue view
-uses that link to check the epic's docs task (closed means the docs PR merged)
-and whether implementation tasks exist under the epic. That is how it computes
-"ready to close". *(Builder's call.)*
+**Machine-readable link.** `epic-create` records the planning state as marker
+lines in planning-issue progress comments: `Epic: <org>/.github#N` when it creates
+the epic, `Docs task: <ref>` when it creates the docs task, and `Tasks filed: yes`
+after it files the implementation tasks. The latest of each line wins. It also
+adds a `Planning: <org>/.github#M` line to the epic body. The queue view computes
+**ready to close** as: `in-progress` label present, all three markers present,
+and the docs task closed (closed means the docs PR merged). Explicit markers are
+used instead of inferring "implementation tasks exist", which cannot tell
+bookend tasks from implementation tasks and would report ready while filing is
+still under way. *(Builder's call.)*
 
 **Completed means fully expanded:** the epic exists, its spec + plan docs PR is
 **merged**, and its implementation tasks are **filed**. The docs merge is a human
@@ -337,7 +344,9 @@ existing intake backlog:
   only loses the label (someone already routed it, as with `#428` → `#139`);
 - every other open orphan is attached under the intake epic.
 
-It is idempotent and re-runnable, reports a tally, and never closes anything. The
+It is idempotent and re-runnable, reports a tally, and never closes an item. The
+one exception is closing a now-public repo's emptied self-homed standing epics
+(see *Private repos and visibility*). The
 one-shot run is triggered by a human through `workflow_dispatch` on
 `ops-epic-sweep` (the app identity, `VRG_EPIC_SWEEP=1`), not from an agent
 session. *(Builder's call.)*
@@ -397,33 +406,38 @@ label-set follow-on brainstorm (see *Bookends*).
 
 The original implementation tasks have not started. Each is rewritten in place
 where its scope survives, and new tasks are filed for new scope. All are filed in
-the repo where their PR lands:
+the repo where their PR lands. `plan.md` holds the detail. Order: 1 → 2 →
+(3–7) → 8 → 9 → 10.
 
-1. **`lib/epics.py`:** shared standing-epic helper; org-level `ensure_intake_epic`
-   and `ensure_planning_epic`; the every-orphan-to-intake resolver; the shared
-   legitimate-top-level predicate (adopted by `epic_audit`'s existing
-   exemptions); the sweep-domain predicate; parent-based `is_intake_item` / `is_planning_item`
-   (`vergil-tooling`; rewrites `#2481`).
-2. **Rename + capture:** `vrg-triage-create → vrg-intake-create` (no `--kind`,
-   linked under intake when created, deprecated alias) (`vergil-tooling`; merges
-   `#2484` with the tool half of `#2482`).
-3. **PR refusal by parent** for intake and planning items; closes `#175`
-   (`vergil-tooling`; rewrites `#2485`).
-4. **Orphan-attach + migration in `vrg-epic-audit`,** including the kind-label
-   conversion, moving `_INTAKE_LABELS` consumers to parent checks, the
-   private → public queue move, and the unsupported-flip report
-   (`vergil-tooling`; rewrites `#2483`).
-5. **Routing command and queue view:** the deterministic intake routes
-   (transfer-or-recreate, reparent, split, drop) and the read-only intake/planning
-   queue view (`vergil-tooling`; new).
-6. **Skills:** `triage-capture → intake-capture`, `triage-review → intake-review`
+1. **Standing kinds, queue homes, resolver, and predicates** (`lib/epics.py`):
+   the shared standing-epic helper, `ensure_intake_epic` / `ensure_planning_epic`
+   with visibility-based homes, the legitimate-top-level predicate, the
+   managed-repo check, and the parent-based queue-kind check. Rollup and roadmap
+   treat every standing kind as perpetual (`vergil-tooling`; rewrites `#2481`).
+2. **Generalized archive drain:** closed intake and planning children drain into
+   per-quarter archives under the 95-child segment cap (`vergil-tooling`; new).
+3. **Rename + capture:** `vrg-triage-create → vrg-intake-create` (no `--kind`,
+   linked under intake when created, private repos self-home, deprecated alias)
+   (`vergil-tooling`; merges `#2484` with the tool half of `#2482`).
+4. **PR refusal by parent** for intake and planning items; closes `#175` via
+   `Ref` (`vergil-tooling`; rewrites `#2485`).
+5. **Orphan pass + migration in `vrg-epic-audit`:** orphan-attach with the cap
+   stop, kind-label retirement, body-`Parent:` nativization, moving
+   `_INTAKE_LABELS` consumers to parent checks, the private → public queue
+   re-link, and the unsupported-flip report (`vergil-tooling`; rewrites `#2483`).
+6. **`vrg-intake-route`:** the deterministic routes (drop, defer, one-off with
+   transfer-or-recreate, split, planning) (`vergil-tooling`; new).
+7. **`vrg-queue`:** the read-only intake (oldest first) and planning (waiting /
+   in progress / ready to close) views (`vergil-tooling`; new).
+8. **Skills:** `triage-capture → intake-capture`, `triage-review → intake-review`
    (the redesign above, including the fix for the wrong claim about closing
    issues), and the `epic-create` planning-issue entry points and progress
    tracking. Also update **every other intake producer**, so no skill applies a
    retired label or names a retired tool:
-   - `migrate-repo` routes uncertain items to intake (`vrg-intake-create`, or
-     links them under the intake epic) instead of labelling them `triage` in
-     place;
+   - `migrate-repo` links uncertain items under the intake epic instead of
+     labelling them `triage` in place;
+   - `issue-implement` refuses intake and planning items (the upstream half of
+     task 4);
    - `memory-audit`, `issue-validate`, `issue-deploy`, and
      `issue-validate/references/operational-task-lifecycle.md` switch to
      `intake-capture`;
@@ -431,10 +445,15 @@ the repo where their PR lands:
      `docs/site/docs/skills/index.md`) use the new names.
 
    (`vergil-claude-plugin`; takes the skill half of `#2482`.)
-7. **Operational: run the one-shot migration per org.** A `validation` task that
-   runs the orphan-attach + conversion and confirms no open, non-PR, non-epic,
-   unparented issue and no kind-labelled issue remains, blocked by tasks 1, 4,
-   and their deployment (rewrites `#185`).
+9. **Deployment:** releases of vergil-tooling and vergil-claude-plugin carrying
+   tasks 1–8 are installed on the host, agent VMs, and the sweep runners. The
+   releases themselves are a human-gated precondition (`vergil-tooling`,
+   `--kind deployment`; new).
+10. **Validation: run the one-shot migration per org.** After `workflow_dispatch`
+    of `ops-epic-sweep`, a re-run preview shows no orphan, retired-label issue,
+    body-only parent, or public self-homed queue; legitimate top-level issues are
+    untouched; a second run changes nothing. Blocked by task 9 (`.github`,
+    `--kind validation`; rewrites `#185`).
 
 `ops-epic-sweep` needs no change: it already runs `vrg-epic-audit` with
 `VRG_EPIC_SWEEP=1` (`vergil-actions#786`, closed not planned).

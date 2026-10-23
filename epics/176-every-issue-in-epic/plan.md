@@ -157,6 +157,8 @@ Expected: FAIL (`AttributeError: module 'vergil_tooling.lib.epics' has no attrib
 
 - [ ] **Step 4: Run them — expect PASS**, then `vrg-container-run -- vrg-validate` (all green, 100% coverage).
 
+- [ ] **Step 4b: Refactor.** Fold `_ADHOC_EPIC_*` constants into `ADHOC` so there is one source per kind (keep the old names only where tests or other modules import them). Check that no `"ad-hoc" in labels` perpetual check remains outside `is_standing` (`grep -rn '"ad-hoc" in' src/`). Re-run `vrg-container-run -- vrg-validate`.
+
 - [ ] **Step 5: Commit** — `vrg-commit --type feat --scope epics --message "add intake and planning standing epics, queue homes, and the legitimate-top-level predicate" --body "Ref #2481"`
 
 ---
@@ -211,6 +213,8 @@ def test_epic_audit_close_runs_standing_drain(monkeypatch): ...  # test_vrg_epic
 
 - [ ] **Step 4: Run them — expect PASS**, then `vrg-container-run -- vrg-validate`.
 
+- [ ] **Step 4b: Refactor.** Collapse `_ADHOC_ARCHIVE_RE` into the per-kind recognizer, and `_adhoc_archive_segments` / `list_open_adhoc_archives` into kind-parameterized helpers, so the batch drain and the rollup single-child path share one segment rule. Remove any `ADHOC` wrapper nothing calls. Re-run `vrg-container-run -- vrg-validate`.
+
 - [ ] **Step 5: Commit** — `vrg-commit --type feat --scope epics --message "drain closed intake and planning children into per-quarter archives"`
 
 ---
@@ -262,6 +266,8 @@ def test_triage_alias_warns_ignores_kind_and_forwards(capsys, ...):
 
 - [ ] **Step 4: Run them — expect PASS**, then `vrg-container-run -- vrg-validate`.
 
+- [ ] **Step 4b: Refactor.** Make the alias a thin shim (no duplicated argument parsing beyond stripping `--kind`). Drop the now-unused `_KINDS`. Reuse the `target_org` / default-repo resolution between `vrg-intake-create` and `vrg-issue-create` if they now duplicate each other. Re-run `vrg-container-run -- vrg-validate`.
+
 - [ ] **Step 5: Commit** — `vrg-commit --type feat --scope intake --message "rename vrg-triage-create to vrg-intake-create and link captures under the intake epic" --body "Ref #2484, Ref #2482"`
 
 ---
@@ -302,6 +308,8 @@ def test_submit_pr_refuses_queue_item(...):  # authoritative: exits non-zero wit
 - [ ] **Step 3: Implement.** Mirror the operational guards exactly, including the best-effort `(subprocess.CalledProcessError, OSError)` deferral in `report-ready` and the authoritative refusal in `vrg-submit-pr`. Message copy: `--issue (<ref>) is in the intake queue; it is not buildable until it is routed. Route it with intake-review first.` / `... is in the planning queue; it is not buildable until its epic is expanded. Expand it with epic-create first.`
 
 - [ ] **Step 4: Run them — expect PASS**, then `vrg-container-run -- vrg-validate`.
+
+- [ ] **Step 4b: Refactor.** Put the two refusal messages in one helper in `epics.py` (e.g. `queue_refusal_message(ref, kind) -> str`) that `vrg-pr-workflow`, `vrg-submit-pr`, and the `issue-implement` skill text all quote, so the copy cannot drift. Re-run `vrg-container-run -- vrg-validate`.
 
 - [ ] **Step 5: Commit** — `vrg-commit --type feat --scope pr-workflow --message "refuse PRs against intake and planning queue items" --body "Ref #2485. Ref vergil-project/.github#175"`
 
@@ -361,6 +369,8 @@ def test_vrg_epic_audit_close_reports_full_queue_and_exits_1(monkeypatch, capsys
 
 - [ ] **Step 4: Run them — expect PASS**, then `vrg-container-run -- vrg-validate`.
 
+- [ ] **Step 4b: Refactor.** Share the org-wide issue enumeration (search + managed-repo filter + memoized visibility) between `orphan_drift`, `retired_label_drift`, `body_only_parents`, and `private_under_public_epic` instead of running four searches. Confirm `_INTAKE_LABELS` is gone (`grep -rn _INTAKE_LABELS src/`). Re-run `vrg-container-run -- vrg-validate`.
+
 - [ ] **Step 5: Commit** — `vrg-commit --type feat --scope epic-audit --message "attach orphans to intake, retire intake kind labels, and check queue visibility in the sweep" --body "Ref #2483"`
 
 ---
@@ -410,6 +420,8 @@ def test_route_split_closes_with_links(...): ...
 
 - [ ] **Step 4: Run them — expect PASS**, then `vrg-container-run -- vrg-validate`.
 
+- [ ] **Step 4b: Refactor.** Keep the CLI a thin argparse layer over `intake_route.route`. Make the transfer and recreate paths share one "re-link and report" tail. Move the comment templates (`Dropped in intake review: …`, `Deferred …`, `Split into: …`, `Moved to/from …`) into module constants. Re-run `vrg-container-run -- vrg-validate`.
+
 - [ ] **Step 5: Commit** — `vrg-commit --type feat --scope intake --message "add vrg-intake-route for deterministic intake routing"`
 
 ---
@@ -454,6 +466,8 @@ def test_vrg_queue_repo_flag_selects_private_home(...): ...
 - [ ] **Step 3: Implement.** Read comments with `gh issue view --json comments,labels,createdAt,title`. Read-only: no command in this task mutates anything.
 
 - [ ] **Step 4: Run them — expect PASS**, then `vrg-container-run -- vrg-validate`.
+
+- [ ] **Step 4b: Refactor.** Define the marker line formats (`Epic:`, `Docs task:`, `Tasks filed:`, `Planning:`) as constants in `queue_view.py`, which the `epic-create` skill (Task 8) quotes verbatim. Fetch each item's comments once, not once per marker. Re-run `vrg-container-run -- vrg-validate`.
 
 - [ ] **Step 5: Commit** — `vrg-commit --type feat --scope intake --message "add vrg-queue to view the intake and planning queues"`
 
