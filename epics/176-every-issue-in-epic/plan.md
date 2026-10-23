@@ -1,7 +1,7 @@
 # Every Issue Belongs to an Epic — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. In this framework each task below is a filed issue implemented with `issue-implement` (operational tasks with `issue-validate` / `issue-deploy`), driven by `epic-implement`.
-
+>
 > **Revision 2 (2026-10-23, task #430).** Rewritten for spec revision 2 (the intake → planning model absorbed from #429). Revision 1's tasks had not started; their issue numbers are reused where the scope survives (see *Task ↔ issue map*).
 
 **Goal:** Make every issue in a managed repo either a legitimate top-level kind or a child of an epic, with unreviewed work in one intake queue, epic creation queued and tracked in one planning queue, and a parent-based PR refusal that keeps both queues un-buildable.
@@ -505,7 +505,7 @@ def test_vrg_queue_repo_flag_selects_private_home(...): ...
 
 - [ ] **Step 4: Other producers and consumers.** `migrate-repo`: the "triage" bucket becomes "intake". Link uncertain items under the intake epic of their home (`vrg-epic-link --epic <intake epic> --task …`) instead of labelling them `triage`, and update the summary line. `issue-implement`: before starting, refuse an issue whose parent is an intake or planning epic, using the Task 4 message (the upstream half of the PR refusal). `memory-audit`: `vrg-intake-create` with no `--kind`. `issue-validate`, `issue-deploy`, the lifecycle reference, and the two docs pages: `triage-capture` → `intake-capture`, `triage-review` → `intake-review`.
 
-- [ ] **Step 5: Verify** with `vrg-container-run -- vrg-validate` (markdownlint). Then check that `grep -rnE 'triage-(capture|review)|vrg-triage-create|--kind (triage|idea|research)|label `?triage' skills docs` returns nothing outside `CHANGELOG.md`.
+- [ ] **Step 5: Verify** with `vrg-container-run -- vrg-validate` (markdownlint). Then check that `grep -rnE 'triage-(capture|review)|vrg-triage-create|--kind (triage|idea|research)|label .?triage' skills docs` returns nothing outside `CHANGELOG.md`.
 
 - [ ] **Step 6: Commit** — `vrg-commit --type feat --scope skills --message "replace triage skills with intake-capture and intake-review; track epic-create through planning issues" --body "Ref vergil-project/vergil-tooling#2482"`
 
