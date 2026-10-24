@@ -497,7 +497,7 @@ fall-through bug in §2.4 for the whole fleet, not only for this workflow:
   are the builder's call. The requirement: authorisation is checked in code,
   is scoped to named workflows, and fails closed.
 - **Threat model: accidents, not deliberate spoofing** *(the human's
-  decision)*. Ambient values such as `GITHUB_WORKFLOW_REF` can be set by any
+  decision)*. Ambient values such as `VRG_JOB_WORKFLOW_REF` can be set by any
   workflow step, so this check stops a runner or workflow from *accidentally*
   acting as a human or as automation. It doesn't stop a deliberate fake.
   Hardening that with a verified GitHub OIDC `job_workflow_ref` claim is
