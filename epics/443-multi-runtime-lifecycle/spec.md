@@ -5,8 +5,9 @@ Epic: `vergil-project/.github#443`. Documentation task:
 `vergil-project/vergil-python#36` (this epic's origin). Builds on the language
 version lifecycle epic, `vergil-project/.github#407` (spec, plan and
 retrospective in `epics/407-language-version-lifecycle/`). Related intake:
-`vergil-project/vergil-tooling#3522` (pruning policy for EOL-frozen packages)
-and `vergil-project/.github#455` (package hosting beyond the GitHub Pages cap).
+`vergil-project/vergil-tooling#3522` (pruning policy; folded into this epic by
+principle 10 in pushback round 3) and `vergil-project/.github#455` (package
+hosting beyond the GitHub Pages cap).
 
 > **Revised after pushback round 2** (2026-10-24, documentation task
 > `vergil-project/.github#456`). A second `paad:pushback` pass on the merged
@@ -14,6 +15,17 @@ and `vergil-project/.github#455` (package hosting beyond the GitHub Pages cap).
 > §5, §6.1–§6.5, §7.3, §8, §9 and §10. Decisions from that round are marked
 > *(decided in pushback round 2)*. The alignment pass that followed is marked
 > *(decided in alignment, round 2)* or *(aligned in round 2)*.
+>
+> **Revised again after pushback round 3** (same day, same documentation task).
+> Round 3 added two principles from the human:
+>
+> - `vrg-release` depends on no host-local state (§6.2);
+> - one user: retain only what is in use (§3, principle 10). This reverses
+>   round 1's "keep EOL artifacts" rule.
+>
+> It also tightened tokens and permissions (§6.2, §8), promote (§6.2), the
+> release lock (§6.3), the gated release cut (§6.4) and the index (§4.4).
+> These decisions are marked *(pushback round 3)*.
 
 ## 1. Summary
 
@@ -187,10 +199,24 @@ Paths are under `vergil-tooling/src/vergil_tooling/` unless noted.
    the driver must not contain Python-specific branches. Python is the only
    runtime that needs them today, because compiled languages ship binaries
    with no runtime package.
-9. **EOL stops building and keeps the artifacts** *(the human's decision)*.
-   Dropped series stay installable and frozen, because unknown consumers may
-   still depend on them. Pruning is deferred
-   (`vergil-project/vergil-tooling#3522`).
+9. **EOL stops building, and the index drops it** *(the human's decision,
+   revised in pushback round 3)*. When the window drops a series, it is no
+   longer built, and the index stops serving it. This replaces the round-1
+   rule ("keep EOL artifacts frozen for unknown consumers") and folds in
+   `vergil-project/vergil-tooling#3522`.
+10. **One user: retain only what is in use** *(the human's decision, pushback
+    round 3)*.
+    - Vergil's packages have exactly one consumer, the human's own
+      installations. Agent VMs install from the index, while the Mac and CI
+      install vergil-tooling from git. Once a release has been rolled out
+      everywhere, earlier patch levels and lines serve nobody.
+    - So the trailing edge sits right behind the leading edge:
+      - the index keeps only the versions in use, plus a short grace copy for
+        an in-flight rollout;
+      - releases outside that set may be pruned.
+    - **Revisit trigger:** the first time any package gains a consumer other
+      than the human (for example, a published library), that product moves
+      to conservative retention, and this principle is restated for it.
 
 ## 4. Design: multiple packages per repo (vergil-tooling)
 
@@ -286,54 +312,94 @@ The rule:
   call: this is a behaviour change, and pushback should confirm it)*.
 - **The matrix only builds `build` packages.** The CD matrix is computed after
   the sort, so skipped packages have no cells.
-- **A partly published package is an error, with a stated remedy.** If some of
-  its identities are published and some aren't (a CD that failed partway),
-  classification refuses it loudly. The remedy is to re-run that release's
-  CD publish to complete the identities, after which the package classifies as
-  `skip`. A runtime version can't be bumped to escape this, because it is
-  derived from its inputs.
+- **A partly published package is completed, loudly** *(decided in pushback
+  round 3, replacing round 2's remedy)*. Classification works **per identity**.
+  - When some of a package's identities are published and some aren't, only
+    the **missing** identities are built. A notice names them, for example
+    `completing vergil-python3.14 3.14.10+…: deb/arm64, rpm/aarch64 missing`.
+  - Published identities are never rebuilt, and `_check_conflicts` stays per
+    identity.
+  - The realistic causes are a hand-deleted asset, or a new arch or target
+    on a package with a static version.
+  - Re-running a release's CD can't repair it, because every publish step is
+    skipped once the tag exists.
 
 ### 4.4 Retention and the index
 
-- **Retention works per package.** `_by_lines` applies its existing line
-  semantics (`keep` releases per line, across `lines` lines) **per
-  `(product, name)`**: each name's lines come from the tags that carry that
-  name. A single-package repo therefore keeps exactly what it keeps today.
-- **The newest published version of every package name is always kept**,
-  whether or not later repo releases include it, **unless the name is listed
-  in `[retention].retire`**. This is the guard that keeps an EOL-frozen series
-  installable (§3, principle 9). `retire` remains the way to drop a name
-  deliberately, for example the legacy per-patch `vergil-python3.14.8`.
-- **A size budget for runtime packages** *(decided in pushback round 2, as a
-  stopgap)*. One `vergil-python<x.y>` version is about 140 MB (§2.3), so line
-  retention multiplied across N series would blow through the site guard.
-  - Retention gains a **per-name-pattern keep**, configured in the index's
-    `[retention]` (the `packages` repo's `packages.toml`). It is separate from
-    the repo-line `keep`. Vergil sets `"vergil-python*" = 1`.
-    - Generic code can't tell what a "runtime" name is without config
-      (principle 8), so there is no built-in default *(aligned in round 2)*.
-  - A check projects the site size from the retained set and fails **before**
-    a publish can cross `SIZE_WARN`. The threshold is `SIZE_WARN` minus the
-    bytes the next release would add, estimated from the newest release's
-    assets. So the cliff shows as a red check long before `SIZE_FAIL` breaks
-    every repo's index publish.
-  - This is a stopgap only. With one version per series, vergil-python alone is
-    about 560 MB, and it grows by about 140 MB for each EOL-frozen series
-    (around 2028–2029 to `SIZE_FAIL`). GitHub Pages doesn't scale as the
-    package host. The replacement is `vergil-project/.github#455` (§10).
-- **The collect is lazy** *(decided in pushback round 2)*. Today the index
-  rebuild downloads every artifact of every release ever made before retention
-  runs (§2.3). With all-series releases that fills a hosted runner's disk
-  (about 14 GB) within roughly 25 releases. Instead:
-  - artifacts are identified from release-asset filenames (as
-    `published.parse_filename` already does);
-  - retention runs on those identities;
-  - only the kept set is downloaded and verified.
+*(Rewritten in pushback round 3 under principle 10, "one user: retain only
+what is in use".)*
+
+- **Retention works per package, and keeps only what is in use.**
+  - `_by_lines` applies its line semantics **per `(product, name)`**: each
+    name's lines come from the tags that carry that name.
+  - Vergil's index configuration (`packages.toml` `[retention]`) becomes
+    `lines = 1` and **`keep = 1`**. Only the 2.1 line is kept, and only its
+    newest release per name.
+  - Retention keeps **every artifact (format and arch) of the kept
+    name-version**, never "its whole release". A kept name never pins other
+    names' old versions.
+- **A grace copy for in-flight rollouts.** The previous version of each name is
+  also kept for `grace_hours` (default 48) after the newer version's release
+  `createdAt`, which comes from asset metadata. A client holding an older
+  listing (an earlier `apt update`, a cached layer, CDN staleness) therefore
+  never gets a 404 mid-rollout.
+- **Only in-use names are served.** A runtime series dropped from the window
+  (§5) disappears from the index after its grace period. Its series no longer
+  being built is the signal (principle 9). `[retention].retire` remains the
+  way to drop any other name deliberately, for example the legacy per-patch
+  `vergil-python3.14.8`.
+- **The dependency closure is the safety net** *(decided in pushback round
+  3)*.
+  - Retention selects on filename identities, then fetches the kept set and
+    reads each artifact's real `depends` from the package.
+  - `_close` adds the newest provider of any dependency that isn't kept,
+    fetches it, and repeats until stable.
+  - `_check_retired` still refuses a kept artifact that depends on a retired
+    name.
+  - Every runtime dependency of a kept artifact must resolve to a kept
+    artifact, or the index fails loudly. So dropping a series that an
+    installed vergil-tooling still needs can't ship a broken install.
+- **The collect is lazy and bounded** *(decided in pushback rounds 2 and 3)*.
+  - The index lists only the newest **K** stable releases per product (K = 20,
+    configurable). Nothing older is in use, so the existing 1000-release
+    listing cap never applies, and the per-release call count is bounded.
+  - Artifacts are identified from release-asset filenames (as
+    `published.parse_filename` already does), retention runs on those
+    identities, and only the kept set (plus its closure) is downloaded and
+    verified.
+- **The size check is an early warning, not a permanent red** *(decided in
+  pushback round 3, replacing round 2's threshold)*.
+  - The check projects the site size from the retained set. It adds the
+    **net growth** of the next release, simulated through `select` (the
+    newest release with bumped versions), plus one name-version allowance for
+    a possible series add.
+  - It fails when that total reaches **`SIZE_FAIL`**. Reaching `SIZE_WARN` is
+    printed as a warning. A refresh replaces versions rather than adding them,
+    so the check stays green until about one release before the real
+    failure.
+  - The measured steady state is about (window series × 134 MB) + 28 MB for
+    vergil-tooling + one grace copy: roughly 700 MB at 4 series, and about
+    830 MB at a 5-series GA overlap. It no longer grows over time, but it sits
+    near the GitHub Pages cap. The replacement host is
+    `vergil-project/.github#455` (§10).
 - `_check_conflicts` keeps its cross-release identity check. It compares
-  GitHub release-asset digests, and downloads an asset only when no digest is
-  available (for example, older assets).
+  GitHub release-asset digests (stripping the `sha256:` prefix), and downloads
+  an asset only when no digest is available.
 - The release step that waits on the package index waits for **each built
   package**.
+- **Pruning old releases** *(decided in pushback round 3; the human chose to
+  include it in this epic)*.
+  - A **human-only** prune command deletes GitHub releases, and their assets,
+    that are outside the in-use set: anything older than the kept releases,
+    and every release of a line other than 2.1.
+  - It is a dry run by default and acts only with `--apply`. It prints every
+    release it would delete, and needs explicit confirmation.
+  - It never deletes git tags, the kept releases, the grace copies, or any
+    release that holds a kept artifact or a closure dependency.
+  - It refuses to run under any agent or automation identity.
+  - It is never part of the unattended chain. The index already ignores
+    anything outside the in-use set, so pruning is housekeeping, not
+    correctness.
 
 ### 4.5 vergil-actions
 
@@ -386,6 +452,15 @@ The rule:
     - Each series resolves against the **newest PBS tag that ships it** (all
       architectures). `runtime.toml` and `build.sh` already carry a tag per
       series.
+    - **Candidate tags have a known limit** *(pushback round 3)*. Tags come
+      from the PBS releases Atom feed, which holds only the newest 10 entries
+      and isn't paginated. The unauthenticated REST API is rate-limited on
+      shared runners, so it isn't used.
+      - Tags are sorted by tag, not by feed order.
+      - When a series' pin is older than the feed's oldest entry, a truncation
+        line is logged.
+      - A series resolved to any tag older than the newest gets a held-back
+        line, so a held patch is never silent.
     - An existing series that the newest tag no longer ships stays at its pin.
       It is reported as `upstream stopped building x.y; frozen at <pin>` and
       doesn't block the other series or a series add.
@@ -418,8 +493,9 @@ The rule:
     reports it in the held-back report, and the driver records it and retries
     on later runs. It is not a failure until a bounded grace period runs out
     (§6.5).
-  - **Drop** removes the series from both files and touches nothing in the
-    index.
+  - **Drop** removes the series from both files. The series then stops being
+    built, and the index stops serving it after its grace period (§4.4,
+    principle 9).
   - **The hook always reconciles, including when run by hand**
     *(decided in alignment)*. `vrg-update-deps` always passes the released
     window, so a hand-run update, or `vrg-release`'s closing `update-deps`
@@ -460,10 +536,15 @@ fall-through bug in §2.4 for the whole fleet, not only for this workflow:
   declares it, and otherwise to a fail-closed value that every human-only and
   automation-gated command refuses.
 - **The same holds inside containers** *(decided in pushback round 2)*.
-  `vrg-container-run` always forwards `GITHUB_ACTIONS`, `VRG_IDENTITY_MODE` and
-  the authorisation variable below into the container. A nested container (the
-  update-deps hook, `vrg-validate`) then resolves exactly as its host does,
-  never to HUMAN by default.
+  `vrg-container-run` always forwards `GITHUB_ACTIONS`, the **host-resolved**
+  identity mode, and the authorisation variable below into the container.
+  It forwards the resolved mode rather than the raw `VRG_IDENTITY_MODE`, which
+  is often unset on agent VMs where the mode file decides *(pushback round
+  3)*. A nested container (the update-deps hook, `vrg-validate`) then resolves
+  exactly as its host does, never to HUMAN by default.
+- **`job.workflow_ref` is set at step level.** That context is available in a
+  step's `env:` but not in a job's `env:`, so each shared workflow exports the
+  authorisation variable on its steps *(verified in pushback round 3)*.
 - **Human-only commands** (`vrg-submit-pr`, `vrg-finalize-pr`, `vrg-release`
   and `vrg-update-deps` when run by hand) refuse `automation` and agents.
   - `vrg-finalize-pr` has no identity gate today, so this gate is new.
@@ -503,7 +584,8 @@ fall-through bug in §2.4 for the whole fleet, not only for this workflow:
     runner resolves to `cloud-vm`, and that must not count against
     `automation`.
   - `vrg-whoami`'s platform/identity correlation gains a runner ↔
-    `automation` case, so a legitimate run doesn't warn.
+    `automation` case, so a legitimate run doesn't warn. It reports the
+    fail-closed runner value as its own identity, never as "human".
 - The exact env-var names, the allowlist format and where the allowlist lives
   are the builder's call. The requirement: authorisation is checked in code,
   is scoped to named workflows, and fails closed.
@@ -543,13 +625,70 @@ its stages, CD confirmation and failure handling are reused unchanged
 (principle 3). What has to change is its assumptions about the environment
 (§2.4):
 
+- **`vrg-release` depends on no host-local state** *(the human's principle,
+  pushback round 3)*.
+  - **The rule.** Everything a release needs in order to continue lives in
+    its **tracking issue**, or is derived from GitHub (PRs, tags, releases, CD
+    runs, refs on origin). Nothing lives only in a local branch, a worktree,
+    a file or process memory. Local state is a cache, never the source of
+    truth. A release is resumable from **any fresh checkout**, Mac or runner
+    alike.
+  - **A machine-readable state block.** The tracking issue body carries
+    hidden markers, written and parsed by one module. They record:
+    - the version, and any `--minor`/`--major` override;
+    - the original run's flags (`--no-promote`, `--without-deps`,
+      `--skip-audit`);
+    - the gated develop SHA (§6.4), the SHA `prepare` pushed, and the bump
+      SHA;
+    - the merged release PR, and the CD run ids;
+    - the deps-gate outcome (bypassed or cleared PRs, so a bypass is never
+      silently lost on resume);
+    - the publish verdict.
+
+    The tracking issue is created **before** the deps gate, so that outcome
+    can be recorded. Resume parses this block. It never recomputes these
+    values and then throws them away.
+  - **Rebuilt from GitHub, never from develop.**
+    - `--resume` rebuilds the release branch from the merged release PR's
+      `pull/<N>/head`.
+    - It rebuilds `release/post-<v>` from origin when that exists.
+    - It verifies the HEAD of any worktree it adopts.
+    - It finds CD runs by `head_sha` through the API, with no "newest 5 runs"
+      window.
+  - **Configuration is read at the release tag.** Stages after the tag
+    (`package-index`, `consumer-refresh`, deferral texts) read `vergil.toml`
+    and `pyproject.toml` **at tag `v<ver>`**, not from the working tree, which
+    may hold post-bump develop.
+  - **The tracking issue closes last.** It closes only after the final stage
+    (`package-index`, `consumer-refresh`, `update-deps`), so a failure in any
+    stage leaves an open, resumable issue.
+  - **Not covered.** Host provisioning (tools, git identity, auth) remains
+    per-host environment, not release state.
 - **Checkout:** full history and tags (`fetch-depth: 0`), using the App token so
   that pushes and merges trigger workflows. `GH_TOKEN` is the App token.
 - **Tokens are refreshed; none has to outlive an hour** *(decided in pushback
   round 2)*. App installation tokens expire after one hour, and the chain runs
   for hours.
-  - The driver holds the App ID and private key. It mints a fresh installation
-    token before each step and on a timer inside long waits.
+  - The driver holds the App's **Client ID** and private key. The JWT issuer
+    accepts the Client ID string. It mints a fresh installation token before
+    each step and on a timer inside long waits.
+  - **Tokens are minted per purpose, with explicit permissions** *(decided in
+    pushback round 3)*. GitHub applies an installation's permissions to every
+    repo it reaches, and the org App's installation is shared. So each mint
+    passes both `repositories` and an explicit `permissions` map:
+    - a **chain token** for the released repos, carrying the §8 set;
+    - a separate **`.github` token** limited to `issues: write`, for fix
+      tasks.
+
+    The `gh` entry point picks the token by target repo. The §8 minimum is
+    therefore enforced per token, in code.
+  - **Credential detection has one source too** *(decided in pushback round
+    3)*. One function in `lib/github.py` answers which kind of credential is
+    in use (App installation, user, or ambient). `is_app_mode()` and every
+    similar check delegate to it. A guard test forbids reading `GH_TOKEN`,
+    `VRG_APP_ID` or `app.env` anywhere else. Otherwise checks such as the
+    release's repo-config audit would misjudge the App token, which is injected
+    per call.
   - Both `gh` and git read the token from a refreshing credential source,
     never a value captured once at job start.
   - **One entry point each for `gh` and git** *(decided in alignment, round
@@ -594,8 +733,15 @@ its stages, CD confirmation and failure handling are reused unchanged
   - **Promote re-verifies from GitHub, never from memory** *(decided in
     alignment, round 2)*. The deferred list lives only in memory, and a
     `--resume` skips the stage that fills it. So `promote` reads the release
-    SHA's **main** CD run (or its newest re-run) and refuses unless every
-    publish job in it succeeded.
+    SHA's **main** CD run (its newest attempt) and applies the existing generic
+    deferred-publish rule (`confirm.py` `_collect_deferred_publish` and
+    `_unsettled_jobs`):
+    - every non-release job must have concluded `success` or `skipped`;
+    - none may still be unsettled.
+
+    A skip that follows a real failure always has a failed upstream job.
+    Repos without packages (whose package jobs are `skipped`) therefore
+    promote normally *(clarified in pushback round 3)*.
     - Recovery is: re-run the failed jobs, then `vrg-release --resume`. The
       existing "do not resume" texts change to match.
     - A develop-side docs-publish failure is not part of the main CD run, so
@@ -606,6 +752,12 @@ its stages, CD confirmation and failure handling are reused unchanged
     red.
   - This deliberately changes human releases of every repo, following
     principle 3: a release is not done until its CD has succeeded.
+- **Promote is monotonic** *(decided in pushback round 3; every release)*.
+  - If origin `vX.Y` already points at a **higher** `vX.Y.Z`, promote doesn't
+    move it. It records "superseded by vX.Y.W" loudly, in the summary and on
+    the tracking issue, and the stage counts as done.
+  - A rolling tag can never move backwards, even when an old release is
+    resumed after a newer one was promoted.
 - **Prompts:** no prompt runs unattended. An interactive confirmation either
   doesn't apply to `automation` or is a hard refusal, never a hang.
 - **Results:** the outcome (release URL, packages built or skipped, CD runs) is
@@ -664,9 +816,21 @@ its stages, CD confirmation and failure handling are reused unchanged
   - If it finds anything else in flight, the run **backs off** for that repo. It records "deferred:
     release in progress" in the job summary and stays green.
   - A deferral that persists past a bound becomes a tracked issue.
-- **The reverse direction.** A human starting `vrg-release` while a lifecycle
-  release is in flight is refused by the existing preflight guards
-  (release branch, tracking issue). This must be checked, not assumed.
+- **The reverse direction: one release in flight per repo** *(strengthened in
+  pushback round 3)*.
+  - The existing preflight guards are per version only (the tag, an
+    exact-title tracking issue, `release/<ver>`). After an App release's
+    back-merge, a human's develop is already at the next version, so none of
+    them fire.
+  - So `vrg-release` preflight refuses while **any** open `release: *`
+    tracking issue exists in the repo, whoever opened it. That is the same
+    rule as the driver's lock. With §6.2's tracking issue as the release
+    state, and closed only after the last stage, an open tracking issue is a
+    real per-repo lock.
+- **The lifecycle job runs after the nightly rebuilds.** It depends on both
+  nightly rebuild jobs, and still runs if they fail. Because image publishes
+  are serialised (above), the chain's CD waits then never queue behind a
+  no-cache rebuild.
 
 ### 6.4 The driver
 
@@ -742,6 +906,14 @@ window.
 
      The guarantee is the same in substance: nothing reaches `main` except
      CD-gated `develop` plus the automation's own commits.
+   - **The release is cut at the gated SHA** *(decided in pushback round 3)*.
+     - Under `--gated-develop-sha`, `vrg-release` creates `release/<v>` from
+       that SHA. It only requires the SHA to be an ancestor of
+       `origin/develop`; develop HEAD is not required to equal it.
+     - A merge that lands on develop after the gate ships in the next release.
+       It never fails this one.
+     - The gated SHA is recorded in the tracking issue (§6.2), so a resume uses
+       the same base.
    - **What "authored by the App" means** *(decided in pushback round 2)*.
      - The App is per org (`<org>-automation`). Its slug comes from the
        token-minting step, never a hard-coded value.
@@ -752,6 +924,10 @@ window.
        ID.
      - The check compares logins after normalising the `app/<slug>` (PR
        author) and `<slug>[bot]` (commit author) forms.
+     - Commit authors are read from the REST pull-request commits endpoint
+       (`author.login`, `type: Bot`). GraphQL's commit-author user can be
+       empty for bots. The bot noreply email is accepted as an equivalent
+       match *(clarified in pushback round 3)*.
      - Before `LIFECYCLE_LIVE` is set, a dry-run assertion checks this against
        a real App-authored PR's `author` and `commits` output.
    - A ruleset that only lets the App push these prefixes is follow-on defence
@@ -777,6 +953,10 @@ window.
      stays with its usual owner.
    - It runs `vrg-release` unattended (§6.2), including its CD confirmation
      and the `v2.1` promote, so the window becomes visible to consumers.
+   - Before it, the driver runs the same landed-fix clearing and own-deps-PR
+     resume as step 5, against **vergil-containers** *(pushback round 3)*. A
+     deps PR left by an interrupted vergil-containers release is then never
+     stranded, and never blocks the next release.
 5. **Reconcile vergil-python by running `vrg-update-deps` unattended**
    *(decided in pushback)*.
    - The vergil-python hook makes the series list match the **released**
@@ -802,6 +982,13 @@ window.
 6. **Release vergil-python**, only if §4.3 classifies at least one package as
    `build`. It runs `vrg-release` unattended, which waits for the package index
    as it does today.
+   - **"Nothing to build" isn't proof** *(decided in pushback round 3)*. The
+     stage may report `nothing-to-do` only after a one-shot check that every
+     package of the newest release is visible in the index.
+   - If any is missing, the stage records a bounded
+     `pending:index:<name>-<version>` item (§6.5). It never closes a failure
+     issue by default. Otherwise a package that never reached the index would
+     stall the step 7 loop untracked.
 7. **Close the loop.**
    - The next run's step 1 sees the newly published runtime and opens the
      `runtime_published` PR.
@@ -856,6 +1043,15 @@ is a later ratchet (§7.2).
       matches §5's "outlasts the window's own drop".
     - An overdue item turns the job **red** while it lasts. Its issue
       persists, so nothing churns between open and closed.
+    - **The watch issue is robust to humans** *(pushback round 3)*.
+      - It is found by its label in any state, and reopened if it was
+        closed, so closing it can't reset the bounds.
+      - A marker that won't parse is a **failed** stage, never a silently
+        dropped item.
+- **A job that dies still gets proof-based closure.** Before each stage, the
+  driver records the current (repo, stage) outside its own memory. If the job
+  dies, the workflow's backstop opens **that stage's** normal failure issue.
+  The issue then closes under the same "only on proof" rule.
 - **A fallback is a tracked gap.** If any step proves impossible to run
   unattended during implementation, the epic ships that step as "prepared, a
   human acts". The step prints exactly what the human runs, its tracked issue
@@ -868,9 +1064,11 @@ is a later ratchet (§7.2).
 1. Multi-package support in `vergil-tooling`: config and every reader of it,
    build, matrix, manifest, exact-filename index matching, the build and skip
    classification, per-package retention with the runtime size budget, the
-   lazy index collect, install-test, `check-runtime`, and the release index
-   wait (§4). The `packages` repo sets the runtime retention budget in its
-   `packages.toml`.
+   lazy, bounded index collect, in-use retention with the grace copy and the
+   closure guard, install-test, `check-runtime`, and the release index wait
+   (§4). The `packages` repo sets the retention policy in its
+   `packages.toml`. It also includes the human-only release prune command
+   (§4.4).
 2. `vergil-actions` package dimension in `ci-package.yml` and `cd-release.yml`
    (§4.5).
 3. `vergil-python` series list, per-series build, per-series refresh against
@@ -880,8 +1078,13 @@ is a later ratchet (§7.2).
    sweep of `identity_mode` callers, the identity forwarding in
    `vrg-container-run`, the shared-workflow authorisation, and migrating
    `VRG_EPIC_SWEEP` (§6.1).
-5. `vrg-release` able to run unattended, including token refresh and the
-   promote-requires-publish gate for every release (§6.2).
+5. `vrg-release` able to run unattended (§6.2), including:
+   - token refresh with per-purpose tokens;
+   - one credential-detection source;
+   - the tracking issue as the release's only state (resumable from any fresh
+     checkout);
+   - promote that requires publish success and is monotonic;
+   - one release in flight per repo.
 6. The docker-publish cancel and queue fix, and the release lock (§6.3).
 7. The driver and its scheduled workflow (§6.4), and the failure handling
    (§6.5).
@@ -892,7 +1095,6 @@ is a later ratchet (§7.2).
 
 - **Pre-release (beta or RC) interpreters.** Offering them as an opt-in is a
   separate enhancement.
-- **Deleting EOL packages.** Deferred to `vergil-project/vergil-tooling#3522`.
 - **Changing consumer resolution or pinning,** or how a repo that fails on a new
   version gets pinned back.
 - **Removing human gates from epic feature work** (`vrg-submit-pr`, human
@@ -940,11 +1142,20 @@ is a later ratchet (§7.2).
 - An unattended release counts as done before its CD has succeeded.
 - A package identity is re-published with different bytes, or an unchanged
   package is rebuilt and re-published.
-- Retention ages out the newest version of any package not listed in
-  `[retention].retire`, including an EOL-frozen series.
-- The index site grows past `SIZE_WARN` without a red check first, or the index
-  rebuild's disk use grows with the full release history instead of the
-  retained set.
+- Retention drops the newest version of any **in-use** package: a window
+  series, or vergil-tooling's current line. Or it drops a previous version
+  inside its grace period. Or the index serves a kept artifact whose runtime
+  dependency it doesn't serve.
+- The index site crosses `SIZE_FAIL` without a red check first. Or the index
+  rebuild's disk use, or its release listing, grows with the full release
+  history instead of the in-use set.
+- `vX.Y` moves to an older release than it already points at.
+- Two releases of one repo are in flight at once.
+- A release can't be resumed from a fresh checkout, or depends on state that
+  exists only on one host.
+- The prune command deletes a tag, a kept release, or a release holding a kept
+  artifact or a closure dependency. Or it runs without the human's explicit
+  `--apply`.
 - The shared machinery contains Python-specific branches.
 - A supported window series goes without patches past one scheduled cycle after
   python-build-standalone publishes a fix, without a tracked issue saying why.
@@ -973,11 +1184,24 @@ is a later ratchet (§7.2).
     - contents (write);
     - pull requests (write);
     - issues (write);
+    - **workflows (write)**: release, back-merge and update-branch diffs carry
+      `.github/workflows/**` changes, which happened in 5 of the last 7
+      vergil-containers releases *(pushback round 3)*. Under the merge rules
+      the App only ever merges its own commits or CD-gated develop. This is
+      still the most sensitive permission in the set;
     - actions (read);
+    - **checks (read)** and **statuses (read)**: the green-only merge and the
+      release waits read check state *(pushback round 3)*;
     - administration (read), for `vrg-release`'s `audit` stage.
 
-  Anything beyond that needs a stated reason. It is attested by the human in
-  the same way.
+  Anything beyond that needs a stated reason.
+  - **The installation is a superset; each token is the minimum.** The human
+    attests that the installation grants at least this set. The code mints
+    each token with exactly its purpose's permissions (§6.2).
+  - **The set is proven, not assumed.** Before `LIFECYCLE_LIVE` is set, the
+    dry run probes the minted tokens. It runs `gh pr checks` on a real PR,
+    reads the token's granted permissions, and asserts each required
+    permission is present.
 - **Releases are human-gated today.** Shipping each part of this epic still
   needs human-run releases of `vergil-tooling`, `vergil-actions`,
   `vergil-python` and `vergil-containers`, in the bootstrap order below. The
@@ -1024,13 +1248,15 @@ is a later ratchet (§7.2).
 - `vergil-project/.github#445`: follow-on brainstorm for the next
   unattended-lifecycle ratchet, fed by every gap §6.5 records.
 - `vergil-project/.github#446`: retrospective (terminal).
-- `vergil-project/vergil-tooling#3522`: pruning policy for EOL-frozen packages
-  (intake).
+- `vergil-project/vergil-tooling#3522`: pruning policy for EOL packages
+  (intake). It is **folded into this epic** by principle 10 (§4.4 retention
+  and the prune command), and is closed with a pointer once the docs land.
 - `vergil-project/.github#455`: brainstorm a package host to replace GitHub
-  Pages (intake). §4.4's retention budget is only a stopgap. At about 140 MB
-  per series-version, the site crosses `SIZE_FAIL` around 2028–2029, sooner if
-  more repos publish packages. **This must land before then.** The §4.4
-  size-projection test is its early warning.
+  Pages (intake). Under principle 10 the site stops growing over time. But at
+  about 134 MB per series-version, it sits near the cap: roughly 700 MB at 4
+  series and about 830 MB at a 5-series GA overlap, against the 900 MB
+  `SIZE_FAIL`. More packaged repos, or a wider window, would cross it. The
+  §4.4 size check is the early warning.
 - `vergil-project/vergil-tooling#3524`: make the automation identity
   spoof-resistant with OIDC (intake).
 - `vergil-project/vergil-tooling#3520`: the planning sentinel doesn't ensure the
