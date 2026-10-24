@@ -12,7 +12,8 @@ and `vergil-project/.github#455` (package hosting beyond the GitHub Pages cap).
 > `vergil-project/.github#456`). A second `paad:pushback` pass on the merged
 > spec checked each design area against the code. It changed §2.3, §2.4, §4.2–§4.4,
 > §5, §6.1–§6.5, §7.3, §8, §9 and §10. Decisions from that round are marked
-> *(decided in pushback round 2)*.
+> *(decided in pushback round 2)*. The alignment pass that followed is marked
+> *(decided in alignment, round 2)* or *(aligned in round 2)*.
 
 ## 1. Summary
 
@@ -285,6 +286,12 @@ The rule:
   call: this is a behaviour change, and pushback should confirm it)*.
 - **The matrix only builds `build` packages.** The CD matrix is computed after
   the sort, so skipped packages have no cells.
+- **A partly published package is an error, with a stated remedy.** If some of
+  its identities are published and some aren't (a CD that failed partway),
+  classification refuses it loudly. The remedy is to re-run that release's
+  CD publish to complete the identities, after which the package classifies as
+  `skip`. A runtime version can't be bumped to escape this, because it is
+  derived from its inputs.
 
 ### 4.4 Retention and the index
 
@@ -300,12 +307,16 @@ The rule:
 - **A size budget for runtime packages** *(decided in pushback round 2, as a
   stopgap)*. One `vergil-python<x.y>` version is about 140 MB (§2.3), so line
   retention multiplied across N series would blow through the site guard.
-  - Runtime-style names get their own `keep_per_name`, defaulting to **1**,
-    separate from the repo-line `keep`. The config shape is the builder's
-    call.
-  - A test projects the site size from the retained set and **fails at
-    `SIZE_WARN`**, so the cliff shows as a red check long before `SIZE_FAIL`
-    breaks every repo's index publish.
+  - Retention gains a **per-name-pattern keep**, configured in the index's
+    `[retention]` (the `packages` repo's `packages.toml`). It is separate from
+    the repo-line `keep`. Vergil sets `"vergil-python*" = 1`.
+    - Generic code can't tell what a "runtime" name is without config
+      (principle 8), so there is no built-in default *(aligned in round 2)*.
+  - A check projects the site size from the retained set and fails **before**
+    a publish can cross `SIZE_WARN`. The threshold is `SIZE_WARN` minus the
+    bytes the next release would add, estimated from the newest release's
+    assets. So the cliff shows as a red check long before `SIZE_FAIL` breaks
+    every repo's index publish.
   - This is a stopgap only. With one version per series, vergil-python alone is
     about 560 MB, and it grows by about 140 MB for each EOL-frozen series
     (around 2028–2029 to `SIZE_FAIL`). GitHub Pages doesn't scale as the
@@ -376,7 +387,7 @@ The rule:
       architectures). `runtime.toml` and `build.sh` already carry a tag per
       series.
     - An existing series that the newest tag no longer ships stays at its pin.
-      It is reported as "upstream stopped building x.y; frozen at <pin>" and
+      It is reported as `upstream stopped building x.y; frozen at <pin>` and
       doesn't block the other series or a series add.
     - It becomes a tracked issue only if that state outlasts the window's own
       drop of the series by a stated, tested bound.
@@ -539,9 +550,16 @@ its stages, CD confirmation and failure handling are reused unchanged
   for hours.
   - The driver holds the App ID and private key. It mints a fresh installation
     token before each step and on a timer inside long waits.
-  - Both `gh` and git read the token from a refreshing credential source (a
-    git credential helper and a re-read env file, or an equivalent; the
-    builder's call), never a value captured once at job start.
+  - Both `gh` and git read the token from a refreshing credential source,
+    never a value captured once at job start.
+  - **One entry point each for `gh` and git** *(decided in alignment, round
+    2)*. Today `gh` is executed from several modules in several ad-hoc ways.
+    - All of them consolidate onto one `gh` runner in `lib/github.py`, which
+      injects the credential. All git execs go through `lib/git.py`, and git
+      gets its credential from a git credential helper.
+    - Guard tests forbid executing `gh` or git anywhere else, so a new ad-hoc
+      call can't regress silently.
+    - A PATH shim that masks the inconsistency is explicitly rejected.
   - Checkout must not persist a token in `.git/config` that outlives the
     refresh.
 - **Tools:** git-cliff and the `.worktrees/` layout work on the runner. The
@@ -558,14 +576,30 @@ its stages, CD confirmation and failure handling are reused unchanged
 - **Waits get bounds.** Every wait (CD appearing, `gh run watch`, the package
   index, checks) has a stated limit, so a hung run fails loudly within the job's
   `timeout-minutes` and never hits GitHub's 6-hour default. Most already have
-  one (§2.4). The new work is bounding `gh run watch`, and checking that the
-  sum of the bounds fits the job timeout.
+  one (§2.4). The new work is bounding `gh run watch`. The bounds can't be
+  summed safely, so instead the driver runs under a **global deadline**: the
+  job timeout minus a margin *(decided in alignment, round 2)*.
+  - Every wait is clipped to the time remaining.
+  - Hitting the deadline fails the current stage as `failed: deadline`, and
+    the tracked issues are still synced.
+  - The workflow also files the issue if the job dies before the driver can
+    (`failure() || cancelled()`).
+  - A timeout kill is never silent.
 - **Promote requires every publish job to have succeeded** *(decided in
   pushback round 2; applies to **every** `vrg-release` run, human or
   automation)*.
   - When `deferred_publish_failures` is non-empty, `vrg-release` refuses the
     `promote` stage. The run fails, `vX.Y` doesn't move, and the failure names
     the jobs.
+  - **Promote re-verifies from GitHub, never from memory** *(decided in
+    alignment, round 2)*. The deferred list lives only in memory, and a
+    `--resume` skips the stage that fills it. So `promote` reads the release
+    SHA's **main** CD run (or its newest re-run) and refuses unless every
+    publish job in it succeeded.
+    - Recovery is: re-run the failed jobs, then `vrg-release --resume`. The
+      existing "do not resume" texts change to match.
+    - A develop-side docs-publish failure is not part of the main CD run, so
+      it doesn't block `vX.Y`.
   - Otherwise a vergil-containers release whose prod `docker-publish` failed
     would still move `v2.1`. The window would then list a version whose prod
     image doesn't exist, and window-tested consumers across the fleet would go
@@ -584,9 +618,17 @@ its stages, CD confirmation and failure handling are reused unchanged
   - Release CD and develop CD can never be cancelled by a nightly rebuild
     (`nightly-rebuild-prod` or `nightly-rebuild-dev`), and the reverse.
   - Turning off `cancel-in-progress` alone isn't enough. GitHub keeps only one
-    **pending** run per group by default and cancels the rest. So non-nightly
-    runs queue (`queue: max`, or separate groups with the same effect; the
-    builder's call), and the nightlies may cancel only each other.
+    **pending** run per group by default and cancels the rest.
+  - **One group per image prefix; every run queues; nothing is cancelled**
+    *(decided in alignment, round 2)*.
+    - The group is `docker-publish-<image-prefix>`, with
+      `cancel-in-progress: false` and `queue: max` for every trigger, the
+      nightlies included.
+    - Runs are strictly serialised, so a slower, older build (for example a
+      nightly that checked out the previous `main`) can never overwrite
+      newer tags.
+    - Separate groups for release and nightly runs are rejected because they
+      reintroduce that overwrite race.
   - The driver's develop-CD wait (§6.4 step 3) waits on the CD of the
     **newest** merge SHA. A superseded run counts as fine only if a later run
     on a descendant SHA succeeded.
@@ -599,6 +641,13 @@ its stages, CD confirmation and failure handling are reused unchanged
     directly, not through search), or an unmerged dependency-update PR. A
     finished `release/*` branch that delete-on-merge failed to remove doesn't
     count.
+  - **A PR on the automation prefixes that fails the merge rule** *(decided in
+    alignment, round 2)*:
+    - authored by the App, but failing any other condition (a foreign commit,
+      a moved head, cross-repo) → **failed**, with a tracked issue naming the
+      condition. Tampering is never a green deferral;
+    - authored by a human (for example a hand-run `vrg-update-deps`) →
+      deferred, as a human operation in flight.
   - **The driver's own PRs don't block it.** An open `deps/update-*` or
     `lifecycle/*` PR that passes the merge rule in §6.4 step 2, and whose
     checks are still pending, is the driver's own work in progress. The driver
@@ -625,8 +674,14 @@ A new `vergil-tooling` command (working name `vrg-lifecycle`; the builder picks
 the final name) runs from a scheduled ops workflow. The workflow is a
 reusable workflow in `vergil-actions`, called from `vergil-containers` next to
 the existing lifecycle job, or folded into it. It uses an App token scoped to
-the repos the chain touches. Each run reconciles in this order, stopping at the
-first stage that cannot finish yet:
+the repos the chain touches, **including `<owner>/.github`**, where fix tasks
+are filed (§8). Each run reconciles in this order. It stops at the first stage
+that **failed**. A `pending` or `deferred` stage ends only the work that
+depends on it *(decided in alignment, round 2)*. For example, a series still
+waiting for a PBS build doesn't hold back a vergil-python release of the series
+that did refresh. A vergil-containers release deferred by a human release in
+flight doesn't stop the vergil-python stages, which need only the **released**
+window.
 
 1. **Detect.** The existing lifecycle check runs as it does today and opens or
    refreshes its PRs.
@@ -643,8 +698,16 @@ first stage that cannot finish yet:
      `pr_merge.wait_and_merge`: green only, and never when behind,
      conflicting or draft.
    - `publish.py` drops its "a human merges every PR" stance for those
-     languages only. Its test asserting that no merge or auto-merge call is
-     made changes deliberately to match.
+     languages only, in its PR text. `publish.py` itself still never merges,
+     and its test asserting that no merge or auto-merge call is made stays.
+     The driver does the merging *(aligned with the plan, round 2)*.
+   - **Every lifecycle branch the automation verified has a recorded SHA**
+     *(decided in alignment, round 2)*. `publish.py` pushes a branch only when
+     its content changed. So it records the head SHA of every managed branch
+     it confirmed equals the commit it built this run, pushed or not. A PR
+     with no recorded SHA is a **failed** stage with a named reason. Otherwise
+     a PR whose earlier merge failed would be refused on every run, with no
+     way to recover.
    - **The unattended merge rule** *(decided in pushback)*. This rule applies to
      lifecycle PRs here, to the `deps/update-*` PRs from §5 and from
      `vrg-release`'s `update-deps` stage, and to the post-release back-merge PR.
@@ -666,8 +729,14 @@ first stage that cannot finish yet:
      **all** of these hold:
      - its author is the App, and its head branch is in the same repo;
      - its head is pinned to the SHA that `prepare` pushed;
-     - the release branch's base is exactly the develop SHA whose develop CD
-       succeeded (step 3);
+     - the release branch's base is exactly the repo's **gated develop SHA**
+       *(defined in alignment, round 2)*. Each repo declares its gate kind
+       explicitly, as a driver input, never inferred from its workflows:
+       - **`cd`** (vergil-containers): the develop SHA whose develop CD
+         succeeded (step 3);
+       - **`checks`** (vergil-python, whose develop CD builds nothing): develop
+         HEAD, the merge commit of a PR that passed the strict required
+         checks. Strict protection means its tree is exactly what CI tested.
      - every commit the pipeline added on top of that SHA (changelog, version
        bump) was authored by the App.
 
@@ -694,9 +763,13 @@ first stage that cannot finish yet:
    - **Trigger** *(decided in pushback)*: runs only when a lifecycle PR (add,
      drop or `runtime`) for an auto-merge language has merged into `develop`
      since the last release. "Since the last release" means the merge commit
-     is **not an ancestor of the latest `develop-v*` tag**. It is not a
-     timestamp comparison, which would miss a lifecycle PR merged while a
-     release was in flight. "Develop is ahead" is never the trigger:
+     is **not an ancestor of the newest stable `vX.Y.Z` tag on `main`**
+     *(corrected in alignment, round 2)*. That tag sits on main's release
+     merge, whose develop-side ancestors are exactly the commits cut into the
+     release. A lifecycle PR merged after the cut is therefore not an
+     ancestor. It is neither a timestamp comparison nor the `develop-v*` tag:
+     main CD creates that tag from whatever `develop` is at that moment, after
+     the cut, so it would hide such a merge. "Develop is ahead" is never the trigger:
      `develop` is always ahead after a release, because of the post-release
      version bump and the `update-deps` merge.
    - **Content:** whatever is on `develop` ships with it (principle 2).
@@ -769,8 +842,20 @@ is a later ratchet (§7.2).
   it open. So a green deferral can never hide a real failure.
 - **Pending is not failure, up to a limit.** "No PBS build for a GA series
   yet", "upstream stopped building x.y" (§5) and "deferred: release in
-  progress" are recorded in the job summary and stay green. If either lasts past a bound, it becomes a tracked issue. The
-  defaults are the builder's call, and the bound must be stated and tested.
+  progress" are recorded in the job summary and stay green. If any of them
+  lasts past its bound, it becomes a tracked issue. The defaults are the
+  builder's call, and each bound must be stated and tested.
+  - **Tracked per item, not per stage** *(decided in alignment, round 2)*.
+    - Runs are stateless, so one open **watch** issue per repo holds a
+      first-seen marker for each item (`pending:3.16`, `frozen:3.12`,
+      `deferred:<reason>`).
+    - An item gets its own tracked issue, keyed by item, only once it passes
+      its bound.
+    - A **frozen** series is timed from its EOL date (from the window, or
+      from the manifest if the window lacks it), not from first sight. That
+      matches §5's "outlasts the window's own drop".
+    - An overdue item turns the job **red** while it lasts. Its issue
+      persists, so nothing churns between open and closed.
 - **A fallback is a tracked gap.** If any step proves impossible to run
   unattended during implementation, the epic ships that step as "prepared, a
   human acts". The step prints exactly what the human runs, its tracked issue
@@ -784,7 +869,8 @@ is a later ratchet (§7.2).
    build, matrix, manifest, exact-filename index matching, the build and skip
    classification, per-package retention with the runtime size budget, the
    lazy index collect, install-test, `check-runtime`, and the release index
-   wait (§4).
+   wait (§4). The `packages` repo sets the runtime retention budget in its
+   `packages.toml`.
 2. `vergil-actions` package dimension in `ci-package.yml` and `cd-release.yml`
    (§4.5).
 3. `vergil-python` series list, per-series build, per-series refresh against
@@ -876,14 +962,19 @@ is a later ratchet (§7.2).
   credentials. The human attests to it before the first unattended release,
   for example with
   `gh api repos/vergil-project/vergil-python/environments --jq '.environments[] | {name, protection_rules}'`.
+- **The `package-signing` environment check covers every repo the driver
+  releases**, vergil-containers included, not only vergil-python.
 - **The App's installation and permissions.** This is the real boundary for
   `automation` (§6.1), so it is a **minimum** set, reviewed and attested by the
-  human per org, on every repo in the chain:
-  - contents (write);
-  - pull requests (write);
-  - issues (write);
-  - actions (read);
-  - administration (read), for `vrg-release`'s `audit` stage.
+  human per org.
+  - `<owner>/.github` is in the chain too, because `vrg-update-deps` files fix
+    tasks under its ad-hoc epic. On it the App needs **issues (write)** only.
+  - On every repo the driver releases (vergil-containers, vergil-python):
+    - contents (write);
+    - pull requests (write);
+    - issues (write);
+    - actions (read);
+    - administration (read), for `vrg-release`'s `audit` stage.
 
   Anything beyond that needs a stated reason. It is attested by the human in
   the same way.
