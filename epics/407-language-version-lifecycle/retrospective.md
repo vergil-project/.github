@@ -113,7 +113,7 @@ The plan had no separate "Evolution during execution" log. The dated "As built" 
 - **The first real run is the real test.** The design was sound, but each "first" exposed an assumption: the first real add PR, the first runtime move, the first consumer with `only-managed`, the first release after a window flip. Next time, plan a probe for each first-of-a-kind event, and keep validation tasks (T12) blocking until those probes have passed, rather than until the code merges.
 - **Tests must not read live data the thing under test is about to change.** #654 and #656 were the same bug twice. A test that asserts today's manifest breaks the moment automation changes the manifest. Frozen fixtures should be the default for any data-driven automation.
 - **"Everywhere" needs an inventory.** The `UV_PYTHON_PREFERENCE` rollout took five tasks because no one listed every place Vergil runs Python up front. When a rule has to hold "wherever X happens", list the places first; #1002's repo-wide guard test is the model.
-- **Cross-repo releases break each other silently.** T14's release broke vergil-actions' `derive.sh` harness. Nothing caught it until an unrelated PR ran (#1022).
+- **Cross-repo releases break each other silently.** T14's release broke vergil-actions' `derive.sh` harness. Nothing caught it until an unrelated PR ran (#1022). vergil-actions#1042 adds a nightly harness run so the next one shows up the same day.
 - **GitHub's eventual consistency is a real input.** On 2026-10-22, delayed Actions results produced "orphaned" check-runs (#3431). Commit-indexed run lookups lagged behind runs that had finished (#3434). A cron fired 5–7 hours late, and concurrency groups cancelled each other's runs (#655). Gates that read GitHub state need bounded grace periods, not first-answer failure.
 - **Fail-loud paid off repeatedly.** Silent fallbacks would have hidden:
   - the wrong-Node fallback (#657);
@@ -162,7 +162,7 @@ The plan had no separate "Evolution during execution" log. The dated "As built" 
 | Bare `#N` epic refs in `vrg-epic-audit` | vergil-tooling#3415 (open); `epic-move` and `adhoc` fixed (#3409, #3411) |
 | Stale README, CLAUDE.md and links | vergil-containers#671, vergil-actions#1018, docs#44 (open) |
 | Lab guest-runtime pin | lab#1689 (on hold) |
-| A tooling release breaking an actions harness | logged here; no task yet |
+| A tooling release breaking an actions harness | vergil-actions#1042: nightly harness run against the latest `v2.1` (open) |
 
 ## §5 What's next
 
