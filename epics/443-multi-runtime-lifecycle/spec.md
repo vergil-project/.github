@@ -40,14 +40,15 @@ hosting beyond the GitHub Pages cap).
 > **Revised again after pushback round 4** (same day). Round 4 was reviewed
 > against a frozen code baseline (vergil-tooling `3f8571bfb1`). It:
 >
-> - revised principle 2: the automation releases only what it owns;
 > - scoped unattended release to vergil-containers and vergil-python;
-> - revoked `workflows: write`;
+> - revoked `workflows: write` from the driver's tokens. GitHub's refusal of a
+>   workflow-carrying merge becomes a tracked human merge. An "owns its
+>   release" rule was tried and withdrawn in round-4 alignment;
 > - added a vergil-python release hold from D1 to D2;
-> - made unattended releases skip the closing `update-deps`, which claims its
->   branch first;
-> - added a resume lease, the lock on every run, line and direct-lookup pins,
->   and the asset-name fallback for in-use names.
+> - made unattended releases skip the closing `update-deps`, which now takes
+>   a claim lease on a separate ref before it runs;
+> - added a lease held by every release run, the lock on every run, line and
+>   direct-lookup pins, and the asset-name fallback for in-use names.
 >
 > These decisions are marked *(pushback round 4)*. Upstream changes since the
 > baseline are reconciled in a separate drift pass.
@@ -199,26 +200,28 @@ Paths are under `vergil-tooling/src/vergil_tooling/` unless noted.
    decision)*. Automation means a human does nothing and is alerted only when
    something goes wrong. Human gates that have become rubber stamps are
    removed, starting with this workflow.
-2. **Trust the CI and CD gates, and release only what the automation owns**
-   *(the human's decision; ownership added in pushback round 4)*. Green CI
-   plus green post-merge CD is the bar for merging and releasing.
-   - An unattended release ships only changes the automation made. The driver
-     releases a repo only when **every commit on `develop` since its last
-     release tag** is App-authored: lifecycle, deps, version bump and
-     back-merge commits.
-   - When `develop` also holds human changes, the driver doesn't release that
-     repo. It records a bounded `release waiting: human changes since vX.Y.Z`
-     item (§6.5). The human's next release carries the automation's changes
-     with their own.
-   - **Why:** an automated release owns its complete set of changes. In
-     particular, the automation never creates a commit that changes
-     `.github/workflows/**`, so it never needs workflow-write power (§8).
-     Human workflow changes ship in human releases.
+2. **Trust the CI and CD gates, and let GitHub enforce the workflow boundary**
+   *(the human's decision; the boundary settled in round-4 alignment)*. Green
+   CI plus green post-merge CD is the bar for merging and releasing. An
+   unattended release ships whatever is on `develop`.
+   - **The driver's tokens never carry `workflows` permission** (§8). When
+     GitHub refuses an operation for that reason, the step becomes the
+     principle-6 tracked gap: the release is prepared, a human merges, and
+     resume continues the chain (§6.4). Such an operation is a release merge
+     or an `update-branch` that brings human workflow changes into a branch.
+   - So the automation can never itself rewrite CI. Human workflow changes
+     reach `main` only through a human merge.
+   - **Why not an ownership rule:** round 4 first tried "release only what
+     the automation owns" (every commit since the tag App-authored).
+     Round-4 alignment showed it can never be satisfied: a human release's
+     own bump and back-merge commits are human-authored, and weekly
+     `bump-tools` commits recur. So it was withdrawn in favour of the
+     platform's own enforcement.
    - **Scope:** unattended release is enabled **only for `vergil-containers`
-     and `vergil-python`**, two infrastructure repos that shouldn't carry
-     much unreleased human work. The machinery is generic, but it is enabled
-     per repo, deliberately. Everything else, `vergil-tooling` included, keeps
-     human-run releases.
+     and `vergil-python`**, two infrastructure repos. The machinery is generic,
+     but the switch is which repos the lifecycle workflow passes to the driver
+     (plan C3). Everything else, `vergil-tooling` included, keeps human-run
+     releases.
 3. **The unit of work is a `vrg-release`-grade operation** *(the human's
    framing)*. An operation is complete only when its PRs have merged, its CD
    has succeeded, and its post-merge checks pass. That is how `vrg-release` and
@@ -291,7 +294,10 @@ Paths are under `vergil-tooling/src/vergil_tooling/` unless noted.
   pushback round 2)*.
 - **An updater crash is never silent.** The `vrg-update-deps` orchestrator
   turns *any* unexpected exception from an updater into a `DepsFailure`, with
-  the traceback tail, so it gets its fix task like any other update failure.
+  the traceback tail. It then fails loudly, like any other update failure.
+  Under the driver it is a failed stage with a tracked issue. (Whether
+  update-kind failures also file a fix task is reconciled in the drift pass:
+  upstream changed it after the review baseline.)
 
 ### 4.2 Build, matrix and manifest
 
@@ -406,8 +412,11 @@ what is in use".)*
 
   Exact and line pins are resolved by **direct release lookup**, not by
   paging, so they are exempt from the listing cap. A pin that can't be found
-  fails, naming the pin and its remedy (remove it). A pin more than 150
-  releases old prints a warning.
+  fails, naming the pin and its remedy (remove it).
+  - Exact and line forms are allowed only for packages **versioned like their
+    repo** (vergil-tooling), where `vX.Y.Z` names the release directly.
+  - Runtime packages, whose versions don't match their repo's, take bare-name
+    pins only *(round-4 alignment)*.
 - **A budget-aware grace copy for in-flight rollouts** *(decided in pushback
   round 3; made budget-aware in alignment, round 3)*.
   - The previous version of each name is also kept for `grace_hours`
@@ -463,8 +472,6 @@ what is in use".)*
     **net growth** of the next release, simulated through `select` (the
     newest release with bumped versions), plus one name-version allowance for
     a possible series add.
-  - The simulation applies the budget-aware grace rule above, so a refresh
-    nets about zero: its grace copies are dropped once over `SIZE_WARN`.
   - It fails when that total reaches **`SIZE_FAIL`**. Reaching `SIZE_WARN` is
     printed as a warning. Both are computed on the **grace-free** steady
     state, because grace copies fill toward `SIZE_WARN` by design and would
@@ -785,20 +792,34 @@ its stages, CD confirmation and failure handling are reused unchanged
       to update today.
 
     Human releases of every repo keep the closing stage, as today.
-  - **The `update-deps` branch is claimed first** *(pushback round 4)*.
-    `update-deps` pushes `deps/update-<v>` at the develop base **before** it
-    runs the updaters. An update in flight is then visible on GitHub, and the
-    existing "branch exists, no PR → in flight" refusal protects every host.
+  - **`update-deps` takes a claim lease first** *(pushback round 4; made a
+    lease in round-4 alignment)*.
+    - Before it runs the updaters, `update-deps` writes a claim to a separate
+      ref, `refs/vergil/claims/deps-update-<v>`. The claim records its holder
+      (identity, and run URL or host) and a timestamp.
+    - A second host refuses while a fresh claim exists, naming the holder.
+    - A claim older than a bound is stale and may be taken over.
+    - The claim is deleted on every exit.
+    - It never touches the `deps/update-<v>` branch, so a run that opens no
+      PR (the common no-changes case) can't leave an orphan that locks the
+      repo. Pushing the deps branch first would.
   - **Creating and recording are one call** *(pushback round 4)*. The
     tracking issue is created with its full initial state block in the same
     API call, so there is never an issue without state. An App-authored issue
     without a state block is a named failed state.
-  - **Resume takes a lease** *(pushback round 4)*. `--resume` records a lease
-    in the state block: its holder (identity, and run URL or host) and a
-    heartbeat refreshed at each stage. A second resumer refuses while a live
-    lease exists, naming the holder. A lease whose heartbeat is older than a
-    bound (default 30 minutes) is stale and may be taken over. So the human
-    and the driver can never resume the same release at once.
+  - **Every release run holds a lease** *(pushback round 4; extended in
+    round-4 alignment)*.
+    - The original run takes the lease in its create-and-record call, and
+      `--resume` takes it before acting.
+    - The lease records its holder (identity, and run URL or host) and a
+      heartbeat.
+    - The heartbeat is refreshed at each stage boundary **and on the poll
+      timer inside long waits**. The stale bound (default 30 minutes) is
+      therefore always longer than the gap between heartbeats.
+    - A second actor refuses while a live lease exists, naming the holder. A
+      stale lease may be taken over.
+    - So the original run, the human and the driver never act on the same
+      release at once.
   - **Not covered.** Host provisioning (tools, git identity, auth) remains
     per-host environment, not release state.
 - **Checkout:** full history and tags (`fetch-depth: 0`), using the App token so
@@ -962,9 +983,8 @@ its stages, CD confirmation and failure handling are reused unchanged
     exists, when the trigger is already false, is therefore still resumed.
     An untriggered stage reports `nothing-to-do` only when the repo has no
     open release issue.
-  - A `deps/*` branch with no PR (an `update-deps` claim) counts as in flight,
-    under the same deferral bound, which also covers a claim orphaned by a
-    crash.
+  - A fresh `update-deps` claim (`refs/vergil/claims/deps-update-*`) counts
+    as in flight. A stale one may be taken over.
   - If it finds anything else in flight, the run **backs off** for that repo. It records "deferred:
     release in progress" in the job summary and stays green.
   - A deferral that persists past a bound becomes a tracked issue.
@@ -995,9 +1015,14 @@ the final name) runs from a scheduled ops workflow. The workflow is a
 reusable workflow in `vergil-actions`, called from `vergil-containers` next to
 the existing lifecycle job, or folded into it. It uses an App token scoped to
 the repos the chain touches, **including `<owner>/.github`**, where fix tasks
-are filed (§8). Each run reconciles in this order. It stops at the first stage
-that **failed**. A `pending` or `deferred` stage ends only the work that
-depends on it *(decided in alignment, round 2)*. For example, a series still
+are filed (§8). Each run reconciles in this order.
+
+- **A failed stage stops only that repo's later stages** *(narrowed in
+  round-4 alignment)*. A vergil-containers failure never stops the
+  vergil-python stages, and the reverse.
+- A `pending` or `deferred` stage ends only the work that depends on it
+  *(decided in alignment, round 2)*.
+- Every repo's lock reconcile runs before that repo's stages (§6.3). For example, a series still
 waiting for a PBS build doesn't hold back a vergil-python release of the series
 that did refresh. A vergil-containers release deferred by a human release in
 flight doesn't stop the vergil-python stages, which need only the **released**
@@ -1029,20 +1054,24 @@ window.
      a PR whose earlier merge failed would be refused on every run, with no
      way to recover.
    - **The unattended merge rule** *(decided in pushback)*. This rule applies to
-     lifecycle PRs here, to the `deps/update-*` PRs from §5 and from
-     `vrg-release`'s `update-deps` stage, and to the post-release back-merge PR.
+     lifecycle PRs here, to the `deps/update-*` PRs from §5, and to the
+     post-release back-merge PR. (Unattended releases run `--without-deps`,
+     so they produce no deps PR.)
      A PR is merged only when **all** of the following hold:
      - its author is the automation App;
      - its head branch is in the same repo (not a fork);
      - every commit on it was authored by the App;
      - the merge is pinned to the head SHA the automation pushed itself
        (`gh pr merge --match-head-commit` or an equivalent), so a later push
-       makes the merge fail.
-     - **The driver never runs `update-branch`** *(pushback round 4)*. When one
-       of its PRs is behind, it closes it and opens a fresh one from current
-       `develop`. All its PRs are regenerable. So it never creates a merge
-       commit that brings develop's (possibly workflow-changing) content into
-       a branch.
+       makes the merge fail. When the merge engine updates the branch itself,
+       the pin moves to the new head SHA and the rule is checked again.
+     - **A refusal for workflow permission is a tracked human step**
+       *(round-4 alignment)*. The driver's token carries no `workflows`
+       permission. If GitHub refuses a merge or an `update-branch` because it
+       would bring workflow-file changes into a branch, the stage is
+       `failed`, with the detail `GitHub refused: carries workflow changes; a
+       human merges <PR>`, and a tracked issue. Once the human merges,
+       resume continues the chain, and the issue closes on proof.
 
      A branch name alone never qualifies a PR. Any mismatch is a refusal that
      gets a tracked issue (§6.5).
@@ -1111,19 +1140,15 @@ window.
      the cut, so it would hide such a merge. "Develop is ahead" is never the trigger:
      `develop` is always ahead after a release, because of the post-release
      version bump and the `update-deps` merge.
-   - **Content:** only what the automation owns (principle 2, revised in
-     pushback round 4). If `develop` holds human changes since the last tag,
-     the driver doesn't release. It records a bounded `release waiting` item,
-     and the window change ships in the human's next release. Releasing
-     vergil-containers for any reason other than a window change stays with
-     its usual owner.
-   - It runs `vrg-release --without-deps` (§6.2).
-   - It runs `vrg-release` unattended (§6.2), including its CD confirmation
-     and the `v2.1` promote, so the window becomes visible to consumers.
-   - Before it, the driver runs the same landed-fix clearing and own-deps-PR
-     resume as step 5, against **vergil-containers** *(pushback round 3)*. A
-     deps PR left by an interrupted vergil-containers release is then never
-     stranded, and never blocks the next release.
+   - **Content:** whatever is on `develop` ships with it (principle 2). If
+     that includes human workflow changes, GitHub's refusal of the release
+     merge makes it a tracked human merge (step 2). Releasing vergil-containers
+     for any reason other than a window change stays with its usual owner.
+   - It runs `vrg-release --without-deps` unattended (§6.2), including its CD
+     confirmation and the `v2.1` promote, so the window becomes visible to
+     consumers.
+   - Lock handling, own-release resume and deps clearing for vergil-containers
+     happen in the per-run reconcile (§6.3), not here.
 5. **Reconcile vergil-python by running `vrg-update-deps` unattended**
    *(decided in pushback)*.
    - The vergil-python hook makes the series list match the **released**
@@ -1131,11 +1156,16 @@ window.
    - `vrg-update-deps` opens its usual `deps/update-<v>` PR and merges it under
      the unattended merge rule (step 2). If validation or the merge fails, it
      files its usual fix task.
-   - If the previous step 6 release already left a `deps/update-*` PR open from
-     its own `update-deps` stage, and its checks are still pending, this step
-     resumes that PR rather than opening a second one (§6.3). This resume is
-     new driver code: `vrg-update-deps` itself refuses an open PR on its
-     branch.
+   - If a `deps/update-*` PR of the driver's own is still open with checks
+     pending (for example, from an interrupted run), this step resumes that PR
+     rather than opening a second one (§6.3). This resume is new driver code:
+     `vrg-update-deps` itself refuses an open PR on its branch.
+   - **The refresh is once per develop version.** `vrg-update-deps` skips a
+     version whose deps PR has already merged. On that path it still runs the
+     updaters in report-only mode, so `pending:`, `frozen:` and `held:` items
+     keep being reported. A watch item is removed only when its producing
+     stage actually produced a full report *(round-4 alignment)*. Bounds
+     therefore can't reset just because a run skipped the work.
    - **Clear a landed fix first** *(decided in pushback round 2)*. Before this
      step, the driver runs the same clearing that `vrg-release` preflight
      runs:
@@ -1227,8 +1257,6 @@ is a later ratchet (§7.2).
         included.
       - A frozen series emits no `held:` item, so the held bound can't
         pre-empt the EOL-anchored frozen bound.
-    - A repo whose `develop` holds human changes is a `release waiting` item
-      (principle 2), with its own bound *(pushback round 4)*.
     - An item gets its own tracked issue, keyed by item, only once it passes
       its bound.
     - A **frozen** series is timed from its EOL date (from the window, or
@@ -1348,9 +1376,11 @@ is a later ratchet (§7.2).
 - `vX.Y` moves to an older release than it already points at.
 - Two releases of one repo are in flight at once, or two resumers act on one
   release, or two hosts build the same `deps/update-<v>` branch.
-- The automation creates a commit that changes `.github/workflows/**`, or
-  holds a token with workflow-write permission.
-- An unattended release ships a change the automation didn't make.
+- A token the driver mints carries workflow-write permission, or any
+  `create-github-app-token` step mints without explicit permissions. The one
+  allowed exception is vergil-actions' own CD (§8).
+- A GitHub refusal for workflow permission is silent, or isn't a tracked
+  human step.
 - The index publishes with any product's packages missing.
 - A release can't be resumed from a fresh checkout, or depends on state that
   exists only on one host.
@@ -1388,13 +1418,10 @@ is a later ratchet (§7.2).
     - pull requests (write);
     - issues (write);
     - **not** workflows. Round 3 added `workflows: write` on an unverified
-      inference; pushback round 4 **revoked** it. The automation never
-      creates a commit that changes `.github/workflows/**`:
-      - it releases only what it owns (principle 2);
-      - it never runs `update-branch`.
-
-      The D6 probe confirms that the token lacks `workflows`, and that the
-      chain still works;
+      inference; pushback round 4 **revoked** it from the driver's tokens.
+      When GitHub refuses an operation for lack of it, that becomes a tracked
+      human merge (principle 2, §6.4). The D6 probe confirms that the chain
+      token lacks `workflows`;
     - actions (read);
     - metadata (read): `vrg-issue-create` reads repo metadata;
     - **checks (read)** and **statuses (read)**: the green-only merge and the
@@ -1408,9 +1435,15 @@ is a later ratchet (§7.2).
     - **That holds for workflow-minted tokens too** *(pushback round 4)*. By
       default, a token minted with `create-github-app-token` inherits every
       permission of the installation.
+    - **The org installation already grants `workflows: write` today**
+      (data, round-4 alignment). vergil-actions' own CD mints an App token to
+      freeze internal refs in `.github/workflows/*.yml`.
     - So every existing mint step in vergil-actions, vergil-containers and
       their callers gains explicit `permission-*` inputs for exactly what its
       job needs, and a guard test fails on any mint step without them.
+      **Only vergil-actions' `cd.yml`** may request `permission-workflows`,
+      with its reason stated. That downscoping is the real protection, not
+      the installation's set.
     - The attestation is scoped to the orgs the driver releases in.
   - **The set is proven, not assumed.** Before `LIFECYCLE_LIVE` is set, the
     dry run probes the minted tokens. It runs `gh pr checks` on a real PR,
@@ -1456,7 +1489,10 @@ is a later ratchet (§7.2).
    2028. So the validation has two parts:
    - **Live run.** The first production run backfills 3.12 and 3.13. Its real
      `runtime_published` lifecycle PRs exercise every stage end to end: merge,
-     develop CD, both unattended releases, and the update-runtime path.
+     develop CD, both unattended releases, and the update-runtime path. If
+     develop carries human workflow changes at that moment, the release
+     merge is a tracked human merge (principle 2), and V1 records it as such.
+     The chain then resumes.
    - **Fixture-driven dry run.** A fixture window that adds 3.16 and drops
      3.12 drives the add/drop decisions through the driver and the hook,
      without touching the production window.
