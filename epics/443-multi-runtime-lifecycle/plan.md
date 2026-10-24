@@ -55,6 +55,12 @@ Read it before starting any task. `§N` references point into it.
 > requires publish success) and K1 (`packages` retention budget). Reworked:
 > T1, T2, T4–T11, A1–A3, P1, P2, C2, C3, D1–D6, V1 and V2. The full list is in
 > "Decisions recorded in pushback round 2" at the end.
+>
+> **Amended again after alignment round 2 and pushback round 3.**
+> - New tasks: T15 (one `gh`/git entry point), A4, T16 (the tracking issue
+>   is the release's state) and T17 (human-only prune).
+> - Reworked for the "retain only what is in use" principle: T4, T12 and K1.
+> - Each pass's decisions are in its own "Decisions recorded in …" section.
 
 ## Global Constraints
 
@@ -104,10 +110,11 @@ Read it before starting any task. `§N` references point into it.
 These are conditions the spec implies that no task's ordinary tests would
 exercise, most likely first. Each has a pinned test in the task named.
 
-1. **A package that is published for some targets but not others** (a release
-   whose CD failed partway, say). That is neither `build` nor `skip`. It must
-   fail loud and name the missing and present identities. Test: T5
-   `test_classify_partial_publication_is_an_error`.
+1. **A package that is published for some targets but not others** (a
+   hand-deleted asset, or a newly added arch). Only the missing identities are
+   built, with a loud notice naming them. The published ones are never
+   rebuilt (spec §4.3, pushback round 3). Test: T5
+   `test_classify_partial_builds_only_missing_identities`.
 2. **A human or agent pushes onto an automation branch after the App did**
    (`lifecycle/*` or `deps/update-*`). The merge must be refused, and a push
    that lands after the check must make the merge itself fail. Tests: T7
@@ -126,16 +133,23 @@ exercise, most likely first. Each has a pinned test in the task named.
    `test_container_env_forwards_identity_signals`.
 4. **The driver is re-run after the vergil-containers release succeeded but
    the vergil-python step failed.** It must resume at the vergil-python step.
-   It must not cut a second vergil-containers release, because no new
-   lifecycle PR has merged since the `develop-v*` tag. It must not close the
+   It must not cut a second vergil-containers release, because no lifecycle
+   merge is outside the newest `vX.Y.Z` tag's ancestry. It must not close the
    vergil-python failure issue until that stage succeeds. Tests: T10
    `test_rerun_after_containers_release_resumes_at_runtime`,
    `test_failure_issue_survives_a_deferred_run`.
-5. **Releases published before this epic** (no `name` in their manifest entry)
-   must still be collected, matched and retained exactly as before. A frozen
-   series that is missing from later releases must still be kept. Tests: T4
-   `test_old_manifest_shape_still_matches`,
-   `test_newest_version_of_every_name_is_kept`.
+5. **Releases published before this epic** (no `name` in their manifest
+   entry, and no `packages-plan.json`) must still be collected and matched. A
+   series that is still **in use** (named in the newest release's plan, even
+   as `skip`) must be kept, even though its last build was several releases
+   ago. A series dropped from the window must disappear after its grace
+   period. Tests: T4 `test_old_manifest_shape_still_matches`,
+   `test_in_use_skipped_series_is_kept`,
+   `test_dropped_series_gone_after_grace`.
+6. **A release interrupted on one machine is resumed on another** (a runner
+   dies; the next run is a fresh clone). It must continue from the tracking
+   issue's state block alone. Test: T16
+   `test_resume_on_fresh_clone_after_merge_release`.
 
 ---
 
@@ -219,9 +233,17 @@ after every ops workflow has migrated (§6.1 "Migration before cutover").
   `ops-github-config.yml` gets no grant, because its jobs call no gated
   command (the Step 5 sweep confirms this).
 - **Identity in containers:** `vrg-container-run` always forwards
-  `GITHUB_ACTIONS`, `VRG_IDENTITY_MODE` and `VRG_JOB_WORKFLOW_REF` when they
-  are set. They go through the same passthrough as `VRG_VERSION_WINDOW`
+  `GITHUB_ACTIONS` and `VRG_JOB_WORKFLOW_REF` when they are set. It forwards
+  `VRG_IDENTITY_MODE=<the host's resolved mode>`, from `current_mode()` on the
+  host, rather than the raw variable (spec §6.1, pushback round 3). On an
+  agent VM the mode file decides and the variable is often unset. These go
+  through the same passthrough as `VRG_VERSION_WINDOW`
   (`lib/container.py:340-354`), regardless of `[container].env-prefixes`.
+  Test: `test_container_forwards_resolved_mode_when_env_unset` (a mode file
+  says `user`, there's no env var, and the container gets
+  `VRG_IDENTITY_MODE=user`).
+- **`VRG_JOB_WORKFLOW_REF` is set in step-level `env:`.** `job.workflow_ref`
+  isn't available in `jobs.<id>.env` (verified). A2 and A3 follow this.
 
 - **Gates**:
   - `vrg-release` runs if `is_human() or is_authorised(SCOPE_RELEASE)`.
@@ -494,6 +516,23 @@ unchanged, that stage would crash with `AttributeError` on `[[package]]`.
 - Consumes T3's manifest entry shape: `{"fmt", "arch", "suite", "name",
   "version"}`.
 - Produces:
+  - The metadata-only types that retention runs on. T12 fills them from
+    GitHub.
+
+    ```python
+    @dataclass(frozen=True)
+    class RemoteArtifact:
+        product: str; tag: str; asset: str     # release-asset file name
+        identity: Identity                     # from published.parse_filename
+        size: int; digest: str | None          # "sha256:" prefix stripped; None when GitHub has none
+
+    @dataclass(frozen=True)
+    class RemoteRelease:
+        product: str; tag: str; created_at: datetime
+        plan_names: frozenset[str] | None      # names in packages-plan.json (build or skip); None if no plan asset
+        artifacts: tuple[RemoteArtifact, ...]
+    ```
+
   - `ManifestEntry.name: str | None = None` and `ManifestEntry.version: str |
     None = None`.
   - **`pattern()` when `name` and `version` are set** matches the **exact
@@ -504,21 +543,31 @@ unchanged, that stage would crash with `AttributeError` on `[[package]]`.
     When `name` is None the old pattern applies, unchanged.
   - `_match` keeps its rule of exactly one file per entry and no files left
     unclaimed.
-  - **Retention:**
+  - **Retention: in use only** (spec §4.4, principle 10; reworked in pushback
+    round 3):
     - `_by_lines` groups by `(product, name)` instead of `product`, keeping its
       line semantics (`keep` per line, `lines` lines). Each name's lines come
-      from the tags that carry that name, so a single-package repo keeps
-      exactly what it keeps today.
-    - `select` always keeps the newest version of every name **not in
-      `retire`**, together with its release (§4.4).
-  - **Runtime size budget** (§4.4, stopgap):
-    - `RetentionConfig.names: tuple[tuple[str, int], ...]` is parsed from an
-      optional `[retention.names]` table of `fnmatch` pattern = keep (for
-      example `"vergil-python*" = 1`).
-    - A name matching a pattern keeps its newest `keep` versions across all
-      lines, instead of `keep` × `lines`. The first matching pattern wins.
-      An unknown key or a non-positive keep is a `ConfigError`.
-  - `def projected_site_bytes(kept: Sequence[Artifact]) -> int`, in
+      from the tags that carry that name.
+    - **The in-use set.** A product's in-use names are the names listed in its
+      **newest stable release's `packages-plan.json`**, as `build` or `skip`
+      (T5). For a release with no plan (pre-epic), they are the names in its
+      manifest.
+      - `def in_use_names(releases: Sequence[RemoteRelease]) -> frozenset[str]`
+        is per product.
+      - A name **not** in the in-use set is dropped, once its grace has passed.
+      - A runtime series that was refreshed long ago but is still listed as
+        `skip` stays in use.
+    - `select` keeps, for each in-use name not in `retire`, the newest
+      `keep` versions within the newest `lines` lines. It keeps **every
+      artifact of each kept name-version**, never "its whole release".
+    - **The grace copy.** `RetentionConfig.grace_hours: int = 48` comes from
+      an optional `[retention] grace_hours`. These are also kept until
+      `now - createdAt(newer release) >= grace_hours`:
+      - the version each kept name had **before** its newest;
+      - every artifact of a name that just left the in-use set.
+
+      `createdAt` comes from release metadata (T12).
+  - `def projected_site_bytes(kept: Sequence[RemoteArtifact]) -> int`, in
     `site.py`: the sum of the kept artifacts' sizes, plus the
     metadata-overhead constant `SITE_OVERHEAD_BYTES = 5_000_000`.
 
@@ -530,26 +579,31 @@ unchanged, that stage would crash with `AttributeError` on `[[package]]`.
     `name` for a single-package release collects exactly as before.
   - `test_old_shape_two_packages_still_errors`: the error text
     `"has 2 packages for deb/amd64"` is kept.
-  - `test_newest_version_of_every_name_is_kept`: product `vergil-python`
-    with tags v1.0.4, which has 3.14 and 3.15, then v1.0.5 through v1.0.9,
-    which have 3.15 only, and `keep=2`. `vergil-python3.14` from v1.0.4 is
-    still selected.
+  - `test_in_use_skipped_series_is_kept`: product `vergil-python` with tags
+    v1.0.4 (3.14 build, 3.15 build) and v1.0.5–v1.0.9 (3.14 skip, 3.15
+    build), `keep=1`. The 3.14 artifacts from v1.0.4 are still selected,
+    because v1.0.9's plan lists 3.14 as `skip`.
+  - `test_dropped_series_gone_after_grace`: v1.1.0's plan omits 3.12, so
+    3.12 is kept for 48 h after v1.1.0's `createdAt`, then dropped.
+  - `test_previous_version_kept_within_grace`: with `keep=1`, the version
+    before the newest is kept until `grace_hours` after the newer release's
+    `createdAt`.
+  - `test_kept_name_never_pins_whole_release`: keeping 3.14's artifacts from
+    v1.0.4 doesn't keep v1.0.4's 3.15 artifacts.
   - `test_retire_still_drops_by_name`: the existing `[retention].retire`
-    behaviour is unchanged, and it overrides "newest of every name is kept".
+    behaviour is unchanged.
   - `test_exact_filename_match_no_prefix_collision`: packages `foo` and
     `foo-bar` in one release each match only their own files.
-  - `test_single_package_lines_unchanged`: vergil-tooling-shaped tags across
-    two lines with `keep=3, lines=2` select the same set as before this task.
-  - `test_name_budget_keeps_newest_n_across_lines`: `"vergil-python*" = 1`
-    keeps only the newest `vergil-python3.15`, and the newest of each other
-    series.
-  - `test_name_budget_bad_value_is_config_error`.
+  - `test_single_package_line_keep_one`: vergil-tooling-shaped tags across
+    two lines with `keep=1, lines=1` select only the newest 2.1 release
+    (plus its grace copy).
+  - `test_grace_hours_bad_value_is_config_error`.
   - `test_projected_site_bytes_sums_kept_sizes`.
   - `test_site_index_contains_both_series`.
 - [ ] **Step 2: Run** the three test files. Expected: FAIL.
 - [ ] **Step 3: Implement it.**
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expected: PASS.
-- [ ] **Step 5: Commit.** `vrg-commit --type feat --scope package-index --message "match manifest entries by package name and retain per package"`
+- [ ] **Step 5: Commit.** `vrg-commit --type feat --scope package-index --message "match manifest entries by package name and retain only in-use packages"`
 
 ### Task T5: The `build`/`skip` classification in preflight and CD [`vergil-tooling`]
 
@@ -574,8 +628,9 @@ unchanged, that stage would crash with `AttributeError` on `[[package]]`.
   class PackagePlan:
       name: str
       version: str
-      action: Literal["build", "skip"]
-      identities: tuple[Identity, ...]
+      action: Literal["build", "skip", "complete"]
+      identities: tuple[Identity, ...]        # every identity of the package
+      missing: tuple[Identity, ...] = ()      # for "complete": only these are built
 
   def classify(repo_root: Path, cfg: VergilConfig, product: str, version: str,
                gh: Run = local_run) -> list[PackagePlan]
@@ -586,10 +641,15 @@ unchanged, that stage would crash with `AttributeError` on `[[package]]`.
   - **`skip`:** every identity for the package is already in
     `published(product, exclude_tag=f"v{version}")`.
   - **`build`:** none of them is.
-  - **Some but not all:** raises `PackageError`, naming the identities
-    present and missing (Review Focus 1). The message states the remedy (spec
-    §4.3): `re-run release v<V>'s CD publish to complete these identities;
-    the package then classifies as skip`.
+  - The driver (T10) and preflight treat `complete` like `build` when they
+    decide whether to release.
+  - **Some but not all → `complete`** (spec §4.3, pushback round 3, Review
+    Focus 1):
+    - `missing` lists the unpublished identities;
+    - `render_plan` prints `complete <name> <version>: <fmt/arch …> missing`;
+    - `vrg-package matrix --plan` emits **only** the cells that produce a
+      missing identity;
+    - the published identities are never rebuilt.
 - `check_release` is replaced by `classify`. It no longer raises just because
   an identity is published.
 - `ReleaseContext.package_plan: list[PackagePlan] = field(default_factory=list)`.
@@ -611,7 +671,10 @@ unchanged, that stage would crash with `AttributeError` on `[[package]]`.
 - [ ] **Step 1: Write the tests:**
   - `test_classify_unpublished_is_build`
   - `test_classify_published_is_skip`
-  - `test_classify_partial_publication_is_an_error`
+  - `test_classify_partial_builds_only_missing_identities`: deb/arm64 and
+    rpm/aarch64 missing → `complete`, and the matrix holds only the arm64
+    cells
+  - `test_complete_is_printed_loudly`
   - `test_classify_multi_mixed`: 3.14 build, 3.15 skip
   - `test_single_package_published_is_now_skip`, the documented behaviour
     change
@@ -729,7 +792,7 @@ the inconsistency. This task consolidates instead.
   100% coverage, with every pre-existing test unchanged.
 - [ ] **Step 5: Commit.** `vrg-commit --type refactor --scope exec --message "route every gh and git execution through one entry point each"`
 
-### Task T12: Lazy index collect [`vergil-tooling`]
+### Task T12: Lazy, bounded index collect, with closure and budget [`vergil-tooling`]
 
 **Blocked by:** T4.
 
@@ -749,30 +812,40 @@ within roughly 25 releases.
 
 **Interfaces:**
 
-- Consumes T4's `ManifestEntry` and `RetentionConfig.names`, and T5's
+- Consumes T4's `ManifestEntry`, `RemoteRelease`, `RemoteArtifact`,
+  `in_use_names` and `RetentionConfig.grace_hours`, and T5's
   `packages-plan.json` asset.
 - Produces:
 
   ```python
-  @dataclass(frozen=True)
-  class RemoteArtifact:
-      product: str; tag: str; asset: str     # release-asset file name
-      identity: Identity                     # from published.parse_filename
-      size: int; digest: str | None          # gh release view --json assets: size, digest ("sha256:<hex>" or absent)
+  LIST_LIMIT_DEFAULT = 20   # newest stable releases listed per product (spec §4.4: nothing older is in use)
 
-  def list_remote(product: str, gh: Run = local_run) -> list[RemoteArtifact]   # metadata only; downloads nothing
+  def list_remote(product: str, *, limit: int = LIST_LIMIT_DEFAULT,
+                  gh: Run = local_run) -> list[RemoteRelease]
+      # metadata only: gh release list --limit <limit>, then each release's assets (name, size, digest),
+      # createdAt, and its packages-plan.json (a small JSON download). No package bytes.
   def fetch(kept: Sequence[RemoteArtifact], dest: Path, gh: Run = local_run) -> list[Artifact]
   ```
 
-- **New `site.py` order:**
+  `[retention] list_limit` (default 20) overrides the limit. The existing
+  `RELEASE_LIST_LIMIT = 1000` path is no longer used by the index.
+- **New `site.py` order, with an iterative closure** (spec §4.4, pushback
+  round 3):
   1. `list_remote` for every product;
   2. manifest matching on names (T4);
-  3. retention `select` on identities;
-  4. `fetch` the kept set only;
-  5. verify (attestation and signature) the kept set;
-  6. build.
+  3. retention `select` on identities (T4's in-use rule);
+  4. `fetch` the kept set, and read each artifact's real `depends` (the
+     existing `deb_metadata` / `rpm_metadata`);
+  5. **close:** for any dependency name no kept artifact provides, add the
+     newest provider among the listed identities, fetch it, and repeat until
+     stable;
+  6. `_check_retired` on the closed set. Then assert that every runtime
+     dependency of a kept artifact is provided by the closed set, else
+     `IndexError` naming both;
+  7. verify (attestation and signature) the closed set;
+  8. build.
 
-  Disk use is then bounded by the retained set.
+  Disk use is then bounded by the in-use set and its closure.
 - **`_check_conflicts`** compares identities across releases by `digest`.
   Only when a digest is absent does it download that asset to hash it, then
   delete the asset. It logs a count of digest-less assets.
@@ -782,31 +855,51 @@ within roughly 25 releases.
 - `projected_site_bytes` (T4) is computed from `RemoteArtifact.size` before
   any download, and printed as `"projected site: <N> bytes"`.
 - **`vrg-package index --budget-only`** runs steps 1–3, prints the projected
-  size per product and in total, and downloads nothing. It **exits 1 when the
-  total plus the next-release headroom is at least `SIZE_WARN`** (§4.4: red
-  *before* a publish can cross). The headroom is the largest single release's
-  retained-artifact bytes for any product, taken from asset metadata. A1 runs it as its own job, so a breach turns a job red
-  without stopping a publish.
+  size per product and in total, and downloads nothing (spec §4.4, reworked in
+  pushback round 3).
+  - **Headroom is net growth:**
+    1. simulate the next release of each product, as its newest release with
+       every in-use name at a bumped version and the same sizes;
+    2. re-run `select` including that simulated release, and take the new
+       total minus the current total;
+    3. add one allowance of the largest single name-version's bytes, for a
+       possible series add.
+  - It **exits 1 when total plus headroom reaches `SIZE_FAIL`**. It prints a
+    warning line when it reaches `SIZE_WARN`.
+  - A1 runs it as its own job, so a breach turns a job red without stopping a
+    publish.
 
 - [ ] **Step 1: Write the tests:**
-  - `test_list_remote_downloads_nothing`: the fake gh records no `release
-    download` calls.
+  - `test_list_remote_downloads_nothing`: the fake gh records no package
+    downloads, only the small `packages-plan.json`.
+  - `test_list_remote_reads_only_newest_limit_releases`: 30 fixture releases
+    with `limit=20` list 20.
   - `test_only_kept_artifacts_are_fetched`: with 10 fixture releases and
-    `keep=1`, only the kept release's assets are downloaded.
+    `keep=1`, only the kept artifacts (and their grace copies) are
+    downloaded.
+  - `test_closure_fetches_missing_provider_iteratively`: a kept
+    vergil-tooling depends on `vergil-python3.15`. If the provider isn't in
+    the kept set, it is fetched and added.
+  - `test_unresolvable_dependency_fails_loud`.
+  - `test_retired_dependency_still_refused_after_fetch`.
   - `test_conflict_check_uses_digest`: the same identity with different
     digests in two releases raises the existing conflict error.
   - `test_conflict_check_downloads_only_when_digest_missing`.
   - `test_all_skipped_release_logged_distinctly`.
   - `test_projected_size_printed_before_fetch`.
-  - `test_budget_only_exits_1_when_total_plus_headroom_reaches_warn`,
-    `test_budget_only_exits_0_below_and_downloads_nothing`, and
-    `test_headroom_is_largest_single_release`.
+  - `test_budget_only_exits_1_when_total_plus_headroom_reaches_fail`,
+    `test_budget_only_warns_at_size_warn_but_exits_0`,
+    `test_budget_only_downloads_nothing`, and
+    `test_headroom_is_net_growth_plus_one_allowance`. The last one uses the
+    measured fixture: 4 series × 134 MB with keep=1. A refresh adds about
+    0 MB net, plus one 134 MB allowance, so the total is about 760 MB and the
+    command exits 0.
 - [ ] **Step 2: Run** the tests. Expected: FAIL.
 - [ ] **Step 3: Implement it.**
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expected: PASS.
 - [ ] **Step 5: Commit.** `vrg-commit --type feat --scope package-index --message "select from release-asset metadata and download only the retained set"`
 
-### Task T14: Promote requires every publish job to succeed [`vergil-tooling`]
+### Task T14: Promote requires publish success, and never moves backwards [`vergil-tooling`]
 
 **Blocked by:** T15 (it reads CD runs through `run_gh`).
 
@@ -818,25 +911,37 @@ repo.
 
 - Modify: `src/vergil_tooling/lib/release/orchestrator.py` (`_promote_phase`
   :204-209, and the summary at :230-234, :295-300), `lib/release/confirm.py`
-  (a new `main_publish_status`), `lib/release/tracking.py:132-150` and
+  (a new `main_publish_failures`), `lib/promote.py` (monotonic check;
+  `run_git`), `lib/release/tracking.py:132-150` and
   `lib/release/finalize.py:53-59` (the recovery text)
 - Test: `tests/vergil_tooling/test_release_orchestrator.py`,
-  `test_release_confirm.py`, `test_release_tracking.py`
+  `test_release_confirm.py`, `test_release_tracking.py`, `test_promote.py`
 
 **Interfaces:**
 
 - Produces:
-  - `confirm.main_publish_status(repo: str, release_sha: str) ->
-    dict[str, str]` maps each publish job's name to its conclusion. It reads
-    the newest `cd.yml` run (re-runs included) on `main` for `release_sha`
-    through `run_gh` (T15).
+  - `confirm.main_publish_failures(repo: str, release_sha: str) -> list[str]`
+    reads the **newest attempt** of the `cd.yml` run on `main` for
+    `release_sha` through `run_gh` (T15). It returns exactly what the existing
+    generic rule returns: `_collect_deferred_publish(jobs)` plus
+    `_unsettled_jobs(jobs)` (`confirm.py:349-374`).
+    - Every non-release job must be `success` or `skipped`.
+    - A skip that follows a real failure always has a failed upstream job.
+    - So repos without packages, whose package jobs are `skipped`, pass
+      (spec §6.2, clarified in pushback round 3).
   - **`_promote_phase` never trusts memory** (spec §6.2, alignment round 2):
-    - it calls `main_publish_status`, and raises
+    - it calls `main_publish_failures`, and raises
       `ReleaseError(phase="promote", message=f"refusing to promote v{X.Y}:
       publish job(s) not successful: {jobs}; re-run the failed jobs, then
-      vrg-release --resume")` unless every publish job concluded `success`;
+      vrg-release --resume")` when the list is non-empty;
     - this holds on a first run and on `--resume` alike;
     - develop-side docs failures aren't in that run, so they don't block.
+  - **Monotonic promote** (spec §6.2, pushback round 3): before moving it,
+    `promote` resolves origin `vX.Y` to its `vX.Y.Z` with `run_git ls-remote`.
+    If that is **higher** than the release being promoted, it doesn't move the
+    tag. It records `superseded by vX.Y.W` as a warning in the summary and on
+    the tracking issue, and the stage counts as done.
+  - `lib/promote.py`'s raw `subprocess` git calls move onto `run_git` (T15).
   - `--no-promote` still skips the stage, as today.
   - The recovery texts in `tracking.py` and `finalize.py` change from "do not
     `--resume`" to "re-run the failed publish jobs, then `vrg-release
@@ -847,6 +952,11 @@ repo.
   - `test_promote_refused_when_publish_failed`: `vrg-promote` is never
     called, and the error names the jobs.
   - `test_promote_runs_when_every_publish_succeeded`.
+  - `test_promote_runs_when_package_jobs_skipped`: a vergil-containers-shaped
+    run with `package-build`/`package-sign` `skipped` promotes.
+  - `test_promote_never_moves_rolling_tag_backwards`: origin `v2.1` is at
+    `v2.1.40`, and promoting `v2.1.39` records "superseded" without pushing.
+  - `test_promote_uses_newest_run_attempt`.
   - `test_no_promote_flag_still_skips`.
   - `test_resume_without_fix_still_refused`: an empty in-memory list, with
     the GitHub run still failed, is refused.
@@ -860,12 +970,168 @@ repo.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expected: PASS.
 - [ ] **Step 5: Commit.** `vrg-commit --type fix --scope release --message "refuse to promote the rolling tag while a publish job failed"`
 
+### Task T16: The tracking issue is the release's state; resume works from any fresh checkout [`vergil-tooling`]
+
+**Blocked by:** T15.
+
+Added in pushback round 3 (spec §6.2, the human's principle: `vrg-release`
+depends on no host-local state). Today `--resume` works only on the host that
+started the release. The local `release/<v>` branch, the worktree, in-memory
+context and the original CLI flags are the real state. The tracking issue
+holds human prose that is never parsed back. An inventory of every local
+dependency is in the pushback-round-3 record on `vergil-project/.github#456`.
+
+**Files:**
+
+- Create: `src/vergil_tooling/lib/release/state.py`
+- Modify: `lib/release/tracking.py` (create the issue before the deps gate;
+  write the state block), `lib/release/resume.py` (parse the state block;
+  direct lookup, no `--search`), `lib/release/preflight.py`
+  (`_acquire_release_worktree`, the deps gate, one release in flight per
+  repo), `lib/release/prepare.py` (`_adopt_merged_pr`; cut at the gated SHA),
+  `lib/release/bump.py` (adopt `origin/release/post-<v>`),
+  `lib/release/confirm.py` (CD runs by `head_sha`), `lib/release/finalize.py`
+  and `orchestrator.py` (close the issue after the last stage),
+  `lib/release/package_index.py`, `handoff.py` and `tracking.py` (read config
+  at the tag), `bin/vrg_release.py` (persisted flags; `--resume` with an
+  override)
+- Test: `tests/vergil_tooling/test_release_state.py` (new),
+  `test_release_resume.py`, `test_release_preflight.py`,
+  `test_release_prepare.py`, `test_release_bump.py`,
+  `test_release_confirm.py`, `test_release_orchestrator.py`
+
+**Interfaces:**
+
+- Produces, in `state.py`:
+
+  ```python
+  STATE_MARKER = "vrg-release:state"   # one hidden block: <!-- vrg-release:state {json} --> in the issue body
+
+  @dataclass
+  class ReleaseState:
+      version: str
+      override: Literal["minor", "major"] | None
+      flags: dict[str, bool]                 # promote, without_deps, skip_audit
+      gated_develop_sha: str | None
+      prepare_sha: str | None; bump_sha: str | None
+      release_pr: int | None; bump_pr: int | None
+      cd_run_ids: dict[str, int]             # "main", "develop"
+      deps_gate: dict[str, list[str]]        # bypassed, cleared, undeleted
+      publish_verdict: list[str] | None      # T14's main_publish_failures at promote time
+
+  def read(issue_body: str) -> ReleaseState          # missing or unparseable block -> ReleaseError (loud)
+  def write(issue_body: str, state: ReleaseState) -> str
+  def update(repo: str, issue: int, **changes) -> ReleaseState   # read-modify-write through run_gh
+  ```
+
+- **Rules** (spec §6.2):
+  - **Create early.** The tracking issue is created **before** the deps gate,
+    so the gate's outcome is recorded.
+  - **Write as you go.** Each stage writes its outputs to the state block as
+    soon as they exist.
+  - **`--resume` reads the block, and never recomputes and discards.** The
+    original override and flags apply on resume. `--resume` given a
+    *different* override or flag is refused, with both values named.
+  - **The release branch is rebuilt from GitHub.** After `merge-release`,
+    the local `release/<v>` is created from `pull/<release_pr>/head`, never
+    from develop. Before it, from `origin/release/<v>`, or at
+    `gated_develop_sha` (T9).
+  - **Adopted worktrees are verified.** An adopted worktree's HEAD branch
+    must match the stage, otherwise `ReleaseError`.
+  - **The bump branch is adopted from origin.** `release/post-<v>` is taken
+    from origin when it exists without a PR.
+  - **CD runs are found by `head_sha`** through `gh api
+    repos/{repo}/actions/runs?head_sha=…`, with no "newest 5" window.
+  - **Config is read at the tag.** Stages after `confirm-main` read
+    `vergil.toml` and `pyproject.toml` with `git show v<ver>:<path>`.
+  - **The issue closes last,** after the final stage (`package-index`,
+    `consumer-refresh`, `update-deps`). A failure there leaves it open and
+    resumable.
+  - **One release in flight per repo** (spec §6.3): a fresh-start preflight
+    refuses while **any** open `release: *` tracking issue exists, and names
+    it.
+  - `--state-json` (T9) prints `ReleaseState`. Its `deferred_publish` field
+    is T14's **live** `main_publish_failures`, not the sticky comment.
+
+- [ ] **Step 1: Write the tests:**
+  - `test_state_round_trips_through_issue_body`
+  - `test_unparseable_state_block_fails_loud`
+  - `test_issue_created_before_deps_gate_and_records_bypass`
+  - `test_resume_keeps_override_and_flags`
+  - `test_resume_refuses_conflicting_flag`
+  - `test_resume_on_fresh_clone_after_merge_release`: there is no local
+    branch or worktree, delete-on-merge has run and develop has moved. The
+    branch is rebuilt from `pull/N/head` and the release continues.
+  - `test_resume_on_fresh_clone_after_back_merge_bump`
+  - `test_adopted_worktree_on_wrong_branch_refused`
+  - `test_cd_run_found_by_head_sha_beyond_five_runs`
+  - `test_post_tag_stages_read_config_at_tag`
+  - `test_issue_stays_open_when_update_deps_fails`
+  - `test_fresh_start_refused_while_other_release_issue_open`
+- [ ] **Step 2: Run** the tests. Expected: FAIL.
+- [ ] **Step 3: Implement it.** The checklist stays for humans, and the state
+  block is the machine record.
+- [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expected: PASS at
+  100% coverage.
+- [ ] **Step 5: Commit.** `vrg-commit --type feat --scope release --message "keep release state in the tracking issue so any checkout can resume it"`
+
+### Task T17: Human-only release prune [`vergil-tooling`]
+
+**Blocked by:** T12.
+
+Added in pushback round 3 (spec §4.4, principle 10; the human chose to
+include it in this epic).
+
+**Files:**
+
+- Create: `src/vergil_tooling/bin/vrg_release_prune.py`, registered as
+  `vrg-release-prune`
+- Create: `src/vergil_tooling/lib/package/index/prune.py`
+- Test: `tests/vergil_tooling/test_release_prune.py` (new)
+
+**Interfaces:**
+
+- Consumes T12's `list_remote` (with an unbounded limit for this command
+  only, which pages through every release), and T4's `select` and
+  `in_use_names`.
+- Produces:
+  - `vrg-release-prune --product OWNER/REPO [--apply]`.
+  - It computes the **protected set**:
+    - every release holding a kept artifact, a grace copy or a closure
+      dependency;
+    - the newest release of the product;
+    - every open tracking issue's release.
+  - It lists every **other** stable release, with its tag, date and asset
+    bytes.
+  - **Dry run is the default:** it prints the list and the total bytes, and
+    changes nothing.
+  - **`--apply`** prompts `type the product name to delete N releases`, then
+    deletes each listed **GitHub release** with `gh release delete <tag
+    --yes` through `run_gh`, **without** `--cleanup-tag`. Git tags are never
+    deleted.
+  - **Human-only:** it refuses unless `is_human()`, naming the mode.
+
+- [ ] **Step 1: Write the tests:**
+  - `test_dry_run_deletes_nothing`
+  - `test_protected_set_includes_kept_grace_and_closure`
+  - `test_newest_release_always_protected`
+  - `test_apply_never_deletes_tags` (argv has no `--cleanup-tag`)
+  - `test_apply_requires_typed_confirmation`
+  - `test_refuses_non_human_modes`
+- [ ] **Step 2: Run** the tests. Expected: FAIL.
+- [ ] **Step 3: Implement it.** Add a page to the site docs reference.
+- [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expected: PASS.
+- [ ] **Step 5: Commit.** `vrg-commit --type feat --scope package-index --message "add a human-only prune for releases outside the in-use set"`
+
+It ships with the next routine `vergil-tooling` release. It isn't needed by
+any other task.
+
 ### Task D1: Deployment: release `vergil-tooling` with automation opt-in and multi-package [`vergil-tooling`, `--kind deployment`]
 
-**Blocked by:** T1, T2, T3, T4, T5, T6, T12, T14, T15.
+**Blocked by:** T1, T2, T3, T4, T5, T6, T12, T14, T15, T16.
 
 **Precondition (human-attested):** a `vergil-tooling` release that contains
-T1–T6, T12, T14 and T15 has been cut and promoted to `v2.1`.
+T1–T6, T12 and T14–T16 has been cut and promoted to `v2.1`.
 
 **Procedure:**
 
@@ -883,7 +1149,7 @@ T1–T6, T12, T14 and T15 has been cut and promoted to `v2.1`.
 - Step 3's output is identical to the output before this release.
 - Step 4 is observed.
 
-### Task K1: Runtime retention budget in the package index [`packages`]
+### Task K1: In-use retention in the package index [`packages`]
 
 **Blocked by:** D1.
 
@@ -893,23 +1159,27 @@ T1–T6, T12, T14 and T15 has been cut and promoted to `v2.1`.
 
 **Interfaces:**
 
-- Consumes T4's `[retention.names]`.
-- Produces:
+- Consumes T4's in-use retention and `grace_hours`, and T12's `list_limit`.
+- Produces (spec §4.4, principle 10):
 
   ```toml
-  [retention.names]
-  # One version per runtime series (stopgap; vergil-project/.github#455).
-  "vergil-python*" = 1
+  [retention]
+  keep = 1          # newest version of each in-use package name
+  lines = 1         # only the current line (2.1)
+  grace_hours = 48  # previous version kept briefly for in-flight rollouts
+  list_limit = 20   # newest releases read per product
   ```
 
   The existing `retire = ["vergil-python3.14.8"]` stays.
 
 - [ ] **Step 1: Edit `packages.toml`.**
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expected: PASS.
-- [ ] **Step 3: Commit.** `vrg-commit --type feat --scope retention --message "keep one version per runtime series in the index"`
-- [ ] **Step 4: After merge,** check the next `publish-index` run's log: it
-  prints a `projected site:` line below `SIZE_WARN`, and the site keeps the
-  newest `vergil-python3.15`.
+- [ ] **Step 3: Commit.** `vrg-commit --type feat --scope retention --message "keep only in-use package versions in the index"`
+- [ ] **Step 4: After merge,** check the next `publish-index` run's log:
+  - it prints a `projected site:` line;
+  - the site keeps the newest `vergil-python3.15` and the newest 2.1
+    `vergil-tooling`, plus grace copies;
+  - no 2.0-line artifact remains.
 
 ### Task A1: Package dimension in `ci-package.yml` and `cd-release.yml` [`vergil-actions`]
 
@@ -935,9 +1205,9 @@ T1–T6, T12, T14 and T15 has been cut and promoted to `v2.1`.
     `vrg-package build --cell "$CELL" --runtime "$RUNTIME" --version "$VERSION"`,
     with `VERSION: ${{ matrix.version }}`. This replaces `$(vrg-version show)`.
   - **`package-matrix`** runs
-    `vrg-package check-unpublished --version "$version" --plan-out package-plan.json`,
-    then `vrg-package matrix --github-output --manifest packages-manifest.json --plan package-plan.json`.
-    It uploads `package-plan.json` together with the manifest.
+    `vrg-package check-unpublished --version "$version" --plan-out packages-plan.json`,
+    then `vrg-package matrix --github-output --manifest packages-manifest.json --plan packages-plan.json`.
+    It uploads `packages-plan.json` together with the manifest.
   - **Artifact names** are unchanged (`package-build-${{ matrix.id }}`,
     `package-unsigned-${{ matrix.id }}`). They stay unique because the cell
     ids carry the package (T3).
@@ -1072,7 +1342,7 @@ A1 and A2 has been cut and promoted to `v2.1`.
     ships it**, even when the CPython patch hasn't changed (§5, the human's
     decision).
   - **Per-series resolution** (§5, decided in pushback round 2):
-    - `def pbs_tags_newest_first(limit: int = 20) -> list[str]` lists stable
+    - `def pbs_tags_newest_first() -> list[str]` lists stable
       PBS release tags newer than or equal to the oldest pinned tag, from the
       releases Atom feed (see below).
     - `def resolve_series(series: str, pin: tuple[str, str], tags:
@@ -1095,6 +1365,14 @@ A1 and A2 has been cut and promoted to `v2.1`.
       and the per-tag `SHA256SUMS` download URL. It doesn't use the
       unauthenticated REST API, which allows 60 requests per hour per IP on
       shared runners.
+    - **The feed's limit** (verified in pushback round 3): it has the newest
+      **10** entries, isn't paginated, and is ordered by update time, not by
+      tag. So `pbs_tags_newest_first()` takes no `limit`, sorts by tag
+      descending, and logs `truncated: PBS feed oldest <tag>; CPython <x.y>
+      pinned at <tag>` whenever a series' pin is older than the feed's oldest
+      entry.
+    - Tests: `test_feed_sorted_by_tag_not_update_order` and
+      `test_pin_older_than_feed_logs_truncation`.
     - A series not found in any listed tag newer than its pin stays at its
       pin and is reported frozen. Never `_die`.
     - `_die` stays for real faults only: an unparseable `SHA256SUMS`, a tag
@@ -1228,8 +1506,13 @@ been cut. It was released by hand, with its CD green.
   f"{user_id}+{slug}[bot]@users.noreply.github.com")`. `user_id` comes from
   `gh api users/{slug}[bot] --jq .id`: it is the bot **user** ID, not the App
   ID. A3 uses it to set the git author for every automation commit.
-- `github.pr_provenance_view(pr: str) -> PrProvenance` (`gh pr view --json
-  url,author,isCrossRepository,headRefOid,commits`).
+- `github.pr_provenance_view(pr: str) -> PrProvenance` reads `gh pr view
+  --json url,author,isCrossRepository,headRefOid`. Commit authors come from
+  **REST** `repos/{repo}/pulls/{n}/commits` (`author.login`, `author.type`,
+  and `commit.author.email`), because GraphQL's commit-author user can be
+  null for bots (spec §6.4, pushback round 3). `is_app_login` also accepts
+  the bot noreply email `<id>+<slug>[bot]@users.noreply.github.com` as a
+  match. Test: `test_commit_author_matched_by_bot_email_when_login_empty`.
 - `github.merge(pr: str, *, strategy: str, match_head_commit: str | None = None)`
   adds `--match-head-commit <sha>` when it is set.
 - `pr_merge.wait_and_merge(..., match_head_commit: str | None = None)` passes it
@@ -1339,9 +1622,11 @@ exactly one place.
 - Create: `src/vergil_tooling/bin/vrg_app_credential.py` (a git credential
   helper), registered in `pyproject.toml` `[project.scripts]` as
   `vrg-app-credential`
-- Modify: `lib/github.py` (`_gh_env` from T15, and nothing else)
+- Modify: `lib/github.py` (`_gh_env` from T15, `credential_kind`,
+  `is_app_mode`, `_generate_jwt`)
 - Test: `tests/vergil_tooling/test_app_token.py` (new),
-  `test_vrg_app_credential.py` (new), `test_github.py`
+  `test_vrg_app_credential.py` (new), `test_github.py`,
+  `test_exec_entry_points.py` (from T15), `test_vrg_github_repo_config.py`
 
 **Interfaces:**
 
@@ -1353,10 +1638,37 @@ exactly one place.
   REFRESH_MARGIN_SECS = 600                       # re-mint when < 10 min of validity remain
 
   def enabled() -> bool                           # both env vars set
-  def current(owner: str, repos: Sequence[str]) -> str
-      # cached installation token; re-mints through the GitHub App JWT flow when it is
-      # missing or within REFRESH_MARGIN_SECS of expiry; failure -> AppTokenError (loud, never a stale token)
+
+  @dataclass(frozen=True)
+  class TokenPurpose:
+      name: str                                   # "chain" | "dotgithub"
+      repos: tuple[str, ...]
+      permissions: Mapping[str, str]              # sent as the mint request's "permissions" map
+
+  def purposes() -> tuple[TokenPurpose, ...]      # from VRG_AUTOMATION_APP_OWNER / _REPOS (spec §6.2, §8)
+  def purpose_for(repo: str) -> TokenPurpose      # <owner>/.github -> "dotgithub"; listed repos -> "chain"; other -> AppTokenError
+  def current(purpose: TokenPurpose) -> str
+      # cached per purpose; re-mints through the GitHub App JWT flow (issuer = Client ID string)
+      # when missing or within REFRESH_MARGIN_SECS of expiry; the mint body carries both
+      # "repositories" and "permissions"; failure -> AppTokenError (loud, never a stale token)
   ```
+
+  **The permission maps** (spec §8, pushback round 3):
+  - `chain` = `{"contents": "write", "pull_requests": "write", "issues":
+    "write", "workflows": "write", "actions": "read", "checks": "read",
+    "statuses": "read", "administration": "read"}` on the released repos;
+  - `dotgithub` = `{"issues": "write"}` on `<owner>/.github` only.
+
+- **One credential-detection source** (spec §6.2, pushback round 3).
+  `lib/github.py` gains `credential_kind() -> Literal["app-installation",
+  "app-user-env", "ambient"]`. It returns `"app-installation"` when
+  `app_token.enabled()`.
+  - `is_app_mode()` becomes `credential_kind() != "ambient"`, and every
+    similar check delegates to it. For example, `vrg-github-repo-config
+    audit`'s `app_mode` now sees the injected App token.
+  - Guard test: `test_exec_entry_points.py::test_credential_env_read_only_in_github_py`
+    forbids reading `GH_TOKEN`, `GITHUB_TOKEN`, `VRG_APP_ID` or `app.env`
+    outside `lib/github.py` and `lib/identity_mode.py`.
 
   The cache is a 0600 file under `$RUNNER_TEMP/vrg-app-token/`, so separate
   processes (the driver, `vrg-release`, `vrg-update-deps`) share one token
@@ -1365,11 +1677,13 @@ exactly one place.
   processes mint once.
 - `owner` and `repos` come from `VRG_AUTOMATION_APP_OWNER` and
   `VRG_AUTOMATION_APP_REPOS` (comma-separated), set by A3.
-- **`_gh_env`** (T15) sets `GH_TOKEN=app_token.current(...)` on every
-  `run_gh` call when `enabled()` is true. It is unchanged otherwise. No other
-  code sets `GH_TOKEN`.
-- **`vrg-app-credential get`** prints `username=x-access-token` and
-  `password=<current()>` in git credential-helper format. A3 configures it with
+- **`_gh_env`** (T15) sets `GH_TOKEN=app_token.current(purpose_for(repo))`
+  on every `run_gh` call when `enabled()` is true. The target repo comes from
+  `--repo` or the cwd's origin. It is unchanged otherwise. No other code sets
+  `GH_TOKEN`.
+- **`vrg-app-credential get`** reads the `path` (`owner/repo`) git passes in,
+  and prints `username=x-access-token` and `password=<current(purpose_for(repo))>`
+  in git credential-helper format. A3 configures it with
   `git config --global credential.https://github.com.helper '!vrg-app-credential'`,
   and checks out with `persist-credentials: false`.
 - `VRG_APP_ID` is never read or set here (Global Constraints).
@@ -1388,16 +1702,24 @@ exactly one place.
   - `test_credential_helper_get_format`
   - `test_identity_unaffected_by_app_token_env`: with both env vars set and
     `GITHUB_ACTIONS=true`, `identity_mode` doesn't resolve to USER
+  - `test_mint_body_carries_repositories_and_permissions`
+  - `test_dotgithub_call_never_gets_chain_token`
+  - `test_unlisted_repo_refused`
+  - `test_jwt_issuer_accepts_client_id_string`
+  - `test_credential_kind_reports_app_installation_when_enabled`
+  - `test_repo_config_audit_app_mode_true_under_injected_token`
+  - `test_credential_env_read_only_in_github_py`
 - [ ] **Step 2: Run** the tests. Expected: FAIL.
 - [ ] **Step 3: Implement it.** Mint the JWT with the existing App JWT code in
-  `lib/github.py` (`_load_app_config`'s neighbour) if it fits; otherwise with
-  `PyJWT`, which must already be in `uv.lock`. Add no new dependency.
+  `lib/github.py` (`_generate_jwt`), changing its issuer from `int(app_id)`
+  to a string so it accepts a Client ID. If it doesn't fit, use `PyJWT`,
+  which must already be in `uv.lock`. Add no new dependency.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expected: PASS.
 - [ ] **Step 5: Commit.** `vrg-commit --type feat --scope automation --message "add a refreshing app installation token source and git credential helper"`
 
 ### Task T9: `vrg-release` runs on a runner [`vergil-tooling`]
 
-**Blocked by:** T1, T7, T8, T13.
+**Blocked by:** T1, T7, T8, T13, T16.
 
 **Files:**
 
@@ -1424,14 +1746,21 @@ exactly one place.
     reads `VRG_RELEASE_WATCH_TIMEOUT` and defaults to `5400`.
   - **The release-PR gate:** `vrg-release --gated-develop-sha SHA`. It is
     required under AUTOMATION and refused as HUMAN.
-    - Preflight asserts that local `develop` HEAD equals `SHA`.
+    - Preflight asserts only that `SHA` is an ancestor of `origin/develop`,
+      and records it in the state block (T16).
+    - **`prepare` cuts `release/<v>` at `SHA`**, not at develop HEAD (spec
+      §6.4, pushback round 3). A develop merge after the gate ships in the
+      next release and never fails this one. `--resume` uses the recorded
+      SHA, so it needs no flag.
     - `release/merge.py` merges the release PR with `merge_automation_pr(...,
       release=ReleaseGate(SHA, repo_dir))` (T7 `check_release`).
     - The back-merge PR uses the plain `check`.
   - **Release state for the driver:** `vrg-release --state-json` prints
     `{"in_flight": bool, "version": str | null, "created_by": str | null,
-    "resumable": bool, "deferred_publish": [str]}` and exits 0, mutating
-    nothing.
+    "resumable": bool, "deferred_publish": [str], "state": <T16
+    ReleaseState> | null}` and exits 0, mutating nothing.
+    `deferred_publish` is T14's **live** `main_publish_failures`, never the
+    sticky deferral comment.
     - `in_flight`: a `release/<v>` branch or an open tracking issue exists.
     - `created_by`: the tracking issue's author login.
     - `resumable`: what `--resume` would accept today.
@@ -1469,7 +1798,8 @@ exactly one place.
   - `test_release_merge_under_automation_pins_pushed_sha`
   - `test_release_merge_under_automation_uses_release_gate`
   - `test_gated_develop_sha_required_under_automation`
-  - `test_gated_develop_sha_mismatch_refused_in_preflight`
+  - `test_gated_sha_not_ancestor_of_origin_refused`
+  - `test_release_cut_at_gated_sha_despite_later_develop_merge`
   - `test_state_json_reports_resumable_and_deferred_publish`
   - `test_release_merge_human_unchanged`
   - `test_job_summary_written_when_env_set`
@@ -1488,7 +1818,7 @@ exactly one place.
 
 ### Task T10: `vrg-lifecycle`, the driver [`vergil-tooling`]
 
-**Blocked by:** T5, T7, T8, T9, T13.
+**Blocked by:** T5, T7, T8, T9, T13, T16.
 
 **Files:**
 
@@ -1530,10 +1860,19 @@ exactly one place.
     the kind from workflow files.
   - `--deadline-secs` is the global deadline (spec §6.2). A3 passes the job's
     `timeout-minutes` × 60 minus 900.
-  - `vrg-lifecycle report-abort --run-url URL` is A3's backstop. It opens or
-    refreshes `lifecycle: <manifest-repo> job failed` with the run link, and
-    the next run that completes `issues.sync` closes it. It needs the
-    `lifecycle` scope. Test: `test_report_abort_opens_issue_and_next_sync_closes_it`.
+  - `vrg-lifecycle report-abort --run-url URL` is A3's backstop (spec §6.5,
+    reworked in pushback round 3).
+    - Before each stage, the orchestrator writes `{"repo", "stage"}` to
+      `$RUNNER_TEMP/vrg-lifecycle-current.json`.
+    - `report-abort` reads that file and opens or refreshes **that stage's
+      normal failure issue**, `lifecycle: <repo> <stage> failed`, with detail
+      `job died (run <url>)`. It therefore closes only on proof, like every
+      other failure.
+    - With no file (death before the first stage), it uses the stage
+      `preflight`.
+    - It needs the `lifecycle` scope.
+    - Tests: `test_report_abort_opens_current_stage_failure_issue`, and
+      `test_report_abort_issue_survives_run_that_skips_stage`.
 
   - `--pushed` is the `{branch: sha}` JSON that `publish.py --pushed-out`
     writes (C1).
@@ -1595,7 +1934,11 @@ exactly one place.
      2). The `develop-v*` tag isn't used, because main CD creates it from
      develop *after* the release branch is cut
      (`vergil-actions/actions/cd/release/tag-and-release/action.yml:88-90`).
-     It then runs `vrg-release --gated-develop-sha <sha>` in the clone.
+     - **First**, it runs the same `clear_landed_fix` and own-deps-PR resume
+       as stage 4, on the **manifest** repo (spec §6.4 step 4, pushback round
+       3). A deps PR left by an interrupted vergil-containers release is then
+       never stranded, and never blocks the release preflight's deps gate.
+     - It then runs `vrg-release --gated-develop-sha <sha>` in the clone.
   4. **`update-runtime`.** First runs `update_deps.landed.clear_landed_fix`
      on the runtime repo (§6.4 step 5, decided in pushback round 2):
      - a `deps/update-*` PR whose fix task is closed as completed is closed,
@@ -1609,7 +1952,15 @@ exactly one place.
      Then it runs `vrg-update-deps` in the runtime repo clone, and collects
      `pending` (`pending:` and `frozen:` entries).
   5. **`release-runtime`.** Runs when `classify(...)` for the runtime repo has
-     at least one `build` and develop is clean.
+     at least one `build` or `complete`, and develop is clean.
+     - **"Nothing to build" needs proof** (spec §6.4 step 6, pushback round
+       3). When nothing is to be built, the stage runs
+       `package_index.visible(name, version) -> bool` once, with no wait,
+       for every package of the runtime repo's newest release. `visible` is
+       the `_wait` predicate, extracted.
+       - All visible → `nothing-to-do`.
+       - Any missing → `pending`, with item `pending:index:<name>-<version>`
+         (bound: `pending`).
      - **The would-be version** passed to `classify` is `vrg-version show` on
        develop without its dev suffix, the same rule `prepare` uses.
      - **"Develop is clean"** means local `develop` equals `origin/develop`,
@@ -1625,12 +1976,14 @@ exactly one place.
   - **An open `release: <v>` tracking issue** (T9's lookup) counts as in
     flight. If its author is the App (`is_app_login`), it is `own-release`,
     classified with `vrg-release --state-json` in this precedence:
-    1. `deferred_publish` non-empty → the stage is **`failed`**, never
-       `deferred`, even when `resumable` is also true (§6.3; alignment, round
-       2). Recovery is a human re-running the failed publish jobs.
-    2. `resumable` → the stage runs `vrg-release --resume`. T14's promote
-       re-verifies from GitHub, so a resume can never promote past an
-       unfixed publish.
+    1. **Live** `deferred_publish` non-empty (T14's `main_publish_failures`,
+       read now; pushback round 3) → the stage is **`failed`**, never
+       `deferred`, even when `resumable` is also true. It stays `failed` only
+       while that live check fails. Recovery is a human re-running the failed
+       publish jobs. The next run then sees an empty live list.
+    2. `resumable` → the stage runs `vrg-release --resume` from a fresh
+       clone (T16 makes that safe). T14's promote re-verifies from GitHub, so
+       a resume can never promote past an unfixed publish.
     3. Neither flag → `failed`, with the state JSON in the detail. That
        covers version skew, a checklist mismatch and the like.
   - **An open PR** on a `deps/update-*` or `lifecycle/*` head that fails
@@ -1671,6 +2024,13 @@ exactly one place.
       item="frozen:3.12" first_seen="2026-10-24" -->`.
     - Items no longer reported are removed from it. When it has no items, it
       is closed.
+    - **It is robust to humans** (spec §6.5, pushback round 3):
+      - it is looked up by label and title **in any state**, and reopened
+        when there are items. A human closing it can't reset `first_seen`;
+      - a marker that doesn't parse makes the stage `failed`, with detail
+        `unparseable watch marker: <text>`. It is never dropped.
+      - Tests: `test_closed_watch_issue_reopened_with_markers_kept`, and
+        `test_unparseable_marker_fails_loud`.
   - **Overdue items:**
     - An item past its bound gets its own issue, titled `lifecycle: <repo>
       <item> overdue` with label `overdue`, and the run's result becomes
@@ -1706,6 +2066,10 @@ exactly one place.
   - `test_lock_own_resumable_release_resumes`
   - `test_lock_own_deferred_publish_release_fails`
   - `test_lock_deferred_publish_wins_over_resumable`
+  - `test_lock_resumes_once_live_publish_check_passes`
+  - `test_runtime_nothing_to_do_requires_index_visibility`
+  - `test_runtime_index_missing_is_pending_item`
+  - `test_manifest_repo_landed_fix_cleared_before_release`
   - `test_lock_own_release_neither_flag_fails`
   - `test_lock_resumes_own_deps_pr`
   - `test_lock_defers_on_human_deps_pr`
@@ -1840,8 +2204,13 @@ exactly one place.
   - **`VRG_EPIC_SWEEP` is gone** from the code. Removing it from
     `ops-epic-sweep.yml` is task A4. It is harmless if left in place until
     then.
-  - **`conftest._hermetic_identity`** also deletes `GITHUB_ACTIONS`, so the
-    suite stays hermetic on CI.
+  - **`conftest._hermetic_identity`** also deletes `GITHUB_ACTIONS` and
+    `VRG_JOB_WORKFLOW_REF`, so the suite stays hermetic on CI. **So do the
+    autouse fixtures in `test_identity_mode.py` and `test_vrg_whoami.py`**,
+    which opt out of conftest (`conftest.py:35,42`; pushback round 3).
+    Otherwise those tests go red only in CI.
+  - `platform_env._correlation_disagrees` labels RUNNER as `runner`, never as
+    "human" (spec §6.1). Test: `test_runner_correlation_label`.
 
 - [ ] **Step 1: Write the tests:**
   - `test_undeclared_runner_resolves_runner`
@@ -2148,8 +2517,13 @@ been cut and promoted to `v2.1`.
     The author env is already set there by C1.
   - It uploads the artifact `lifecycle-pushed`, writing `{}` when no branch was
     pushed.
-  - The new job `lifecycle` has `needs: language-lifecycle` and `uses:
+  - The new job `lifecycle` has `needs: [language-lifecycle,
+    nightly-rebuild-dev, nightly-rebuild-prod]` with `if: always() &&
+    needs.language-lifecycle.result == 'success'`, and `uses:
     vergil-project/vergil-actions/.github/workflows/ops-lifecycle.yml@v2.1`.
+    Running after the nightlies means the chain's CD waits never queue behind
+    a no-cache rebuild (spec §6.3, pushback round 3). Test:
+    `test_lifecycle_job_runs_after_nightlies`.
   - It runs only on the default branch, with `manifest-repo:
     vergil-project/vergil-containers` (`manifest-gate: cd`) and `runtime-repo:
     vergil-project/vergil-python` (`runtime-gate: checks`).
@@ -2189,11 +2563,13 @@ been cut and promoted to `v2.1`.
 - **The App's minimum permission set** (§8, the real `automation` boundary)
   is reviewed and attested:
   - on `vergil-containers` and `vergil-python`: contents (write), pull
-    requests (write), issues (write), actions (read) and administration
-    (read);
-  - on `vergil-project/.github`: issues (write) only, for fix tasks.
+    requests (write), issues (write), **workflows (write)**, actions (read),
+    **checks (read)**, **statuses (read)** and administration (read);
+  - on `vergil-project/.github`: issues (write) at least.
 
-  Anything beyond that is listed with its reason.
+  The installation is attested as a **superset**. T13 mints each token with
+  exactly its purpose's map. Anything beyond the set is listed with its
+  reason.
 
 **Procedure:**
 
@@ -2207,6 +2583,15 @@ been cut and promoted to `v2.1`.
    `merge-lifecycle` line for it reads `would merge`. Record
    `gh pr view <N> --json author,commits` for that PR. If it reads `would
    refuse`, stop: fix the identity mapping (T7, C3) before going live.
+3b. **The permissions probe** (spec §8, pushback round 3). The dry run mints
+   each purpose token (T13) and checks it:
+   - it reads `GET /installation/repositories`, plus the token's granted
+     `permissions` from the mint response;
+   - it runs `gh pr checks` on that real PR with the chain token;
+   - it asserts every permission in T13's maps is present, and prints each
+     one.
+
+   If anything is missing, stop: fix the installation first.
 4. The human sets the repo variable `LIFECYCLE_LIVE=true` on
    `vergil-containers`. That's the switch that starts V1.
 
@@ -2215,6 +2600,8 @@ been cut and promoted to `v2.1`.
 - The dry-run output shows the planned stages and makes no mutation.
 - Step 3's `would merge` verdict and the raw `author`/`commits` output are
   recorded.
+- Step 3b's permission list is recorded, with every required permission
+  present.
 - `LIFECYCLE_LIVE=true` is set, with the time it was set recorded.
 
 ### Task V1: Validation: the first unattended chain run, backfilling 3.12 and 3.13 [`vergil-containers`, `--kind validation`]
@@ -2285,8 +2672,10 @@ intervene. Then observe:
    - `release-runtime`: the plan, with `build` for any added series and no
      entry for `vergil-python3.12`;
    - no merge, release, PR or issue was made.
-4. `apt-cache policy vergil-python3.12` still shows the last published 3.12
-   (frozen, not removed).
+4. The would-be index retention in the dry run's summary drops
+   `vergil-python3.12` after its grace period (principle 9, revised in
+   pushback round 3). The production index is untouched, because this is a
+   dry run.
 5. Delete the scratch branch.
 
 **Acceptance:**
@@ -2304,14 +2693,16 @@ Each arrow is a `Blocked-by`.
 
 ```text
 T15 ─┬─▶ T14
+     ├─▶ T16 ──────────────────▶ T9, T10
      └─▶ T13 (also needs T1) ──▶ T9, T10
+T12 ─▶ T17 (ships with any routine release)
 T1 ─┬─▶ T7 ─▶ T8 ─▶ T9 ─▶ T10 ─┐            (T10 also needs T5, T13)
     │                          ├─▶ D4 ─┬─▶ A3 ─▶ D5 ─▶ C3 ─┐
     │        D2 ─▶ T11 ────────┘       ├─▶ C1 ─────────────┼─▶ D6 ─▶ V1 ─▶ V2
 T2 ─▶ T3 ─┬─▶ T4 ─▶ T12                ├─▶ P2 ─────────────┘   (P2 also needs P1)
           ├─▶ T5 ─▶ T6                 └─▶ A4
           │
-T1..T6, T12, T14, T15 ─▶ D1 ─┬─▶ A1 ─┐
+T1..T6, T12, T14–T16 ─▶ D1 ──┬─▶ A1 ─┐
                              ├─▶ A2 ─┴─▶ D2 ─▶ P1 ─┐
                              └─▶ K1 ───────────────┴─▶ D3
 C2: independent ─▶ D6
@@ -2344,11 +2735,13 @@ Why this order is deadlock-free and safe:
 | T4 Name-aware index, per-package retention | vergil-project/vergil-tooling | task | T3 |
 | T5 Build/skip classification | vergil-project/vergil-tooling | task | T3 |
 | T6 Per-package install-test, runtime check, index wait | vergil-project/vergil-tooling | task | T5 |
-| T12 Lazy index collect, budget-only projection *(new, round 2)* | vergil-project/vergil-tooling | task | T4 |
+| T12 Lazy, bounded collect, closure, budget *(new, round 2; reworked round 3)* | vergil-project/vergil-tooling | task | T4 |
 | T15 One gh/git entry point, guards *(new, alignment round 2)* | vergil-project/vergil-tooling | task | — |
-| T14 Promote requires publish success *(new, round 2)* | vergil-project/vergil-tooling | task | T15 |
-| D1 Release vergil-tooling (automation opt-in, multi-package) | vergil-project/vergil-tooling | deployment | T1–T6, T12, T14, T15 |
-| K1 Runtime retention budget *(new, round 2)* | vergil-project/packages | task | D1 |
+| T14 Promote: publish success, monotonic *(new, round 2; reworked round 3)* | vergil-project/vergil-tooling | task | T15 |
+| T16 Tracking issue is the release state; resume anywhere *(new, round 3)* | vergil-project/vergil-tooling | task | T15 |
+| T17 Human-only release prune *(new, round 3)* | vergil-project/vergil-tooling | task | T12 |
+| D1 Release vergil-tooling (automation opt-in, multi-package) | vergil-project/vergil-tooling | deployment | T1–T6, T12, T14–T16 |
+| K1 In-use retention in the index *(new, round 2; reworked round 3)* | vergil-project/packages | task | D1 |
 | A1 Package dimension in CI and CD | vergil-project/vergil-actions | task | D1 |
 | A2 Ops workflows declare automation | vergil-project/vergil-actions | task | D1 |
 | D2 Release vergil-actions | vergil-project/vergil-actions | deployment | A1, A2 |
@@ -2357,8 +2750,8 @@ Why this order is deadlock-free and safe:
 | T7 Unattended merge rule | vergil-project/vergil-tooling | task | T1 |
 | T8 Update-deps window, rule and dry run | vergil-project/vergil-tooling | task | T1, T7 |
 | T13 Refreshing App token source *(new, round 2)* | vergil-project/vergil-tooling | task | T1, T15 |
-| T9 vrg-release on a runner | vergil-project/vergil-tooling | task | T1, T7, T8, T13 |
-| T10 vrg-lifecycle driver | vergil-project/vergil-tooling | task | T5, T7, T8, T9, T13 |
+| T9 vrg-release on a runner | vergil-project/vergil-tooling | task | T1, T7, T8, T13, T16 |
+| T10 vrg-lifecycle driver | vergil-project/vergil-tooling | task | T5, T7, T8, T9, T13, T16 |
 | T11 Fail-closed runner cutover | vergil-project/vergil-tooling | task | D2 |
 | D4 Release vergil-tooling (cutover, merge rule, release, driver) | vergil-project/vergil-tooling | deployment | T7–T11, T13 |
 | P2 Hook reconciles series against the window | vergil-project/vergil-python | task | P1, D4 |
@@ -2473,3 +2866,39 @@ Minor items:
   fixed.
 - A4 is filed, and the A2 echo is added.
 - The A3 fixture path is absolute, with `persist-credentials: false`.
+
+## Decisions recorded in pushback round 3 (2026-10-24)
+
+| # | Spec | Decision | Plan tasks |
+|---|---|---|---|
+| 1 | §6.2 | **The human's principle:** `vrg-release` depends on no host-local state. The tracking issue carries a parsed state block, resume rebuilds from GitHub on any fresh checkout, config is read at the tag, and the issue closes last | **T16** (new), T9, T10 |
+| 2 | §6.2 | One credential-detection source (`credential_kind`), with a guard test. Without it, the repo-config audit misjudges the injected token | T13 |
+| 3 | §8 | `workflows: write`, `checks: read` and `statuses: read` added with reasons, and the set proven by a dry-run probe | T13, D6 |
+| 4 | §6.2, §6.3 | Promote is monotonic. One release in flight per repo | T14, T16 |
+| 5 | §4.4 | The budget uses net-growth headroom plus one allowance, against `SIZE_FAIL`. #455's dates corrected | T12 |
+| 6 | §6.2, §8 | Per-purpose tokens with explicit `permissions`: the chain token, and a `.github` token limited to issues | T13 |
+| 7 | §4.4 | Iterative closure over fetched artifacts, keeping the retired-dependency guard | T12 |
+| 8 | §4.3 | A partial package completes only its missing identities (`complete`) | T5 |
+| 9 | §4.4 | A 48 h grace copy of the previous version | T4, K1 |
+| 10 | §3, §4.4 | **The human's principle:** one user, retain only what is in use. Principle 9 reversed, #3522 folded in, keep=1 and lines=1, a bounded collect, and a human-only prune | T4, T12, K1, **T17** (new), V2 |
+| 11 | §6.4 | `nothing-to-do` needs index-visibility proof | T10 |
+| 12 | §6.4 | The release is cut at the gated SHA. Develop HEAD needn't equal it | T9, T16 |
+
+Smaller corrections:
+
+- Promote uses the generic deferred-publish rule, so skipped jobs are fine
+  (T14).
+- The live `deferred_publish` is used in the lock (T10, T9).
+- The lifecycle job runs after the nightlies (C3).
+- Landed-fix clearing runs on the manifest repo too (T10).
+- `report-abort` writes the current stage's failure issue (T10).
+- The watch issue is robust to human edits (T10).
+- The Atom feed's 10-entry cap is handled (P1).
+- The plan file name is `packages-plan.json` (A1).
+- Retention keeps name-version artifacts only (T4).
+- The host-resolved mode is forwarded into containers (T1).
+- Both resolver test modules are made hermetic (T11).
+- Commit authors are read through REST, with an email fallback (T7).
+- RUNNER gets its own correlation label (T11).
+- The Client ID is the JWT issuer (T13).
+- `VRG_JOB_WORKFLOW_REF` is set at step level (T1, A2, A3).
