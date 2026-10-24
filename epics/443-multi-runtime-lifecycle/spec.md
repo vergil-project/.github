@@ -318,9 +318,12 @@ The rule:
     (§6.5).
   - **Drop** removes the series from both files and touches nothing in the
     index.
-  - **Run by hand without a window** (outside the driver), the hook keeps
-    today's behaviour: it refreshes the series it has and reports any newer
-    minor version.
+  - **The hook always reconciles, including when run by hand**
+    *(decided in alignment)*. `vrg-update-deps` always passes the released
+    window, so a hand-run update, or `vrg-release`'s closing `update-deps`
+    stage, also keeps the series list in line with the window. There is one
+    behaviour, not two. A human release that must *not* change the series
+    list passes `vrg-release --without-deps`.
 - **So `vrg-update-deps` is the only path that changes the series files.**
   Whether the driver runs it (§6.4 step 5) or `vrg-release` runs it as its
   closing `update-deps` stage, it is the same pipeline: the same
@@ -400,7 +403,11 @@ its stages, CD confirmation and failure handling are reused unchanged
 
 - **Checkout:** full history and tags (`fetch-depth: 0`), using the App token so
   that pushes and merges trigger workflows. `GH_TOKEN` is the App token.
-- **Tools:** git-cliff and the `.worktrees/` layout work on the runner.
+- **Tools:** git-cliff and the `.worktrees/` layout work on the runner. The
+  lifecycle job runs without a container (it needs Docker), so it installs a
+  pinned, checksum-verified git-cliff itself. The driver checks every tool
+  `vrg-release` needs before it acts, so a missing tool fails in seconds and
+  never partway through the chain *(decided in alignment)*.
 - **Docker:** the update-deps stage needs a Docker socket.
   - GitHub-hosted Ubuntu runners have one, but the `prod-base` job container
     does not.
@@ -517,6 +524,13 @@ failure has been fixed, picks up from wherever the state is. The patch refresh
 in step 5 runs every time, so `vergil-python` series get patches on the
 workflow's schedule, not only when a human releases.
 
+**The live switch.** The chain stays in dry-run mode until a human sets the
+`vergil-containers` repo variable `LIFECYCLE_LIVE=true`. In dry-run mode every
+decision is printed to the job summary and nothing is merged, released or
+opened. The human sets the variable once, after reviewing a dry run. That is
+the single deliberate moment this ratchet engages. Unsetting it turns the
+chain back into a planner.
+
 **`vergil-tooling` is not in the chain.** Its packaged runtime is derived at its
 own release time from the published window. Releasing consumers automatically
 is a later ratchet (§7.2).
@@ -632,7 +646,13 @@ is a later ratchet (§7.2).
 ## 9. Rollout (constraint on the plan's ordering)
 
 1. **The identity fix (§6.1) comes first.** It is a security fix in its own
-   right, and everything unattended depends on it.
+   right, and everything unattended depends on it. It ships in two steps
+   *(decided in alignment)*:
+   - the opt-in `automation` identity, released with the first
+     multi-package release;
+   - the fail-closed cutover, as soon as the ops workflows have migrated to
+     declared `automation`, and released together with the driver. That way
+     the cutover is live before anything runs unattended.
 2. **Multi-package in `vergil-tooling` (§4)**, then **`vergil-actions`
    (§4.5)**, released in the usual order. Single-package repos must behave
    exactly as before at every step.
@@ -641,10 +661,19 @@ is a later ratchet (§7.2).
    first run; the plan decides.
 4. **The docker-publish fix and release lock (§6.3)**, in parallel with 2–3.
 5. **`vrg-release` on a runner (§6.2)**, then **the driver (§6.4–6.5)**.
-6. **Live validation.** A full chain run, cold, with the evidence recorded. If
-   no real GA or EOL falls inside the epic, the run uses a fixture-driven
-   window change on a test path; the plan decides how to do that without
-   touching the production window. A validation task records it.
+6. **Live validation.** A full chain run, cold, with the evidence recorded.
+   *(Decided in alignment.)* No real Python GA or EOL falls inside the epic:
+   3.16 goes GA around October 2027, and 3.12 reaches EOL around October
+   2028. So the validation has two parts:
+   - **Live run.** The first production run backfills 3.12 and 3.13. Its real
+     `runtime_published` lifecycle PRs exercise every stage end to end: merge,
+     develop CD, both unattended releases, and the update-runtime path.
+   - **Fixture-driven dry run.** A fixture window that adds 3.16 and drops
+     3.12 drives the add/drop decisions through the driver and the hook,
+     without touching the production window.
+
+   The first live GA run is recorded as a follow-on observation in the
+   retrospective.
 
 ## 10. Closing bookends and follow-ons
 

@@ -800,9 +800,12 @@ been cut. It was released by hand, with its CD green.
     `PENDING_PREFIX = "pending:"` (a constant in `lib/update_deps/report.py`)
     is copied into `ctx.pending` as well as the report. The driver reads it
     (T10).
+  - **`vrg-update-deps --dry-run`** runs preflight and the updaters in the
+    worktree. It prints `git diff --stat` and the held-back report, and
+    doesn't commit, push or open a PR. T10's dry run uses it.
 
-  This changes hand-run behaviour, deliberately: the hook always gets the
-  window. See the alignment note at the end of this plan.
+  Deliberately, the hook **always** gets the window, including when run by
+  hand (spec §5, decided in alignment).
 
 - [ ] **Step 1: Write the tests:**
   - `test_hook_receives_released_window_file`
@@ -811,6 +814,9 @@ been cut. It was released by hand, with its CD green.
   - `test_automation_merge_uses_rule_with_pushed_sha`
   - `test_human_merge_unchanged`
   - `test_pending_entries_collected`
+  - `test_dry_run_prints_diff_and_report_without_pushing`
+  - `test_window_file_honours_vrg_version_window_override`: the fixture path
+    is what the hook receives
 - [ ] **Step 2: Run** the tests. Expected: FAIL.
 - [ ] **Step 3: Implement it.**
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expected: PASS.
@@ -910,10 +916,17 @@ been cut. It was released by hand, with its CD green.
 
   - `--pushed` is the `{branch: sha}` JSON that `publish.py --pushed-out`
     writes (C1).
-  - `--dry-run` prints every decision and makes no merge, release or PR.
+  - `--dry-run` prints every decision and makes no merge, release or PR. In
+    a dry run, `update-runtime` runs `vrg-update-deps --dry-run` (T8), so the
+    planned series diff is shown. `release-runtime` reports the `classify`
+    plan of the would-be versions.
   - Repos are parameters, so nothing in the code names Python.
 - **Produces** `orchestrator.run(opts: RunOptions) -> RunResult`, with the
   stages in order:
+  0. **`preflight`.** Runs `release.preflight._check_host_prerequisites()`
+     (git-cliff), checks that `docker info` succeeds, and checks that
+     `GH_TOKEN` and `VRG_AUTOMATION_LOGIN` are set. Any miss is `failed`
+     before anything mutates (spec §6.2).
   1. **`merge-lifecycle`.** Merges every open PR on a `lifecycle/` head whose
      family has `merge: "auto"` in the manifest repo's
      `docker/versions/manifest.yml`. It reads the family with the existing
@@ -979,6 +992,8 @@ been cut. It was released by hand, with its CD green.
   - `test_pending_series_is_green_and_recorded`
   - `test_dry_run_makes_no_mutation`
   - `test_requires_lifecycle_scope`
+  - `test_preflight_missing_git_cliff_fails_before_any_stage`
+  - `test_preflight_missing_docker_fails_before_any_stage`
 - [ ] **Step 3: Write the issues tests:**
   - `test_failure_issue_opened_then_closed_on_recovery`
   - `test_pending_becomes_overdue_and_fails`
@@ -1033,23 +1048,74 @@ been cut. It was released by hand, with its CD green.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expected: PASS.
 - [ ] **Step 5: Commit.** `vrg-commit --type feat --scope runtime --message "reconcile the series list against the released window"`
 
-### Task D4: Deployment: release `vergil-tooling` with the merge rule, unattended release and driver [`vergil-tooling`, `--kind deployment`]
+### Task T11: Fail-closed runner cutover [`vergil-tooling`]
 
-**Blocked by:** T7, T8, T9, T10.
+**Blocked by:** D2. The ops workflows declare `automation` before this ships
+(spec §9.1, decided in alignment).
 
-**Precondition (human-attested):** a `vergil-tooling` release containing
-T7–T10 has been cut and promoted to `v2.1`.
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/identity_mode.py` (`resolve`),
+  `bin/vrg_epic_audit.py` (remove `_automated_sweep`), `bin/vrg_gh.py`,
+  `tests/vergil_tooling/conftest.py` (`_hermetic_identity`)
+- Test: `test_identity_mode.py`, `test_vrg_epic_audit.py`, `test_vrg_gh.py`
+
+**Interfaces:**
+
+- Produces:
+  - **`IdentityMode.RUNNER = "runner"`.** With `on_ci_runner()` true and no
+    explicit mode, `resolve()` returns RUNNER (`Signal.CI_RUNNER`).
+  - **`VRG_IDENTITY_MODE=human` on a runner** also resolves to RUNNER, and
+    `.disagreement` is set.
+  - **RUNNER is refused everywhere that matters:**
+    - `is_human()` and `is_authorised(...)` are False;
+    - `vrg-gh` applies `_DENIED_AGENT` and allows only GET for `gh api`;
+    - every human-only and automation-gated command refuses it, naming
+      `runner`.
+  - **`VRG_EPIC_SWEEP` is gone.** Remove it from `ops-epic-sweep.yml` in a
+    `vergil-actions` follow-up PR filed by this task; it is harmless if left
+    in place.
+  - **`conftest._hermetic_identity`** also deletes `GITHUB_ACTIONS`, so the
+    suite stays hermetic on CI.
+
+- [ ] **Step 1: Write the tests:**
+  - `test_undeclared_runner_resolves_runner`
+  - `test_human_declared_on_runner_is_runner_with_disagreement`
+  - `test_runner_refused_by_release_and_update_deps`
+  - `test_runner_vrg_gh_agent_deny_list`
+  - `test_epic_sweep_env_no_longer_authorises`
+- [ ] **Step 2: Run** the tests. Expected: FAIL.
+- [ ] **Step 3: Implement it.** Update T1's
+  `test_undeclared_runner_still_resolves_human`, which now expects RUNNER.
+- [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expected: PASS.
+- [ ] **Step 5: Commit.** `vrg-commit --type fix --scope identity --message "fail closed on an undeclared CI runner instead of resolving to human"`
+
+### Task D4: Deployment: release `vergil-tooling` with the cutover, merge rule, unattended release and driver [`vergil-tooling`, `--kind deployment`]
+
+**Blocked by:** T7, T8, T9, T10, T11.
+
+**Precondition (human-attested):** a `vergil-tooling` release containing T7–T11
+has been cut and promoted to `v2.1`.
 
 **Procedure:**
 
-1. `vrg-lifecycle run --dry-run ...` on the Mac is refused, because the mode
-   is not AUTOMATION.
-2. Running `vrg-update-deps` by hand in `vergil-tooling` still opens and merges
-   a deps PR exactly as before (or reports nothing to update).
+1. Running `vrg-lifecycle run --dry-run ...` on the Mac is refused, because
+   the mode is not AUTOMATION.
+2. Running `vrg-update-deps` by hand in `vergil-tooling` still opens and
+   merges a deps PR exactly as before, or reports that there is nothing to
+   update.
+3. The next scheduled `ops.yml` runs in `vergil-tooling`, `vergil-containers`
+   and `vergil-python` are all green. `epic-sweep` and `github-config` each
+   report `automation` with their grant.
+4. On a scratch workflow on a branch, with nothing declared:
+   - `vrg-whoami --explain` reports `runner`;
+   - `vrg-release` is refused.
+
+   Delete the branch afterwards.
 
 **Acceptance:**
 
-- Both observations are recorded.
+- All four observations are recorded.
 
 ### Task C1: Per-family `merge` switch, App-authored commits and pushed SHAs [`vergil-containers`]
 
@@ -1149,7 +1215,10 @@ T7–T10 has been cut and promoted to `v2.1`.
   - T7's `VRG_AUTOMATION_LOGIN`.
 - **Produces** a `workflow_call` with:
   - inputs: `manifest-repo` and `runtime-repo` (strings), `dry-run` (boolean,
-    default false);
+    default false), and `window-fixture` (string, default `""`). A non-empty
+    `window-fixture` without `dry-run: true` fails the job in its first step.
+    It is a repo-relative path to a fixture `window.json`, exported as
+    `VRG_VERSION_WINDOW` (V2);
   - secrets: `APP_CLIENT_ID` and `APP_PRIVATE_KEY`.
 - **Job id `lifecycle`:**
   - `runs-on: ubuntu-latest`, with **no container**, because
@@ -1160,14 +1229,18 @@ T7–T10 has been cut and promoted to `v2.1`.
   1. Mint the App token, with `owner: ${{ github.repository_owner }}` and
      `repositories` listing the two repos.
   2. Install uv and vergil-tooling (`./actions/shared/setup/vergil`).
-  3. Download the `lifecycle-pushed` artifact.
-  4. Set the env:
+  3. **Install git-cliff** (spec §6.2): the version `vergil-containers` pins
+     for its images, downloaded from its GitHub release and checked with
+     `sha256sum -c` against the checksum pinned in this workflow. Finish
+     with `git-cliff --version`.
+  4. Download the `lifecycle-pushed` artifact.
+  5. Set the env:
      - `GH_TOKEN` from the App token;
      - `VRG_IDENTITY_MODE: automation`;
      - `VRG_AUTOMATION_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]`;
      - git author name and email set to the App bot,
        `<app-id>+<slug>[bot]@users.noreply.github.com`.
-  5. Run `vrg-lifecycle run --manifest-repo ... --runtime-repo ...
+  6. Run `vrg-lifecycle run --manifest-repo ... --runtime-repo ...
      --workdir "$RUNNER_TEMP/lifecycle" --pushed lifecycle-pushed.json`, plus
      `--dry-run` when that input is set.
 
@@ -1177,7 +1250,10 @@ T7–T10 has been cut and promoted to `v2.1`.
   - the concurrency is set with no cancellation;
   - `timeout-minutes` is set;
   - `VRG_IDENTITY_MODE` is `automation`;
-  - the token step lists exactly the two input repos.
+  - the token step lists exactly the two input repos;
+  - a git-cliff install step with a `sha256sum -c` check comes before the
+    `vrg-lifecycle` step;
+  - the `window-fixture` guard step refuses a fixture without `dry-run`.
 - [ ] **Step 2: Run** the test. Expected: FAIL.
 - [ ] **Step 3: Write the workflow.**
 - [ ] **Step 4: Run** the harness and `vrg-container-run -- vrg-validate`. Expected: PASS.
@@ -1310,111 +1386,82 @@ intervene. Then observe:
   per §6.5 and principle 6. V1 is then still closed as SUCCESS only if every
   gap is filed and the remaining steps passed.
 
-### Task T11: Fail-closed runner cutover [`vergil-tooling`]
+### Task V2: Validation: fixture-driven dry run of a GA add and an EOL drop [`vergil-containers`, `--kind validation`]
 
-**Blocked by:** D2, V1.
+**Blocked by:** V1.
 
-**Files:**
-
-- Modify: `src/vergil_tooling/lib/identity_mode.py` (`resolve`),
-  `bin/vrg_epic_audit.py` (remove `_automated_sweep`), `bin/vrg_gh.py`,
-  `tests/vergil_tooling/conftest.py` (`_hermetic_identity`)
-- Test: `test_identity_mode.py`, `test_vrg_epic_audit.py`, `test_vrg_gh.py`
-
-**Interfaces:**
-
-- Produces:
-  - **`IdentityMode.RUNNER = "runner"`.** With `on_ci_runner()` true and no
-    explicit mode, `resolve()` returns RUNNER (`Signal.CI_RUNNER`).
-  - **`VRG_IDENTITY_MODE=human` on a runner** also resolves to RUNNER, and
-    `.disagreement` is set.
-  - **RUNNER is refused everywhere that matters:**
-    - `is_human()` and `is_authorised(...)` are False;
-    - `vrg-gh` applies `_DENIED_AGENT` and allows only GET for `gh api`;
-    - every human-only and automation-gated command refuses it, naming
-      `runner`.
-  - **`VRG_EPIC_SWEEP` is gone.** Remove it from `ops-epic-sweep.yml` in a
-    `vergil-actions` follow-up PR filed by this task; it is harmless if left
-    in place.
-  - **`conftest._hermetic_identity`** also deletes `GITHUB_ACTIONS`, so the
-    suite stays hermetic on CI.
-
-- [ ] **Step 1: Write the tests:**
-  - `test_undeclared_runner_resolves_runner`
-  - `test_human_declared_on_runner_is_runner_with_disagreement`
-  - `test_runner_refused_by_release_and_update_deps`
-  - `test_runner_vrg_gh_agent_deny_list`
-  - `test_epic_sweep_env_no_longer_authorises`
-- [ ] **Step 2: Run** the tests. Expected: FAIL.
-- [ ] **Step 3: Implement it.** Update T1's
-  `test_undeclared_runner_still_resolves_human`, which now expects RUNNER.
-- [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expected: PASS.
-- [ ] **Step 5: Commit.** `vrg-commit --type fix --scope identity --message "fail closed on an undeclared CI runner instead of resolving to human"`
-
-### Task D7: Deployment: release `vergil-tooling` with the cutover [`vergil-tooling`, `--kind deployment`]
-
-**Blocked by:** T11.
-
-**Precondition (human-attested):** a `vergil-tooling` release containing T11
-has been cut and promoted to `v2.1`.
+**Precondition:** V1 is closed. A3's `window-fixture` input is released at
+`v2.1`.
 
 **Procedure:**
 
-1. The next scheduled `ops.yml` runs in `vergil-tooling`, `vergil-containers`
-   and `vergil-python` are all green. `epic-sweep`, `github-config` and
-   `lifecycle` each report `automation` with their grant.
-2. A scratch workflow on a branch, with no declaration, runs `vrg-whoami
-   --explain`, which reports `runner`, and `vrg-release`, which is refused.
-   Delete the branch afterwards.
+1. Commit a fixture `window.json` on a scratch branch of `vergil-containers`
+   at `docker/versions/fixtures/v2-window.json`. It is the production window,
+   plus `3.16` (`runtime_published: false`) and minus `3.12`.
+2. Dispatch `ops-lifecycle.yml` (through a scratch caller on that branch)
+   with `dry-run: true` and `window-fixture:
+   docker/versions/fixtures/v2-window.json`.
+3. The job summary shows:
+   - `update-runtime`: the would-be diff adds a `3.16` `[[series]]` and
+     `[[package]]` **or** reports `pending: no PBS build for CPython 3.16 yet`
+     (whichever PBS supports on the day);
+   - the diff drops the `3.12` series from both files;
+   - `release-runtime`: the plan, with `build` for any added series and no
+     entry for `vergil-python3.12`;
+   - no merge, release, PR or issue was made.
+4. `apt-cache policy vergil-python3.12` still shows the last published 3.12
+   (frozen, not removed).
+5. Delete the scratch branch.
 
 **Acceptance:**
 
-- Both observations are recorded.
+- Steps 3 and 4 are observed, with the run URL recorded.
+- The first **live** GA (Python 3.16, around October 2027) is recorded in the
+  results comment as a follow-on observation for the retrospective.
 
 ## Bootstrap order
 
 Each arrow is a `Blocked-by`.
 
 ```text
-T1 ─┬─▶ T7 ─▶ T8 ─▶ T9 ─▶ T10 ─▶ D4 ─┬─▶ A3 ─▶ D5 ─▶ C3 ─┐
-    │                                ├─▶ C1 ─────────────┼─▶ D6 ─▶ V1 ─▶ T11 ─▶ D7
-T2 ─▶ T3 ─┬─▶ T4                     └─▶ P2 ─────────────┘
+T1 ─┬─▶ T7 ─▶ T8 ─▶ T9 ─▶ T10 ─┐
+    │                          ├─▶ D4 ─┬─▶ A3 ─▶ D5 ─▶ C3 ─┐
+    │        D2 ─▶ T11 ────────┘       ├─▶ C1 ─────────────┼─▶ D6 ─▶ V1 ─▶ V2
+T2 ─▶ T3 ─┬─▶ T4                       └─▶ P2 ─────────────┘
           ├─▶ T5 ─▶ T6
           │
 T1..T6 ─▶ D1 ─┬─▶ A1 ─┐
-              └─▶ A2 ─┴─▶ D2 ─▶ P1 ─▶ D3      (D2 also gates T11)
+              └─▶ A2 ─┴─▶ D2 ─▶ P1 ─▶ D3
 C2: independent ─▶ D6
 ```
 
 Why this order is deadlock-free and safe:
 
 1. **Multi-package support ships before anyone needs it.** Single-package
-   repos are unchanged at D1 and D2, so nothing in the fleet moves until
-   vergil-python's P1 opts in.
-2. **Automation is opt-in until every ops workflow declares it.** The
-   fail-closed cutover (T11) comes after D2 (the workflows have migrated) and
-   V1 (the chain is proven), so the cutover can't be confused with chain
-   failures.
-3. **The driver is built and released (D4) before any workflow calls it.**
-   It runs in production only after D6's human attestations: the signing
-   environment, the App's scope, and a dry run.
+   repos are unchanged at D1 and D2. Nothing in the fleet moves until P1 in
+   `vergil-python` opts in.
+2. **The security fix is live before anything runs unattended.** The opt-in
+   identity ships at D1. The ops workflows declare it at D2. The fail-closed
+   cutover (T11) ships with the driver at D4, so the driver's very first run
+   happens under the fail-closed rules (spec §9.1).
+3. **Nothing runs unattended until D6.** The driver is released at D4, but it
+   only runs in production after D6's human attestations (signing
+   environment, App scope), a reviewed dry run, and `LIFECYCLE_LIVE=true`.
 4. **The first production run is a real lifecycle change.** The backfill
-   generates real `runtime_published` lifecycle PRs, so V1 exercises
-   merge-lifecycle, develop-CD, both unattended releases and the
-   update-runtime path end to end. A GA add or EOL drop on the vergil-containers manifest goes
-   through the same merge-lifecycle stage. Its manifest edits are already
-   automated and tested from epic #407.
+   creates real `runtime_published` lifecycle PRs, so V1 runs every stage end
+   to end. V2 then drives an add and a drop through the driver and the hook
+   with a fixture window and no production change.
 
 ## Task filing map (epic-create step 9)
 
 | Task | Repo | Kind | Blocked by |
 |---|---|---|---|
-| T1 Automation identity, grants and scopes | vergil-project/vergil-tooling | task | — |
+| T1 Automation identity, grants, scopes | vergil-project/vergil-tooling | task | — |
 | T2 `[[package]]` configuration | vergil-project/vergil-tooling | task | — |
 | T3 Package dimension in matrix and builds | vergil-project/vergil-tooling | task | T2 |
-| T4 Name-aware index and per-package retention | vergil-project/vergil-tooling | task | T3 |
+| T4 Name-aware index, per-package retention | vergil-project/vergil-tooling | task | T3 |
 | T5 Build/skip classification | vergil-project/vergil-tooling | task | T3 |
-| T6 Per-package install-test, runtime check and index wait | vergil-project/vergil-tooling | task | T5 |
+| T6 Per-package install-test, runtime check, index wait | vergil-project/vergil-tooling | task | T5 |
 | D1 Release vergil-tooling (automation opt-in, multi-package) | vergil-project/vergil-tooling | deployment | T1–T6 |
 | A1 Package dimension in CI and CD | vergil-project/vergil-actions | task | D1 |
 | A2 Ops workflows declare automation | vergil-project/vergil-actions | task | D1 |
@@ -1422,20 +1469,20 @@ Why this order is deadlock-free and safe:
 | P1 Multi-series vergil-python | vergil-project/vergil-python | task | D2 |
 | D3 Release vergil-python with two series | vergil-project/vergil-python | deployment | P1 |
 | T7 Unattended merge rule | vergil-project/vergil-tooling | task | T1 |
-| T8 Update-deps window and rule | vergil-project/vergil-tooling | task | T1, T7 |
+| T8 Update-deps window, rule and dry run | vergil-project/vergil-tooling | task | T1, T7 |
 | T9 vrg-release on a runner | vergil-project/vergil-tooling | task | T1, T7, T8 |
 | T10 vrg-lifecycle driver | vergil-project/vergil-tooling | task | T5, T7, T8, T9 |
-| D4 Release vergil-tooling (merge rule, release, driver) | vergil-project/vergil-tooling | deployment | T7–T10 |
+| T11 Fail-closed runner cutover | vergil-project/vergil-tooling | task | D2 |
+| D4 Release vergil-tooling (cutover, merge rule, release, driver) | vergil-project/vergil-tooling | deployment | T7–T11 |
 | P2 Hook reconciles series against the window | vergil-project/vergil-python | task | P1, D4 |
-| C1 Per-family merge switch and App commits | vergil-project/vergil-containers | task | D4 |
+| C1 Per-family merge switch, App commits | vergil-project/vergil-containers | task | D4 |
 | C2 Docker-publish cancel race | vergil-project/vergil-containers | task | — |
 | A3 Reusable ops-lifecycle.yml | vergil-project/vergil-actions | task | D4 |
 | D5 Release vergil-actions (ops-lifecycle) | vergil-project/vergil-actions | deployment | A3 |
-| C3 Call ops-lifecycle from ops.yml | vergil-project/vergil-containers | task | C1, D5 |
-| D6 Release vergil-containers and vergil-python, plus attestations | vergil-project/vergil-containers | deployment | C1, C2, C3, P2 |
-| V1 First unattended chain run (backfill 3.12 and 3.13) | vergil-project/vergil-containers | validation | D6 |
-| T11 Fail-closed runner cutover | vergil-project/vergil-tooling | task | D2, V1 |
-| D7 Release vergil-tooling (cutover) | vergil-project/vergil-tooling | deployment | T11 |
+| C3 Call ops-lifecycle from ops.yml, live switch | vergil-project/vergil-containers | task | C1, D5 |
+| D6 Release vergil-containers and vergil-python, attestations, go live | vergil-project/vergil-containers | deployment | C1, C2, C3, P2 |
+| V1 First unattended chain run (3.12/3.13 backfill) | vergil-project/vergil-containers | validation | D6 |
+| V2 Fixture-driven add/drop dry run | vergil-project/vergil-containers | validation | V1 |
 
 **Bookends already filed:**
 
@@ -1448,17 +1495,18 @@ Why this order is deadlock-free and safe:
 
 **Related intake:** `vergil-project/vergil-tooling#3520`, `#3522` and `#3524`.
 
-## Notes for alignment
+## Decisions recorded in alignment (2026-10-24)
 
-- **The hook always gets the window (T8).** The spec (§5) kept the old
-  hand-run behaviour "without a window". In the plan, `vrg-update-deps` always
-  passes the released window, so a hand-run update reconciles the series list
-  too. That's simpler (one behaviour), and it is the same "the series list
-  follows the window" rule. Alignment should confirm or revert it.
-- **No live GA or EOL during the epic.** Python 3.16 goes GA around October
-  2027, and the next Python EOL (3.12) is around October 2028. V1 proves the
-  chain with the real `runtime_published` lifecycle PRs that the backfill
-  produces. That uses the same merge-lifecycle, develop-CD and release stages
-  an add or drop would. The add and drop manifest edits are already covered
-  by epic #407's tests. The first live GA run is recorded as a follow-on
-  observation in the retrospective.
+1. **The cutover moves early.** T11 is blocked only by D2 and ships with the
+   driver at D4 (spec §9.1).
+2. **V2 is added.** It is a fixture-driven dry run of a GA add and an EOL
+   drop. To support it, A3 takes a `window-fixture` input (valid only with
+   `dry-run`), and T8 adds `vrg-update-deps --dry-run` (spec §9.6).
+3. **The tools are checked before the chain acts.** A3 installs a pinned,
+   checksum-verified git-cliff, and T10's `preflight` stage checks git-cliff,
+   Docker and the env before any stage runs (spec §6.2).
+4. **The hook always reconciles,** including when run by hand. The spec §5
+   bullet is amended to match. D6's `--without-deps` precondition keeps V1's
+   backfill for the driver.
+5. **The `LIFECYCLE_LIVE` switch is in the spec now** (§6.4, "The live
+   switch").
