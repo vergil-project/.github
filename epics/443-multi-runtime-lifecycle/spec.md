@@ -301,18 +301,31 @@ The rule:
     carry bundled-library security fixes (OpenSSL, SQLite and others), so the
     leading edge is the newest PBS build. Each new PBS tag therefore rebuilds
     and releases every series. More release volume is the accepted cost.
-  - A newer minor version is still only *reported* by the hook. Adding series
-    is the driver's job.
-- **Adding and dropping series are mechanical commands** that the driver calls
-  (e.g. `scripts/dev/series.py add 3.16` / `drop 3.12`; the interface is the
-  builder's call).
+- **The hook makes the series list match the window** *(decided in pushback:
+  one refresh path)*. The rule "a new series is reported, never bumped" is
+  replaced by "the series list follows the window".
+  - The hook is given the **released** Python window: the versions at
+    `[dependencies].vergil`, i.e. `v2.1`, which is what consumers see. It might
+    read them through `vrg-ci-resolve`, or the driver might pass them in an env
+    var; the builder decides.
+  - Before refreshing, it adds every window version missing from
+    `runtime.toml`, and drops every series that is no longer in the window.
   - **Add** resolves the newest available patch and PBS build for the new
     series, then writes both files.
-  - **No PBS build yet** for a GA series is a **pending** state, reported by
-    the driver and retried on later runs. It is not a failure, until a bounded
-    grace period runs out (§6.5).
+  - **No PBS build yet** for a GA series is a **pending** state. The hook
+    reports it in the held-back report, and the driver records it and retries
+    on later runs. It is not a failure until a bounded grace period runs out
+    (§6.5).
   - **Drop** removes the series from both files and touches nothing in the
     index.
+  - **Run by hand without a window** (outside the driver), the hook keeps
+    today's behaviour: it refreshes the series it has and reports any newer
+    minor version.
+- **So `vrg-update-deps` is the only path that changes the series files.**
+  Whether the driver runs it (§6.4 step 5) or `vrg-release` runs it as its
+  closing `update-deps` stage, it is the same pipeline: the same
+  `deps/update-<v>` branch, label, green-only merge, fix task on failure, and
+  held-back report. No second refresh mechanism exists.
 - **Backfill is the first real run.** Adding 3.12 and 3.13, and resuming 3.14,
   should be the driver's first production run, not a hand edit. That proves the
   add path and the patch refresh in one go.
@@ -359,10 +372,24 @@ fall-through bug in §2.4 for the whole fleet, not only for this workflow:
   Hardening that with a verified GitHub OIDC `job_workflow_ref` claim is
   follow-on work, `vergil-project/vergil-tooling#3524`, and doesn't block this
   epic.
+- **Wrapper policy for each new identity** *(decided in pushback)*.
+  `vrg-gh` and `vrg-git` pick their allow and deny lists from the identity
+  mode (`bin/vrg_gh.py`), so both new values need a stated policy:
+  - **`automation`** starts from the **agent** deny lists. It adds back only
+    the subcommands the allowlisted workflows are shown to need (found by the
+    caller sweep below), scoped per workflow where the wrappers can tell
+    them apart.
+  - **The undeclared fail-closed value** gets the agent deny lists, with nothing
+    added back.
+  - **Migration before cutover.** Every workflow that runs `vrg-*` tools on a
+    runner today, at least `ops-epic-sweep.yml` and `ops-github-config.yml` in
+    `vergil-actions`, moves to a declared `automation` scope **before** the
+    fail-closed identity change ships. No existing ops workflow can break when
+    it lands.
 
 A sweep of every caller of `identity_mode` is part of this work. Any command
 whose safety relied on "a runner looks human" must be found and decided
-explicitly.
+explicitly. Its output is the list of subcommands `automation` is given back.
 
 ### 6.2 vrg-release runs on a runner
 
@@ -400,7 +427,11 @@ its stages, CD confirmation and failure handling are reused unchanged
   - Before acting on a repo, the driver checks for a release in flight: a
     `release/*` branch on origin, an open release tracking issue (checked
     directly, not through search), or an unmerged dependency-update PR.
-  - If it finds one, the run **backs off** for that repo. It records "deferred:
+  - **The driver's own PRs don't block it.** An open `deps/update-*` or
+    `lifecycle/*` PR that passes the merge rule in §6.4 step 2 is the driver's
+    own work in progress. The driver resumes it (waits for it, then merges it)
+    and doesn't defer.
+  - If it finds anything else in flight, the run **backs off** for that repo. It records "deferred:
     release in progress" in the job summary and stays green.
   - A deferral that persists past a bound becomes a tracked issue.
 - **The reverse direction.** A human starting `vrg-release` while a lifecycle
@@ -431,23 +462,47 @@ first stage that cannot finish yet:
      `pr_merge.wait_and_merge`: green only, and never when behind,
      conflicting or draft.
    - `publish.py` drops its "a human merges every PR" stance for those
-     languages only.
+     languages only. Its test asserting that no merge or auto-merge call is
+     made changes deliberately to match.
+   - **The unattended merge rule** *(decided in pushback)*. This rule applies to
+     **every** PR the automation merges unattended: lifecycle PRs here, and the
+     `deps/update-*` PRs from §5 and from `vrg-release`'s `update-deps` stage.
+     A PR is merged only when **all** of the following hold:
+     - its author is the automation App;
+     - its head branch is in the same repo (not a fork);
+     - every commit on it was authored by the App;
+     - the merge is pinned to the head SHA the automation pushed itself
+       (`gh pr merge --match-head-commit` or an equivalent), so a later push
+       makes the merge fail.
+
+     A branch name alone never qualifies a PR. Any mismatch is a refusal that
+     gets a tracked issue (§6.5).
+   - A ruleset that only lets the App push these prefixes is follow-on defence
+     in depth (recorded on `vergil-project/.github#445`), not part of this epic.
 3. **Wait for the develop CD.** The post-merge develop CD (image build and
    scan) must succeed. This is the gate the human named: green PR CI doesn't
    build images, so nothing is released until develop CD has built them.
 4. **Release vergil-containers.**
-   - Runs only if `develop` is ahead of the last release. Whatever is on
-     `develop` ships (principle 2).
+   - **Trigger** *(decided in pushback)*: runs only when a lifecycle PR (add,
+     drop or `runtime`) for an auto-merge language has merged into `develop`
+     since the last release tag. "Develop is ahead" is never the trigger:
+     `develop` is always ahead after a release, because of the post-release
+     version bump and the `update-deps` merge.
+   - **Content:** whatever is on `develop` ships with it (principle 2).
+     Releasing vergil-containers for any reason other than a window change
+     stays with its usual owner.
    - It runs `vrg-release` unattended (§6.2), including its CD confirmation
      and the `v2.1` promote, so the window becomes visible to consumers.
-5. **Reconcile vergil-python.**
-   - It reads the **released** window at `v2.1`, so the runtimes follow
-     what consumers actually see.
-   - It compares the window with `runtime.toml`. A version missing from
-     `runtime.toml` is added; a series no longer in the window is dropped.
-   - It runs the per-series patch refresh.
-   - Any change becomes one PR on a reserved branch (`lifecycle/<…>`; the exact
-     names are the builder's call), which is merged with the same engine.
+5. **Reconcile vergil-python by running `vrg-update-deps` unattended**
+   *(decided in pushback)*.
+   - The vergil-python hook makes the series list match the **released**
+     window, then refreshes every series (§5).
+   - `vrg-update-deps` opens its usual `deps/update-<v>` PR and merges it under
+     the unattended merge rule (step 2). If validation or the merge fails, it
+     files its usual fix task.
+   - If the previous step 6 release already left a `deps/update-*` PR open from
+     its own `update-deps` stage, this step resumes that PR rather than
+     opening a second one (§6.3).
 6. **Release vergil-python**, only if §4.3 classifies at least one package as
    `build`. It runs `vrg-release` unattended, which waits for the package index
    as it does today.
@@ -498,7 +553,7 @@ is a later ratchet (§7.2).
 2. `vergil-actions` package dimension in `ci-package.yml` and `cd-release.yml`
    (§4.5).
 3. `vergil-python` series list, per-series build, per-series refresh, and the
-   add and drop commands (§5).
+   hook reconciling the series list against the released window (§5).
 4. The `automation` identity and the fail-closed runner fix, including the
    sweep of `identity_mode` callers and migrating `VRG_EPIC_SWEEP` (§6.1).
 5. `vrg-release` able to run unattended (§6.2).
@@ -540,6 +595,12 @@ is a later ratchet (§7.2).
   without deliberately faking its identity.
 - A lifecycle PR for a language whose auto-merge switch is off is merged
   without a human.
+- A PR is merged unattended because of its branch name alone, or when it holds a
+  commit the automation didn't author.
+- An existing ops workflow breaks when the runner identity change ships.
+- Two mechanisms rewrite `vergil-python`'s series files.
+- vergil-containers is released unattended without a lifecycle change to
+  trigger it.
 - An unattended release counts as done before its CD has succeeded.
 - A package identity is re-published with different bytes, or an unchanged
   package is rebuilt and re-published.
