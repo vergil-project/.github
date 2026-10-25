@@ -1,7 +1,7 @@
 [project]
 repository-type = "documentation"
-versioning-scheme = "semver"
-branching-model = "library-release"
+versioning-scheme = "none"
+branching-model = "docs-single-branch"
 release-model = "none"
 [ci]
 versions = ["latest"]
