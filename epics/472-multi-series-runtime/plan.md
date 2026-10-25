@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - A single `[package]` table must parse, build, release and index exactly as today. Cell ids, artifact names and identities stay unchanged for a single-package repo.
-- With more than one `[[package]]` entry, every entry sets an explicit, unique `name`, and every entry has the same `vendor`.
+- With more than one `[[package]]` entry, every entry sets an explicit, unique `name`, every entry has the same `vendor`, and the repo has no shared `packaging/nfpm.overlay.yaml`. At most one `python`-builder entry pins `[package.python].runtime`.
 - Full package version for an entry with `upstream-version`: `<upstream-version>.<X.Y.Z>`, where `X.Y.Z` is the repo's `VERSION`. Example: `3.15.1+20261021.1.0.5`. It is computed only by `naming.package_version`.
 - Version order: a newer CPython patch sorts higher, and at the same inputs a newer release sorts higher. `3.15.1+20261021.1.0.5` must sort above `3.15.1+20261021` under **both** dpkg and rpm.
 - `vrg-upstream-refresh` never merges, never runs dependency updaters or a release, and refuses agent identity modes (`user`, `audit`).
@@ -41,7 +41,7 @@ File each task in the repo where its PR lands, under `vergil-project/.github#472
 | Row | Plan part | Repo | Kind | Blocked-by |
 |---|---|---|---|---|
 | T1 | Multi-package config | vergil-tooling | task | — |
-| T2 | Version helper, `upstream-version`, identities, served-runtime parser | vergil-tooling | task | T1 |
+| T2 | Version helper, `upstream-version`, identities, served-runtime parser | vergil-tooling | task | T1, vergil-containers#692 |
 | T3 | Package dimension: matrix, manifest, build, install-test, check-runtime | vergil-tooling | task | T2 |
 | T4 | Index matching and release wait across packages | vergil-tooling | task | T3 |
 | T5 | update-deps and version resolution over the packages list | vergil-tooling | task | T1 |
@@ -57,6 +57,8 @@ File each task in the repo where its PR lands, under `vergil-project/.github#472
 | D3 | Release vergil-python (first two-series release) | vergil-python | deployment | P1, P2, K1 |
 | V1 | End-to-end validation | vergil-python | validation | D3, P3, C1 |
 
+vergil-containers#692 is an ad-hoc task outside this epic. It adds `rpm` to every dev image, and T2's rpm ordering tests need it. "Done" means it has merged **and** the rebuilt dev images are published. T2 stamps it as `--blocked-by vergil-project/vergil-containers#692`.
+
 D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, is that K1 has merged to `packages` develop, which is where `publish-index.yml` runs. Otherwise the first two-series release could push the index over `SIZE_FAIL`.
 
 ---
@@ -70,7 +72,7 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
 - Modify: `src/vergil_tooling/lib/config.py` (`_parse_package_config` ~837, `VergilConfig` ~399, repo checks ~1164)
 - Modify every `cfg.package` / `config.package` reader that is not migrated in T2–T5, so it uses `packages`: `lib/ci_evidence.py:785`, `lib/github_config.py:727`, `lib/repo_init.py` (package presence), `lib/release/tracking.py:136`
 - Modify: `docs/site/docs/reference/package-config.md` (the "Structure" section: `[[package]]`, its rules, and the overlay restriction)
-- Test: `tests/vergil_tooling/test_config_package.py` (new, or extend the existing package-config test module)
+- Test: `tests/vergil_tooling/test_config.py`
 
 **Interfaces:**
 
@@ -88,7 +90,7 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
   - `test_multi_refuses_overlay`: two entries plus `packaging/nfpm.overlay.yaml` raise a message matching `"packaging/nfpm.overlay.yaml applies only to a single [package]"`.
   - `test_package_property_refuses_multi`: two entries, accessing `cfg.package`, raises `ConfigError` matching `"read cfg.packages"`.
   - `test_no_package_empty`: no table gives `cfg.packages == ()`, and `cfg.package is None`.
-- [ ] **Step 2: Run them and confirm they fail.** Run `vrg-container-run -- uv run pytest tests/vergil_tooling/test_config_package.py -v`. Expected: FAIL.
+- [ ] **Step 2: Run them and confirm they fail.** Run `vrg-container-run -- uv run pytest tests/vergil_tooling/test_config.py -v`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
   - `[package]` may be a table or a list of tables. Each one goes through the existing `_parse_package_config`.
   - The multi-entry rules run after parsing.
@@ -108,7 +110,7 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
 - Modify: `src/vergil_tooling/lib/package/build.py:178`, `lib/package/index/published.py:65-73,118-122` (`planned`, refusal advice) and `lib/release/package_index.py:329`, so each uses the helper
 - Modify: `src/vergil_tooling/lib/update_deps/vergil_index.py:47` (`_SERVED_RE`)
 - Modify: `docs/site/docs/reference/package-config.md` (keys table: `upstream-version`)
-- Test: `tests/vergil_tooling/test_package_naming.py`, `tests/vergil_tooling/test_package_published.py`, `tests/vergil_tooling/test_update_deps_vergil_index.py`, `tests/vergil_tooling/test_package_version_order.py` (new)
+- Test: `tests/vergil_tooling/test_package_naming.py`, `tests/vergil_tooling/test_package_index_published.py`, `tests/vergil_tooling/test_update_deps_vergil_index.py`, `tests/vergil_tooling/test_package_python_builder.py`, `tests/vergil_tooling/test_package_version_order.py` (new). Match each existing module's actual name in `tests/vergil_tooling/`.
 
 **Interfaces:**
 
@@ -129,17 +131,18 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
   - `test_single_package_identities_unchanged`: the vergil-tooling-shaped config gives the same `planned()` list as before the change. Pin the expected identities literally.
   - `test_planned_multi_entries`: two staged entries with `upstream-version` give identities for both names, each at `<inputs>.1.0.5-1`.
   - `test_served_parser_accepts_release_suffix`: `_served_key("3.15.1+20261021.1.0.5", …)` orders above `_served_key("3.15.1+20261021", …)`. It still raises on `"3.15.1"`.
-  - `test_version_order_dpkg` and `test_version_order_rpm` (skip with a reason when `dpkg`/`rpm` isn't installed; the dev container must have both, so CI runs them):
+  - `test_version_order_dpkg` and `test_version_order_rpm`. These **fail** (never skip) when `dpkg` or `rpm` is missing, with the message `<tool> not found in the dev image; see vergil-project/vergil-containers#692`. Each asserts:
     - `3.15.1+20261021.1.0.5` > `3.15.1+20261021`
     - `3.15.1+20261021.1.0.10` > `3.15.1+20261021.1.0.9`
     - `3.15.2+20261101.1.0.5` > `3.15.1+20261021.1.0.6`
-    - use `dpkg --compare-versions` and `rpmdev-vercmp` (or `rpm --eval '%{lua: print(rpm.vercmp(...))}'`) with `-1` revisions appended.
-- [ ] **Step 2: Run them and confirm they fail.** Run `vrg-container-run -- uv run pytest tests/vergil_tooling/test_package_naming.py tests/vergil_tooling/test_package_published.py tests/vergil_tooling/test_update_deps_vergil_index.py tests/vergil_tooling/test_package_version_order.py -v`. Expected: FAIL.
+    - Compare with `dpkg --compare-versions` and with `rpm --eval '%{lua: print(rpm.vercmp("<a>", "<b>"))}'`, with `-1` revisions appended.
+  - `test_runtime_readers_accept_new_format`: `python_builder.runtime_depends` and `check_pinned_patch` give the same result for a served `3.15.1+20261021.1.0.5` as for `3.15.1+20261021` (floor and patch `3.15.1`).
+- [ ] **Step 2: Run them and confirm they fail.** Run `vrg-container-run -- uv run pytest tests/vergil_tooling/test_package_naming.py tests/vergil_tooling/test_package_index_published.py tests/vergil_tooling/test_update_deps_vergil_index.py tests/vergil_tooling/test_package_python_builder.py tests/vergil_tooling/test_package_version_order.py -v`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
   - Replace the three `pkg.version or version` sites with `naming.package_version`.
   - `_SERVED_RE` becomes `^(\d+\.\d+\.\d+)\+(\d+)(?:\.\d+\.\d+\.\d+)?$`. `_served_key` orders by `(patch, pbs, release)`, with a missing release as `()`.
   - Rewrite the `check_unpublished` advice to read: "bump the package version: a new upstream-version, or a new repo release for an upstream-version package".
-- [ ] **Step 4: Run them and confirm they pass.** Same command. Expected: PASS. If the dev image lacks `rpm` or `dpkg`, the order tests skip, which is not acceptable. In that case, file a vergil-containers task to add the missing tool, and say so in the PR notes.
+- [ ] **Step 4: Run them and confirm they pass.** Same command. Expected: PASS, with both order tests run, not skipped.
 - [ ] **Step 5: Validate.** Run `vrg-container-run -- vrg-validate`. Expected: green.
 - [ ] **Step 6: Commit.** `vrg-commit --type feat --scope package --message "compute every package version through one helper, with upstream-version"`
 
@@ -194,7 +197,7 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
 **Files:**
 
 - Modify: `src/vergil_tooling/lib/package/index/collect.py` (`ManifestEntry`, `_manifest_entries`, `pattern`, `_match`)
-- Modify: `src/vergil_tooling/lib/release/package_index.py` (`_wait`, `_pick_target`, `_revision`), `lib/release/context.py` (`package_index_url`)
+- Modify: `src/vergil_tooling/lib/release/package_index.py` (`_wait`, `_pick_target`, `_revision`), `lib/release/context.py` (`package_index_url`), `lib/release/orchestrator.py:399-400` (its reader)
 - Test: `tests/vergil_tooling/test_package_index_collect.py`, `tests/vergil_tooling/test_release_package_index.py`
 
 **Interfaces:**
@@ -220,7 +223,7 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
 **Files:**
 
 - Modify: `src/vergil_tooling/lib/update_deps/vergil_index.py` (`served_runtime_for`, `runtime_indexes`), `lib/update_deps/updaters/vergil_eco.py` (`_declared_runtime`, `bump_runtime`), `lib/versions/extensions/python.py:84,109`
-- Test: `tests/vergil_tooling/test_update_deps_vergil_eco.py`, `tests/vergil_tooling/test_versions_python_extension.py`
+- Test: `tests/vergil_tooling/test_update_deps_vergil_eco.py`, `tests/vergil_tooling/test_versions_python_ext.py`
 
 **Interfaces:**
 
@@ -235,8 +238,12 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
   - `test_single_python_pin_unchanged`: today's pinned fixture behaves identically.
   - `test_two_pins_refused`: the error message above.
   - `test_resolution_narrows_with_python_entry`: the extension narrows to `runtime_published` when any python-builder entry exists.
-- [ ] **Step 2: Run them and confirm they fail.** Run `vrg-container-run -- uv run pytest tests/vergil_tooling/test_update_deps_vergil_eco.py tests/vergil_tooling/test_versions_python_extension.py -v`. Expected: FAIL.
-- [ ] **Step 3: Implement** through `python_packages`.
+  - `test_declared_runtime_reads_package_list`: raw TOML with two `[[package]]` tables, one python-builder with a pin. `_declared_runtime` returns that pin, rather than crashing on a list.
+- [ ] **Step 2: Run them and confirm they fail.** Run `vrg-container-run -- uv run pytest tests/vergil_tooling/test_update_deps_vergil_eco.py tests/vergil_tooling/test_versions_python_ext.py -v`. Expected: FAIL.
+- [ ] **Step 3: Implement.**
+  - The config-object readers (`served_runtime_for`, `runtime_indexes`, the version extension) go through `python_packages`.
+  - `_declared_runtime` and `bump_runtime` work on raw TOML text. `_declared_runtime` accepts `package` as a table or a list of tables, and finds the single pinned python-builder entry.
+  - `bump_runtime` keeps its exactly-one `runtime = "…"` line rule. With at most one pin per repo, that line is unambiguous.
 - [ ] **Step 4: Run them and confirm they pass.** Same command. Expected: PASS.
 - [ ] **Step 5: Validate.** Run `vrg-container-run -- vrg-validate`. Expected: green.
 - [ ] **Step 6: Commit.** `vrg-commit --type feat --scope update-deps --message "read runtime pins from the packages list"`
@@ -278,6 +285,7 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
   - `test_untracked_files_refused`: the hook creates `junk.txt`, and `UpstreamRefreshError` names it.
   - `test_hook_failure_raises`: exit 3 gives a message containing `exit 3`.
   - `test_notes_in_body`: two report lines appear as two bullets under `## Notes`.
+  - `test_superseded_refresh_prs_closed`: two open PRs from `upstream-refresh`, which can happen after a manual re-create. The oldest is kept and refreshed. The other is closed with a comment naming the survivor, and its branch is deleted when it differs from `upstream-refresh`.
 - [ ] **Step 2: Run them and confirm they fail.** Run `vrg-container-run -- uv run pytest tests/vergil_tooling/test_upstream_refresh.py -v`. Expected: FAIL.
 - [ ] **Step 3: Implement `lib/upstream_refresh.py`.** Git goes through `lib/git.py`, and GitHub through `lib/github.py`. Rules:
   - The repo must be clean on `base` before the hook runs.
@@ -290,7 +298,7 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
   - `test_cli_requires_config`: no `[upstream-refresh]` gives exit 1 with `vergil.toml has no [upstream-refresh] section`.
   - `test_cli_dry_run_no_push`.
   - `test_config_upstream_refresh_parses` and `test_config_upstream_refresh_unknown_key`.
-- [ ] **Step 6: Run them, confirm they fail, implement the CLI and config, then confirm they pass.** Run `vrg-container-run -- uv run pytest tests/vergil_tooling/test_vrg_upstream_refresh.py tests/vergil_tooling/test_config_package.py -v`.
+- [ ] **Step 6: Run them, confirm they fail, implement the CLI and config, then confirm they pass.** Run `vrg-container-run -- uv run pytest tests/vergil_tooling/test_vrg_upstream_refresh.py tests/vergil_tooling/test_config.py -v`.
 - [ ] **Step 7: Write the reference page:**
   - purpose, and how upstream refresh differs from a dependency update;
   - the hook contract (edits tracked files only, `VRG_UPSTREAM_REPORT` notes, exit code);
@@ -314,17 +322,17 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
 **Interfaces:**
 
 - Produces: a reusable workflow, `on: workflow_call`, with secrets `APP_CLIENT_ID` and `APP_PRIVATE_KEY` (required) and no inputs. One job:
-  - `permissions: contents: write, pull-requests: write`;
+  - `permissions: contents: read`. A called workflow can't exceed its caller's grant, and the writes use the App token, as in `ops-epic-sweep.yml`;
   - `concurrency: group: upstream-refresh, cancel-in-progress: false`;
   - `container: image: ghcr.io/vergil-project/prod-base:latest`.
 
-- [ ] **Step 1: Write the workflow.** Follow `ops-epic-sweep.yml` for the token and the vergil-tooling install, and vergil-containers' `bump-tools.yml` for the checkout. The steps:
-  1. `actions/create-github-app-token@v3`.
+- [ ] **Step 1: Write the workflow.** The steps:
+  1. `actions/create-github-app-token@v3`, minted **repo-scoped** as in vergil-containers' `bump-tools.yml` (no org-wide `owner:` token).
   2. `actions/checkout@v6` with the token.
   3. `git config --global --add safe.directory "$GITHUB_WORKSPACE"`.
   4. Set the git identity to `github-actions[bot]` / `41898282+github-actions[bot]@users.noreply.github.com`, as `bump-tools.yml` does.
-  5. Install vergil-tooling exactly as `ops-epic-sweep.yml` does.
-  6. Run `vrg-upstream-refresh --base "$BASE"`, with `GH_TOKEN` set to the App token and `BASE: ${{ github.event.repository.default_branch }}` passed through env, never inline.
+  5. Install vergil-tooling exactly as `ops-epic-sweep.yml` does (`./actions/shared/setup/vergil`, at the caller's `[dependencies].vergil` ref).
+  6. Run `vrg-upstream-refresh --base "$BASE"`, with `GH_TOKEN` set to the App token and `BASE: ${{ github.ref_name }}` passed through env, never inline. This is the same source `bump-tools.yml` uses.
 - [ ] **Step 2: Validate.** Run `vrg-container-run -- vrg-validate`. Expected: green; actionlint is clean.
 - [ ] **Step 3: Commit.** `vrg-commit --type feat --scope ops --message "add the ops-upstream-refresh reusable workflow"`
 
@@ -362,6 +370,8 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
 - Modify: `packaging/build.sh` (select the series by `VRG_PACKAGE_NAME`; per-entry guards)
 - Move: `scripts/dev/update_deps.py` → `scripts/dev/upstream_refresh.py`, `scripts/dev/update-deps.sh` → `scripts/dev/upstream-refresh.sh`, `tests/test_update_deps.py` → `tests/test_upstream_refresh.py`, and `tests/check-update-deps.sh` → `tests/check-upstream-refresh.sh` (with `vrg-git mv`)
 - Modify: `tests/test_build.py`
+- Modify: `scripts/bin/validate-custom` (its hard-coded `checks=(check-update-deps check-build)` becomes `check-upstream-refresh`), and the renamed `tests/check-upstream-refresh.sh` discovers `-p 'test_upstream_refresh.py'`
+- Modify: `README.md` (it names the old update-deps hook)
 - Modify: `docs/runtime-package-pattern.md` (one package per listed series; the patch floats within each; upstream refresh replaces the dependency-update hook; add and remove; the version format)
 - Modify: `CLAUDE.md` if it names the old hook
 
@@ -388,6 +398,7 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
   - `test_unknown_package_name_fails`: `VRG_PACKAGE_NAME=vergil-python3.13` makes build.sh exit non-zero, with a message naming the missing series.
   - `test_version_must_carry_inputs`: `VRG_PACKAGE_VERSION=3.14.9+20261101.1.0.5` while `runtime.toml` says `3.14.8+20261013` makes build.sh fail.
   - `test_every_series_has_one_package`: a series with no `[[package]]`, or the reverse, fails.
+  - `test_removed_series_dropped_from_build`: the fixture with the 3.14 `[[series]]` and `[[package]]` both removed. A build for `vergil-python3.14` fails as unknown, and 3.15 still builds. On the tooling side, the cells T3 resolves for this `vergil.toml` contain no `vergil-python3.14` cell. Assert that through `vrg-package matrix` output if it is available in the test container, or else in the P1 PR's CI run.
 - [ ] **Step 3: Run them and confirm they fail.** Run `vrg-container-run -- bash tests/check-upstream-refresh.sh` and `vrg-container-run -- bash tests/check-build.sh`. Expected: FAIL.
 - [ ] **Step 4: Implement.**
   - `build.sh`'s `read_toml` helper gains a mode that selects the `[[series]]` and `[[package]]` entries by series. The guards compare:
@@ -443,7 +454,7 @@ D1, D2 and D3 are human-run releases. D3's precondition, attested by the human, 
 
 - Modify: `.github/workflows/ops.yml` (add a job that calls `vergil-project/vergil-actions/.github/workflows/ops-upstream-refresh.yml@v2.1` with the two App secrets; the file already has a daily schedule)
 
-- [ ] **Step 1: Add the job,** after the existing `ops-github-config` job, on the same schedule.
+- [ ] **Step 1: Add the job** (`upstream-refresh`) after the existing `github-config` job, on the same schedule.
 - [ ] **Step 2: Validate.** Run `vrg-container-run -- vrg-validate`. Expected: green.
 - [ ] **Step 3: Commit.** `vrg-commit --type ci --scope ops --message "run the upstream refresh nightly"`
 
@@ -474,7 +485,7 @@ The push of this change touches `.github/workflows/**`, so `report-ready` may re
 
 Each one is created with `vrg-issue-create --kind deployment …` and run with `issue-deploy`. The release itself is a **human-attested precondition**.
 
-- **D1 — vergil-tooling release.** Precondition: the human has released vergil-tooling with T1–T6 merged, so the `v2.1` tag carries them. Deploy step: confirm that `vrg-upstream-refresh --help` runs from a fresh `uv tool install` at `v2.1`, and that `vrg-package matrix` against vergil-tooling itself prints today's cell ids.
+- **D1 — vergil-tooling release.** Precondition: the human has released vergil-tooling with T1–T6 merged, so the `v2.1` tag carries them. Deploy step: confirm that `vrg-upstream-refresh --help` runs from a fresh `uv tool install` at `v2.1`. Then run `vrg-package matrix` against vergil-tooling itself, and against the `packages` repo (a single noarch staged package with an overlay). Both must print today's cell ids and manifest artifacts.
 - **D2 — vergil-actions release and App permissions.** Preconditions:
   - the human has released vergil-actions with A1;
   - the human attests that the per-org App installation grants **Contents: write** and **Pull requests: write** on vergil-python and vergil-containers.
@@ -497,3 +508,5 @@ Created with `--kind validation`, blocked by D3, P3 and C1, and run with `issue-
 2. A manual `workflow_dispatch` of vergil-python's `ops.yml` either opens or refreshes the `upstream-refresh` PR, or exits quietly with "nothing" when there's nothing to refresh. Either outcome is recorded with its run URL.
 3. A manual `workflow_dispatch` of vergil-containers' `bump-tools.yml` does the same.
 4. A normal `vrg-release` of vergil-python (D3's) didn't touch `runtime.toml`. Its tracking issue shows the `update-deps` stage ran no repo hook.
+5. **Engine-only proof.** For every series whose inputs didn't move between the old index entry and D3 (likely 3.15 at `3.15.1+20261021`), the index serves both the old `<inputs>` and the new `<inputs>.<release>` identities, `publish-index` succeeded, and `apt policy` prefers the new one. If every series' inputs moved before D3, record that, and file a follow-up validation for the next vergil-python release.
+6. **Workflow permissions.** The P3 dispatch in check 2 is the proof that A1's `contents: read` job, writing through the App token, works under vergil-python's top-level permissions.

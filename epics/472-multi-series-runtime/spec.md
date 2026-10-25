@@ -6,8 +6,9 @@
   one round of paad pushback are done. The builder check replaced carry forward
   with "every release publishes every series" (§5.5). Pushback replaced the
   dependency-update hook path with a new generic `vrg-upstream-refresh` command
-  (§5.6), which vergil-containers' `bump-tools` job also adopts. Pending human
-  review.
+  (§5.6), which vergil-containers' `bump-tools` job also adopts. Approved by the
+  human. Alignment against the plan is done, and its decisions are folded in
+  (§9, decisions 8–10).
 - **Repos:** vergil-project/vergil-tooling, vergil-project/vergil-actions,
   vergil-project/vergil-python, vergil-project/vergil-containers,
   vergil-project/packages. The epic is homed in `.github`.
@@ -21,6 +22,8 @@
     ops results get noticed.
   - vergil-project/.github#466 (intake): a package-hosting replacement for
     GitHub Pages, and the place to revisit retention.
+  - vergil-project/vergil-containers#692 (ad-hoc): adds `rpm` to every dev
+    image, which the rpm version-order tests (§5.5) need.
 - **Seeded tasks:** .github#473 (documentation), vergil-tooling#3623
   (documentation review), .github#474 (retrospective).
 
@@ -172,10 +175,11 @@ Rules:
   The `pyproject.toml` fallback name applies only to a single entry.
 - Every entry in a repo has the **same `vendor`**. The release wait and the
   tracking issue resolve one `<org>/packages` repo from it.
-- Repo-level checks that today assume one package (the fixed overlay path
-  `packaging/nfpm.overlay.yaml`, the root `uv.lock` check for the `python`
-  builder) apply per entry. Making the overlay path per entry is the builder's
-  call. vergil-python has no overlay, so it is not needed for this epic.
+- Repo-level checks that today assume one package apply per entry: the root
+  `uv.lock` check for the `python` builder, and the fixed overlay path
+  `packaging/nfpm.overlay.yaml`. A repo with more than one entry **refuses**
+  the shared overlay file, because it would otherwise be applied to every
+  package. A per-entry overlay is future work. vergil-python has no overlay.
 - A single `[package]` table parses and behaves exactly as today.
 
 ### 5.2 Package dimension in build, test and publish (vergil-tooling, vergil-actions)
@@ -206,7 +210,10 @@ Thread the package name through every stage:
 - **Release wait** (`lib/release/package_index.py`): waits until every
   package's identity is visible in the index, and records each one.
 - **update-deps:** `served_runtime_for`, `_declared_runtime` and `bump_runtime`
-  handle a list of entries, each with its own optional runtime pin.
+  read the packages list. **At most one** `python`-builder entry per repo may
+  pin a runtime (`[package.python].runtime`, an exact `x.y.z`). More than one
+  pin is refused loudly, never guessed. No repo pins a runtime today, and
+  libraries never have a `[package]` at all.
 - **Version resolution:** the Python version extension
   (`lib/versions/extensions/python.py`) reads the packages list instead of the
   single `cfg.package`.
@@ -286,8 +293,11 @@ repo's semver `X.Y.Z` from `VERSION`. So a release that changed only the engine
 (for example a `build.sh` fix) still publishes new identities, and the index's
 same-identity-different-bytes check never fires.
 
-**One join, in vergil-tooling.** `vergil.toml` holds only the inputs, which is
-all the refresh hook ever writes. A single vergil-tooling helper computes the
+**One join, in vergil-tooling.** `vergil.toml` holds only the inputs, in a new
+per-entry key, `upstream-version` (for example `"3.15.1+20261021"`), which is
+all the refresh hook ever writes. `upstream-version` is mutually exclusive with
+`version`. `version` keeps its meaning as a full-version override, so no other
+repo's packaging changes. A single vergil-tooling helper computes the
 full version from an entry's inputs and the repo version. The build, the
 `check-unpublished` identities and the release's index wait all use that helper
 (today they each read `pkg.version or version` separately: `build.py`,
@@ -299,6 +309,8 @@ for the whole release, because the release packages the tagged commit and bumps
 Constraints on the version format (the exact spelling is the builder's call):
 
 - It sorts correctly in both dpkg and rpm, **verified by tests that run both**.
+  A missing tool fails the test, never skips it. `rpm` reaches the dev images
+  through vergil-containers#692.
   A newer CPython patch sorts higher. At the same inputs, a newer vergil-python
   release sorts higher. A new-format version also sorts above every old-format
   `<cpython>+<pbs_tag>` version already in the index, for example
@@ -371,9 +383,14 @@ A failed run is visible as a red scheduled run. Making sure someone notices is
 vergil-containers declares `[upstream-refresh].hook` as a script that runs
 today's `docker/pins/resolve_latest.py --write` and
 `docker/pins/generate_catalog.py`. `bump-tools.yml` is replaced by a call to the
-reusable workflow, on its current weekly schedule. Behaviour is unchanged: one PR
-or nothing, refreshed in place, human-merged. The inline bash for branch, commit,
-PR and supersede handling is deleted.
+reusable workflow, on its current weekly schedule. The PR lifecycle is the same:
+one PR or nothing, refreshed in place, human-merged. Three details change:
+
+- the branch becomes `upstream-refresh` (was `bot/bump-tools-<run id>`);
+- the title becomes the refresh commit subject;
+- a no-change run now closes a stale bump PR.
+
+The inline bash for branch, commit, PR and supersede handling is deleted.
 
 ### 5.8 Adding and removing a series
 
@@ -425,14 +442,16 @@ the next normal `vrg-release`.
   that PBS ships (3.14.9 or later) and `vergil-python3.15` at its newest, and
   both install side by side.
 - A release with unchanged inputs (engine change only) publishes every series
-  under new versions, and the index accepts it.
+  under new versions, and the index accepts it. The first two-series release
+  proves this for any series whose inputs haven't moved, which is likely 3.15.
+  If every series moved first, the check carries to the next release.
 - `vrg-upstream-refresh`:
   - opens one PR for a pending refresh;
   - refreshes it on rerun;
   - closes a stale one on a no-change run;
   - exits quietly when there's nothing to do.
-- vergil-containers' tool bumps run through `vrg-upstream-refresh` with no change
-  in behaviour.
+- vergil-containers' tool bumps run through `vrg-upstream-refresh`, with the same
+  PR lifecycle (§5.7).
 - A normal `vrg-release` of vergil-python no longer touches the series.
 - Tests show:
   - the hook refreshes each series independently;
@@ -472,6 +491,13 @@ the next normal `vrg-release`.
 6. The version join happens once, in vergil-tooling.
 7. The served-runtime parser is fixed now, although no repo pins a runtime
    today.
+8. At most one pinned `python`-builder package per repo, with more refused
+   loudly (alignment).
+9. The first two-series release (D3) is the real-index proof of an engine-only
+   release (alignment).
+10. `rpm` goes into every dev image as dpkg's peer
+    (vergil-project/vergil-containers#692), so the rpm ordering tests fail
+    rather than skip (alignment).
 
 **Agent's calls (correct any that are wrong):**
 
