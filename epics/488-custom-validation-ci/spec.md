@@ -2,8 +2,11 @@
 
 - **Epic:** vergil-project/.github#488
 - **Planning issue:** vergil-project/.github#476
-- **Status:** Draft design (2026-10-26)
+- **Status:** Reviewed design (2026-10-26), after pushback
 - **Brainstorm source:** superpowers brainstorming session, 2026-10-26
+- **Review:** paad pushback, 2 issues, both resolved. The epic is now
+  fleet-wide across the active orgs, and vergil-containers' duplicate pins
+  job is removed.
 - **Implemented in:** vergil-tooling, vergil-actions, then fixes in each
   consumer repo that has a custom validator
 - **Found while implementing:** vergil-project/packages#22
@@ -19,7 +22,8 @@ workflows run `vrg-validate --check common|lint|typecheck|test|audit`, and
 PR CI.
 
 Five vergil-project repos have one today: packages, vergil-claude-plugin,
-vergil-containers, vergil-python and vergil-vm. Whatever their custom
+vergil-containers, vergil-python and vergil-vm. They are the only custom
+validators in the active fleet (§3.4). Whatever their custom
 validators catch can be merged by a PR that skipped local validation. The
 documented claim that local `vrg-validate` matches PR CI is false for this
 stage. This is a long-standing gap in the validation model, not a corner case.
@@ -38,7 +42,8 @@ stage in real PR CI.
 - The vergil-actions quality workflow runs it on every PR for every consumer.
 - Its transcript is a quality evidence report, and its result gates
   `quality / evidence`.
-- Every vergil-project repo with a custom validator is green under it.
+- Every repo in the active fleet (§3.4) with a custom validator is green
+  under it.
 - The docs stop claiming parity that doesn't exist, and describe the custom
   stage as part of CI.
 
@@ -49,7 +54,13 @@ stage in real PR CI.
 - No change to how a repo defines its custom validator, or to discovery order
   (the PATH entry point, then `scripts/bin/validate-custom`).
 - No per-version matrix for the custom stage. It runs once.
-- No redesign of the five validators beyond what each needs to pass in CI.
+- No redesign of the five validators beyond what each needs to pass in CI,
+  apart from the two cleanups in §3.4 (vergil-vm's stale `tofu` skip, and
+  vergil-containers' duplicate pins job).
+- No work in on-hold orgs (diogenes-project, mnemosys-project,
+  vergils-nemesis). They need a larger revival before any of this applies.
+  diogenes-project/diogenes has a custom validator, but it is pinned to v2.0,
+  so this change never reaches it.
 
 **Anti-goals** (failures even if the mechanism technically works)
 
@@ -60,9 +71,10 @@ stage in real PR CI.
 - **Green-by-absence.** If the custom job fails or is skipped, the
   `quality / evidence` gate must fail. A missing job must never let the gate go
   green.
-- **Different environments.** The custom stage in CI must not run somewhere
-  that differs from where it runs locally, so that a repo is never green
-  locally and red in CI, or the reverse, for environmental reasons alone.
+- **A new environment difference.** CI quality jobs run on the prod image,
+  while local `vrg-validate` runs in the dev container. That split already
+  applies to every stage. The custom job must run on the same image as the
+  `common` job, so it adds no environment difference of its own.
 
 ## 3. Design
 
@@ -96,9 +108,12 @@ The job is modelled on the existing **`common`** job, not the matrix legs:
   the same image `common` uses.
 - Steps: checkout, then the shared `setup/vergil` action. That action installs
   vergil-tooling, so `vrg-package` and the other `vrg-*` tools are on PATH as
-  they are in the dev container. Next come the Python interpreter pin and
-  `uv sync --group dev --frozen` when `language == 'python'`, mirroring lint,
-  so a Python repo's validator sees its dev dependencies. Then:
+  they are in the dev container. Next come the Python interpreter pin
+  (`pin-python`, with the primary version) and `uv sync --group dev --frozen`
+  when `language == 'python'`, mirroring lint, so a Python repo's validator
+  sees its dev dependencies. The `setup` job currently exports only
+  `primary-container-tag` and `primary-container-suffix`, so it must also
+  export `primary-version` for that pin. Then:
 
   ```bash
   set -euo pipefail
@@ -118,7 +133,14 @@ The job is modelled on the existing **`common`** job, not the matrix legs:
 
 ### 3.3 Release and rollout — fail forward
 
-All consumers call the reusable workflows through the floating `@v2.1` tag. A
+**Assumption: vergil-tooling has a single deployed version.** Every user of
+the fleet is its one owner, and a vergil-tooling release replaces every active
+install. That covers the host `uv tool install` at the end of the release, the
+container install done on each container run, and the VM install after a
+release. No older vergil-tooling stays in use, so the CI job needs no guard
+against tooling that lacks `--check custom`.
+
+Every active consumer calls the reusable workflows through the floating `@v2.1` tag. A
 vergil-actions release therefore makes the custom stage **required in every
 consumer at once**. We accept that deliberately. This is a scale-of-one
 environment with no concurrent contributors to block. A short window in which
@@ -138,7 +160,27 @@ Sequence:
 Releases are **human-gated**. The deployment task that carries steps 2 and 4
 records them as attested preconditions. The agent never cuts a release.
 
-### 3.4 Per-repo validation
+### 3.4 Fleet scope and per-repo validation
+
+**The update covers the whole active fleet.** The active orgs are
+vergil-project, logical-minds-foundry and mq-rest-admin-project. Every repo in
+them, including each `.github`, is checked out under
+`~/dev/projects/<org>/<repo>`, and that tree is the inventory source. GitHub
+code search is not used, because it is unreliable here: it finds only 2 of
+the 5 known vergil-project validators. A repo has a custom validator when it
+has `scripts/bin/validate-custom`, or declares a `vrg-validate-custom` entry
+point.
+
+The inventory at design time (2026-10-26) found the five vergil-project repos
+and nothing in logical-minds-foundry or mq-rest-admin-project. The deployment
+task re-runs the inventory just before the vergil-actions release, so a
+validator added in the meantime is not missed.
+
+**Tracking across orgs.** A vergil-project repo's tasks link under #488
+directly. A repo in another active org gets its validation task under that
+org's ad-hoc epic, filed in that repo, and is weakly linked from #488 by a
+comment. GitHub cannot link sub-issues across orgs. The epic is not done until
+every such task, in any org, has closed with SUCCESS.
 
 Each repo with a custom validator gets its own **validation** task, filed in
 that repo and blocked by the deployment task. It passes when a real PR CI run
@@ -152,37 +194,33 @@ in that repo, after the release, shows all of the following:
 A failing repo gets a fix task, filed in that repo under the epic. The
 validation task stays open until the fix lands and a later CI run passes.
 
-Known risks to check during validation (these are guesses, not findings):
+Per-repo requirements beyond passing:
 
-- **vergil-vm** prints a `SKIP` and still passes when `tofu` isn't installed.
-  Validation must record whether the CI image has `tofu`. If it doesn't, the
-  HCL checks are still not enforced in CI. That gap is tracked by
-  vergil-docker#352 and must be reported, not hidden.
-- **vergil-python** and **packages** need `vrg-package`, which the setup
-  action should provide.
-- **vergil-containers** already runs the same checks in its own
-  `quality / pins` job. Running them in both places is redundant but not
-  broken.
+- **vergil-vm:** the base image includes OpenTofu
+  (`docker/base/Dockerfile.template` includes `common/opentofu.dockerfile`),
+  so the script's `SKIP: tofu not installed (vergil-docker#352)` branch is
+  stale. A missing `tofu` must be a hard error, not a skip that still exits 0.
+  That is the "no silent pass" anti-goal. Validation fails if the log shows the
+  `SKIP` line, and the fix changes that branch to fail.
+- **vergil-containers:** its `quality / pins` job in `ci.yml` runs exactly the
+  steps its custom validator runs. It existed only because the custom stage
+  never ran in CI. Once a PR shows the custom job running all five checks
+  green, remove the `quality / pins` job and the validator's "keep this list
+  in step with the pins job" comment, so there is one copy of the checks.
+
+Risk to watch: **vergil-python** and **packages** need `vrg-package`. The
+setup action's vergil-tooling install should provide it.
 
 ## 4. Done when
 
 - `vrg-validate --check custom` is released in vergil-tooling.
 - The `custom` job is released in vergil-actions under `v2.1` and folded into
   `quality / evidence`.
-- All five validation tasks have closed with `Outcome: SUCCESS`, and any fix
-  tasks they spawned have merged.
+- Every validation task in the active fleet, the five known ones plus any the
+  pre-release inventory adds, has closed with `Outcome: SUCCESS`, and any fix
+  tasks they spawned have merged. That includes vergil-vm's hard failure on a
+  missing `tofu` and the removal of vergil-containers' `quality / pins` job.
 - The docs review has landed. It covers `docs/site/docs/guides/ci-architecture.md`,
   `docs/site/docs/guides/validation-matrix.md`,
   `docs/site/docs/guides/ci-evidence-convention.md`, the vergil-actions
   workflow docs, and the "local matches PR CI" claims.
-
-## 5. Open questions for review
-
-1. **Consumers outside vergil-project.** Repos in other orgs also call
-   `vergil-actions@v2.1`. Any of them with a custom validator becomes required
-   at the same release. Cross-org linking is out of scope for this epic. Should
-   validation still check those repos, outside the epic, or is that their
-   owners' concern?
-2. **vergil-containers `quality / pins`.** Once the custom stage runs in CI,
-   should the bespoke pins job be removed under this epic, or left to a
-   follow-on?
