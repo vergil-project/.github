@@ -2,12 +2,111 @@
 
 - **Epic:** vergil-project/.github#213
 - **Status:** Design approved 2026-08-05 (brainstormed directly via `epic-create`;
-  revised after `paad:pushback`).
+  revised after `paad:pushback`). **Rebased 2026-10-26** onto the post-#407
+  tree (§0); where §0 and the original sections disagree, §0 wins.
 - **Repos:** vergil-project/vergil-containers (build system + CI — the bulk of the
   work), vergil-project/.github (epic docs), vergil-project/vergil-tooling
   (`docs/site` CI-architecture guide, doc-review sweep only — no code change; the
   consumer-side image resolver is untouched). Epic homed in `.github`.
 - **Promoted from:** direct brainstorm (no triage origin).
+
+## 0. Rebase (2026-10-26)
+
+The epic sat unstarted for nearly three months while the container repo changed
+underneath it. This section re-evaluates the design against the tree at
+vergil-containers `5a6bd76` (2026-10-26). The original sections (§1–§9) are
+kept as the design record; this section supersedes them where they disagree.
+
+### 0.1 What changed underneath the plan
+
+- **Epic #407 shipped most of Stage A, in a different shape.** The single
+  source of truth is `docker/versions/manifest.yml` (loaded and validated by
+  `docker/versions/manifest.py`), not `docker/languages.yml`. `generate.py`
+  writes `docker/versions/matrix.json`, the build block in `docker/build.sh`,
+  the `package-cleanup.yml` lists, the Dockerfile `ARG` defaults and the docs
+  tables, and `generate.py --check` is the drift gate (run by
+  `scripts/bin/validate-custom`, which PR CI runs as `quality / custom`).
+  `cd-docker-publish.yml` already builds `fromJSON(matrix.json)`, and the
+  nightly inherits it. The one Stage A piece still missing: `base` is still a
+  separate, duplicated `publish-base` job rather than a matrix entry.
+- **The image set changed.** Ruby and GCC 13 were dropped (#625); ts-node 22/24
+  (#522, #532), Python 3.15 (#650) and Go 1.27 (#651) were added. There are now
+  15 language variants plus `base` per prefix.
+- **Version adds and drops are automated.** The nightly lifecycle check opens
+  add/drop PRs that edit `manifest.yml` and its generated files. These are now
+  the most common "one family changed" event, and a path-only selector cannot
+  tell which family a `manifest.yml` edit touches.
+- **A new requirement came in from epic #407** (comment on this epic,
+  2026-10-22): PR CI never builds or scans images (it only lints the generated
+  Dockerfiles), so a lifecycle add PR whose image fails to build or fails the
+  CVE gate is first caught by CD after the merge. Building and scanning the
+  images a PR changes was deferred to this epic. This promotes the §9 ledger
+  item "Option B — PR-time build-validation" into scope.
+
+### 0.2 What the data now says
+
+From the 2026-10-26 nightly (`ops.yml` run 40330999888) and recent `cd.yml`
+runs:
+
+| Measurement | Value |
+|---|---|
+| Develop-push CD with a warm cache | 3–4 min end to end |
+| Nightly publish runner time | ~566 runner-min across 32 publish jobs; ~65 min wall-clock |
+| Go + Rust share of that | 55% (310 runner-min) |
+| Image build step: python 3.14 / go 1.26 / rust 1.92 | 384s / 1792s / 3013s |
+
+The build steps that dominate are the ones that compile tools for the arm64
+half of the image under QEMU. This is the only emulation anywhere in the stack:
+the runtime paths (Lima on the Mac, `vrg-container-run`, the published
+multi-arch images) are all native, and the `.deb`/`.rpm` package builds already
+run on native `ubuntu-24.04-arm` runners (vergil-tooling
+`lib/package/matrix.py`). The follow-on policy and guard against emulation is
+tracked separately as vergil-project/.github#527.
+
+### 0.3 Decisions (2026-10-26)
+
+1. **Native arm64 (Stage C) goes first.** It is the biggest measured win,
+   removes the only emulation in the stack, and depends on nothing else. It also
+   absorbs the rest of Stage A: folding `base` into the matrix.
+2. **Selectivity moves from the `develop`-push publish to PR CI.** With a warm
+   cache a full post-merge publish already takes 3–4 minutes, so selective
+   post-merge builds buy little. **Post-merge CD stays full** (human decision),
+   which also proves every merge still builds every image. Selectivity now
+   serves the #407 requirement instead: PR CI builds and scans, without pushing,
+   only the images the PR changes. The aggregating gate (§4.2, §4.5) is now a
+   real PR required check. As originally specified it sat on a push-triggered
+   workflow, where it could not gate a PR.
+3. **Selection reads the generated matrix as well as paths.** A change to
+   `manifest.yml` selects the families whose `matrix.json` entries differ
+   between the base and head of the PR. Template and fragment changes still map
+   through the derived `@include` graph (§4.2). Almost every image includes the
+   same eight `common/` fragments, so a change to one of those still selects
+   nearly everything. That is expected: the win is for per-family templates,
+   per-family fragments and lifecycle PRs.
+4. **Stage 0 is dropped.** The nightly job timings above are the no-cache
+   baseline, measured where it matters (CI). T7 records before/after numbers
+   from nightly runs.
+5. **Stage D1 (`common-tools`) is closed as won't-do** (human decision). The
+   cost sits in compiled toolchains under emulation, not the nine downloaded
+   binaries, and the pins machinery (`extract_pins.py`, `upstream-refresh.sh`,
+   `CATALOG.md`) now depends on the `docker/common/` fragment layout, which
+   raises D1's cost. If post-T7 timings disagree, it can be refiled as a new
+   item. D2 stays in the ledger, unchanged.
+
+### 0.4 Rebased stages
+
+| Stage | Status |
+|---|---|
+| 0 — instrument | Dropped (§0.3.4) |
+| A — manifest + generated matrix | Done by #407, except folding `base` into the matrix, which moves into C |
+| C — native arm64 + `base` fold | **First** |
+| B — selective build | Retargeted to PR CI: build and scan only, no push |
+| D1 — `common-tools` | Won't-do |
+| Cold-rebuild validation | Kept, updated for the new shape |
+
+The invariants in §4.6 are unchanged: no GHCR name or tag changes, release
+rebuilds the full `prod` matrix, and the nightly rebuilds everything with
+`no-cache`.
 
 ## 1. Summary
 
@@ -395,7 +494,9 @@ only by unit checks — this is an infrastructure epic. A `validation`-kind task
   language on a PR, catching image breakage pre-merge. Deferred, not core:
   post-merge build failures are already caught (the `develop`-push build runs, and
   `vrg-finalize-pr`/`vrg-submit-pr` sanity-check post-merge runs and warn). Revisit
-  if pre-merge breakage becomes a real pain.
+  if pre-merge breakage becomes a real pain. **Promoted into scope by the
+  2026-10-26 rebase (§0.3.2)** after epic #407 showed that lifecycle add PRs
+  break images that only post-merge CD catches.
 - **D2 — shared runtime base for the runtime-heavy tools** (`node`+markdownlint,
   `python3`+uv tools, `pandoc`, `gh`, `semgrep`, mkdocs). Requires language images
   to `FROM` a shared base instead of the official upstream images. Considered only
@@ -403,11 +504,14 @@ only by unit checks — this is an infrastructure epic. A `validation`-kind task
   official images' convenience and security cadence.
 - **`common-tools` publication surface** (D1): published GHCR image (like `base`)
   vs. local-only build stage. Leaning published for CD reuse; settle in Stage D1.
+  **Moot since the rebase:** D1 is won't-do (§0.3.5).
 - **Manifest schema finalization**: exact keys, and whether per-version overrides
   (a version-specific base image or build-arg) are needed now or deferred until a
   language demands one (YAGNI).
 - **Stage C runner strategy**: GitHub-hosted `ubuntu-24.04-arm` vs. any self-hosted
-  option; whether amd64 also benefits from a larger runner class.
+  option; whether amd64 also benefits from a larger runner class. **Settled by
+  the rebase:** GitHub-hosted `ubuntu-24.04-arm`, the same runner the org's
+  package builds already use (§0.2); larger runner classes stay out of scope.
 - **First "add a language" proof**: adding a new language (e.g. the long-mooted
   Perl, or Swift per the C++ epic's LLVM setup) is the natural validation that the
   manifest achieved its goal — a *follow-on*, not scoped here.
