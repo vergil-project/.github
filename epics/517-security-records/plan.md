@@ -504,5 +504,6 @@ audit, not a code change.
 - **Types:** `Advisory`, `SecurityIssue`, `Classification` and
   `RetargetError` are defined in Task 2 and used under the same names in
   Tasks 3–6.
-- **Proportion:** this plan is shorter than the spec. It gives signatures
-  and test names, not bodies.
+- **Proportion:** this plan is about 1.3 times the spec's length, and it
+  carries no function bodies, only signatures, rules and test names. The
+  extra length is the five implementation tasks' interface blocks.
