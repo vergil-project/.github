@@ -9,8 +9,9 @@
 - **Absorbs:** vergil-project/.github#469 (iterating pushback/alignment) and
   vergil-project/vergil-claude-plugin#677 (agentic-review before report-ready).
 - **Related:** vergil-project/.github#88 (inter-issue / epic dependency
-  metadata). This umbrella is the first real test of epics nested under an
-  epic. vergil-project/.github#90 (automated PR-review agent) stays deferred
+  metadata). This umbrella tracks its children with text links and gate
+  tasks, not nested epics. Native nesting is left to #88.
+  vergil-project/.github#90 (automated PR-review agent) stays deferred
   and waits on child D below.
 
 ## 1. Intent
@@ -376,45 +377,47 @@ review between them and pause for a human only when they can't.
   A `verifier-warning` (for example `verifier ref-token-missing`) or a missing
   structural element counts as a **failed round** and pauses the run. It is
   never treated as a pass. D adapts these checks to whatever output routing
-  it designs (H3).
+  it designs.
 
 ## 4. Child items and dependencies
 
 Ad hoc dependency handling until .github#88 provides a real mechanism:
-- child epics are **sub-issues of the umbrella epic**;
-- each child's body names the umbrella and its prerequisites
-  (`Depends on: <ref>`);
+- children are linked to the umbrella **by text only**. Each child's body
+  names the umbrella (`Umbrella:`) and its prerequisites (`Depends on:`). A
+  child epic stays top-level, because `vrg-epic-create` makes top-level epics
+  and `vrg-epic-link` refuses to nest an epic (vergil-tooling #3591);
+- **gate tasks** (below) are what hold the umbrella open;
 - this table is the authoritative map.
 
 **Order.**
 The order follows the dependencies only; anything without a dependency runs
 whenever it is ready.
-- **A, B and G** have no dependencies and can run in parallel. A is the first
+- **A and B** have no dependencies and can run in parallel. A is the first
   priority: the security-finding infrastructure and its tooling must exist
   before any child that produces findings (C and D) runs.
-- **C and D** need A, B and G.
+- **C and D** need A and B.
 - **E** needs B.
 - **F** comes last.
 
 **Lifecycle of a child.**
 - Until it is promoted, a child that starts as a planning item sits under the
-  planning queue epic (.github#439), as every planning item does. Its link to
-  the umbrella exists only in text: an `Umbrella:` line and a `Depends on:`
-  line in its body.
-- When `epic-create` promotes it, the new epic is parented under the umbrella
-  and the planning item is closed.
-- **Gate tasks hold the umbrella open**. The text-only
-  `Umbrella:` lines do not count toward rollup, so each of A, C, D, E and F
-  gets a **gate task** filed under the umbrella when the umbrella is set up,
-  titled `Child <X> complete: <name>`.
+  planning queue epic (.github#439), as every planning item does.
+- When `epic-create` promotes it, the new epic is created top-level with an
+  `Umbrella:` line in its body, and the planning item is closed with a
+  `Planned as <epic>` comment.
+- **Gate tasks hold the umbrella open.** Text links do not count toward
+  rollup, so each of A, C, D, E and F gets a **gate task** filed under the
+  umbrella when the umbrella is set up, titled `Child <X> complete: <name>`.
   - It is a `validation`-kind task.
-  - Its precondition is that the child's epic is closed, or for a child that
-    never becomes an epic, that its planning item is resolved.
+  - It names its child's planning item.
+  - Its precondition is that the child's work is finished: the planning item
+    is closed, and every issue its closing comment names (`Planned as <epic>`
+    or `Filed as task <ref>`) is closed too.
   - It closes on `Outcome: SUCCESS` through `issue-validate`, which is
     existing machinery.
-  - Gate tasks are **retrospective guards only**. They carry no `Blocked-by:`
-    links: with those links, a gate would become "runnable" as soon as its
-    child *may start*, and then fail its own precondition over and over. The dependency order lives only in the table
+  - Gate tasks carry no `Blocked-by:` links. With those links, a gate would
+    become "runnable" as soon as its child *may start*, and then fail its own
+    precondition over and over. The dependency order lives only in the table
     below and in each child's `Depends on:` line. The plan schedules every
     gate task to run last, just before the retrospective.
   - The umbrella's retrospective cannot run until every gate task is closed.
@@ -422,13 +425,12 @@ whenever it is ready.
 **How the umbrella itself runs.**
 - It goes through the normal `epic-create` pipeline: spec (this document),
   pushback, plan, alignment, docs PR, and the bookend tasks.
-- It uses today's single-pass pushback and alignment, since C does not exist
-  yet. Running rounds by hand is fine.
-- Its `plan.md` covers B, G, filing and linking the child planning items, the
-  gate tasks, the dependency order, and the bookends.
-- `epic-implement` on the umbrella runs B and G and stops at each child epic,
-  which G requires.
-- The retrospective runs last, after every child epic has closed.
+- Its `plan.md` covers B, filing the child planning items, the gate tasks,
+  the dependency order, and the bookends.
+- `epic-implement` on the umbrella runs B's tasks. Child epics are not its
+  sub-issues, so it never meets them; each child epic gets its own
+  `epic-implement` run.
+- The retrospective runs last, after every gate task has closed.
 
 **How binding section 3 is**.
 Section 3 holds two kinds of content.
@@ -451,9 +453,8 @@ Section 3 holds two kinds of content.
 |---|---|---|---|
 | A | Security-finding handling | planning item, then a small epic | none |
 | B | paad 2.0 compatibility and hygiene | task under the umbrella | none |
-| G | Nested-epic support (minimal) | task under the umbrella | none |
-| C | Iterating design review in `epic-create` (mode 1) | planning item, then an epic (absorbs .github#469) | A, B, G |
-| D | Agentic review in `issue-implement` (mode 2) | planning item, then an epic (absorbs plugin#677) | A, B, G |
+| C | Iterating design review in `epic-create` (mode 1) | planning item, then an epic (absorbs .github#469) | A, B |
+| D | Agentic review in `issue-implement` (mode 2) | planning item, then an epic (absorbs plugin#677) | A, B |
 | E | Steering-file and Claude settings review | planning item | B |
 | F | Wider paad adoption | planning item | C, D |
 
@@ -488,43 +489,14 @@ Section 3 holds two kinds of content.
     report files are not needed for them; record whichever is
     chosen in the deviations register.
 - Settle the overlap between `paad:handoff` and `vergil:handoff`.
-- Decide whether to adopt `paad/config/` (experimental) and pin the paad
-  version if so.
-- Check that paad is installed on the agent VMs (.github#69 noted that
-  third-party marketplaces did not reach cloud VMs). D needs paad wherever
-  `issue-implement` runs.
-
-**G. Nested-epic support (minimal).**
-- `epic-implement`: if a runnable child of the epic is itself an epic, stop and
-  tell the human to run `epic-implement` on that child. **Never recurse.**
-- Verify, and fix if needed, that rollup cascades: when a child epic closes by
-  rollup, its parent epic rolls up once all of the parent's children are
-  closed. The relevant code is `epics.py:1465` and the `on: issues.closed`
-  Action.
-- Verify that `vrg-epic-audit` accepts an epic whose parent is an epic.
-- **A sanctioned way to link a child epic**. Today
-  `vrg-epic-create` creates top-level epics only, and `vrg-epic-link` refuses
-  any `epic`-labelled issue (vergil-tooling #3591, `vrg_epic_link.py:59-65`).
-  Add a narrow way to link one epic under another, for example
-  `vrg-epic-link --child-epic`:
-  - it accepts the `epic` label and nothing else;
-  - it still refuses archives and standing (ad-hoc, intake, planning) epics;
-  - it keeps the visibility guard.
-
-  This deliberately relaxes #3591 for that one case.
-
-**G's scope tripwire.** G must stay small: the link option,
-epic-implement's stop rule, and the two checks above. The purpose of this
-umbrella is the paad upgrades; testing nested epics is a side benefit and
-must not take over the epic. If G grows beyond that, stop G, return to the
-human, and reconsider. Signs it has grown:
-- changing rollup semantics;
-- reworking `vrg-epic-audit`'s invariants;
-- recursion in `epic-implement`;
-- anything that looks like .github#88's general dependency mechanism.
-
-The fallback is to turn the umbrella into a tracking document with text-only
-links.
+- **paad version:** unpinned, following the latest release.
+  - Agent VMs install plugins from the user-level `~/.claude/settings.json`
+    copied from the host, and `vrg-vm update` moves every enabled plugin to
+    its latest version, so a pin would not hold where agents run.
+  - Every `paad/config/` file that C or D adopts names the paad version it was
+    written for, and D detects version drift.
+- Check that paad is installed on the agent VMs, through the user-level
+  settings. D needs paad wherever `issue-implement` runs.
 
 **C. Iterating design review in `epic-create`.**
 - Implement mode 1 (3.2) across the three review stages: spec pushback, plan
