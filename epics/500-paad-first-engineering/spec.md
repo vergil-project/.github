@@ -2,7 +2,7 @@
 
 - **Epic:** vergil-project/.github#500
 - **Planning issue:** vergil-project/.github#499
-- **Status:** approved design (2026-10-26); pushback pending
+- **Status:** approved design (2026-10-26); spec pushback round 1 done
 - **Brainstorm source:** superpowers brainstorming session, 2026-10-26
 - **Absorbs:** vergil-project/.github#469 (iterating pushback/alignment) and
   vergil-project/vergil-claude-plugin#677 (agentic-review before report-ready).
@@ -110,6 +110,22 @@ chosen by **whether a human is in the loop**, and both share a common core.
   - **new:** a problem with the original design or implementation;
   - **known:** already raised or deliberately accepted in an earlier round;
   - **repair:** the problem is in something a previous round added.
+
+  **The reviewer never classifies; the orchestrator does,** after the round
+  (pushback round 1, M2). In mode 1 that is the main session, and in mode 2
+  the implementer. It matches each finding against the iteration log or the
+  issue-comment history and the diffs of earlier rounds. Keeping this step
+  out of the reviewer preserves the reviewer's fresh context.
+- **Precedence** (pushback round 1, L2):
+  - continue signals override stop signals;
+  - in mode 2, the rules in 3.3 override those in 3.1. For example, a round
+    that is mostly repairs is a *stop* signal in mode 1 but a *pause* in
+    mode 2.
+- **Severity scale for design reviews** (pushback round 1, L2). pushback and
+  alignment rank findings but use no severity levels. The orchestrator assigns
+  each one *high*, *medium* or *low*, so that checkpoint counts mean the same
+  thing from round to round. agentic-review keeps its own Critical, Important
+  and Suggestion levels.
 - **Stop signals:**
   - a round raises nothing new (the authors' rule: "stop when a pass returns
     nothing you did not already know");
@@ -171,7 +187,28 @@ human.
   - one to three lines on what changed and why;
   - who decided to continue or stop, and why.
   It replaces today's one-line `Review: paad pushback, N issues…` header and
-  the ad hoc "Alignment (paad, …)" bullet.
+  the ad hoc "Alignment (paad, …)" bullet. Each entry points to that round's
+  planning-issue comment.
+- **The full record goes in planning-issue comments** (pushback round 1, M3;
+  human decision).
+  - **What gets posted:** after each round, the main session posts a comment
+    on the epic's planning issue with every finding, the human's decision on
+    each, and the checkpoint report.
+  - **Security findings** appear only as counts, with their details kept
+    where child A's mechanism keeps them.
+  - **Dropped findings** carry the human's reason, or go to intake (2.4).
+  - **The planning issue is required,** as `epic-create` already requires
+    today; when there is none, step 0 creates one. Its comments become the
+    permanent log of how the epic was planned, from the original idea (often
+    an intake item) through every design-review round. It is expected to grow
+    large.
+  - **Afterwards:** when the planning issue closes, `epic-create` re-parents
+    it under the epic it produced, as a closed child, instead of letting the
+    planning epic's archive drain take it. The planning history then stays
+    attached to the epic.
+  - **Why issues and not paad's report files:** the spec, the plan, the
+    retrospective and the issues are our durable record. paad's report files
+    are not used for mode 1.
 
 ### 3.3 Mode 2: autonomous (agentic-review in `issue-implement`)
 
@@ -224,7 +261,9 @@ review between them and pause for a human only when they can't.
 - **Pass:** a round with no blocking findings. The run continues to
   report-ready.
 - **Pause for the human** (the run stops and says why) when:
-  - blocking findings remain after round 3;
+  - round 3 had any blocking finding, fixed or not (pushback round 1, M1).
+    When the human resumes the run, they may allow more rounds; without that,
+    the cap is 3 reviewed rounds;
   - the implementer wants to dismiss a blocking finding as wrong;
   - most of a round's findings are repairs of the previous round's fixes.
 - **Honest handoff.** The report-ready notes, and the summary shown to the
@@ -267,7 +306,9 @@ review between them and pause for a human only when they can't.
   ends with a report. It stops on its own in only four cases, and each is
   avoided by construction:
   1. *The conversation has history:* a fresh subagent has none.
-  2. *Uncommitted changes:* the implementer commits first.
+  2. *Uncommitted changes:* the implementer commits first. paad's own output
+     files also count as uncommitted changes, and are handled by the
+     output-redirection requirement below.
   3. *`paad/security/.gitignore` is missing or wrong:* it is created up front
      (child B).
   4. *Ambiguous arguments:* the base is passed explicitly.
@@ -276,13 +317,39 @@ review between them and pause for a human only when they can't.
   "unattended run: never ask, finish with the report". This is paad's
   experimental config mechanism (CONFIG.md), so the paad version should be
   pinned if we rely on it. If neither works, raise it with the paad authors.
+- **Results come back through the issue, not the file system** (pushback
+  round 1, H3; human decision).
+  - **What paad does by default:** agentic-review returns its results as files
+    (`paad/code-reviews/<report>.md`, `backlog.md`). Left untracked, those
+    files make round 2's clean-state check stop and ask, and they make
+    `vrg-finalize-pr` treat the worktree as dirty (`worktrees.py:292-293`).
+  - **Why we can change it:** paad's file layout is its chosen mechanism, not
+    a requirement. We already replaced it for specs and plans with our own
+    `epics/` layout. paad's skills are instructions to an agent, not a library
+    API, so our own instructions (the subagent prompt and
+    `paad/config/agentic-review.md`) can redirect how results reach the
+    caller, as long as they stay compatible with paad's.
+  - **D designs this,** with three requirements:
+    - the results reach the implementer through the subagent's answer and are
+      recorded in issue comments;
+    - no paad output is left untracked in the worktree between rounds or at
+      finalize;
+    - paad's de-duplication of out-of-scope findings is either preserved or
+      deliberately replaced (for example by matching against intake), and the
+      choice goes in the deviations register.
+  - **If we can't redirect it ourselves,** take it to the paad authors and
+    ask for an option to configure where output goes.
 - **Checking the output every time.** Because this step is not deterministic,
-  each run checks the report's structure rather than trusting its prose:
-  - the `[ref-loaded:verifier]` handling recorded in Review Metadata;
-  - a `Config:` line when a config file was used;
-  - the presence of the counts line.
-  A malformed report counts as a failed round and pauses the run. It is never
-  treated as a pass.
+  each run checks two outputs, by their structure rather than their prose
+  (pushback round 1, L1):
+  - **the report:** its Review Metadata has no `verifier-warning` line;
+  - **the orchestrator's final answer:** it has the counts line, and a
+    `Config:` line when a config file was used.
+
+  A `verifier-warning` (for example `verifier ref-token-missing`) or a missing
+  structural element counts as a **failed round** and pauses the run. It is
+  never treated as a pass. D adapts these checks to whatever output routing
+  it designs (H3).
 
 ## 4. Child items and dependencies
 
@@ -293,12 +360,14 @@ Ad hoc dependency handling until .github#88 provides a real mechanism:
 - this table is the authoritative map.
 
 **Order (human decision).**
-1. **A comes first**, ahead of everything else. The security-finding
-   infrastructure and its tooling must exist before any other child runs.
-2. **B and G** come next.
-3. **C and D** need A, B and G.
-4. **E** needs B.
-5. **F** comes last.
+The order follows the dependencies only; anything without a dependency runs
+whenever it is ready (pushback round 1, M4).
+- **A, B and G** have no dependencies and can run in parallel. A is the first
+  priority: the security-finding infrastructure and its tooling must exist
+  before any child that produces findings (C and D) runs.
+- **C and D** need A, B and G.
+- **E** needs B.
+- **F** comes last.
 
 **Lifecycle of a child.**
 - Until it is promoted, a child that starts as a planning item sits under the
@@ -307,9 +376,19 @@ Ad hoc dependency handling until .github#88 provides a real mechanism:
   line in its body.
 - When `epic-create` promotes it, the new epic is parented under the umbrella
   and the planning item is closed.
-- While children are still in planning, the umbrella can't roll up, because
-  B and G (its direct task children) and the umbrella's bookend tasks keep it
-  open.
+- **Gate tasks hold the umbrella open** (pushback round 1, H2). The text-only
+  `Umbrella:` lines do not count toward rollup, so each of A, C, D, E and F
+  gets a **gate task** filed under the umbrella when the umbrella is set up,
+  titled `Child <X> complete: <name>`.
+  - It is a `validation`-kind task.
+  - Its precondition is that the child's epic is closed, or for a child that
+    never becomes an epic, that its planning item is resolved.
+  - It closes on `Outcome: SUCCESS` through `issue-validate`, which is
+    existing machinery.
+  - Gate tasks carry the dependency order as `Blocked-by:` reflinks, so
+    `vrg-epic-audit` reports which children are runnable and which are blocked.
+  - The umbrella's retrospective cannot run until every gate task is closed.
+  - *My call:* use `validation` tasks rather than a new kind.
 
 **How the umbrella itself runs.**
 - It goes through the normal `epic-create` pipeline: spec (this document),
@@ -317,7 +396,7 @@ Ad hoc dependency handling until .github#88 provides a real mechanism:
 - It uses today's single-pass pushback and alignment, since C does not exist
   yet. Running rounds by hand is fine.
 - Its `plan.md` covers B, G, filing and linking the child planning items, the
-  dependency order, and the bookends.
+  gate tasks, the dependency order, and the bookends.
 - `epic-implement` on the umbrella runs B and G and stops at each child epic,
   which G requires.
 - The retrospective runs last, after every child epic has closed.
@@ -382,13 +461,40 @@ Ad hoc dependency handling until .github#88 provides a real mechanism:
   closed. The relevant code is `epics.py:1465` and the `on: issues.closed`
   Action.
 - Verify that `vrg-epic-audit` accepts an epic whose parent is an epic.
+- **A sanctioned way to link a child epic** (pushback round 1, H1). Today
+  `vrg-epic-create` creates top-level epics only, and `vrg-epic-link` refuses
+  any `epic`-labelled issue (vergil-tooling #3591, `vrg_epic_link.py:59-65`).
+  Add a narrow way to link one epic under another, for example
+  `vrg-epic-link --child-epic`:
+  - it accepts the `epic` label and nothing else;
+  - it still refuses archives and standing (ad-hoc, intake, planning) epics;
+  - it keeps the visibility guard.
+
+  This deliberately relaxes #3591 for that one case.
+
+**G's scope tripwire (human decision).** G must stay small: the link option,
+epic-implement's stop rule, and the two checks above. The purpose of this
+umbrella is the paad upgrades; testing nested epics is a side benefit and
+must not take over the epic. If G grows beyond that, stop G, return to the
+human, and reconsider. Signs it has grown:
+- changing rollup semantics;
+- reworking `vrg-epic-audit`'s invariants;
+- recursion in `epic-implement`;
+- anything that looks like .github#88's general dependency mechanism.
+
+The fallback is to turn the umbrella into a tracking document with text-only
+links.
 
 **C. Iterating design review in `epic-create`.**
-- Implement mode 1 (3.2) across all four stages: spec pushback, plan pushback,
-  plan writing, and alignment.
+- Implement mode 1 (3.2) across the three review stages: spec pushback, plan
+  pushback, and alignment. Plan writing stays a single automated pass.
 - Write the shared doctrine as a reference document in the vergil plugin that
   C and D both point to. C owns writing it; D extends it.
-- Add the checkpoint report and the appendix log.
+- Add the checkpoint report, the appendix log, and the per-round comments on
+  the planning issue.
+- Re-parent the closed planning issue under its epic (3.2). This needs G's
+  narrow linking of an issue under an epic only if the archive drain
+  interferes. Check that the drain skips a re-parented issue.
 - Rewrite the pipeline description in the docs listed under "Current state".
 
 **D. Agentic review in `issue-implement`.**
@@ -509,3 +615,10 @@ deviation with a reason.
   unfrozen, and a resumed run continues the round count.
 - Intake filing at handoff applies to every task, not only ad-hoc ones. The
   retrospective sweep then serves as a check that nothing was missed.
+
+## Appendix: review log
+
+- **Spec pushback, round 1** (2026-10-26; record: https://github.com/vergil-project/.github/issues/499#issuecomment-6420626904).
+  - Counts: 10 raised and 10 accepted, 2 of them with changes; 0 rejected; 13 dropped by the reviewer. By class: 10 new, 0 known, 0 repair.
+  - Changes: G gained a narrow link option for child epics and a scope tripwire; gate tasks hold the umbrella open; mode 2 results return through the issue, not paad files; the round cap is made precise; mode 1 records go in planning-issue comments; the order follows dependencies only.
+  - Continue or stop: decided by the human (next entry).
