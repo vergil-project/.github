@@ -206,7 +206,9 @@ report all three.
 A deferred item is not buildable. `queue_kind` / `queue_item_kind` return
 `"deferred"`, and `vrg-pr-workflow report-ready` and `vrg-submit-pr` refuse it
 with the shared refusal message: "…it is deferred until its revival conditions
-are met. Revive it with deferred-review first." `vrg-epic-audit` treats deferred
+are met. Revive it with deferred-review first." The `issue-implement` skill's
+preflight refuses a deferred item the same way, before any work starts.
+`vrg-epic-audit` treats deferred
 children like other queue items: they are not PR-tracked tasks, and it reports
 them with "Run deferred-review."
 

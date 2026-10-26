@@ -177,9 +177,10 @@ Expected: FAIL (`AttributeError: ... has no attribute 'DEFERRED'`).
   4. Post `DEFER_COMMENT + "\n" + DEFERRED_FROM_LINE` (the old parent's slug).
 
   The link comes before the comment. If the comment fails after the move, raise
-  `RuntimeError`, saying the item is under the deferred epic without a record
-  and giving the `vrg-intake-route … defer` command to re-run. A re-run is a
-  refresh, so it posts the record.
+  `RuntimeError` saying the item is under the deferred epic without a record,
+  and print the **full intended comment, including the `Deferred from:` line**,
+  for posting by hand. A re-run of `defer` would be a refresh, which leaves out
+  that line, so the origin would be lost.
 - **Defer, refresh** (already deferred): post `DEFER_COMMENT` only. No link, and no `Deferred from:` line.
 - **Planning guard:** for Defer or Drop on a planning item, read its comments. If `parse_planning_markers(...).epic is not None`, refuse with "…has a development epic (<slug>); deferring or dropping it would orphan that epic".
 - **Ad-hoc guard:** for Defer on an ad-hoc item, read `gh issue view --json closedByPullRequestsReferences` and each PR's state. Refuse if any PR is `OPEN`, naming it.
@@ -292,7 +293,8 @@ def test_vrg_queue_bare_lists_all_three_and_tolerates_missing() -> None:
   - The entry-point table: add a row for an issue in the **deferred** queue. Pull it into planning first with `vrg-intake-route <ref> planning`.
   - Line ~207: the "do not invent states" note says to defer with `vrg-intake-route … defer`, not with a progress-comment state.
   - The parent-label check that identifies queues: `epic` + `deferred` is the deferred epic.
-- Modify: `skills/intake-capture/SKILL.md:18` (the route list) and `docs/site/docs/skills/index.md` (the intake-review row and section).
+- Modify: `skills/issue-implement/SKILL.md:56-76`. The "not an intake or planning item" preflight also stops on an `epic` + `deferred` parent, with the shared text `--issue (<ref>) is in the deferred queue; it is deferred until its revival conditions are met. Revive it with deferred-review first.` This way a deferred item is refused before any implementation work starts, not at report-ready.
+- Modify: `skills/intake-capture/SKILL.md:18` (the route list) and `docs/site/docs/skills/index.md` (the intake-review row and section, plus the issue-implement refusal sentence at line ~114).
 - Modify: `CLAUDE.md:228-229`: the three-queue sentence.
 
 **Verification:** `vrg-container-run -- vrg-validate` passes. `grep -rn "keeps its age\|leaves the item in intake" skills docs` returns nothing.
