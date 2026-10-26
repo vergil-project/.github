@@ -113,11 +113,12 @@ chosen by **whether a human is in the loop**, and both share a common core.
   - **known:** already raised or deliberately accepted in an earlier round;
   - **repair:** the problem is in something a previous round added.
 
-  **The reviewer never classifies; the orchestrator does,** after the round. In mode 1 that is the main session, and in mode 2
-  the implementer. It matches each finding against the iteration log or the
-  issue-comment history and the diffs of earlier rounds. Keeping this step
-  out of the reviewer preserves the reviewer's fresh context.
-- **Precedence**:
+  **The reviewer never classifies; the orchestrator does,** after the round.
+  In mode 1 that is the main session, and in mode 2 the implementer. It
+  matches each finding against the planning-issue or task-issue comment
+  history and the diffs of earlier rounds. Keeping this step out of the
+  reviewer preserves the reviewer's fresh context.
+- **Precedence:**
   - continue signals override stop signals;
   - in mode 2, the rules in 3.3 override those in 3.1. For example, a round
     that is mostly repairs is a *stop* signal in mode 1 but a *pause* in
@@ -453,7 +454,7 @@ Section 3 holds two kinds of content.
 | G | Nested-epic support (minimal) | task under the umbrella | none |
 | C | Iterating design review in `epic-create` (mode 1) | planning item, then an epic (absorbs .github#469) | A, B, G |
 | D | Agentic review in `issue-implement` (mode 2) | planning item, then an epic (absorbs plugin#677) | A, B, G |
-| E | Steering-file review | planning item | B |
+| E | Steering-file and Claude settings review | planning item | B |
 | F | Wider paad adoption | planning item | C, D |
 
 **A. Security-finding handling.**
@@ -483,7 +484,8 @@ Section 3 holds two kinds of content.
     committed anywhere.
   - The authors recommend committing them and recording the policy in the
     steering file.
-  - With 3.2's iteration log, report files are optional; record whichever is
+  - Under 3.2, design-review records live in planning-issue comments, so
+    report files are not needed for them; record whichever is
     chosen in the deviations register.
 - Settle the overlap between `paad:handoff` and `vergil:handoff`.
 - Decide whether to adopt `paad/config/` (experimental) and pin the paad
@@ -585,6 +587,41 @@ links.
   - `/paad:pushback` can review steering files directly (since 1.30).
 - **Scope:** a one-time cleanup plus a recurring review, possibly by extending
   `memory-audit`, which today covers only memory files.
+- **The Claude Code settings files are also in scope.** That means the
+  user-level `~/.claude/settings.json`, each repo's checked-in
+  `.claude/settings.json`, and the managed template
+  (`vergil-tooling/src/vergil_tooling/data/claude_settings.json`).
+  - **The problem:** no one has written down which file is responsible for
+    what. The repo files carry redundant and possibly conflicting entries.
+  - **Starting facts,** from the current Claude Code docs, fetched 2026-10-26
+    (https://code.claude.com/docs/en/settings.md,
+    https://code.claude.com/docs/en/permissions.md,
+    https://code.claude.com/docs/en/plugins/loading.md,
+    https://code.claude.com/docs/en/hooks-guide.md):
+    - precedence is managed, then CLI, then project-local, then project, then
+      user;
+    - permission lists combine, and a deny anywhere wins;
+    - hooks add up across all sources;
+    - `enabledPlugins` merges per plugin, and a plugin enabled only at project
+      level is **not** installed: the fetch needs a user, local, flag or
+      managed `true`;
+    - a project's `permissions.allow` and `extraKnownMarketplaces` apply only
+      after folder trust, and hooks run regardless.
+  - **Known problems to resolve:**
+    - the repo's `enabledPlugins` for `vergil` is redundant with user
+      settings;
+    - the repo pins `vergil-marketplace` to `ref: "main"`, which the user
+      file and the managed template don't, and the docs don't say which
+      wins;
+    - it is unconfirmed whether empty-string `attribution` suppresses
+      attribution;
+    - the "v2.1.195 stopped auto-install" comment in `vm_guest.py` is
+      unverified.
+  - **The deliverable** is a written "which file owns what" model,
+    re-verified against the docs at the time, plus a cleanup of all three.
+    Any change to the managed template must keep the config audit passing
+    across the fleet. Plugin enablement stays at user scope, which agent VMs
+    copy from the host.
 
 **F. Wider paad adoption.** Evaluate, one by one:
 - `rethink` at decision points during brainstorming;
@@ -632,7 +669,7 @@ deviation with a reason.
 | Deviation from paad | Reason |
 |---|---|
 | Mode 2 caps autonomous rounds at 3, then pauses for the human | The authors say "repeat" with a human present. Unattended, an unbounded loop is unsafe. |
-| The iteration log lives in the artifact's appendix, and paad report files are optional (pending B) | To be confirmed in B. Specs live in `.github` epics, where the appendix keeps the record next to the design. |
+| Design-review report files (pushback, alignment) are not written; the planning-issue comments are the record (§3.2) | The planning issue is the epic's permanent planning log, and review history must stay out of the reviewed document so the next round's reviewer has a fresh context. |
 
 ## 7. Constraints
 

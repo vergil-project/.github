@@ -62,13 +62,13 @@ during this epic's `epic-create` step 9 and worked through their own
 
 ## Review Focus
 
-1. **`--child-epic` given a standing epic** (ad-hoc, intake or planning) or an
-   archive is refused. Nesting a perpetual epic under a finite one would stop
+1. **`--child-epic` given a standing epic** (ad-hoc, intake or planning) is
+   refused. Nesting a perpetual epic under a finite one would stop
    the finite epic from ever rolling up. Pinned by
-   `test_child_epic_refuses_standing_epic_or_archive` (Task 1).
-2. **`--child-epic` given a plain task** is refused, since the flag is for
-   epics only and `--task` remains the path for tasks. Pinned by
-   `test_child_epic_refuses_plain_task` (Task 1).
+   `test_child_epic_refuses_standing_epic` (Task 1).
+2. **`--child-epic` given a plain task or an archive** is refused, since the
+   flag is for epics only and `--task` remains the path for tasks. Pinned
+   by `test_child_epic_refuses_non_epic` (Task 1).
 3. **A child epic closing** rolls up its finite parent epic once all of the
    parent's other children are closed, and leaves the parent open while any
    remain. Pinned by `test_rollup_cascades_from_child_epic` and
@@ -112,12 +112,15 @@ def test_child_epic_links_epic_under_epic() -> None:
     )
 
 @pytest.mark.parametrize("labels", [{"epic", "ad-hoc"}, {"epic", "intake"},
-                                    {"epic", "planning"}, {"archive"}])
-def test_child_epic_refuses_standing_epic_or_archive(labels) -> None:
-    # rc == 1; "is a standing epic or archive" in stderr; add_child not called
+                                    {"epic", "planning"}])
+def test_child_epic_refuses_standing_epic(labels) -> None:
+    # mocked label read -> labels; rc == 1; "is a standing epic" in stderr;
+    # add_child not called
 
-def test_child_epic_refuses_plain_task() -> None:
-    # non_task_kind -> None; rc == 1; "--child-epic (org/.github#510) is not an epic" in stderr
+@pytest.mark.parametrize("labels", [set(), {"archive"}])
+def test_child_epic_refuses_non_epic(labels) -> None:
+    # a plain task or an archive (which carries no `epic` label);
+    # rc == 1; "--child-epic (org/.github#510) is not an epic" in stderr
 
 def test_child_epic_keeps_visibility_guard() -> None:
     # child public, parent home private -> rc == 1; add_child not called
@@ -155,10 +158,12 @@ finding.
 
   - **Arguments:** `parse_args` uses a required mutually exclusive group,
     `--task` / `--child-epic`.
-  - **In `_link`, for `--child-epic`:**
-    - require `epics.non_task_kind(child) == "epic"`;
-    - refuse when `epics.standing_kind_of(epics._labels(child))` is not None,
-      or the label set contains `archive`;
+  - **In `_link`, for `--child-epic`:** read the child's labels once.
+    Expose a public `epics.labels_of(ref)` wrapper rather than calling the
+    private `_labels` from a bin module. Then:
+    - require `epics.non_task_kind_of_labels(labels) == "epic"` (an archive
+      carries no `epic` label, so it is refused here);
+    - refuse when `epics.standing_kind_of(labels)` is not None;
     - keep the existing visibility guard unchanged;
     - then call `epics.add_child`.
   - **Docstring:** cite #3591/#2842 and state that `--child-epic` is the one
@@ -167,15 +172,19 @@ finding.
 - [ ] **Step 4: Run `vrg-container-run -- vrg-validate`.** Expected: PASS,
   with 100% coverage.
 
-- [ ] **Step 5: Confirm that a rollup-driven close fires `epic-rollup.yml`.**
-  Read `vergil-actions/.github/workflows/ops-epic-rollup.yml` and confirm the
-  close runs under the App token, not `GITHUB_TOKEN`; a close made with
-  `GITHUB_TOKEN` would not trigger the workflow for the parent. Record the
-  finding in the PR body. If it uses `GITHUB_TOKEN`, stop and report: that
-  trips the tripwire.
+- [ ] **Step 5: Commit and hand off**
+  (`vrg-commit --type feat --scope epic-link`, then `report-ready`). The
+  report-ready notes record two facts already established, which are why the
+  cascade fires end to end:
+  - the reusable `vergil-actions/.github/workflows/ops-epic-rollup.yml`
+    closes epics with an App token, not `GITHUB_TOKEN` (lines 35-55), so the
+    close of a child epic triggers `.github`'s `epic-rollup.yml` caller
+    (`on: issues: closed`) for the parent;
+  - `vrg-epic-rollup` accepts an epic as its `--task`
+    (`bin/vrg_epic_rollup.py:25-43`).
 
-- [ ] **Step 6: Commit and hand off**
-  (`vrg-commit --type feat --scope epic-link`, then `report-ready`).
+  The notes also list any child already promoted to an epic, so the human can
+  link it with `--child-epic` once this merges.
 
 ### Task 2: `epic-implement` stops at a child epic (vergil-claude-plugin, implementation, G)
 
@@ -204,39 +213,43 @@ finding.
 - [ ] **Step 4: Run `vrg-container-run -- vrg-validate`, then commit**
   (`vrg-commit --type feat --scope epic-implement`) and hand off.
 
-### Task 3: Managed defaults: ignore `paad/security/` and enable paad (vergil-tooling, implementation, B)
+### Task 3: Managed `.gitignore` ignores `paad/security/` (vergil-tooling, implementation, B)
 
 **Files:**
 
 - Modify: `src/vergil_tooling/data/gitignore/base`: add `paad/security/`
   after `.superpowers/`.
-- Modify: `src/vergil_tooling/data/claude_settings.json`:
-  - add an `extraKnownMarketplaces.paad` entry with source
-    `{"source": "github", "repo": "Ovid/paad"}`;
-  - add `"paad@paad": true` to `enabledPlugins`.
-- Test: `tests/vergil_tooling/test_gitignore.py` and
-  `tests/vergil_tooling/test_repo_config.py`. Also update any golden or
-  fixture expectations those tests pin.
+- Test: `tests/vergil_tooling/test_gitignore.py`. Also update any golden or
+  fixture expectations it pins.
 
-- [ ] **Step 1: Write the failing tests.**
-  - `test_base_ignores_paad_security`: the line `paad/security/` is in
-    `load_base()`.
-  - `test_claude_settings_template_enables_paad`: the template's
-    `enabledPlugins["paad@paad"] is True`, and its
-    `extraKnownMarketplaces["paad"]["source"]["repo"] == "Ovid/paad"`.
-- [ ] **Step 2: Run `vrg-container-run -- vrg-validate`.** Expected: these
-  tests FAIL.
-- [ ] **Step 3: Make the two data-file edits.** Version pinning: if the
-  marketplace source accepts a `ref`, pin it to the paad version Task 4
-  chooses. Otherwise leave it unpinned and say so in the PR body.
+The managed `claude_settings.json` is **not** changed. Enabling paad there
+would put every repo's checked-in `.claude/settings.json` out of
+compliance with the config audit (`repo_config.py:386-390`; nightly ops,
+and `vrg-release` preflight). It would also not reach agent VMs, which
+install plugins from the user-level `~/.claude/settings.json`
+(`vm_guest.py:378-395`).
+
+- [ ] **Step 1: Write the failing test.** `test_base_ignores_paad_security`:
+  the line `paad/security/` is in `load_base()`.
+- [ ] **Step 2: Run `vrg-container-run -- vrg-validate`.** Expected: the test
+  FAILS.
+- [ ] **Step 3: Make the data-file edit,** then resync this repo's own fence
+  with `vrg-gitignore-sync`.
 - [ ] **Step 4: Run `vrg-container-run -- vrg-validate`.** Expected: PASS.
-  The repo's own `.gitignore` and `.claude/settings.json` resync through the
-  managed fence (run `vrg-gitignore-sync`, and the repo-config sync, as the
-  tests require).
-- [ ] **Step 5: Commit** (`vrg-commit --type feat --scope managed-defaults`)
-  **and hand off.** The change reaches consumer repos through their normal
-  managed-file sync after the next vergil-tooling release, which is
-  human-gated.
+- [ ] **Step 5: Commit** (`vrg-commit --type feat --scope gitignore`) **and
+  hand off.**
+
+### Task 3a: Fleet sweep of the managed `.gitignore` (vergil-tooling, deployment, B)
+
+`deployment` kind. It is blocked by Task 3, and it needs the human-gated
+vergil-tooling release that ships Task 3.
+
+- **Precondition:** a vergil-tooling release containing Task 3 is installed.
+- **Procedure:** run `vrg-fleet-sync --target gitignore` across the active
+  fleet (vergil-project, logical-minds-foundry, mq-rest-admin-project). This
+  opens one sync PR per repo, as the managed-block sweeps have done before.
+- **Acceptance:** every active repo's managed fence includes
+  `paad/security/`, and `vrg-github-repo-config audit` passes fleet-wide.
 
 ### Task 4: paad usage policy and deviations register (vergil-claude-plugin, implementation, B)
 
@@ -250,8 +263,13 @@ finding.
 
 - [ ] **Step 1: Write `docs/paad-policy.md`** with these sections, each
   stating the decision and its reason:
-  1. **paad version in use and pinning:** 2.0.2, and whether the
-     marketplace `ref` pins it (feeds Task 3, Step 3).
+  1. **paad version in use and where it is configured:** 2.0.2.
+     - paad is enabled in the human's user-level `~/.claude/settings.json`,
+       which agent VMs copy from the host (`vm_guest.py:378-395`).
+     - `vrg-vm update` moves every enabled plugin to its latest version
+       (`vm_guest.py:463-500`). Record either "unpinned, follows latest" or
+       a user-settings marketplace `ref`, whichever the settings-scope
+       review settles.
   2. **Report files:**
      - design-review reports (pushback, alignment) are not written, because
        the planning-issue comments are the record (spec §3.2);
@@ -281,48 +299,59 @@ finding.
 
 ### Task 5: Validation: paad is available where agents run (vergil-tooling, validation, B)
 
-`validation` kind. It is blocked by Task 3 and needs the human-gated
-vergil-tooling release that ships it.
+`validation` kind. It is blocked by Task 4, because it checks the version
+policy that Task 4 records. It does not depend on any release.
 
-- **Precondition:** a vergil-tooling release containing Task 3 is installed
-  on an agent VM.
+- **Precondition:** Task 4 is merged.
 - **Procedure:**
-  1. Run `vrg-vm update` on a Lima VM and a cloud VM.
-  2. In a session on each, confirm that `claude plugin list` shows
+  1. Confirm that the host's user-level `~/.claude/settings.json` declares the
+     `paad` marketplace (`Ovid/paad`) and `"paad@paad": true`.
+  2. Run `vrg-vm update` on a Lima VM and a cloud VM.
+  3. In a session on each, confirm that `claude plugin list` shows
      `paad@paad` enabled, at the version `docs/paad-policy.md` names.
-  3. Confirm that `paad:agentic-review` and `paad:pushback` load.
-- **Acceptance:** both VM types pass. On failure (for example, .github#69's
-  third-party marketplace gap), record `Outcome: FAILURE` with the
-  evidence. D cannot start until this passes.
+  4. Confirm that `paad:agentic-review` and `paad:pushback` load.
+- **Acceptance:** both VM types pass. On failure, record `Outcome: FAILURE`
+  with the evidence. D cannot start until this passes.
 
 ### Children (filed at `epic-create` step 9, not implemented here)
 
 Each child is a planning item in the `vergil-project/.github` planning queue
-(.github#439). Each body contains the lines
-`Umbrella: vergil-project/.github#500` and `Depends on: <ids>`, and the
-relevant section of spec §4.
+(.github#439). Each body contains:
+- the lines `Umbrella: vergil-project/.github#500` and `Depends on: <ids>`;
+- the relevant section of spec §4;
+- this instruction to whoever promotes it: **"When `epic-create` creates
+  this child's epic, link it under the umbrella with
+  `vrg-epic-link --epic vergil-project/.github#500 --child-epic <new epic>`
+  before closing this planning item."**
+
+Children are filed **before** the gate tasks, because each gate names its
+child's ref.
 
 | Child | How it is filed | Depends on |
 |---|---|---|
 | A: Security-finding handling | new item: `vrg-issue-create --epic planning --repo vergil-project/.github` | none |
 | C: Iterating design review | existing .github#469: add the two lines to its body | A, B, G |
 | D: Agentic review in issue-implement | vergil-claude-plugin#677: `vrg-intake-route … planning`, then add the two lines | A, B, G |
-| E: Steering-file review | new item | B |
+| E: Steering-file and Claude settings review | new item | B |
 | F: Wider paad adoption | new item | C, D |
 
-Here "B" means Tasks 3–5 and "G" means Tasks 1–2. When `epic-create`
-promotes a child, it links the new epic under #500 with
-`vrg-epic-link --child-epic` (Task 1) and closes the planning item. A child
-promoted before Task 1 merges is linked as soon as it does.
+Here "B" means Tasks 3, 3a, 4 and 5 and "G" means Tasks 1–2. When `epic-create`
+promotes a child, its planning item's instruction links the new epic under
+#500 with `vrg-epic-link --child-epic` (Task 1) and closes the planning item.
+A child promoted before Task 1 merges is listed in Task 1's report-ready
+notes and linked by the human once Task 1 lands.
 
 ### Gate tasks (filed at `epic-create` step 9; they run last)
 
 There are five `validation` tasks in `vergil-project/.github` under #500,
 one per child, titled `Child <X> complete: <name>`. They carry **no**
-`Blocked-by:` links.
-- **Precondition:** the child's epic is closed. For a child that never
-  becomes an epic, its planning item has been resolved (closed with a
-  recorded outcome).
+`Blocked-by:` links. Each body carries `Child: <planning item ref>`.
+- **Precondition (a machine probe):**
+  1. The child's planning item is closed.
+  2. If its closing comment says `Planned as <epic ref>`, that epic is
+     closed.
+  3. If the planning item was closed without becoming an epic, the closing
+     comment records the outcome.
 - **Acceptance:** `Outcome: SUCCESS`, naming the closed epic or the resolved
   item.
 
@@ -343,7 +372,7 @@ that, the gate counts as waiting, not runnable.
 
   | Spec item | Covered by |
   |---|---|
-  | B, gitignore and enabling paad | Task 3 |
+  | B, gitignore | Tasks 3 and 3a |
   | B, report-file policy, handoff overlap and `paad/config` | Task 4 |
   | B, availability on VMs | Task 5 |
   | G, link option and audit and rollup checks | Task 1 |
@@ -358,7 +387,7 @@ that, the gate counts as waiting, not runnable.
   - the deviations register's living home is
     `vergil-claude-plugin/docs/paad-policy.md`;
   - `vergil:handoff` is kept and `paad:handoff` is not used;
-  - enabling paad goes into the managed `claude_settings.json`, so it
-    reaches every consumer repo and VM;
+  - paad is enabled through user-level settings, not the managed repo
+    settings;
   - non-review paad reports are committed under `paad/`, following the
     authors.
