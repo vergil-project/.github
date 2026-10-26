@@ -123,6 +123,10 @@ The job is modelled on the existing **`common`** job, not the matrix legs:
 
 - Upload `ci-reports/` as the partial `ci-evidence-quality-reports-custom`,
   with `if: always()`.
+- The visible failure is `quality / custom` itself, just as a unit-test
+  failure shows as `test / <ver>`. Branch protection requires only the
+  `<kind> / evidence` gates, so the custom job must be wired into
+  `quality / evidence` for its failure to **block the merge**.
 - `evidence` job: add `custom` to `needs:` and to the
   `Assert all required legs succeeded` results list. Add
   `evidence-reports/quality-custom.log` to the emitted files, and
@@ -130,6 +134,10 @@ The job is modelled on the existing **`common`** job, not the matrix legs:
 - Check whether `ci-quality.yml` and its callers declare the job list or the
   evidence contract anywhere else, such as the README, a smoke test, or a
   harvester's expected-file list. Any that do are updated in the same change.
+  One is known: `actions/shared/setup/primary-suffix/tests/image.test.sh`
+  registers every single-container job and checks its image. The change also
+  adds a structural test asserting that every `ci-quality` stage job is wired
+  into the evidence gate.
 
 ### 3.3 Release and rollout — fail forward
 

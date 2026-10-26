@@ -47,7 +47,7 @@ operational: they have no code PR and close on `Outcome: SUCCESS`.
 2. **A validator that is present but not executable** under `--check custom` fails with a non-zero exit and no silent skip. Pinned by `test_main_check_custom_non_executable_fails` (Task 1).
 3. **A Python repo with a validator** runs install (fail_fast) before custom, so the validator sees dev dependencies. Pinned by `test_build_stages_check_custom_runs_install_then_custom` (Task 1).
 4. **`--check custom --all-versions`** is a usage error, not a silent ignore. Pinned by `test_check_custom_rejects_all_versions` (Task 1).
-5. **A failed or skipped custom job** makes `quality / evidence` red, not green by absence. Pinned by Task 2, Step 4: the assert step lists `custom`, and `needs:` includes it.
+5. **A failed or skipped custom job** blocks the merge: `quality / evidence`, the required gate, fails rather than going green by absence. Pinned by `actions/ci/evidence/tests/gate.test.sh` (Task 3), which fails if any `ci-quality` stage job is missing from `evidence.needs` or `RESULTS`. The custom job running on the same image as `common` is pinned by `image.test.sh` (Task 3).
 
 ---
 
@@ -152,12 +152,35 @@ is refused: `report-ready` records the state anyway, and the human's
 **Files:**
 
 - Modify: `.github/workflows/ci-quality.yml`
+- Modify: `actions/shared/setup/primary-suffix/tests/image.test.sh`, the single-container job registry.
+- Create: `actions/ci/evidence/tests/gate.test.sh`, the evidence-gate wiring test.
+- Modify: `.github/workflows/smoke-setup-vergil.yml`, to run `gate.test.sh` and update its header comment listing the single-container jobs.
 - Modify: `.github/workflows/README.md`, `docs/site/docs/workflows/index.md`, `docs/site/docs/ci-gates/all-hard-gates.md`. These are same-repo docs that describe the quality jobs and evidence files.
 
 **Interfaces:**
 
 - Consumes: `vrg-validate --check custom` (Task 1).
 - Produces: the job `custom` (check name `quality / custom`), the partial `ci-evidence-quality-reports-custom`, and `quality-custom.log` in `ci-evidence-quality`.
+
+- [ ] **Step 0a (RED): register `custom` as a single-container job**
+
+In `image.test.sh`, add `"ci-quality.yml:custom"` to `jobs=` and update the
+header comment that lists the single-container jobs.
+Run: `bash actions/shared/setup/primary-suffix/tests/image.test.sh`. Expected:
+`not ok` for `ci-quality.yml:custom`, because the job doesn't exist yet.
+
+- [ ] **Step 0b (RED): write the evidence-gate wiring test**
+
+`actions/ci/evidence/tests/gate.test.sh` is framework-free, uses `yq` and `jq`,
+and follows `image.test.sh`'s `ok`/`not ok` style. For `ci-quality.yml`: every
+job except `matrix`, `setup` and `evidence` must be in `jobs.evidence.needs`,
+and must have a line `<job>=${{ needs.<job>.result }}` in the `RESULTS` env of
+the step named `Assert all required legs succeeded`. Exit non-zero on any
+`not ok`.
+Run: `bash actions/ci/evidence/tests/gate.test.sh`. Expected: PASS on today's
+workflow (common, lint and typecheck are wired). It goes RED in Step 2 when
+`custom` is added before Step 3 wires it.
+Add it to `smoke-setup-vergil.yml` next to the other `*.test.sh` steps.
 
 - [ ] **Step 1: `setup` job exports `primary-version`**
 
@@ -185,10 +208,15 @@ vergil-project/.github#488.
 - Add `{"name": "vrg-validate-custom"}` to `tools`.
 - Update the job's header comment.
 
-- [ ] **Step 4: Verify locally**
+Between Steps 2 and 3, run `gate.test.sh`. Expected: RED (`custom` is not in
+`evidence.needs` or `RESULTS`). After Step 3, it is GREEN.
 
-Run: `vrg-container-run -- vrg-validate`. actionlint and yamllint pass.
-By inspection, `custom` is in both `needs:` and `RESULTS`. This is Review Focus 5.
+- [ ] **Step 4: Verify (GREEN)**
+
+Run: `bash actions/shared/setup/primary-suffix/tests/image.test.sh`. It passes,
+including `ci-quality.yml:custom`, so the job runs on the same image as `common`.
+Run: `bash actions/ci/evidence/tests/gate.test.sh`. It passes. This is Review Focus 5.
+Run: `vrg-container-run -- vrg-validate`. actionlint, yamllint and shellcheck pass.
 
 - [ ] **Step 5: Update the same-repo docs**
 
@@ -278,4 +306,5 @@ line, rewording the header so it describes the five checks directly.
 
 - **Spec coverage:** §3.1 is Task 1. §3.2 is Task 3, including the `primary-version` export. §3.3 (release order and fail forward) is Tasks 2 and 4. §3.4: the inventory is Task 4, validation is Tasks 6–10, cross-org tracking is in Task 4, the vergil-vm hard failure is Task 5, and the pins removal is Task 11. §4 is covered by the validation tasks plus the docs review.
 - **Ordering:** Task 3's own CI needs the released tooling (Task 2). Task 11's PR CI needs the live job (Task 4) to prove nothing is lost.
+- **Alignment (paad, 2026-10-26):** Task 3 gains two red/green tests: the `image.test.sh` registry entry, and the new `gate.test.sh` evidence-wiring test.
 - **Names:** `--check custom`, `quality-custom.log`, `ci-evidence-quality-reports-custom` and `vrg-validate-custom` are used identically in Tasks 1, 3 and 6–11.
