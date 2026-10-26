@@ -16,7 +16,7 @@
 
 ## 1. Intent
 
-paad (https://github.com/Ovid/paad, installed version 2.0.2) is the most
+paad (<https://github.com/Ovid/paad>, installed version 2.0.2) is the most
 important AI-engineering tool in our workflow. Its authors run it at team scale
 in a company and it works. We adopted it about eight months ago, wired two of
 its skills into `epic-create` once each, and have not revisited it since. paad
@@ -48,7 +48,7 @@ a stated reason. Every deviation goes in the **deviations register** (section
 done it this way" is not a reason.
 
 The authors' per-feature loop, from the paad README and tutorial Module 10
-(https://curtispoe.org/paad/):
+(<https://curtispoe.org/paad/>):
 
 1. Write the spec.
 2. Pushback on the spec, revising and repeating as needed.
@@ -386,6 +386,7 @@ review between them and pause for a human only when they can't.
 ## 4. Child items and dependencies
 
 Ad hoc dependency handling until .github#88 provides a real mechanism:
+
 - children are linked to the umbrella **by text only**. Each child's body
   names the umbrella (`Umbrella:`) and its prerequisites (`Depends on:`). A
   child epic stays top-level, because `vrg-epic-create` makes top-level epics
@@ -396,6 +397,7 @@ Ad hoc dependency handling until .github#88 provides a real mechanism:
 **Order.**
 The order follows the dependencies only; anything without a dependency runs
 whenever it is ready.
+
 - **A and B** have no dependencies and can run in parallel. A is the first
   priority: the security-finding infrastructure and its tooling must exist
   before any child that produces findings (C and D) runs.
@@ -404,6 +406,7 @@ whenever it is ready.
 - **F** comes last.
 
 **Lifecycle of a child.**
+
 - Until it is promoted, a child that starts as a planning item sits under the
   planning queue epic (.github#439), as every planning item does.
 - When `epic-create` promotes it, the new epic is created top-level with an
@@ -427,6 +430,7 @@ whenever it is ready.
   - The umbrella's retrospective cannot run until every gate task is closed.
 
 **How the umbrella itself runs.**
+
 - It goes through the normal `epic-create` pipeline: spec (this document),
   pushback, plan, alignment, docs PR, and the bookend tasks.
 - Its `plan.md` covers B, filing the child planning items, the gate tasks,
@@ -438,6 +442,7 @@ whenever it is ready.
 
 **How binding section 3 is**.
 Section 3 holds two kinds of content.
+
 - **Rules (the what) are binding on C and D.** These include the round caps,
   what blocks, when to pause, record everything, no nits and no cracks,
   results through the issue, and security details only as counts. C and D
@@ -463,6 +468,7 @@ Section 3 holds two kinds of content.
 | F | Wider paad adoption | planning item | C, D |
 
 **A. Security-finding handling.**
+
 - **Problem:** paad 2.0 keeps security findings out of git (`paad/security/`,
   gitignored). Worktrees are deleted at finalize, so the details are lost. Yet
   they must never land in public issues, comments, or relay-ref notes, and we
@@ -471,7 +477,7 @@ Section 3 holds two kinds of content.
   are private to admins and invited collaborators even on a public repo, can
   have a temporary private fork for the fix, and can be created through the
   REST API (`POST /repos/{owner}/{repo}/security-advisories`); see
-  https://docs.github.com/en/code-security/security-advisories/working-with-repository-security-advisories/about-repository-security-advisories.
+  <https://docs.github.com/en/code-security/security-advisories/working-with-repository-security-advisories/about-repository-security-advisories>.
 - **Expected deliverable:** a small tool to create, list and reference these
   records, so that issue comments can point to them without disclosing
   anything.
@@ -482,6 +488,7 @@ Section 3 holds two kinds of content.
   problems.
 
 **B. paad 2.0 compatibility and hygiene.**
+
 - Add `paad/security/` to the managed `.gitignore` block in every repo,
   following paad 2.0's breaking change.
 - Decide and write down where paad report files go (`paad/*-reviews/`):
@@ -503,6 +510,7 @@ Section 3 holds two kinds of content.
   settings. D needs paad wherever `issue-implement` runs.
 
 **C. Iterating design review in `epic-create`.**
+
 - Implement mode 1 (3.2) across the three review stages: spec pushback, plan
   pushback, and alignment. Plan writing stays a single automated pass.
 - Write the shared doctrine as a reference document in the vergil plugin that
@@ -514,6 +522,7 @@ Section 3 holds two kinds of content.
 - Rewrite the pipeline description in the docs listed under "Current state".
 
 **D. Agentic review in `issue-implement`.**
+
 - **First task: a spike**.
   - **What it tests:** the real chain, three levels below the main session:
     main session → `epic-implement` → `issue-implement` subagent → the fresh
@@ -550,6 +559,7 @@ Section 3 holds two kinds of content.
     in the handoff.
 
 **E. Steering-file review.**
+
 - **Problem:** the repo CLAUDE.md and AGENTS.md files and the global
   `~/.claude/CLAUDE.md` have grown by small additions for months without ever
   being reviewed. Known problems:
@@ -570,10 +580,10 @@ Section 3 holds two kinds of content.
   - **The problem:** no one has written down which file is responsible for
     what. The repo files carry redundant and possibly conflicting entries.
   - **Starting facts,** from the current Claude Code docs, fetched 2026-10-26
-    (https://code.claude.com/docs/en/settings.md,
-    https://code.claude.com/docs/en/permissions.md,
-    https://code.claude.com/docs/en/plugins/loading.md,
-    https://code.claude.com/docs/en/hooks-guide.md):
+    (<https://code.claude.com/docs/en/settings.md>,
+    <https://code.claude.com/docs/en/permissions.md>,
+    <https://code.claude.com/docs/en/plugins/loading.md>,
+    <https://code.claude.com/docs/en/hooks-guide.md>):
     - precedence is managed, then CLI, then project-local, then project, then
       user;
     - permission lists combine, and a deny anywhere wins;
@@ -600,6 +610,7 @@ Section 3 holds two kinds of content.
     copy from the host.
 
 **F. Wider paad adoption.** Evaluate, one by one:
+
 - `rethink` at decision points during brainstorming;
 - `agentic-architecture` and `fix-architecture`, `test-roadmap`,
   `agentic-owasp` and `agentic-dedup` as periodic codebase-health runs;
@@ -611,7 +622,8 @@ deviation with a reason.
 
 ## 5. Goals, non-goals, anti-goals
 
-**Goals**
+### Goals
+
 - Every repeated paad review follows one written doctrine.
 - Design review runs the authors' full loop, with the human deciding how many
   rounds.
@@ -620,7 +632,8 @@ deviation with a reason.
 - Every difference from paad's recommendations is written down with its
   reason.
 
-**Non-goals**
+### Non-goals
+
 - A general epic-dependency mechanism. That is .github#88; this umbrella only
   tests the idea by hand.
 - The automated merge-gate review agent (.github#90).
@@ -628,7 +641,8 @@ deviation with a reason.
   necessary (for example, an unattended mode). The user knows the authors
   personally.
 
-**Anti-goals** (failures even if everything technically works)
+### Anti-goals (failures even if everything technically works)
+
 - Rounds that only add to the design, so it gets more complex each round. This
   is the #469 failure.
 - A review loop that runs forever, or that the agents treat as passed without

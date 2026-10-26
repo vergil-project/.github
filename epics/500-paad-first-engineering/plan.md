@@ -11,6 +11,7 @@ cannot close before its children finish.
 their own `epic-create` runs, and their internals are out of scope here. B is
 split into one task per repo, because a task is one PR in the repo where it
 lands. Children are tracked ad hoc until .github#88 provides a mechanism:
+
 - children are linked to the umbrella **by text only** (`Umbrella:` and
   `Depends on:` lines), and child epics stay top-level;
 - one `validation` gate task per child holds the umbrella open.
@@ -218,6 +219,7 @@ release.
 
 Each child is a planning item in the `vergil-project/.github` planning queue
 (.github#439). Each body contains:
+
 - the lines `Umbrella: vergil-project/.github#500` and `Depends on: <ids>`;
 - a link to the published spec
   (`vergil-project/.github` `epics/500-paad-first-engineering/spec.md`)
@@ -257,6 +259,7 @@ input."**
 There are five `validation` tasks in `vergil-project/.github` under #500, one
 per child, titled `Child <X> complete: <name>`. They carry **no**
 `Blocked-by:` links, and each body carries `Child: <planning item ref>`.
+
 - **Precondition (a machine probe):**
   1. The child's planning item is closed.
   2. Every issue that its closing comment names, whether
