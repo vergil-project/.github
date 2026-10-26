@@ -36,7 +36,7 @@ stage in real PR CI.
 
 ## 2. Goals, non-goals, anti-goals
 
-**Goals**
+### Goals
 
 - `vrg-validate --check custom` runs the custom stage on its own.
 - The vergil-actions quality workflow runs it on every PR for every consumer.
@@ -47,7 +47,7 @@ stage in real PR CI.
 - The docs stop claiming parity that doesn't exist, and describe the custom
   stage as part of CI.
 
-**Non-goals**
+### Non-goals
 
 - No new required status check, and no change to branch protection or
   rulesets. The stage folds into the existing `quality / evidence` gate.
@@ -62,7 +62,7 @@ stage in real PR CI.
   diogenes-project/diogenes has a custom validator, but it is pinned to v2.0,
   so this change never reaches it.
 
-**Anti-goals** (failures even if the mechanism technically works)
+### Anti-goals (failures even if the mechanism technically works)
 
 - **A silent pass.** A validator that is present but not executable, crashes,
   or can't find a tool it needs must fail CI. It must never be reported green
