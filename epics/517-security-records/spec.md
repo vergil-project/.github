@@ -49,8 +49,14 @@ depend on this one.
 - Publishing advisories, requesting CVEs, or any coordinated-disclosure
   process. These are possible later, and nothing here prevents them.
 - Wiring the tool into `issue-implement`, `epic-create`, `intake-capture` or
-  paad's output. That belongs to C, D and later epics.
+  paad's output, meaning *when findings are recorded*. That belongs to C, D
+  and later epics. The one exception is the record's own lifecycle in
+  planning (4.4b), which this epic delivers.
 - Repos owned by a user account rather than an org. An org is a requirement.
+- Orgs whose `.github` repo is private. Every org in use is public (private
+  repos exist inside public orgs, for client work), and supporting fully
+  private orgs would be an architecture extension. `create` refuses such
+  an org loudly (4.2).
 - Enforcing the "about a day" lifetime in tooling.
 - Strong protection against an agent editing or closing advisories. The
   user's stated risk model is that these are notes, and agents may manage
@@ -58,7 +64,9 @@ depend on this one.
 
 **Anti-goals** (failures even if everything technically works)
 - Security details in any issue title or body, comment, PR body, commit
-  message, report-ready note, or relay ref, in any repo, public or private.
+  message, report-ready note, relay ref, or **Actions log** (the sweep runs
+  in the public `.github` repo, so its logs are public), in any repo, public
+  or private.
 - An advisory without an issue, or an issue whose advisory reference is
   missing or wrong. Half-created pairs must never pass silently.
 - Opening `vrg-gh api` to the user agent as a general write path.
@@ -77,7 +85,8 @@ From docs.github.com (read 2026-10-26):
 
 What they say:
 - Repository security advisories are documented for **public** repos only.
-  Every org's `.github` repo is public, so advisories are available there.
+  This design requires the org's `.github` repo to be public (§2
+  non-goals), so advisories are available there.
 - A draft is visible only to repo admins, owners, security managers, and
   people or teams invited to that advisory. Nothing becomes public without an
   explicit publish. Drafts can be closed and reopened; there is no documented
@@ -163,8 +172,15 @@ A new vergil-tooling CLI (working name). It calls the advisories API
 directly with the identity's App token, or, in human mode (where there is
 no App token), with the ambient `gh` credential; both are supported. It
 does **not** go through `vrg-gh api`, which stays denied to the user agent.
-It resolves the org's `.github` repo itself; `--repo` always names the
-**affected** repo, never where anything is created.
+It resolves the org's `.github` repo itself, and refuses loudly if that
+repo is not public; `--repo` always names the **affected** repo, never where
+anything is created.
+
+**Output rule.** Advisory `summary` and `description` text is printed only by
+`show`, and by `list --details`, both interactive commands. Everything else
+(the sweep, the consistency report, `list` without `--details`, error
+messages) names only GHSA IDs, issue refs, labels and states. `--details` is
+refused when `VRG_EPIC_SWEEP` is set.
 
 - `create --repo <o>/<r> --title <neutral> --body-file <neutral> --details-file
   <private> --severity <critical|high|medium|low>` creates the pair and
@@ -173,18 +189,33 @@ It resolves the org's `.github` repo itself; `--repo` always names the
   failure at any step is reported loudly with what was and wasn't created
   (the GHSA ID and/or issue number), and the command exits non-zero.
 - **Resume.** Drafts can't be deleted, so a re-run must never create a
-  second advisory for the same finding. When `create` fails after the
-  advisory exists, its error prints the exact command to finish the pair:
-  the same arguments plus `--resume <GHSA-id>`. With `--resume`, `create`
-  skips creating the advisory and completes whatever steps are missing.
+  second advisory for the same finding.
+  - When `create` fails after the advisory exists, its error prints the
+    exact command to finish the pair: the same arguments plus
+    `--resume <GHSA-id>`, and `--issue <ref>` too once the issue exists.
+    With `--resume`, `create` skips creating the advisory and completes
+    whatever steps are missing.
+  - When resume must find the issue itself, it looks among the children of
+    the queue home's intake epic for the `Security advisory:` line, never
+    through search, whose index can lag.
+  - **Duplicate guard.** Before creating an advisory, `create` looks for an
+    existing draft with the same summary and affected repo, and refuses if
+    it finds one, naming its GHSA ID. This covers a create whose response
+    was lost, leaving no ID to resume from.
 - `create … --issue <ref>` (attach mode, *my call*) attaches a new advisory
   to an **existing** issue instead of creating one: it adds the
   `Security advisory:` line and the label to that issue. The past-issues
   audit (4.6) uses this, so one problem never ends up with two issues.
-- `list [--repo <affected>] [--state …]` lists pairs and their status, for
-  the human and the sweep.
-- `show <GHSA-id | issue ref>` shows one pair. Details are printed only to
-  the terminal, never anywhere else.
+- `retarget <GHSA-id> --to <ref> [--to <ref> …]` moves an advisory's
+  tracking to new issues. Each target gets the `security` label and the
+  `Security advisory:` line, then the advisory's `Tracking issue:` lines are
+  replaced. Only after both succeed does the caller close or move the old
+  issue; any failure stops loudly. It is the one way a link moves: intake
+  routing (4.4) and planning (4.4b) both use it.
+- `list [--repo <affected>] [--state …] [--details]` lists pairs and their
+  status, for the human and the sweep (output rule above).
+- `show <GHSA-id | issue ref>` shows one pair, with details, to the terminal
+  only.
 
 ### 4.3 State sync (the sweep)
 
@@ -196,33 +227,52 @@ App) gains one pass over the org's `.github` advisories:
   open. So a reopened issue reopens its advisory. The issue always wins: a
   manual change to an advisory's state is overwritten on the next run, and
   the docs say to manage a record through its issue.
+- **Classifying advisories.** An advisory is **paired** if any `security`
+  issue's `Security advisory:` line names it. An unpaired advisory that came
+  from private vulnerability reporting (enabled on `.github`, see
+  `SECURITY.md`; GitHub marks it with `triage` state or a `submission`
+  field) is an **unpaired external report**: listed as such, never treated
+  as broken, and never changed by the sweep. Any other unpaired advisory is
+  a broken pair.
 - **Consistency check** (*my call*): it **reports** broken pairs: a
-  `security` issue with no or a wrong advisory reference, or an advisory
-  whose `Tracking issue:` lines are missing a reference, or name an issue
-  that doesn't exist or doesn't point back. It reports and does not repair,
-  so the failure is loud and a human decides what to do.
-- **Unpaired external reports.** An advisory that has never had a
-  `Tracking issue:` line, such as an outside report through private
-  vulnerability reporting (enabled on `.github`, see `SECURITY.md`), is
-  listed as an "unpaired external report". It is never treated as a broken
-  pair, and the sweep never changes its state. `list` shows it in the same
-  category.
+  `security` issue with no or a wrong advisory reference; an advisory whose
+  `Tracking issue:` lines are missing, or name an issue that doesn't exist
+  or doesn't point back; or an unpaired advisory that is not an external
+  report. It reports and does not repair, so the failure is loud and a human
+  decides what to do. Its output follows the output rule (4.2): IDs, refs
+  and states only.
 
 The ops App therefore needs the advisories write permission.
 
 ### 4.4 Intake routing keeps the link (*my call*)
 
 Whenever `vrg-intake-route` moves a `security` item to a new issue number
-(by transfer or by recreating it), it rewrites the advisory's
-`Tracking issue:` line to name the new issue. The checker never relies on
-GitHub's transfer redirect.
+(by transfer or by recreating it), it retargets the advisory to the new
+issue (`retarget`, 4.2). The checker never relies on GitHub's transfer
+redirect.
 
-When it **splits** a `security` item, every resulting task gets the
-`security` label and the `Security advisory:` line, and the advisory gets
-one `Tracking issue:` line per task. The advisory then closes only when all
-of them are closed (4.3).
+When it **splits** a `security` item, it retargets the advisory to every
+resulting task **before** closing the original, and stops loudly on any
+failure, leaving the original open. The advisory then closes only when all
+of the tasks are closed (4.3).
 
 This runs as the user agent, which has the permission.
+
+### 4.4b Security items in planning
+
+A security item may go through planning like any other item. Planning
+discusses the problem in general terms; the vulnerability's details stay in
+the advisory. The planning issue tracks the advisory until the plan exists.
+
+- **Planning hands the advisory to the fix.** When `epic-create` files the
+  implementation tasks (its step 9), it retargets the advisory from the
+  planning issue to the task or tasks that fix the problem. From then on,
+  the PRs that close those tasks are what close the advisory (4.3). This is
+  a new instruction in the `epic-create` skill, delivered by this epic.
+- **Guard.** `vrg-queue planning` never shows a planning issue as
+  `ready-to-close` while an advisory still tracks it, and says why. So the
+  planning issue can't be closed (step 10) before the handoff, which would
+  close the advisory with the fix unwritten.
 
 ### 4.5 A private repo going public
 
@@ -301,7 +351,10 @@ example, making `create` human-run). Don't build around it silently.
   - the severity mapping table (4.1);
   - managing a record through its issue, never by editing the advisory's
     state (4.3);
-  - the pre-flip checklist (4.5).
+  - the pre-flip checklist (4.5);
+  - the planning handoff (4.4b).
+- `vergil-claude-plugin` `epic-create` skill: the step 9 handoff and the
+  step 10 guard (4.4b).
 - `account-setup.md`: the new permission.
 - `.github/SECURITY.md`: a mention of internal records, if it fits.
 
