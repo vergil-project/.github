@@ -10,6 +10,7 @@ pair stays consistent through routing, planning and the scheduled sweep.
 advisories API, the two reference lines, pair classification and `retarget`.
 A new CLI, `vrg-security-record`, exposes create, list, show and retarget.
 Three existing tools call the library:
+
 - `vrg-epic-audit --close` syncs advisory state and reports broken pairs;
 - `vrg-intake-route` retargets the advisory on transfer, recreate and split;
 - `vrg-queue planning` holds a planning issue back while an advisory still
@@ -87,6 +88,7 @@ operational: they have no code PR and close on `Outcome: SUCCESS`.
 ### Task 1: Probe the advisories API with both App tokens (.github, validation)
 
 No dependencies. **Preconditions (human-attested):**
+
 - "Repository security advisories: Read and write" has been added to the
   user App (`<user>-vergil-user`) and the org ops App (the
   `APP_CLIENT_ID` App of `.github`'s `epic-sweep.yml`), and every
@@ -126,6 +128,7 @@ Then call `GH_TOKEN=$TOKEN gh api …`.
 Blocked by Task 1.
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/security_records.py`
 - Modify: `src/vergil_tooling/data/labels.json` (add `security` and
   `security-disclosed`, with the Global Constraints descriptions)
@@ -134,6 +137,7 @@ Blocked by Task 1.
   `tests/vergil_tooling/test_data_labels.py`
 
 **Interfaces:**
+
 - Produces, in `github.py`:
   `post_json_once(endpoint: str, body: dict[str, object]) -> dict[str, Any]`.
   It runs one `gh api <endpoint> -X POST --input -` with `_gh_env()` and no
@@ -159,15 +163,25 @@ Blocked by Task 1.
     str, severity: str) -> str`: returns the GHSA ID, using `post_json_once`;
   - `find_duplicate(home: str, *, summary: str, affected_repo: str) -> str | None`;
   - `list_advisories(home: str) -> list[Advisory]`: every state, paginated.
-    `external` is true for `state == "triage"` or a non-null `submission`;
+    `external` is true for `state == "triage"` or a non-null `submission`.
+    The fetch projects with `--jq` to the GHSA ID, state, package name,
+    `submission` and the parsed `Tracking issue:` lines only; summary text is
+    never fetched;
+  - **error hygiene:** every advisory helper catches `GitHubAPIError` and
+    re-raises it without its stdout (status, endpoint and stderr only), so a
+    failed read can never echo advisory text;
   - `read_text(home: str, ghsa_id: str) -> tuple[str, str]`: returns
     `(summary, description)`, used only by `show` and `--details`;
   - `set_state(home: str, ghsa_id: str, state: Literal["draft", "closed"]) -> None`;
   - `mark_issue(ref: IssueRef, home: str, ghsa_id: str) -> None`: ensures the
     `security` label and appends the advisory line. Idempotent;
+  - `unmark_issue(ref: IssueRef, moved_to: Sequence[IssueRef]) -> None`:
+    removes the `security` label and the advisory line, and comments
+    `Security record moved to <refs>`. Idempotent;
   - `retarget(home: str, ghsa_id: str, targets: Sequence[IssueRef]) -> None`:
-    `mark_issue` each target, then replace every `Tracking issue:` line with
-    one per target. Raises `RetargetError` on any failure;
+    `mark_issue` each target, replace every `Tracking issue:` line with one
+    per target, then `unmark_issue` every previously tracked issue that is
+    not a target. Raises `RetargetError` on any failure;
   - `@dataclass(frozen=True) class SecurityIssue: ref: IssueRef; open: bool;
     ghsa_id: str | None`;
   - `security_issues(org: str) -> list[SecurityIssue]`: lists
@@ -197,12 +211,21 @@ Blocked by Task 1.
     `test_parse_advisory_ref_ignores_lookalike_text`;
   - `test_retarget_marks_targets_before_rewriting_tracking`: a
     `mark_issue` failure → `RetargetError`, and no PATCH sent;
+  - `test_retarget_unmarks_dropped_issues`: the dropped issue loses the
+    label and the line and gets the moved comment; a kept target is
+    untouched;
+  - `test_list_advisories_failure_does_not_echo_stdout`: a page-2 failure
+    whose stdout holds a fixture summary → the raised error's text lacks it;
   - `test_classify_paired_external_broken`, one case per spec 4.3 rule:
     - paired;
     - triage, and submission present → external;
     - a draft no issue references → broken;
     - an issue whose GHSA doesn't exist → broken;
-    - a tracking ref that doesn't point back → broken.
+    - a `security` issue with no advisory line → broken;
+    - an advisory with no `Tracking issue:` lines → broken;
+    - a tracking line naming an issue that doesn't exist → broken;
+    - a tracking ref that doesn't point back → broken;
+    - an issue unmarked by `retarget` → not reported.
 - [ ] **Step 2: Run them; expect FAIL**:
   `vrg-container-run -- uv run pytest tests/vergil_tooling/test_security_records.py tests/vergil_tooling/test_data_labels.py`.
 - [ ] **Step 3: Implement** the interfaces above. Build REST calls on
@@ -219,6 +242,7 @@ Blocked by Task 1.
 Blocked by Task 2.
 
 **Files:**
+
 - Create: `src/vergil_tooling/bin/vrg_security_record.py`
 - Modify: `pyproject.toml` `[project.scripts]`: add
   `vrg-security-record = "vergil_tooling.bin.vrg_security_record:main"`
@@ -226,6 +250,7 @@ Blocked by Task 2.
 - Test: `tests/vergil_tooling/test_vrg_security_record.py`
 
 **Interfaces:**
+
 - Consumes everything Task 2 produces, plus `epics.queue_home`,
   `epics.ensure_intake_epic`, `epics.add_child` and `github.create_issue`.
 - Produces `main(argv: list[str] | None = None) -> int`, with these
@@ -241,8 +266,13 @@ Blocked by Task 2.
 
 - [ ] **Step 1: Write the failing tests**:
   - `test_create_full_pair_order`: the calls run in order: duplicate check
-    → advisory → issue in the queue home → `add_child` under intake →
-    tracking PATCH;
+    → advisory → `ensure_labels(<queue home>, ["security"])` → issue in the
+    queue home → `add_child` under intake → tracking PATCH;
+  - `test_create_add_child_failure_prints_resume_with_issue`;
+  - `test_resume_with_issue_links_under_intake_idempotently`: `--resume
+    GHSA --issue REF` re-runs `add_child` (a no-op if already linked), then
+    the tracking PATCH. In attach mode (`--issue` without `--resume`), the
+    existing issue keeps its current parent;
   - `test_create_issue_failure_prints_resume_command`: exit 1, and stderr
     contains `--resume GHSA-` but no summary text;
   - `test_create_tracking_failure_prints_resume_with_issue`: stderr has
@@ -269,6 +299,7 @@ Blocked by Task 2.
 Blocked by Task 2.
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/security_records.py`: add
   `sync_states(home: str, classification: Classification, issues:
   Sequence[SecurityIssue]) -> int`, which returns the number of advisories
@@ -281,6 +312,7 @@ Blocked by Task 2.
   `tests/vergil_tooling/test_vrg_epic_audit.py`
 
 **Interfaces:**
+
 - Consumes `list_advisories`, `security_issues`, `classify` and
   `set_state` (Task 2).
 - Rule: for each **paired** advisory, the target state is `closed` when all
@@ -289,6 +321,12 @@ Blocked by Task 2.
 - Output: `Security records: <n> advisory state(s) synced, <m> broken
   pair(s).`, then one line per broken pair taken from
   `Classification.broken`. Exit 1 when `m > 0`, after syncing.
+- `advisory_home` is called only when the org has at least one `security`
+  issue or `.github` exists. An org with neither prints `Security records:
+  none` and is not an error.
+- Exit codes: the `--close` path runs the orphan pass, then the security
+  pass, **even if** the orphan pass returned 1, and returns
+  `max(orphan, security)`.
 
 - [ ] **Step 1: Write the failing tests**:
   - `test_sync_closes_when_all_tracked_issues_closed`;
@@ -298,7 +336,9 @@ Blocked by Task 2.
   - `test_security_pass_output_names_only_ids_and_states`: the fixture
     summary string is absent from captured stdout and stderr;
   - `test_security_pass_exits_1_on_broken_pairs`;
-  - `test_report_only_mode_previews_without_writes`.
+  - `test_report_only_mode_previews_without_writes`;
+  - `test_close_runs_security_pass_after_failed_orphan_pass` (returns 1);
+  - `test_org_without_security_items_skips_home_lookup`.
 - [ ] **Step 2: Run them; expect FAIL.**
 - [ ] **Step 3: Implement**, scoped in `github.target_org(org)` like the
   orphan pass.
@@ -312,6 +352,7 @@ Blocked by Task 2.
 Blocked by Task 2.
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/intake_route.py`:
   - in `_route` (Split branch), before `_close`;
   - in `_recreate`, before `_close`;
@@ -319,14 +360,21 @@ Blocked by Task 2.
 - Test: `tests/vergil_tooling/test_intake_route.py`
 
 **Interfaces:**
+
 - Consumes `parse_advisory_ref`, `advisory_home` and `retarget` (Task 2).
 - Rule: if the item carries the `security` label and an advisory line, then:
   - Split: `retarget(home, ghsa, action.into)`;
   - recreate: `retarget(home, ghsa, (new,))`;
   - transfer: `retarget(home, ghsa, (final,))`.
 
-  A `RetargetError` stops the route. It is re-raised as `RouteRefusedError`,
-  and the message names the advisory and leaves the original open.
+  - **Split and recreate:** the retarget runs before `_close`. A
+    `RetargetError` stops the route and is re-raised as
+    `RouteRefusedError`; the message names the advisory, and the original
+    stays open.
+  - **Transfer:** the move has already happened, so the hook runs after
+    `_settle_parent`. A `RetargetError` is not a refusal. It raises
+    `RuntimeError("<old> moved to <final>, but advisory <GHSA> was not
+    retargeted; run: vrg-security-record retarget <GHSA> --to <final>")`.
 - `security` is already carried on recreate (it is in the registry after
   Task 2). `mark_issue` is idempotent, so the copied advisory line isn't
   duplicated.
@@ -337,6 +385,7 @@ Blocked by Task 2.
     `_close` call;
   - `test_recreate_security_item_retargets_before_closing`;
   - `test_transfer_security_item_retargets_to_final`;
+  - `test_transfer_retarget_failure_reports_moved_not_refused`;
   - `test_non_security_item_never_touches_advisories`;
   - `test_planning_route_leaves_advisory_on_item`.
 - [ ] **Step 2: Run them; expect FAIL.**
@@ -351,14 +400,19 @@ Blocked by Task 2.
 Blocked by Task 2.
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/queue_view.py`:
   - `_planning_state` gains `advisory_held: bool`;
   - `planning_items` reads each item's body and computes it.
 - Test: `tests/vergil_tooling/test_queue_view.py`
 
 **Interfaces:**
+
 - Consumes `parse_advisory_ref`, `list_advisories` and `advisory_home`
-  (Task 2). Advisories are listed **once per call**, not once per item.
+  (Task 2). Advisories are listed **once per call**, not once per item,
+  and only if some planning item's body has an advisory line. Otherwise
+  `advisory_home` is never called, so a queue view works the same for an
+  org without security items.
 - Rule: `advisory_held` is true when the item's body names an advisory
   whose `tracking` includes the item. A held item that would otherwise be
   `ready-to-close` is reported as `in-progress`, with the note
@@ -370,7 +424,8 @@ Blocked by Task 2.
   - `test_planning_state_held_while_advisory_tracks_it`;
   - `test_planning_state_ready_after_retarget`;
   - `test_planning_items_lists_advisories_once`;
-  - `test_non_security_planning_item_unchanged`.
+  - `test_non_security_planning_item_unchanged`;
+  - `test_no_advisory_lines_never_resolves_home`.
 - [ ] **Step 2: Run them; expect FAIL.**
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run `vrg-container-run -- vrg-validate`; expect PASS.**
@@ -383,6 +438,7 @@ Blocked by Task 2.
 Blocked by Tasks 3 and 6.
 
 **Files:**
+
 - Modify: `skills/epic-create/SKILL.md`, steps 9 and 10.
 
 - [ ] Step 9 gains: *If the planning issue carries the `security` label,
@@ -402,6 +458,7 @@ Blocked by Tasks 3 and 6.
 Blocked by Tasks 3–6.
 
 **Files:**
+
 - Create: `docs/site/docs/guides/security-records.md`, covering:
   - the policy and the about-a-day lifetime target;
   - paad's definition of a security finding, quoted;
@@ -428,9 +485,12 @@ Blocked by Tasks 3–6.
 ### Task 9: Release and deploy (vergil-tooling, deployment)
 
 Blocked by Tasks 2–8. **Preconditions (human-attested):**
+
 - a vergil-tooling release containing Tasks 2–6 and 8 has been cut, and the
   `v2.1` line resolves to it;
-- a vergil-claude-plugin release containing Task 7 is published.
+- a vergil-claude-plugin release containing Task 7 is published;
+- the sweep's tooling install (`ops-epic-sweep.yml@v2.1` through
+  `actions/shared/setup/vergil`) resolves to that release.
 
 - [ ] In the agent VM, run `vrg-vm update`. Then check that
   `vrg-security-record --help` lists `create`, `list`, `show` and

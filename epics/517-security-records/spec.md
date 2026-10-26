@@ -35,7 +35,8 @@ depend on this one.
 
 ## 2. Goals, non-goals, anti-goals
 
-**Goals**
+### Goals
+
 - Any security finding can be recorded with one command, which produces a
   private advisory holding the details and an intake issue holding only a
   neutral title and a pointer. Each references the other.
@@ -45,7 +46,8 @@ depend on this one.
 - Past public issues that disclosed security problems are found and labelled,
   and anything still unfixed gets a proper record.
 
-**Non-goals**
+### Non-goals
+
 - Publishing advisories, requesting CVEs, or any coordinated-disclosure
   process. These are possible later, and nothing here prevents them.
 - Wiring the tool into `issue-implement`, `epic-create`, `intake-capture` or
@@ -62,7 +64,8 @@ depend on this one.
   user's stated risk model is that these are notes, and agents may manage
   them.
 
-**Anti-goals** (failures even if everything technically works)
+### Anti-goals (failures even if everything technically works)
+
 - Security details in any issue title or body, comment, PR body, commit
   message, report-ready note, relay ref, or **Actions log** (the sweep runs
   in the public `.github` repo, so its logs are public), in any repo, public
@@ -74,16 +77,18 @@ depend on this one.
 ## 3. Verified facts this design rests on
 
 From docs.github.com (read 2026-10-26):
+
 - REST reference:
-  https://docs.github.com/en/rest/security-advisories/repository-advisories
+  <https://docs.github.com/en/rest/security-advisories/repository-advisories>
 - Concepts:
-  https://docs.github.com/en/code-security/concepts/vulnerability-reporting-and-management/repository-security-advisories
+  <https://docs.github.com/en/code-security/concepts/vulnerability-reporting-and-management/repository-security-advisories>
 - Who can see and do what:
-  https://docs.github.com/en/code-security/reference/permissions/repository-security-advisory
+  <https://docs.github.com/en/code-security/reference/permissions/repository-security-advisory>
 - Token permissions:
-  https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps
+  <https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps>
 
 What they say:
+
 - Repository security advisories are documented for **public** repos only.
   This design requires the org's `.github` repo to be public (§2
   non-goals), so advisories are available there.
@@ -102,6 +107,7 @@ What they say:
   and how that applies to an App's bot identity is undocumented.
 
 From the code:
+
 - Neither the user nor the audit App has an advisories permission
   (`docs/site/docs/guides/account-setup.md` declares App permissions).
 - `vrg-gh api` is denied for the user agent and is GET-only for audit
@@ -209,8 +215,11 @@ refused when `VRG_EPIC_SWEEP` is set.
 - `retarget <GHSA-id> --to <ref> [--to <ref> …]` moves an advisory's
   tracking to new issues. Each target gets the `security` label and the
   `Security advisory:` line, then the advisory's `Tracking issue:` lines are
-  replaced. Only after both succeed does the caller close or move the old
-  issue; any failure stops loudly. It is the one way a link moves: intake
+  replaced. Every issue the advisory **stops** tracking loses the label and
+  the advisory line, and gets a neutral comment `Security record moved to
+  <refs>`, so the consistency check stays strict and nothing is lost. Only
+  after all of this succeeds does the caller close or move the old issue;
+  any failure stops loudly. It is the one way a link moves: intake
   routing (4.4) and planning (4.4b) both use it.
 - `list [--repo <affected>] [--state …] [--details]` lists pairs and their
   status, for the human and the sweep (output rule above).
@@ -221,6 +230,7 @@ refused when `VRG_EPIC_SWEEP` is set.
 
 The existing **scheduled sweep** (`vrg-epic-audit --close` under the org ops
 App) gains one pass over the org's `.github` advisories:
+
 - **Issue-driven sync** (*my call*): the advisory's state follows its
   issues'. The advisory is closed when **every** issue it tracks is closed
   (fixed, or dropped as not planned), and is a draft while any of them is
@@ -279,6 +289,7 @@ the advisory. The planning issue tracks the advisory until the plan exists.
 Because issues are neutral everywhere, a private repo holds no security
 details in its issues, and nothing needs converting. What tooling can't
 cover remains. The docs carry a short pre-flip checklist for the human:
+
 - git history and commit messages;
 - PR bodies and review comments;
 - wikis and Actions logs;
@@ -292,6 +303,7 @@ needed now.
 
 A one-time audit of open and closed issues in every public vergil-project
 repo, looking for ones that disclosed security problems. For each hit:
+
 - if the problem is still unfixed, attach an advisory to the existing issue
   (`create --issue`), which adds the `security` label;
 - otherwise (already fixed), add the `security-disclosed` label, which
@@ -310,6 +322,7 @@ posted anywhere public beyond what the issues already say.
 
 Add two labels to `data/labels.json`. Existing tooling then ensures each
 wherever it is applied.
+
 - `security`: "Has a private security record in the org's .github
   advisories". The consistency check (4.3) applies only to this label.
 - `security-disclosed`: "Past issue that disclosed a security problem
@@ -318,6 +331,7 @@ wherever it is applied.
 ### 4.8 Permissions (human actions)
 
 Add "Repository security advisories: Read and write" to:
+
 - every **user** App (`<user>-vergil-user`);
 - the **org ops App** that runs the sweep;
 - **not** the audit App. It is not in use today (agent work runs
@@ -332,6 +346,7 @@ each installation to accept the change, which is a human step.
 Before the tool is built, a validation task checks the undocumented points
 directly in `vergil-project/.github`, leaving one closed, clearly titled
 test draft (drafts can't be deleted):
+
 - a **user** App installation token can create, read, update and close a
   draft;
 - `ecosystem: other` with a repo name as the package name is accepted;
