@@ -339,14 +339,18 @@ review between them and pause for a human only when they can't.
   2. *Uncommitted changes:* the implementer commits first. paad's own output
      files also count as uncommitted changes, and are handled by the
      output-redirection requirement below.
-  3. *`paad/security/.gitignore` is missing or wrong:* it is created up front
-     (child B).
+  3. *`paad/security/` is unsafe:* paad 2.0 creates
+     `paad/security/.gitignore` (containing `*`) itself when it is missing.
+     It stops only when that file holds anything else, or when git already
+     tracks files under `paad/security/`. Neither happens if nothing there
+     is ever committed. B's root-level ignore line is defence in depth.
   4. *Ambiguous arguments:* the base is passed explicitly.
 
   If prompting proves insufficient, add `paad/config/agentic-review.md` saying
   "unattended run: never ask, finish with the report". This is paad's
-  experimental config mechanism (CONFIG.md), so the paad version should be
-  pinned if we rely on it. If neither works, raise it with the paad authors.
+  experimental config mechanism (CONFIG.md). paad stays unpinned (see B), so
+  every config file names the paad version it was written for, and D detects
+  drift. If neither works, raise it with the paad authors.
 - **Results come back through the issue, not the file system.**
   - **What paad does by default:** agentic-review returns its results as files
     (`paad/code-reviews/<report>.md`, `backlog.md`). Left untracked, those
@@ -452,10 +456,10 @@ Section 3 holds two kinds of content.
 | ID | Item | Shape | Depends on |
 |---|---|---|---|
 | A | Security-finding handling | planning item, then a small epic | none |
-| B | paad 2.0 compatibility and hygiene | task under the umbrella | none |
-| C | Iterating design review in `epic-create` (mode 1) | planning item, then an epic (absorbs .github#469) | A, B |
-| D | Agentic review in `issue-implement` (mode 2) | planning item, then an epic (absorbs plugin#677) | A, B |
-| E | Steering-file and Claude settings review | planning item | B |
+| B | paad 2.0 compatibility and hygiene | four tasks under the umbrella (plan Tasks 1–4) | none |
+| C | Iterating design review in `epic-create` (mode 1) | planning item, then an epic (absorbs .github#469) | A; B's Tasks 1 and 3 |
+| D | Agentic review in `issue-implement` (mode 2) | planning item, then an epic (absorbs plugin#677) | A; B's Tasks 1, 3 and 4 |
+| E | Steering-file and Claude settings review | planning item | B's Tasks 1 and 3 |
 | F | Wider paad adoption | planning item | C, D |
 
 **A. Security-finding handling.**
@@ -636,11 +640,15 @@ deviation with a reason.
 - A design-time ceremony so heavy that the human can't stop it after one round
   on simple work.
 
-## 6. Deviations register (initial)
+## 6. Deviations register (initial seed)
+
+This table is the seed. Once plan Task 3 lands, the living register is
+`vergil-claude-plugin/docs/paad-policy.md`, and changes go there.
 
 | Deviation from paad | Reason |
 |---|---|
 | Mode 2 caps autonomous rounds at 3, then pauses for the human | The authors say "repeat" with a human present. Unattended, an unbounded loop is unsafe. |
+| paad is unpinned and follows the latest release, although D and C may rely on the experimental `paad/config/` | A pin would not hold on agent VMs: `vrg-vm update` moves every enabled plugin to latest. Mitigation: every config file names the version it was written for, and D detects drift. |
 | Design-review report files (pushback, alignment) are not written; the planning-issue comments are the record (§3.2) | The planning issue is the epic's permanent planning log, and review history must stay out of the reviewed document so the next round's reviewer has a fresh context. |
 
 ## 7. Constraints

@@ -34,6 +34,7 @@ planning items are not tasks. They are filed during this epic's
   whenever it is ready.
   - A and B have no dependencies; A is the priority.
   - C, D and E need Task 1 merged and Task 3 merged. D also needs Task 4.
+    This refines the spec's "depends on B" (spec §4 table).
   - F needs C and D.
   - The Task 2 fleet sweep is hygiene that runs in parallel and gates nothing.
     paad 2.0 already writes its own `paad/security/.gitignore` containing `*`,
@@ -43,6 +44,9 @@ planning items are not tasks. They are filed during this epic's
   host. The managed repo `claude_settings.json` is not changed.
 - **Spec section 3 binds C and D.** Its rules are not reopened in this epic.
 - **Gate tasks carry no `Blocked-by:` links** and run last.
+- **No nits, no cracks (spec §2.4):** any problem noticed while doing Tasks
+  1–4 and not fixed is filed with `vrg-intake-create`, or dropped by the
+  human with a reason.
 - **Public-repo rule:** security details never appear in issues, comments, PR
   bodies, or report-ready notes, only as counts.
 - **Tooling:**
@@ -64,8 +68,8 @@ planning items are not tasks. They are filed during this epic's
    `Filed as task <ref>`) must not satisfy its gate while that task is open.
    Pinned by the gate precondition text (Gate tasks section).
 4. **A VM whose guest settings predate the host's paad entry** must not
-   produce a false failure. Task 4 refreshes the guest settings before
-   checking.
+   produce a false failure. Task 4 refreshes the guest settings with
+   `vrg-vm start` (Lima) or `vrg-vm session` (cloud) before checking.
 5. **The deviations register** must not contradict spec §3.2 (review history
    lives in planning-issue comments). Pinned by Task 3, Step 2.
 
@@ -107,21 +111,31 @@ release**: until each repo's sync PR merges, that repo fails its
 `local.gitignore` audit, and its `vrg-release` preflight is blocked.
 
 - **Precondition:** a vergil-tooling release containing Task 1 is installed
-  on the host.
+  where the sweep runs: the host, or the VM's packaged copy.
 - **Procedure:**
   1. Agent: run
      `vrg-fleet-sync --target gitignore --dry-run --repos <clones>`, then
      run it again without `--dry-run`.
-     - `<clones>` is every active repo's local clone, at
-       `~/dev/projects/<org>/<repo>` (including `.github`), for the orgs
-       vergil-project, logical-minds-foundry and mq-rest-admin-project.
+     - `<clones>` is every local clone under `~/dev/projects/<org>/<repo>`
+       (including each org's `.github`) whose `.gitignore` carries the
+       `vergil-managed` fence. List them with
+       `grep -l '>>> vergil-managed' ~/dev/projects/*/{*,.github}/.gitignore`.
+       The `.github` entry is needed because the plain `*` glob skips hidden
+       directories. As of 2026-10-26 that gives:
+       - vergil-project: nine repos plus `.github`;
+       - logical-minds-foundry: five repos plus `.github`;
+       - mnemosys-project: `docs`, `melete` and `.github`.
+
+       mq-rest-admin-project's and diogenes-project's clones carry no fence,
+       so they are not swept. Record that in the outcome, and re-run the
+       listing at execution time instead of trusting this snapshot.
      - The sweep opens one sync PR per drifted repo. Each is tracked under
        that repo's ad-hoc epic, which is the tool's default.
   2. **Human:** submit and merge each sync PR (the sweep stops at
      report-ready).
-- **Acceptance:** for every active repo, the `local.gitignore` field of
-  `vrg-github-repo-config audit` passes. Unrelated audit fields are out of
-  scope.
+- **Acceptance:** for every swept repo, the `local.gitignore` field of
+  `vrg-github-repo-config audit` passes. Failures in unrelated audit fields
+  are out of scope here, and each one is filed to intake.
 
 ### Task 3: paad usage policy and deviations register (vergil-claude-plugin, implementation, B)
 
@@ -131,7 +145,8 @@ release**: until each repo's sync PR merges, that repo fails its
   deviations register, seeded from spec §6. C's doctrine reference document
   will sit beside it.
 - Modify: `skills/handoff/SKILL.md` (a one-paragraph scope note) and
-  `CLAUDE.md` (a pointer to `docs/paad-policy.md`).
+  `CLAUDE.md`: a pointer to `docs/paad-policy.md`, placed **outside** the
+  `vergil:template:claude-md` markers so the template check still passes.
 
 - [ ] **Step 1: Write `docs/paad-policy.md`** with these sections, each
   stating the decision and its reason:
@@ -159,8 +174,14 @@ release**: until each repo's sync PR merges, that repo fails its
        because it writes into memory under our policy;
      - `paad:handoff` is not used in vergil workflows;
      - always use the prefixed name.
-  6. **The deviations register:** the table from spec §6, plus the entries
-     from items 2 and 5.
+  6. **Existing committed reports:** the `paad/pushback-reviews/` and
+     `paad/alignment-reviews/` files already in four repos stay as
+     history. They are not moved or deleted.
+  7. **The deviations register:** the table from spec §6 (including the
+     unpinned-paad row), plus the entries from items 2 and 5, plus:
+     - **Where the policy lives:** in one central document rather than in
+       each repo's steering file, as the authors suggest. Pointing each
+       repo's steering files at it is handed to child E.
 - [ ] **Step 2: Check the register against spec §3.2.** No row may claim that
   review history lives inside a spec or plan.
 - [ ] **Step 3: Add the handoff scope note.** Add one paragraph to
@@ -172,19 +193,23 @@ release**: until each repo's sync PR merges, that repo fails its
 
 ### Task 4: Validation: paad is available where agents run (vergil-tooling, validation, B)
 
-`validation` kind. It is blocked by Task 3 and does not depend on any
+`validation` kind. It has no task dependency and does not depend on any
 release.
 
-- **Precondition:** Task 3 is merged.
+- **Precondition:** none beyond a reachable Lima VM and cloud VM.
 - **Procedure:**
   1. Confirm that the host's `~/.claude/settings.json` declares the `paad`
      marketplace (`Ovid/paad`) and `"paad@paad": true`.
-  2. For a Lima VM and a cloud VM:
-     1. Run `vrg-vm restart`, which copies the host's settings into the guest.
-     2. Run `vrg-vm update`, which reconciles plugins from the guest settings.
-     3. In a session, check that `claude plugin list` shows `paad@paad`
-        enabled, and record its version.
-     4. Check that `paad:agentic-review` and `paad:pushback` load.
+  2. Refresh each guest's settings from the host, then reconcile plugins.
+     `vrg-vm restart` does not copy settings and refuses cloud VMs, and
+     `vrg-vm update` reconciles without copying.
+     - **Lima VM:** `vrg-vm stop`, then `vrg-vm start`. Start copies the
+       Claude config, then updates the tooling and plugins.
+     - **Cloud VM:** open a `vrg-vm session` (which copies the config) and
+       exit, then run `vrg-vm update`.
+  3. In a new session on each, check that `claude plugin list` shows
+     `paad@paad` enabled, and record its version.
+  4. Check that `paad:agentic-review` and `paad:pushback` load.
 - **Acceptance:** both VM types have paad enabled and loadable, and their
   versions are recorded in the outcome comment. On failure, record
   `Outcome: FAILURE` with the evidence. D cannot start until this passes.
@@ -194,13 +219,30 @@ release.
 Each child is a planning item in the `vergil-project/.github` planning queue
 (.github#439). Each body contains:
 - the lines `Umbrella: vergil-project/.github#500` and `Depends on: <ids>`;
-- the relevant section of spec §4;
+- a link to the published spec
+  (`vergil-project/.github` `epics/500-paad-first-engineering/spec.md`)
+  and the named sections the child inherits:
+  - **A:** §4.A, §2.3, the §3.1 security bullet, the security anti-goal
+    (§5), and §7;
+  - **C:** §4.C, §2, §3.1, §3.2, and the binding clause in §4;
+  - **D:** §4.D, §2, §3.1, §3.3, the binding clause in §4, and §6;
+  - **E:** §4.E;
+  - **F:** §4.F and §2.1;
+- a note that the living deviations register is
+  `vergil-claude-plugin/docs/paad-policy.md` once Task 3 lands;
 - this instruction to whoever promotes it: **"When `epic-create` creates this
   child's epic, put `Umbrella: vergil-project/.github#500` in the epic's body,
   and close this planning item with `Planned as <epic ref>`."**
 
 Children are filed **before** the gate tasks, because each gate names its
 child's ref.
+
+**Absorbed issues (C = .github#469, D = plugin#677).** Their existing
+bodies and comments predate the spec. plugin#677, for example, says "one
+PR" and "only high or critical findings block". Each gets a banner at the
+top of its body: **"Superseded by epic vergil-project/.github#500 spec
+§3.x and §4.x. The binding rules are there; the text below is historical
+input."**
 
 | Child | How it is filed | Depends on |
 |---|---|---|
@@ -230,8 +272,15 @@ Before that, the gate counts as waiting, not runnable.
 
 - **Documentation:** .github#501, which publishes this spec and plan.
 - **Documentation review:** vergil-tooling#3658. It covers the umbrella's
-  own changes (Tasks 1–4) and runs once they close; it does not wait for the
-  children, because each child epic has its own documentation review.
+  own changes (Tasks 1–4).
+  - **Runnable as soon as Tasks 1–4 close,** even though the gate tasks are
+    still open. This overrides `epic-implement`'s default of running
+    closing bookends only when nothing else remains.
+  - **Children:** each child epic has its own documentation review. A child
+    that closes as a single task (`Filed as task`) has no such bookend, so
+    that task carries its own docs check, and its gate verifies that the
+    task's closing PR touched the docs it changed or says why none were
+    needed.
 - **Retrospective:** .github#502. It is terminal and runs after all five gate
   tasks close.
 
