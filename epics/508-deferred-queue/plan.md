@@ -182,7 +182,7 @@ Expected: FAIL (`AttributeError: ... has no attribute 'DEFERRED'`).
   for posting by hand. A re-run of `defer` would be a refresh, which leaves out
   that line, so the origin would be lost.
 - **Defer, refresh** (already deferred): post `DEFER_COMMENT` only. No link, and no `Deferred from:` line.
-- **Planning guard:** for Defer or Drop on a planning item, read its comments. If `parse_planning_markers(...).epic is not None`, refuse with "…has a development epic (<slug>); deferring or dropping it would orphan that epic".
+- **Planning guard:** for Defer or Drop on a planning item, read its comments. If `parse_planning_markers(...).epic is not None`, refuse with `…has a development epic (<slug>); deferring or dropping it would orphan that epic`.
 - **Ad-hoc guard:** for Defer on an ad-hoc item, read `gh issue view --json closedByPullRequestsReferences` and each PR's state. Refuse if any PR is `OPEN`, naming it.
 - **ToIntake:** `_link(ensure_intake_epic(repo), ref)`, with the visibility guard.
 - **Drop:** the comment names the source queue (`intake`, `planning`, `deferred`).
