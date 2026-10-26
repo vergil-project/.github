@@ -2,7 +2,9 @@
 
 - **Epic:** vergil-project/.github#508
 - **Planning issue:** vergil-project/.github#487
-- **Status:** Draft design (2026-10-26), before pushback
+- **Status:** Reviewed design (2026-10-26), after pushback
+- **Review:** paad pushback, 2 issues, both resolved. The migration sweep
+  judges candidates in both queues, and the release-order window is accepted.
 - **Brainstorm source:** superpowers brainstorming session, 2026-10-26
 - **Implemented in:** vergil-tooling, vergil-claude-plugin, then a migration
   sweep of every queue home
@@ -251,10 +253,10 @@ A one-time, interactive pass, run after the tooling ships and is installed. It
 covers **every queue home in every active org** (each org's `.github`, plus
 self-homed private repos):
 
-1. **Find candidates:**
-   - Intake items whose latest disposition is a `Deferred <date>:` comment.
-   - Planning items deferred in prose, such as #165 and #436. Finding these
-     takes judgment.
+1. **Find candidates by reading every intake and planning item.** A
+   `Deferred <date>:` comment is a strong signal but not the rule. Any item
+   parked on a condition is a candidate, whatever its wording. Examples: intake
+   item #453 ("pick it up after #39 merges") and planning items #165 and #436.
 2. **Move each one** with `vrg-intake-route … defer --date <original date>`.
    The reason comes from the
    existing comment. Where the old comment gave only a reason, the agent drafts
@@ -264,8 +266,9 @@ self-homed private repos):
    are waiting to become tasks of planning item #384.
 4. **Confirm in batches** with the human, as in intake review.
 
-**Done when** `vrg-queue intake` and `vrg-queue planning` show no deferred
-items in any queue home.
+**Done when** every intake and planning item in every queue home has been
+reviewed in the sweep, and every item that remains is live work, not parked on
+a condition.
 
 The sweep is an operational step with no code PR. Its result is recorded as a
 comment on its task.
@@ -282,6 +285,11 @@ comment on its task.
 4. **Migration sweep** across all queue homes.
 5. **Docs review** (vergil-tooling#3669), then the **retrospective**
    (#515).
+
+**Accepted window.** Between steps 1 and 3, the old `intake-review` skill
+calls `defer` without the now-required `--revisit-when`, so every defer fails
+loudly. This is accepted: intake review is not run during the window, and the
+intake queue is small.
 
 ## 5. Left to the builder
 
