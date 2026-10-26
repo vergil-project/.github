@@ -120,13 +120,21 @@ paad's backlog is per finding too, so one pair per finding matches it.
   - `vulnerabilities: [{package: {ecosystem: "other", name: "<affected
     repo>"}}]`, so the affected repo is a structured, queryable field
     (*my call*);
-  - severity mapped from paad: Critical → critical, Important → high,
-    Suggestion → medium. A finding with no paad severity is given one by
-    the caller;
+  - a severity in GitHub's terms (critical, high, medium, low). The docs
+    carry a mapping from each paad scale:
+
+    | paad scale (skills) | critical | high | medium | low |
+    |---|---|---|---|---|
+    | Critical / Important / Suggestion (agentic-review) | Critical | Important | Suggestion | n/a |
+    | Critical / High / Medium / Low (agentic-owasp) | Critical | High | Medium | Low |
+    | High / Medium / Low (pushback, agentic-architecture) | n/a | High | Medium | Low |
+
+    A finding with no paad severity is given one by the caller;
   - never published, and no CVE requested.
 - **Issue**, created in the intake queue the same way `vrg-intake-create`
-  creates one (the `.github` intake for a public repo; the repo's own intake
-  for a private one):
+  creates one. Its home is always `epics.queue_home(<affected repo>)`: the
+  `.github` intake for a public repo, the repo's own intake for a private
+  one. It is never created in the public code repo itself:
   - a **neutral** title and body, supplied by the caller, **even in a
     private repo**; the tool can't judge neutrality, so it is the caller's
     duty, and the docs say so;
@@ -142,20 +150,33 @@ about, and every admin or security manager of `.github` can see every draft,
 including those about a private (for example, client) repo. Today those are
 the same people. The package-name field keeps the affected repo queryable.
 
+**Trade-off, accepted:** for a public repo, the issue is public. Its
+`security` label and advisory line, together with a title that names the
+affected area so it can be routed, tell anyone that an unfixed security
+problem exists in that repo. The issue never says what the problem is, and
+the record is meant to live about a day (§1). This is a deliberate, small
+disclosure, accepted in exchange for a visible, queryable label.
+
 ### 4.2 The tool: `vrg-security-record`
 
 A new vergil-tooling CLI (working name). It calls the advisories API
-directly with the identity's App token. It does **not** go through
-`vrg-gh api`, which stays denied to the user agent. It resolves the org's
-`.github` repo itself; the caller names only the affected repo.
+directly with the identity's App token, or, in human mode (where there is
+no App token), with the ambient `gh` credential; both are supported. It
+does **not** go through `vrg-gh api`, which stays denied to the user agent.
+It resolves the org's `.github` repo itself; `--repo` always names the
+**affected** repo, never where anything is created.
 
 - `create --repo <o>/<r> --title <neutral> --body-file <neutral> --details-file
-  <private> --severity <s>` creates the pair and links both ways. The order
-  is: create the advisory, create the issue naming the GHSA ID, then patch
-  the advisory with the issue reference. A failure at any step is reported
-  loudly with what was and wasn't created (the GHSA ID and/or issue number),
-  and the command exits non-zero. A re-run can complete a half-made pair
-  (the builder decides how).
+  <private> --severity <critical|high|medium|low>` creates the pair and
+  links both ways. The order is: create the advisory, create the issue
+  naming the GHSA ID, then patch the advisory with the issue reference. A
+  failure at any step is reported loudly with what was and wasn't created
+  (the GHSA ID and/or issue number), and the command exits non-zero.
+- **Resume.** Drafts can't be deleted, so a re-run must never create a
+  second advisory for the same finding. When `create` fails after the
+  advisory exists, its error prints the exact command to finish the pair:
+  the same arguments plus `--resume <GHSA-id>`. With `--resume`, `create`
+  skips creating the advisory and completes whatever steps are missing.
 - `create … --issue <ref>` (attach mode, *my call*) attaches a new advisory
   to an **existing** issue instead of creating one: it adds the
   `Security advisory:` line and the label to that issue. The past-issues
@@ -169,25 +190,39 @@ directly with the identity's App token. It does **not** go through
 
 The existing **scheduled sweep** (`vrg-epic-audit --close` under the org ops
 App) gains one pass over the org's `.github` advisories:
-- **Two-way state sync** (*my call*): the advisory's state follows its
-  issue's. A closed issue (fixed, or dropped as not planned) means the
-  advisory is closed; an open issue means it is a draft. So a reopened issue
-  reopens its advisory.
+- **Issue-driven sync** (*my call*): the advisory's state follows its
+  issues'. The advisory is closed when **every** issue it tracks is closed
+  (fixed, or dropped as not planned), and is a draft while any of them is
+  open. So a reopened issue reopens its advisory. The issue always wins: a
+  manual change to an advisory's state is overwritten on the next run, and
+  the docs say to manage a record through its issue.
 - **Consistency check** (*my call*): it **reports** broken pairs: a
-  `security` issue with no or a wrong advisory reference, or a draft
-  advisory with no or a bad `Tracking issue:` line. It reports and does not
-  repair, so the failure is loud and a human decides what to do.
+  `security` issue with no or a wrong advisory reference, or an advisory
+  whose `Tracking issue:` lines are missing a reference, or name an issue
+  that doesn't exist or doesn't point back. It reports and does not repair,
+  so the failure is loud and a human decides what to do.
+- **Unpaired external reports.** An advisory that has never had a
+  `Tracking issue:` line, such as an outside report through private
+  vulnerability reporting (enabled on `.github`, see `SECURITY.md`), is
+  listed as an "unpaired external report". It is never treated as a broken
+  pair, and the sweep never changes its state. `list` shows it in the same
+  category.
 
 The ops App therefore needs the advisories write permission.
 
 ### 4.4 Intake routing keeps the link (*my call*)
 
-When `vrg-intake-route` moves a `security` item by recreating it, or splits
-it, it rewrites the advisory's `Tracking issue:` line to name the issue that
-carries the work (for a split: the first resulting task, with the rest
-listed in the advisory). A plain transfer needs no change, because GitHub
-redirects a transferred issue. This runs as the user agent, which has the
-permission.
+Whenever `vrg-intake-route` moves a `security` item to a new issue number
+(by transfer or by recreating it), it rewrites the advisory's
+`Tracking issue:` line to name the new issue. The checker never relies on
+GitHub's transfer redirect.
+
+When it **splits** a `security` item, every resulting task gets the
+`security` label and the `Security advisory:` line, and the advisory gets
+one `Tracking issue:` line per task. The advisory then closes only when all
+of them are closed (4.3).
+
+This runs as the user agent, which has the permission.
 
 ### 4.5 A private repo going public
 
@@ -207,10 +242,11 @@ needed now.
 
 A one-time audit of open and closed issues in every public vergil-project
 repo, looking for ones that disclosed security problems. For each hit:
-- add the `security` label;
-- if a secret was exposed, report it for rotation (a human action);
 - if the problem is still unfixed, attach an advisory to the existing issue
-  (`create --issue`);
+  (`create --issue`), which adds the `security` label;
+- otherwise (already fixed), add the `security-disclosed` label, which
+  marks a past public disclosure with no record;
+- if a secret was exposed, report it for rotation (a human action);
 - report the total count.
 
 The default is **audit and label only**: the text is already public and
@@ -220,11 +256,14 @@ the issue neutrally and move the details into the advisory). That decision
 is taken after the count, not now. The audit's working list must not be
 posted anywhere public beyond what the issues already say.
 
-### 4.7 Label
+### 4.7 Labels
 
-Add `security` to `data/labels.json` ("Has a private security record in the
-org's .github advisories"). Existing tooling then ensures it wherever it is
-applied.
+Add two labels to `data/labels.json`. Existing tooling then ensures each
+wherever it is applied.
+- `security`: "Has a private security record in the org's .github
+  advisories". The consistency check (4.3) applies only to this label.
+- `security-disclosed`: "Past issue that disclosed a security problem
+  publicly; fixed, no private record". The check ignores it.
 
 ### 4.8 Permissions (human actions)
 
@@ -259,6 +298,9 @@ example, making `create` human-run). Don't build around it silently.
   - what counts as a security finding (paad's definition: "if reading it
     would help an attacker…; on the edge, treat it as security");
   - neutral-wording rules;
+  - the severity mapping table (4.1);
+  - managing a record through its issue, never by editing the advisory's
+    state (4.3);
   - the pre-flip checklist (4.5).
 - `account-setup.md`: the new permission.
 - `.github/SECURITY.md`: a mention of internal records, if it fits.
@@ -276,7 +318,6 @@ example, making `create` human-run). Don't build around it silently.
 
 ## 6. Left to the builder
 
-- Exactly how a half-made pair is completed on re-run.
 - The exact `list` output format.
 - Where the sweep pass lives in code (alongside the orphan pass is the
   obvious place).
