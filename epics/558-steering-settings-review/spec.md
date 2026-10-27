@@ -374,17 +374,26 @@ The model:
   **both** copies Claude Code may load:
   - the main checkout's root, found through `git rev-parse
     --git-common-dir` (§3.5);
-  - the current worktree's own copy.
+  - the current worktree's own copy;
+  - the invoking directory's copy and those of its ancestors up to the
+    worktree root (a session started in a subdirectory, or after `/cd`).
 
-  For an **agent** identity they refuse to run if either copy exists with
-  any content other than `{}`. A **human** identity gets the same message as
+  A repo whose root, `.git` or `.claude` isn't owned by the user makes
+  Claude Code keep the file elsewhere; that case is a known limit, recorded
+  on the model page.
+
+  For an **agent** identity they refuse to run if any copy exists with
+  any content other than `{}`, and tell the agent to stop and ask the
+  human. A **human** identity gets the same message as
   a warning and the tool proceeds: the file changes agent behavior, not the
   human's own release and dependency-update runs. An absent file passes. The
   message says why the file must stay absent or `{}`, and that any rule it
   held belongs in the repo template or the user file.
-  - `vrg-validate`, inside the container, checks the worktree copy. It
-    cannot see the main checkout's working tree there, so it says so rather
-    than passing silently.
+  - `vrg-validate` enforces the same way when run outside a container.
+    Inside the container it neither sees the main checkout's working tree
+    nor receives the identity, and `vrg-container-run` has already checked
+    every copy before starting it, so it says so in one line and does not
+    check again.
   - These are the agent's chokepoints, and they don't depend on Claude Code
     hooks. The hook guard is not one: a local file that disables hooks
     would disable it too.

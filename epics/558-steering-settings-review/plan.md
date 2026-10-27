@@ -83,8 +83,9 @@ operational: they have no code PR and close on `Outcome: SUCCESS`.
   - `CLAUDE.md template region matches the previous template; replace it with the current template (epic vergil-project/.github#558).`
 - **Local-settings refusal text** (exact first line):
   `refusing: <path> must be absent or exactly {} — move any rule it holds into the repo template or your user settings, then delete it (epic vergil-project/.github#558).`
-  A human identity gets the same text with `warning:` in place of
-  `refusing:`, and the tool proceeds.
+  For an agent identity the refusal has a second line, exactly:
+  `Agents: stop and ask the human.` A human identity gets the first line
+  only, with `warning:` in place of `refusing:`, and the tool proceeds.
 - **Personal files stay off GitHub, and the agent never writes them.** The
   content of `~/.claude/CLAUDE.md` and `~/.claude/settings.json`, and
   user-scope review findings, are never posted in issues, intake, PR bodies,
@@ -116,7 +117,7 @@ sections, in this order, with these line caps:
 | Section | Lines | Content |
 |---|---|---|
 | Memory | ≤ 3 | Never write memory files without explicit human approval. |
-| Worktrees | ≤ 12 | Sessions start at the project root; one worktree per issue at `.worktrees/issue-<N>-<slug>/`; the main worktree is read-only. Link to `vergil-tooling/docs/specs/worktree-convention.md` for the rest, and one line saying parallel sub-agents are briefed with that spec's "Agent prompt contract". |
+| Worktrees | ≤ 12 | Sessions start at the project root; one worktree per issue at `.worktrees/issue-<N>-<slug>/`; the main worktree is read-only. Link to the GitHub URL of `vergil-tooling/docs/specs/worktree-convention.md` for the rest, and one line saying parallel sub-agents are briefed with that spec's "Agent prompt contract" (`https://github.com/vergil-project/vergil-tooling/blob/develop/docs/specs/worktree-convention.md#agent-prompt-contract`). |
 | Git and GitHub | ≤ 4 | `vrg-git` and `vrg-gh` only; raw `git` and `gh` are blocked by the hook guard. |
 | Validation | ≤ 4 | `vrg-container-run -- vrg-validate` is the only validation command. |
 | PR handoff | ≤ 15 | Agents never run `vrg-submit-pr`. They hand off with `vrg-pr-workflow report-ready`. After report-ready the branch is frozen; `vrg-pr-workflow unfreeze` is the only way to lift the freeze. Report-ready title, summary and notes are public (the relay ref): no secrets. |
@@ -133,8 +134,10 @@ step 1; removed on the host in Task 6):
 | Correctness over cost | move: template region |
 | No silent failures | move: template region |
 
-Every other section of the global file is classified with the human in
-Task 6, in the session only, and is not listed here.
+The classification is **complete**: 6 sections, 3 move (listed above),
+3 keep, 0 delete. The keep sections are not listed here. Task 6 applies this
+classification and does not re-classify; anything new its review turns up
+becomes an intake item, and the section stays on the host until then.
 
 ## Review Focus
 
@@ -183,7 +186,10 @@ Task 6, in the session only, and is not listed here.
 - [ ] **Step 2: Write the page.**
   - **Contents:** the placement rule and ownership table (spec §5.1); the
     platform facts with citations; unused scopes and why (managed settings);
-    the local-settings rule and where it is enforced; the recurring review
+    the local-settings rule, where it is enforced, and its known limit (a
+    repo whose root, `.git` or `.claude` isn't owned by the user: Claude
+    Code then keeps the file elsewhere, and the guard does not check it);
+    the recurring review
     (the nightly audit's rules and `steering-audit`'s two scopes, run at
     least quarterly and on any Claude Code release that changes settings or
     instruction-file behavior).
@@ -199,7 +205,8 @@ Task 6, in the session only, and is not listed here.
 
 ### Task 2: New templates and the bridged audit (vergil-tooling, implementation)
 
-Blocked by Task 1 (the template text cites the model page).
+Blocked by Task 1 (the template text cites the model page) and Task 2b
+(the template's Local settings line says the agent tools refuse).
 
 **Files:**
 
@@ -208,7 +215,7 @@ Blocked by Task 1 (the template text cites the model page).
 - Modify: `src/vergil_tooling/data/claude_md_consumer.md` (to the Decided content)
 - Create: `src/vergil_tooling/data/claude_md_consumer_previous.md` (today's template, byte for byte)
 - Modify: `src/vergil_tooling/lib/repo_config.py` (`_check_claude_md`, `_check_claude_settings`; delete `_check_marketplace_ref`, `_check_settings_section`, `_check_attribution`)
-- Modify: `src/vergil_tooling/lib/repo_init.py:322-332` (`render_claude_settings` stops seeding the ref)
+- Modify: `src/vergil_tooling/lib/repo_init.py:322-332` (`render_claude_settings` stops seeding the ref) and `repo_init.py:423-447` (`render_claude_md` stops writing a `## Validation` section outside the markers; the template states it)
 - Modify: `CLAUDE.md` (template region replaced; body text the region now covers removed; the "Cloud session prompt contract" stays in the body), `.claude/settings.json` (to the new shape)
 - Modify: `docs/site/docs/reference/config-audit.md` (settings and CLAUDE.md check rows; the bridge)
 - Test: `tests/vergil_tooling/test_repo_config.py`, `tests/vergil_tooling/test_repo_init.py`, `tests/vergil_tooling/test_update_deps_vergil_eco.py`
@@ -234,6 +241,8 @@ Blocked by Task 1 (the template text cites the model page).
   - `test_claude_md_region_previous_warns`,
     `test_claude_md_legacy_previous_warns`,
     `test_claude_md_region_current_clean`
+  - `test_render_claude_md_has_no_body_validation_section` (in
+    `test_repo_init.py`)
   - `test_render_claude_settings_equals_template` and
     `test_repo_init_output_audits_clean` (in `test_repo_init.py`)
   - `test_normalize_claude_ref_noop_without_marketplace` (in
@@ -278,7 +287,12 @@ No blockers. An absent file passes, so this is safe to merge at any time.
       is checked host-side only. Inside the container the main root exists
       as an empty mount parent, so existence or readability must not be
       used as the signal.
+    - the invoking directory's copy and each ancestor's copy up to the
+      worktree root (a session started in a subdirectory, or after `/cd`).
     - A `git rev-parse` failure raises with git's error. It is never a pass.
+    - Known limit, recorded on the model page (Task 1): when the repo root,
+      its `.git` or `.claude` isn't owned by the user, Claude Code keeps the
+      file beside `.claude/settings.json` instead; not checked.
   - `find_violations(paths: list[Path]) -> list[Path]`. A path violates if
     the file exists and does not parse to exactly `{}`. Unparseable JSON
     violates.
@@ -290,8 +304,12 @@ No blockers. An absent file passes, so this is safe to merge at any time.
 - Callers, all through `enforce`:
   - `vrg-commit`, `report-ready` and `vrg-container-run` (host-side, before
     starting the container).
-  - `vrg-validate`, inside the container: it checks the worktree copy and
-    prints the "not checked" note for the main checkout.
+  - `vrg-validate`, **outside** a container (for example run directly in
+    a VM shell), enforces in full. **Inside** a container
+    (`VRG_IN_CONTAINER=1`) it enforces nothing and prints one line,
+    `local settings: checked host-side by vrg-container-run`: the identity
+    signals don't reach the container, and `vrg-container-run` has already
+    checked every copy with the real identity before starting it.
   - `vrg-hook-guard` is **not** a caller: its stderr is never shown on exit
     0, and a local file that disables hooks disables it too.
 
@@ -303,10 +321,14 @@ No blockers. An absent file passes, so this is safe to merge at any time.
   - `test_unparseable_violates`
   - `test_in_container_main_checkout_reports_not_checked` (the real shape:
     a main root holding only `.git`, with `VRG_IN_CONTAINER=1`)
+  - `test_subdirectory_copy_violates`
+  - `test_validate_in_container_defers_to_host` and
+    `test_validate_on_host_refuses_for_agent`
   - `test_rev_parse_failure_raises`
   - `test_container_run_sets_in_container_env` (in `test_container.py`)
-  - per caller: `test_<tool>_refuses_for_agent` (exit 1, refusal text on
-    the first line) and `test_<tool>_warns_for_human` (exit 0, warning text)
+  - per host-side caller: `test_<tool>_refuses_for_agent` (exit 1, refusal
+    text on the first line, `Agents: stop and ask the human.` on the second)
+    and `test_<tool>_warns_for_human` (exit 0, warning text)
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement** the library, then wire the callers.
 - [ ] **Step 4: Run the tests and see them pass,** then
@@ -317,7 +339,9 @@ No blockers. An absent file passes, so this is safe to merge at any time.
 
 ### Task 3: Release the bridged audit (vergil-tooling, deployment)
 
-Blocked by Task 2 and Task 2b.
+Blocked by Task 2, Task 2b and vergil-project/.github#588 (an ad-hoc fix
+that makes `.github`'s legacy template match pass again; its audit has
+failed since 2026-10-25).
 
 - **Precondition (human-attested):** a v2.1 patch release containing Tasks 2
   and 2b is published, and the rolling `v2.1` tag points to it.
@@ -396,20 +420,23 @@ No blockers.
 - Modify:
   - `README.md` (skills table rows);
   - `docs/site/docs/skills/index.md` (table rows and the three sections);
-  - `CLAUDE.md` (the memory-skill list and the handoff mention);
-  - `docs/paad-policy.md` §5 (`vergil:handoff` is removed; `paad:handoff` is the one to use);
+  - `CLAUDE.md`: the handoff mention in the body only. The memory-skill list is template text in a legacy (no-marker) file, and editing it fails the audit until 5b; 5b replaces it.
+  - `docs/paad-policy.md` §5 (`vergil:handoff` is removed; `paad:handoff` is the one to use) and §7 (remove the deviation row naming `vergil:handoff`);
   - the "`/vergil:handoff` remains the recovery net" lines in `skills/issue-deploy/SKILL.md`, `skills/issue-validate/SKILL.md`, `skills/issue-validate/references/operational-task-lifecycle.md`, `skills/issue-implement/SKILL.md`, `skills/epic-implement/SKILL.md` and `skills/epic-retrospective/SKILL.md`;
-  - `skills/epic-implement/SKILL.md:58`, which dispatches sub-agents using the "Agent prompt contract" in `CLAUDE.md`: the new template no longer carries the contract, so point it at `vergil-tooling/docs/specs/worktree-convention.md#agent-prompt-contract`.
+  - `skills/epic-implement/SKILL.md:58`, which dispatches sub-agents using the "Agent prompt contract" in `CLAUDE.md`: the new template no longer carries the contract, so point it at `https://github.com/vergil-project/vergil-tooling/blob/develop/docs/specs/worktree-convention.md#agent-prompt-contract`;
+  - the "Front-Loaded Judgment, Trusted Execution" doctrine references ("see `CLAUDE.md`") in `skills/issue-implement/SKILL.md:21`, `skills/issue-deploy/SKILL.md:33` and `skills/issue-validate/SKILL.md:33`: point them at the plugin's published skills page section (`docs/site/docs/skills/index.md`, "Execution doctrine"), by its absolute URL.
 
 - [ ] **Step 1: Delete and edit.** Each "recovery net" line becomes: the
   issue's comments are the recovery record, and `paad:handoff` is available
-  for session continuity. Repoint `epic-implement`'s contract reference.
+  for session continuity. Repoint `epic-implement`'s contract reference and
+  the three doctrine references.
 - [ ] **Step 2: Check for leftovers.**
   `vrg-git grep -n 'memory-init\|memory-audit\|vergil:handoff'` should show
   only history, which is left as is: `CHANGELOG.md`, `releases/`, `paad/`,
   and dated files under `docs/plans/` and `docs/specs/` (including
-  `docs/specs/figures/`). `vrg-git grep -n 'prompt contract" in'` shows no
-  hit under `skills/`.
+  `docs/specs/figures/`), plus the template text in `CLAUDE.md` (left for
+  5b). Under `skills/`, `vrg-git grep -n -e 'prompt contract" in' -e 'see
+  `CLAUDE.md`'` shows no hit.
 - [ ] **Step 3: Validate.** `vrg-container-run -- vrg-validate`. Expected:
   PASS.
 - [ ] **Step 4: Commit** with `vrg-commit --type feat --scope skills`.
@@ -441,7 +468,7 @@ the prerequisites as text.
 | 5b | vergil-project/vergil-claude-plugin | 375 | adopt markers; delete `AGENTS.md` |
 | 5c | vergil-project/vergil-containers | 307 | adopt markers |
 | 5d | vergil-project/vergil-actions | 234 | adopt markers; delete `AGENTS.md` |
-| 5e | vergil-project/.github | 158 | adopt markers |
+| 5e | vergil-project/.github | 158 | adopt markers; keep the "Archived epics — do not read" section, outside the marked region |
 | 5f | vergil-project/docs | 128 | — |
 | 5g | vergil-project/vergil-vm | 124 | adopt markers |
 | 5h | vergil-project/vergil-python | 120 | — |
@@ -494,8 +521,9 @@ Blocked by Task 4c, Tasks 5a–5i and Task 5-gate.
   repo without them.
 - **Procedure:**
   1. Run `/vergil:steering-audit user` with the human (read-only; in the
-     session only). Walk the three moved sections and classify the rest
-     with the human. Review the user settings:
+     session only). Apply the Decided classification: confirm the three
+     moved sections are covered by the template, and take anything new to
+     intake rather than re-classifying. Review the user settings:
      - keep the single `vergil-marketplace` definition;
      - fix or remove the macOS-only `statusLine`;
      - the human decides on the `AskUserQuestion` deny hook.
@@ -587,8 +615,8 @@ Blocked by Task 6 and Task 8.
 | Task | Blocked by |
 |---|---|
 | 1, 2b, 4b | — |
-| 2 | 1 |
-| 3 (deploy) | 2, 2b |
+| 2 | 1, 2b |
+| 3 (deploy) | 2, 2b, .github#588 |
 | 4 | 1 |
 | 4c (deploy) | 4, 4b |
 | 5a (vergil-tooling) | 1, 2, 4c |
