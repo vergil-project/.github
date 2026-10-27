@@ -65,8 +65,8 @@ Known problems:
   branch freeze) and the cloud-session prompt contract exist only in
   vergil-tooling's `CLAUDE.md`. Agents in the other eight repos never load
   them. The plugin skills cover part of this.
-- **AGENTS.md files are dead and harmful.** Claude Code does not read an
-  `AGENTS.md` when a `CLAUDE.md` exists (§3), so these files are seen only by
+- **AGENTS.md files are dead and harmful.** By default, Claude Code does not
+  read an `AGENTS.md` when a `CLAUDE.md` exists (§3), so these files are seen only by
   other tools. Their content is also wrong: vergil-tooling's tells agents to
   run raw `git checkout -b`, and vergil-actions's says to treat a missing
   `standards-and-conventions` checkout as fatal and to load skills from it.
@@ -79,9 +79,34 @@ Known problems:
 - **Global file is the priority concern.** It has grown ad hoc, with no
   change control, yet it steers every session on every machine. It is stale
   in places (for example, it still says "standard-tooling suite" for the
-  vergil tooling). Much of it is not personal at all: its "Memory management"
-  section is restated in every repo's template region, and sections such as
-  "Correctness over cost" and "No silent failures" are engineering policy.
+  vergil tooling). Much of it is not personal at all:
+  - its "Memory management" section is the authoritative memory policy. The
+    template region (`data/claude_md_consumer.md:3-7`) and the header
+    memory-init writes into every `MEMORY.md` both point to it, rather than
+    restating it;
+  - "Correctness over cost" and "No silent failures" are engineering policy.
+
+### 2.1a The managed fleet
+
+The template and the nightly config audit reach more than the nine
+vergil-project repos. Any repo that pins `vergil = "v2.1"` and runs the
+nightly `ops-github-config` audit is managed. On 2026-10-27 that is 16 repos:
+
+- the nine vergil-project repos above;
+- five in logical-minds-foundry: docs, mq-gateway-replay-lab,
+  mq-protocol-gateway, mq-resiliency-lab-for-linux and
+  mq-resiliency-observability;
+- two in mnemosys-project: docs and melete.
+
+These are out of scope:
+
+- repos that pin `v2.1` but run no nightly audit (the mq-rest-admin-project
+  repos);
+- repos on `v2.0` (for example diogenes and the-infrastructure-mindset).
+
+Throughout this spec, **"the fleet"** means the managed repos, found by a
+mechanical scan at each step that needs the list (§6), not a hand-kept
+list.
 
 ### 2.2 Settings files
 
@@ -132,9 +157,17 @@ The model document (§5.1) re-verifies them when it is written.
 4. **Folder trust:** project `permissions.allow`, `extraKnownMarketplaces` and
    most `env` values "apply only after each teammate trusts the folder".
 5. **`enabledPlugins`** merges per plugin, and the project file beats the user
-   file: a user-level `false` cannot disable a plugin the project enables.
-   A plugin whose only `true` is in the project file is not fetched; a fetch
-   needs a user, local, `--settings` or managed `true`.
+   file: a user-level `false` cannot disable a plugin the project enables,
+   but a `false` in `.claude/settings.local.json` can.
+   - A plugin whose only `true` is in the project file is not fetched; a
+     fetch needs a user, local, `--settings` or managed `true`.
+   - A project `true` for a plugin that isn't installed produces a visible
+     error ("enabled in project settings but isn't installed"), so a missing
+     plugin is never silent.
+   - After session start, Claude Code may still fetch a declared
+     marketplace and download enabled plugins, so what is present at
+     session start can differ from what is present a minute later
+     (`plugins/loading.md`).
 6. **`extraKnownMarketplaces`:** "Claude Code uses the entry from the
    highest-precedence file whole … inherits none of its fields" (since
    v2.1.228). If the project and user files both define
@@ -155,13 +188,16 @@ The model document (§5.1) re-verifies them when it is written.
    - imports (`@path`, at most four hops) don't reduce context cost;
    - path-scoped `.claude/rules/` files load only when Claude works with
      matching files;
-   - `AGENTS.md` is read only when no `CLAUDE.md` exists (v2.1.277+), or
-     when a `CLAUDE.md` imports it.
-10. **`/doctor prompt-audit`** (v2.1.283+) audits CLAUDE.md, CLAUDE.local.md,
-    AGENTS.md, rules, skills, commands and agents under `.claude/` and
-    `~/.claude/`. It looks for stale paths, stale commands, contradictions,
-    and patterns written for older models. It reports proposed edits and
-    changes nothing until asked.
+   - by default, `AGENTS.md` is read only when no `CLAUDE.md` exists
+     (v2.1.277+), or when a `CLAUDE.md` imports it.
+10. **`/doctor prompt-audit`** (v2.1.283+) is a built-in CLI command, not a
+    skill, so an agent cannot invoke it through the Skill tool. It audits
+    instruction files for stale paths and commands, contradictions, and
+    patterns written for older models.
+11. **Settings schema errors:** a value the schema rejects in a user,
+    project or local file triggers a "Settings Error" dialog at the start of
+    every interactive session (`settings.md`). Committed settings files must
+    therefore hold only valid keys.
 
 ## 4. Goals, non-goals, anti-goals
 
@@ -180,9 +216,6 @@ The model document (§5.1) re-verifies them when it is written.
 
 ### Non-goals
 
-- Managed settings (`managed-settings.json`). This is a single-operator
-  fleet, and the template plus the audit already enforce the repo layer. The
-  model records this as a deliberate choice.
 - Delivering fleet policy through a plugin `SessionStart` hook instead of the
   template. It may be worth a later look; it is out of scope here.
 - Versioning the global `~/.claude/CLAUDE.md` or the user `settings.json` in a
@@ -193,9 +226,14 @@ The model document (§5.1) re-verifies them when it is written.
   epic therefore builds its recurring review as a separate `steering-audit`
   skill, leaves `memory-audit` untouched, and adds no new dependency on
   memory (§5.5).
-- Projects outside vergil. The scope is vergil only. Rules that move out of the global `~/.claude/CLAUDE.md` into
-  the vergil template no longer reach non-vergil projects, and that is
-  accepted. A repo that needs them is brought under vergil.
+- Repos vergil doesn't manage (§2.1a). Rules that move out of the global
+  `~/.claude/CLAUDE.md` into the vergil template no longer reach them, and
+  that is accepted. A repo that needs them is brought under vergil
+  management.
+- Managed settings on agent VMs. They are the only scope a repo-local file
+  cannot override, but they are not needed yet, and they raise the bar
+  rather than close it. Revisit if the §5.3 local-settings guard proves
+  inadequate.
 - Rewriting the content of the plugin skills. Skill text may be trimmed only
   where it restates a steering file.
 
@@ -223,25 +261,38 @@ recurring review checks against.
 **Placement rule.** A setting lives in the change-controlled repo
 file unless the platform forces it into user scope. The repo file is
 reviewed, versioned and audited nightly; the user file is none of those, and
-it should stay minimal. Plugin enablement and marketplaces are forced into
-user scope: a project-only enable is never installed (§3.5), and a second
-marketplace definition overrides the first whole (§3.6). The guard hook,
-`attribution` off, and `allow Bash(vrg-*)` are fleet policy. In the repo file
-they apply to every checkout on any machine, including host sessions and
-fresh clones without the VM's copy of the user file, and the hook applies
-even before folder trust (§3.3). Fleet policy must not depend on the personal
-file, so they stay in the repo.
+it should stay minimal.
+
+- **Forced into user scope:** plugin *installation* and the marketplace
+  definitions. A project-only enable is never installed (§3.5), and a second
+  marketplace definition overrides the first whole (§3.6).
+- **Fleet policy, so it stays in the repo:**
+  - the guard hook;
+  - `attribution` off;
+  - `allow Bash(vrg-*)`;
+  - the enable for the vergil plugin. That plugin's own hooks enforce
+    workflow policy, and a project `true` makes a missing install visible
+    (§3.5).
+
+  In the repo file these apply to every checkout on any machine, including
+  host sessions and fresh clones without the VM's copy of the user file. The
+  guard hook applies even before folder trust (§3.3). Fleet policy must not
+  depend on the personal file.
+- **Repo-local overrides are not allowed.** `.claude/settings.local.json`
+  outranks the repo file, so in a managed repo it is committed as exactly
+  `{}` and must stay that way (§5.3).
 
 The model:
 
 | File | Owns | Must not hold |
 |---|---|---|
-| `~/.claude/settings.json` (host, copied verbatim to VMs) | plugin enablement and marketplaces for **all** plugins; personal mode, model and UI settings | anything that works on only one OS, because the same file runs on the macOS host and on Linux VMs |
-| repo `.claude/settings.json` (checked in, generated from the template, audited) | the guard `PreToolUse` hook; `permissions.allow: Bash(vrg-*)`; `attribution` off | `enabledPlugins`, `extraKnownMarketplaces` (a second definition overrides the user's whole entry, §3.6); any repo-specific key |
+| `~/.claude/settings.json` (host, copied verbatim to VMs) | plugin enablement (which installs them) and marketplaces for **all** plugins; the agent-VM permission mode (§9.9); personal model and UI settings | anything that works on only one OS, because the same file runs on the macOS host and on Linux VMs |
+| repo `.claude/settings.json` (checked in, generated from the template, audited) | the guard `PreToolUse` hook; `permissions.allow: Bash(vrg-*)`; `attribution` off; `enabledPlugins: {"vergil@vergil-marketplace": true}` | `extraKnownMarketplaces` (a second definition overrides the user's whole entry, §3.6); any repo-specific key |
+| repo `.claude/settings.local.json` (checked in, audited) | nothing: exactly `{}` | any key |
 | managed template `data/claude_settings.json` | the only source for the repo file's content | — |
-| `.claude/settings.local.json`, managed settings | unused (documented as deliberate) | — |
+| managed settings | unused (documented as deliberate, §4) | — |
 | `~/.claude/CLAUDE.md` (host, human-owned, minimal) | only preferences that are genuinely personal and have no change-controlled home | engineering or workflow policy; anything a repo template, the plugin or repo docs can hold |
-| template region of repo `CLAUDE.md` (`data/claude_md_consumer.md`) | fleet-wide agent policy: worktrees, `vrg-git`/`vrg-gh`, validation command, the PR handoff and freeze, the memory pointer, the `paad-policy.md` pointer | reference material; anything a hook enforces mechanically, beyond a one-line pointer |
+| template region of repo `CLAUDE.md` (`data/claude_md_consumer.md`) | fleet-wide agent policy: worktrees, `vrg-git`/`vrg-gh`, validation command, the PR handoff and freeze, the memory policy (condensed), engineering principles moved from the global file, the "`settings.local.json` stays `{}`" rule, the `paad-policy.md` pointer | reference material; anything a hook enforces mechanically, beyond a one-line pointer |
 | rest of repo `CLAUDE.md` | what an agent needs to work in that repo: overview, commands, constraints | catalogues and architecture detail (these go in site docs, linked); restated fleet policy |
 | `.claude/rules/*.md` (path-scoped) | instructions that matter only for part of a repo | — |
 | `AGENTS.md` | nothing: removed (§5.2) | — |
@@ -251,7 +302,13 @@ The model:
 - **Template region** (`data/claude_md_consumer.md`):
   - target about 60 lines;
   - adds the PR-handoff and freeze rules (moved from vergil-tooling's
-    `CLAUDE.md`) and the `paad-policy.md` pointer;
+    `CLAUDE.md`), the `paad-policy.md` pointer, one line saying
+    `.claude/settings.local.json` is committed as `{}` and must stay that
+    way, and every section the global-file classification moves into the
+    template (below);
+  - replaces the memory pointer with the condensed memory policy itself.
+    memory-init's `MEMORY.md` header changes by one line to point at the
+    template; that is the only change to the memory skills;
   - shortens the worktree section to the rules plus a link to the canonical
     spec, and the shell-policy section to a line, since the hook guard
     enforces it.
@@ -259,23 +316,34 @@ The model:
   moves into that repo's docs (site docs where they exist) and is linked;
   restated fleet policy is deleted; part-scoped guidance moves into
   `.claude/rules/` where it helps. Each repo is reviewed with
-  `/doctor prompt-audit` and `/paad:pushback` before and after its rewrite.
-- **Template markers.** The five legacy repos adopt the markers. The audit's
-  legacy path is then removed.
-- **AGENTS.md** is deleted in vergil-tooling, vergil-actions and
-  vergil-claude-plugin. Anything in them that is still true and not already
-  in `CLAUDE.md` is moved there first.
+  `steering-audit` (§5.5) before and after its rewrite.
+- **Template markers.** Every managed repo still in the legacy form adopts
+  the markers (five of the vergil-project repos, plus any found by the
+  §2.1a scan). The audit's legacy path is then removed.
+- **AGENTS.md** is deleted wherever a managed repo has one (today
+  vergil-tooling, vergil-actions and vergil-claude-plugin). Anything in them
+  that is still true and not already in `CLAUDE.md` is moved there first.
 - **Global `~/.claude/CLAUDE.md`** is the priority, and the goal is to make
-  it minimal. The agent reviews it with prompt-audit and pushback, and sorts
-  every section into one of these:
-  - **delete**, because it is restated elsewhere (for example, "Memory
-    management" is in the template);
-  - **move** to a change-controlled home: the template region, the vergil
-    plugin, or repo docs. Engineering and workflow policy, such as
-    "Correctness over cost" and "No silent failures", goes here;
-  - **keep**, only when it is genuinely personal and has no other home.
+  it minimal. Its review happens in **two steps** (§6):
+  1. **Classify, before the template is written.** Every section is sorted
+     into one of these:
+     - **delete**, because a change-controlled home already states it in
+       full;
+     - **move** to a change-controlled home: the template region, the
+       vergil plugin, or repo docs. Engineering and workflow policy, such as
+       "Correctness over cost" and "No silent failures", goes here, and so
+       does "Memory management", condensed, because the template and
+       `MEMORY.md` headers point to it today;
+     - **keep**, only when it is genuinely personal and has no other home.
 
-  The moves land through ordinary PRs in the receiving repos. The revised
+     Moves into the template are part of the first template change, so no
+     second template cycle is needed.
+  2. **Apply, after every sweep has merged.** The moved and deleted sections
+     come out of the host file only once every managed repo carries the new
+     template region, so no repo is ever without a rule.
+
+  Moves to homes other than the template land through ordinary PRs in the
+  receiving repos. The revised
   global file itself is drafted **off GitHub**: in the session, or in a local
   scratch file. The human reviews it and applies it on the host. Its content
   never goes into an issue, PR body or report-ready note; the epic records
@@ -283,32 +351,52 @@ The model:
 
 ### 5.3 Settings cleanup
 
-- **Template and audit (vergil-tooling).** Drop `enabledPlugins` and
-  `extraKnownMarketplaces` from the template. The audit then requires the
-  repo file to equal the template exactly (after JSON parsing), which
-  replaces the per-key checks. `render_claude_settings` stops seeding the
-  ref. The audit change reaches the fleet only through a vergil-tooling
-  release, which is a human action.
+- **Template and audit (vergil-tooling).** Drop `extraKnownMarketplaces`
+  from the template; keep `enabledPlugins: {"vergil@vergil-marketplace":
+  true}`. The audit then requires the repo file to equal the template
+  exactly (after JSON parsing), which replaces the per-key checks.
+  `render_claude_settings` stops seeding the ref. The audit change reaches
+  the fleet only through a vergil-tooling release, which is a human action.
+- **Local settings file.** `.claude/settings.local.json` comes out of the
+  managed `.gitignore` block and is committed in every managed repo as
+  exactly `{}`, with no explanatory keys (§3.11). It is enforced in two
+  places:
+  - the nightly audit requires it to equal `{}`, as part of the template
+    check;
+  - `vrg-validate`, `vrg-commit` and `vrg-pr-workflow report-ready` refuse
+    to run while the file is not exactly `{}`, with an error that says the
+    file must stay `{}` and why. These are the agent's chokepoints, and they
+    don't depend on Claude Code hooks. `vrg-hook-guard` also warns early.
 - **Release model.** Every consuming repo pins `vergil = "v2.1"`, the
   rolling minor tag that each patch release force-updates
-  (`vergil-tooling/docs/site/docs/guides/releasing.md`). Both audit changes
-  in this epic ship as **v2.1 patch releases**. Each one therefore reaches all
-  repos on the next nightly run, with no per-repo pin bump.
+  (`vergil-tooling/docs/site/docs/guides/releasing.md`). Releases are cut
+  from `develop` often (several a day), so any release ships whatever has
+  merged. Both audit changes therefore ship as **v2.1 patch releases**, and
+  each reaches every managed repo on the next nightly run, with no per-repo
+  pin bump. The gate is on **merging**, not on releasing: an audit-change PR
+  must not merge to `develop` until its precondition holds (§6).
+- **vergil-tooling is the exception.** Its own nightly audit runs from source
+  (`uv sync`, not the `v2.1` tag), so it checks `develop` the moment a PR
+  merges. Each audit-change PR therefore updates vergil-tooling's own
+  `CLAUDE.md` region and settings files in the same PR.
 - **Bridge.** The config audit is not part of `vrg-validate`. It runs in each
-  repo's nightly `ops.yml` job, against the vergil-tooling version that
-  `v2.1` points to. A release doesn't rewrite any repo's CLAUDE.md template
-  region or `settings.json`. Without a bridge, every repo's nightly run would
-  go red the night after the release and stay red until its sweep PR. So,
-  for one release, the audit accepts **either the previous or the new** shape
-  of **both** the CLAUDE.md template region and `.claude/settings.json`, with
-  a deprecation warning for the old shape (the #1974 pattern).
-- **Bridge removal.** This is a second patch release, published only after
-  every repo's sweep has merged, because it takes effect fleet-wide that
+  repo's nightly `ops.yml` job. A release doesn't rewrite any repo's
+  CLAUDE.md template region or settings files. Without a bridge, every
+  managed repo's nightly run would go red the night after the release and
+  stay red until its sweep PR. So, for one release, the audit accepts
+  **either the previous or the new** shape of the CLAUDE.md template region,
+  `.claude/settings.json` and `.claude/settings.local.json` (absent counts
+  as the previous shape), with a deprecation warning for the old shape (the
+  #1974 pattern).
+- **Bridge removal.** This PR must not merge until every managed repo's
+  sweep has merged, because the next release takes it fleet-wide that
   night. It also removes the code the new shape makes dead:
   `normalize_claude_ref` in `vrg-update-deps` and the marketplace-ref
   constants, wherever nothing else uses them.
-- **Repo files.** Each of the nine repos is regenerated from the new
-  template.
+- **Repo files.** Every managed repo's settings files are regenerated from
+  the new template. A standing mechanism for later template changes (an
+  audit that always accepts the current and previous template) is out of
+  scope; it is intake item vergil-project/.github#580.
 - **User file.** The agent drafts the changes off GitHub, as for the global
   `CLAUDE.md`, and the human applies them on the host. The drafted changes:
   - keep the `vergil-marketplace` definition, now the only one;
@@ -326,11 +414,16 @@ checks on a cold-rebuilt agent VM that:
 
 - every enabled plugin is installed;
 - the guard hook blocks a raw `git` call;
-- a commit and a PR body made by Claude carry no attribution;
-- each repo's `CLAUDE.md` loads and no `AGENTS.md` remains.
+- a commit made by an agent has no `Co-Authored-By` trailer, and the
+  `report-ready` summary and notes carry no attribution line (agents never
+  build a PR body themselves);
+- each repo's `CLAUDE.md` loads and no `AGENTS.md` remains;
+- `.claude/settings.local.json` is `{}` in each repo, and changing it makes
+  `vrg-commit` refuse.
 
-It also records whether user-enabled plugins installed without
-`vm_guest`'s reconcile step, which settles §3.8.
+It also records whether user-enabled plugins were installed **when the first
+session started, without `/reload-plugins`** (§3.5), and without
+`vm_guest`'s reconcile step. That settles §3.8.
 
 ### 5.5 Recurring review
 
@@ -344,13 +437,20 @@ needs judgment.
    - template markers required;
    - no `AGENTS.md` unless `CLAUDE.md` imports it;
    - `.claude/settings.json` equal to the template;
+   - `.claude/settings.local.json` present and exactly `{}`;
    - the `paad-policy.md` pointer present (it is in the template region, so
      the template check covers it).
 2. **Judgment (a new `steering-audit` skill in vergil-claude-plugin):** it
    reviews the steering and settings files. It borrows memory-audit's flow:
    verify each item, suggest a disposition, and wait for the human's
-   decision. For steering files it runs `/doctor prompt-audit` and
-   `/paad:pushback`, and it checks settings against the ownership model.
+   decision.
+   - **Steering files:** it runs `/paad:pushback`, plus its own mechanical
+     checks: every referenced path exists, every named command resolves,
+     the line count, and the ownership rules.
+   - **Settings files:** it checks them against the ownership model.
+   - **Optional extra:** `/doctor prompt-audit` (§3.10) can't be run by an
+     agent. The model page mentions it as an optional check the human can
+     run by hand; the skill does not depend on it.
    - **Scopes.** It has two explicit scopes:
      - **repo** (the default): that repo's `CLAUDE.md`, `.claude/rules/` and
        `.claude/settings.json`;
@@ -358,9 +458,10 @@ needs judgment.
        `~/.claude/settings.json`, reviewed **once per cycle**, not once per
        repo. It checks every section against the "minimal; move it to a
        managed home" rule (§5.2). Drafts stay off GitHub.
-   - **Memory is out of scope.** `memory-audit` is not changed. The memory
-     mechanism is expected to be replaced (vergil-project/.github#561), so
-     `steering-audit` neither reads nor depends on memory.
+   - **Memory is out of scope.** `memory-audit` is treated as deprecated
+     and is not changed. The memory mechanism is expected to be replaced
+     (vergil-project/.github#561), so `steering-audit` neither reads nor
+     depends on memory.
    - **When to run it:** at least quarterly, and whenever a Claude Code
      release changes settings or instruction-file behavior. The model
      document says so.
@@ -378,16 +479,25 @@ needs judgment.
 - Agents use `vrg-git` and `vrg-gh` only, and stop at `report-ready`.
 - Placement law: each task is filed in the repo whose PR closes it.
 - **Ordering:**
-  1. the template and audit change;
-  2. a human v2.1 patch release;
-  3. the per-repo sweeps;
-  4. the user-level review, after **every** sweep has merged, so no repo is
-     ever without a rule that moved out of the global file;
-  5. the bridge removal and the hard line-budget check, in a second v2.1
-     patch release published only after every sweep has merged.
+  1. classify the global file's sections (§5.2 step 1);
+  2. the template and audit change, carrying the moves into the template;
+  3. a human v2.1 patch release;
+  4. the per-repo sweeps across every managed repo (§2.1a), each found by a
+     fresh scan;
+  5. apply the user-level changes on the host, after **every** sweep has
+     merged, so no repo is ever without a rule that moved out of the global
+     file;
+  6. the bridge removal and the hard line-budget check. The PR must not
+     **merge** until every sweep has merged; the next v2.1 patch release
+     then ships it.
 
-  Every repo's nightly config audit and `vrg-validate` stay green
+  Every managed repo's nightly config audit and `vrg-validate` stay green
   throughout.
+- **Cross-org sweeps.** Tasks are never linked across orgs. A sweep in
+  another org (logical-minds-foundry, mnemosys-project) is filed under that
+  repo's own ad-hoc epic. This epic carries one validation gate task that
+  checks every such sweep is closed, and the bridge removal is blocked by
+  that gate.
 - Host files (`~/.claude/CLAUDE.md`, `~/.claude/settings.json`) are changed
   only by the human.
 
@@ -399,9 +509,7 @@ needs judgment.
 - The bridge mechanics and the deprecation-warning text.
 - Whether the audit compares the settings file whole or key by key, as long
   as the result is "equal to the template".
-- How `steering-audit` invokes prompt-audit. If it cannot be
-  invoked from a skill, the skill tells the human to run it and then reads
-  the report.
+- The exact wording of the "`settings.local.json` must stay `{}`" refusal.
 
 ## 8. Bookends and operational tasks
 
@@ -414,25 +522,37 @@ needs judgment.
   across the fleet.
 - **Validation task (§5.4):** cold-rebuild check on an agent VM, run after
   the sweeps and the user-file update.
+- **Validation gate task (§6):** checks that every cross-org sweep is
+  closed. The bridge removal is blocked by it.
 
 ## 9. Design decisions
 
-1. **Plugins and marketplaces move to user scope only.** They
-   are removed from the repo files and the template (§5.1, §5.3). Policy
-   settings stay in the repo under the §5.1 placement rule. Reason: §3.5–3.6
-   show that a second definition is either useless (a project-only enable
-   doesn't install) or harmful (the whole-entry override, and a project
-   `true` that the user cannot turn off).
+1. **Marketplaces move to user scope only; the vergil plugin's enable stays
+   in the repo too.** `extraKnownMarketplaces` is removed from the repo files
+   and the template, because a second definition overrides the first whole
+   (§3.6). The user file still installs every plugin (§3.5). The repo keeps
+   `"vergil@vergil-marketplace": true` because that plugin's hooks enforce
+   fleet policy, and a project enable makes a missing install visible
+   instead of silent.
 2. **AGENTS.md is deleted, not made canonical or turned into a pointer.**
-   Reason: only Claude Code is used, and Claude Code ignores the file next to
-   a `CLAUDE.md`.
+   Reason: only Claude Code is used, and by default Claude Code ignores the
+   file next to a `CLAUDE.md`.
 3. **The recurring review is a new `steering-audit` skill,** not an
-   extension of `memory-audit`. It uses `/doctor prompt-audit` as one of its
-   engines. Memory is expected to be replaced, so the review must not be
-   tied to it.
+   extension of `memory-audit`. Its engine is `/paad:pushback` plus its own
+   mechanical checks. Memory is expected to be replaced, so the review must
+   not be tied to it.
 4. The line budget becomes a hard audit failure after the cleanup, not a
    warning.
 5. The model document is a new vergil-tooling site page.
-6. Managed settings stay unused.
+6. Managed settings stay unused (§4).
 7. The `AskUserQuestion` deny hook in the user file is the human's to
    decide; no change to it is proposed.
+8. **`.claude/settings.local.json` is committed as `{}`,** not ignored.
+   A tracked file makes any change visible in `git status` and lets the
+   nightly audit see it. The Python chokepoints refuse to proceed while it
+   differs from `{}`.
+9. **The user file carries the agent-VM permission mode.** A session the
+   human moves out of the VM onto the host keeps it. That is a deliberate,
+   rare, human-supervised exception, and the recurring review treats it as
+   correct. Setting the mode at `vrg-vm` session launch instead is intake
+   item vergil-project/.github#583.
