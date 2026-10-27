@@ -3,7 +3,8 @@
 - **Epic:** vergil-project/.github#607
 - **Planning issue:** vergil-project/.github#606 (review history is in its
   comments)
-- **Status:** design approved 2026-10-27; draft, in pushback
+- **Status:** design approved 2026-10-27; pushback round 1 done (2 findings,
+  both accepted)
 - **Repos:** vergil-containers (the images), vergil-actions (the setup action),
   vergil-tooling (the package target registry)
 - **Builds on:** epic vergil-project/.github#213 (manifest-driven container builds)
@@ -212,26 +213,32 @@ not baked into the image and not installed from the vergil package repository
   `python`-builder product, it would also pre-install `vergil-python<X.Y>` and
   mask the product's runtime dependency resolution.
 
-**The driver's Python follows vergil-tooling, not a hard-coded version.** Today
-the action runs `uv tool install --python 3.14`, so every package job
-downloads a separate CPython 3.14 (about 35 MiB). Meanwhile the vergil-tooling
-package itself already runs on the vergil-python 3.15 runtime. The images bake
-in no interpreter. The action must take the driver's Python version from one
-authoritative source for "the Python vergil-tooling uses" and let uv bootstrap
-it, so a runtime change needs no image rebuild and no action edit.
+**The driver's Python comes from one place, not hard-coded constants.** The
+images bake in no interpreter; uv bootstraps the driver's Python at run time.
+Today the action hard-codes 3.14 in two places:
 
-No single source exists today:
+- `action.yml`: `uv tool install --python 3.14 "$spec"` (the driver install);
+- `detect.sh`: `uv run --no-config --no-project --python 3.14 …` (reading
+  `[dependencies].vergil`).
 
-- `pyproject.toml` declares `requires-python = ">=3.12"`;
-- the documented host install pins `--python 3.14` (`vergil.toml` comment,
-  CLAUDE.md);
-- the package derives 3.15, the newest Python with a published runtime.
+3.14 still works (vergil-tooling is tested on every Python from 3.12 to 3.15),
+but it is drift. vergil-tooling has run on 3.15 for weeks, and every package
+job downloads a separate CPython 3.14 (about 35 MiB) just for the driver.
 
-3.14 works today: vergil-tooling is tested on every Python from 3.12 to 3.15,
-so the hard-coded version is drift, not a correctness bug. Choosing or creating
-that source, and making the action and the host-install docs follow it, is a
-task in this epic. Its point is to stop the next drift (for example 3.14
-falling out of the supported range) from needing an action edit.
+- **Tactical, outside this epic:** vergil-project/vergil-actions#1087 bumps
+  both sites to 3.15 now (human decision). It doesn't depend on the images.
+- **In this epic:** the driver's Python must come from a single place, so a
+  runtime change is one edit or none, and the two sites can't disagree. A
+  related mechanism already exists: since vergil-tooling#3458 (commit
+  `7dee9d7`), vergil-tooling's packaged runtime is derived from the published
+  Python version window (the newest version with a published `vergil-python`
+  runtime), and `vrg-package matrix` records it for build jobs. That
+  derivation describes the product being packaged, though, not the driver: in
+  a consumer repo it is the consumer's runtime, and install-test and staged
+  builds carry none. The plan decides whether the driver follows the derived
+  runtime or a single constant both sites read, and records why. It must not
+  add a third, independent definition. The documented host install
+  (`--python 3.14` in `vergil.toml` and CLAUDE.md) is aligned in the same task.
 The raw-image path is transitional. `ci-package.yml@v2.1` is shared, and a
 consumer whose pinned vergil-tooling predates §5.2 still emits raw images. A
 follow-on task removes the raw-image path, `os-prereqs.sh` and the action's
@@ -245,6 +252,18 @@ Each step is safe on its own:
 1. **vergil-actions:** marker-aware setup action (a no-op until images exist).
 2. **vergil-containers:** the images, published `dev-` on develop, then `prod-`
    on a containers release.
+   - **Human-gated: make the packages public.** New GHCR packages start
+     private, and every consuming repo's package jobs must pull them. After the
+     first publish of each, set `dev-pkg-ubuntu`, `dev-pkg-rhel`,
+     `prod-pkg-ubuntu` and `prod-pkg-rhel` to **Public**, and confirm
+     vergil-containers has **Write** under Manage Actions access, as was done
+     for the original image packages
+     (vergil-containers `docs/plans/2026-05-09-release-workflow-and-image-naming.md`,
+     Step 3). Then verify an anonymous pull of each `prod-` image
+     (`https://ghcr.io/token?scope=repository:vergil-project/<package>:pull`
+     returns a token). Step 3 does not start until this passes. The plan seeds
+     this as a `deployment` task, since only a human can change package
+     settings.
 3. **vergil-tooling:** `targets.py` / `matrix.py` point at `prod-pkg-*`.
    vergil-tooling's own PR CI installs vergil-tooling from the checkout, so
    that PR proves the switch end to end on its own package gate.
@@ -252,7 +271,8 @@ Each step is safe on its own:
    through `vrg-update-deps`.
 5. **Follow-on:** remove the raw-image path (§5.3).
 
-Steps 1 and 2 can run in parallel; step 3 needs both released.
+Steps 1 and 2 can run in parallel. Step 3 needs both released and the packages
+public.
 
 ### 5.5 Interaction with epic #213
 
