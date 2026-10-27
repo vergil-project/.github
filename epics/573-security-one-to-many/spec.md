@@ -6,9 +6,9 @@
   vergil-project/.github#517 (child A). Children C (vergil-project/.github#553)
   and D (vergil-project/.github#568) depend on this epic for their
   security-finding handling.
-- **Status:** draft (2026-10-27), in design review. The human skipped the
-  brainstorm questions, so the design is the agent's; decisions the human has
-  not confirmed are marked *my call*.
+- **Status:** approved design (2026-10-27). The human skipped the brainstorm
+  questions, so the design is the agent's; decisions marked *my call* were
+  approved with the spec.
 - **Review history:** the comments on the planning issue,
   vergil-project/.github#571
 
