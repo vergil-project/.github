@@ -12,14 +12,29 @@ If private vulnerability reporting is unavailable, email
 "VERGIL Security Report". Do not open a public issue for security
 vulnerabilities.
 
+## How Reports Are Tracked
+
+Security findings, including those found by maintainers, are tracked
+internally as private draft security advisories in this repository.
+Each finding is paired with a neutral `security`-labelled issue that
+drives the fix. That issue holds no details of the problem, only a
+pointer to the advisory. Maintainers never put finding details in
+public issues, pull requests, or commit messages.
+
+A report you send through private vulnerability reporting lands in
+the same advisory list. Maintainers pair it with a neutral issue and
+handle it from there, alongside internal findings. See the
+[Security Records guide](https://vergil-project.github.io/vergil-tooling/latest/guides/security-records/)
+for how records are kept.
+
 ## Scope
 
 The following components are in scope for security reports:
 
 - **vergil-tooling** — Python CLI tools (`vrg-commit`, `vrg-validate`,
-  `vrg-submit-pr`, `vrg-prepare-release`, `vrg-docker-run`, and
-  others), git hooks, and shared libraries
-- **vergil-docker** — Dev container images, Dockerfiles, and build
+  `vrg-submit-pr`, `vrg-release`, `vrg-container-run`, and others),
+  git hooks, and shared libraries
+- **vergil-containers** — Dev container images, Dockerfiles, and build
   scripts
 - **vergil-actions** — Reusable GitHub Actions workflows and composite
   actions
