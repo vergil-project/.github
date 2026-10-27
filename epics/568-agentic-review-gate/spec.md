@@ -122,30 +122,36 @@ green. Each round:
    Delete the temp directory.
 5. **Act on each finding:**
    - in-scope Critical or Important: fix it. If the implementer thinks it is
-     wrong, it pauses instead;
+     wrong, it marks it "pending human", finishes acting on the round's other
+     findings, and pauses after step 6. The round counts;
    - in-scope Suggestion: fix it, or note why not;
    - out-of-scope addition: remove it, and file it as its own task under the
      same epic (or the repo's ad-hoc epic) with `--blocked-by <this task>`;
    - out-of-scope bug: leave it for intake.
 
    Fixes are ordinary commits under `issue-implement`'s normal discipline.
-6. **Post the response comment** (4.6).
+   Their messages describe the change, never the round or the finding:
+   commit messages are one of Spec Compliance's intent sources, so a message
+   naming the review would tell the next reviewer about earlier rounds.
+6. **Post the response comment** (4.6), then **file this round's intake
+   issues** (4.8), so nothing found depends on the run reaching a pass.
 7. **Decide:**
    - **pass** if the round had no blocking findings;
-   - otherwise **another round**, unless this was round 3 or most of the
-     round's findings are repairs of the previous round's fixes, in which case
-     **pause**.
+   - otherwise **another round**, unless this was round 3 (or the last round
+     the human allowed) or most of the round's findings are repairs of the
+     previous round's fixes, in which case **pause**.
 
-On a pass, file the intake issues (4.8), post the summary comment, confirm
-`vrg-validate` is green at the final commit, and run `report-ready` with the
-handoff notes (4.8).
+On a pass, post the summary comment, confirm `vrg-validate` is green at the
+final commit, and run `report-ready` with the handoff notes (4.8).
 
 **Classification.** The implementer marks each finding `new`, `known` (an
-earlier round raised it) or `repair` (it is about code the previous round's
-fixes changed), by its own judgement against the earlier comments on the
-issue (umbrella §3.1). The mark is recorded in the findings comment and drives
-the repair pause; it needs no other bookkeeping. The reviewer is never told
-about earlier rounds.
+earlier round raised it, or it was deliberately accepted) or `repair` (it is
+about code the previous round's fixes changed), by its own judgement against
+the earlier comments on the issue (umbrella §3.1). A known finding that the
+human has already ruled on follows that ruling: it does not block, and the
+response notes "ruled earlier". The mark is recorded in the findings comment
+and drives the repair pause; it needs no other bookkeeping. The reviewer is
+never told about earlier rounds.
 
 ### 4.3 The reviewer prompt
 
@@ -158,9 +164,10 @@ The doctrine holds the template. It tells the reviewer to:
 - use `vrg-git`, since raw `git` is blocked;
 - give the requirements file to Spec Compliance as its explicit spec file, and
   not read the task issue, its comments or any PR;
-- never ask: answer *security hold or ordinary report* with **hold**, never
-  split a large review into separate passes, and for anything else take the
-  most conservative option and say so;
+- never ask: answer *security hold or ordinary report* with **hold** (paad
+  asks this only when `paad/security/` is unsafe; 4.7), never split a large
+  review into separate passes, and for anything else take the most
+  conservative option and say so;
 - edit nothing, and never edit paad's output;
 - return paad's own final answer, which lists the files paad wrote.
 
@@ -177,13 +184,20 @@ marks much of that behaviour as binding.
 - for a task in an epic with a plan, the plan task's text and the spec sections
   it cites, read from the epic home's `origin/develop`. An epic task's body is
   often only a pointer to its plan task;
-- any comment from the human that changes what the task must do.
+- any comment **posted from the human's own account** that changes what the
+  task must do;
+- the human's rulings from this run's conversation, restated as requirements
+  ("the task must do X"), never as review history ("R2.3 was dismissed"). A
+  fix the human directed is then something the requirements asked for, not an
+  out-of-scope addition.
 
-Only content from **trusted authors** goes in: the human's own GitHub account
-and the human's agent identities, matched by login. Anything else on the issue
-is ignored as input. The system-wide version of this rule, for every tool and
-skill that reads issues, is planned in vergil-project/.github#579, which will
-own the list of trusted logins; until then the doctrine names them.
+Comments posted by agent identities, including every gate record (4.6), are
+**never** requirements input, and neither is anything from any other author.
+The issue body is used when it was written by the human or by one of the
+human's agent identities. Logins are matched exactly. The system-wide version
+of this rule, for every tool and skill that reads issues, is planned in
+vergil-project/.github#579, which will own the list of trusted logins; until
+then the doctrine names them.
 
 ### 4.5 Output checks
 
@@ -226,28 +240,38 @@ security findings appear only as counts (4.7).
 
 ### 4.7 Security findings
 
-- The reviewer holds every security finding, so paad writes it under the
-  worktree's ignored `paad/security/`.
-- The implementer treats it like any other finding: blocking or not, fixed or
-  not.
+- paad writes security findings under the worktree's ignored
+  `paad/security/`.
+- The implementer treats each like any other finding: blocking or not, fixed
+  or not.
 - When the round is collected, each one is recorded through child A′'s
-  one-to-many security-records model (vergil-project/.github#573), which this
-  part of the design depends on. Its details live only in the private record.
+  one-to-many security-records model (vergil-project/.github#573). Its details
+  live only in the private record. This is the **only** way a security-class
+  finding is filed: an out-of-scope security bug, a dismissed one, or a
+  removed addition that paad classed as security never becomes an ordinary
+  intake issue or task. `vrg-security-record` creates the neutral public
+  issue.
+- **A real security hold** (paad found `paad/security/` unsafe and wrote
+  nothing there) is a failed check (4.5). The run pauses, any details stay in
+  the conversation with the human, and the issue shows only that the check
+  failed.
 - Public records carry counts only. That covers the comments, commit messages
-  (a security fix gets a neutral message), the PR text and the `report-ready`
-  notes.
+  (a security fix gets a neutral message), intake issues and tasks the gate
+  files, the PR text and the `report-ready` notes.
 
 ### 4.8 Intake and the handoff
 
-- **Intake.** Before the run ends, the implementer files every deferred
-  Suggestion, every out-of-scope bug, every dismissed finding and anything else
-  it noticed, with `vrg-intake-create`. Each issue names the task and the
-  round. It searches for an existing open issue first and comments there
+- **Intake.** At the end of each round (4.2 step 6), the implementer files
+  that round's deferred Suggestions, out-of-scope bugs, dismissed findings and
+  anything else it noticed, with `vrg-intake-create` (security-class findings
+  go through 4.7 instead). Each issue names the task and the round. It searches for an existing open issue first and comments there
   instead of filing a duplicate; when unsure, it files.
 - **The handoff.** The `report-ready` notes, and the summary shown to the human,
   give the outcome and the round count, and list every finding not fixed with
   its reason and issue, every removed addition with its task, and any commit
-  made after the last round (a late Suggestion fix), marked unreviewed.
+  made after the last round (a late Suggestion fix), marked unreviewed. Tasks
+  split out for removed additions are not in the epic's plan, so the handoff
+  asks the human to schedule them.
 
 ### 4.9 Pauses and `epic-implement`
 
@@ -267,8 +291,12 @@ A pause is a stop that hands the decision to the human, in real time.
   at `report-ready`). If the human does not come back, or the worktree is lost,
   the work is abandoned: the task stays open as unfinished work and is
   implemented again later from `develop`.
-- `epic-implement` lists paused tasks with their reasons, and does not
-  re-dispatch a paused task on its own.
+- **A pause is resolved only by the human.** A run that reaches the gate and
+  finds the task paused, with no ruling from the human in the conversation,
+  reports the pause again and stops; it runs no review. `epic-implement` needs
+  no special handling: a re-dispatched paused task simply stops again and is
+  listed among the items waiting on the human. Once the human has ruled, the
+  task is processed normally.
 
 ### 4.10 The retrospective sweep
 
@@ -289,7 +317,9 @@ Tasks implemented before the gate shipped have no summaries; the sweep says so.
   resolves the default branch on every run, even with an explicit base, and
   without `symbolic-ref` it can fail in repos with no local `main`.
 - **Child C's doctrine document** must exist before §3 is written.
-- **Child A′** (#573) must land before the security handling ships.
+- **Child A′** (#573) is a **prerequisite** of the gate. Without it, emptying
+  `paad/security/` after a round would delete security findings that were
+  never recorded.
 - **Re-spike, first:** a validation task runs the loop by hand with the exact
   prompt on a real plan-driven task, twice, and confirms the output checks
   pass, Spec Compliance uses the requirements file, paad's files land only in
@@ -303,7 +333,11 @@ Tasks implemented before the gate shipped have no summaries; the sweep says so.
 
 Add to `vergil-claude-plugin/docs/paad-policy.md`, replacing the current row
 on agentic-review report files, and update §1, §2 and §4 there to match (no
-config file is adopted):
+config file is adopted). The first row refines umbrella §3.3's "results reach
+the implementer through the subagent's answer": the implementer reads paad's
+report from its file in the worktree. That refinement is the human's decision,
+made in design review, to adapt to paad's defaults rather than redirect them;
+the issue remains the record of every round.
 
 | Deviation from paad | Reason |
 |---|---|
