@@ -5,7 +5,7 @@
 - **Umbrella:** vergil-project/.github#500 (child E). Depends on B's Tasks 1
   and 3 (vergil-project/vergil-tooling#3666,
   vergil-project/vergil-claude-plugin#727), both closed.
-- **Status:** draft (2026-10-27), in design review
+- **Status:** approved design (2026-10-27)
 - **Review history:** the comments on the planning issue,
   vergil-project/.github#506
 - **Design source:** umbrella spec §4.E. The human skipped the brainstorm
@@ -192,8 +192,10 @@ The model document (§5.1) re-verifies them when it is written.
   repo. They stay host files owned by the human. Keeping the global file
   minimal is what reduces the need for change control on it.
 - Redesigning the memory mechanism. Memory is considered experimental and is
-  a candidate for replacement (intake item vergil-project/.github#561); this
-  epic only keeps the memory part of the review separable (§5.5).
+  a candidate for replacement (intake item vergil-project/.github#561). This
+  epic therefore builds its recurring review as a separate `steering-audit`
+  skill, leaves `memory-audit` untouched, and adds no new dependency on
+  memory (§5.5).
 - Rewriting the content of the plugin skills. Skill text may be trimmed only
   where it restates a steering file.
 
@@ -218,7 +220,19 @@ This is a new versioned site page in vergil-tooling,
 records the docs URLs and the verification date, and it is the reference the
 recurring review checks against.
 
-The model (agent's call, §9):
+**Placement rule (approved).** A setting lives in the change-controlled repo
+file unless the platform forces it into user scope. The repo file is
+reviewed, versioned and audited nightly; the user file is none of those, and
+it should stay minimal. Plugin enablement and marketplaces are forced into
+user scope: a project-only enable is never installed (§3.5), and a second
+marketplace definition overrides the first whole (§3.6). The guard hook,
+`attribution` off, and `allow Bash(vrg-*)` are fleet policy. In the repo file
+they apply to every checkout on any machine, including host sessions and
+fresh clones without the VM's copy of the user file, and the hook applies
+even before folder trust (§3.3). Fleet policy must not depend on the personal
+file, so they stay in the repo.
+
+The model:
 
 | File | Owns | Must not hold |
 |---|---|---|
@@ -323,26 +337,24 @@ needs judgment.
    - `.claude/settings.json` equal to the template;
    - the `paad-policy.md` pointer present (it is in the template region, so
      the template check covers it).
-2. **Judgment (a skill):** `memory-audit` is extended to cover every file
-   that loads at session start. It keeps memory-audit's flow of verifying
-   each item, suggesting a disposition, and waiting for the human's decision.
-   For steering files it runs `/doctor prompt-audit` and `/paad:pushback`,
-   and it checks settings against the ownership model. It has two explicit
-   scopes:
-   - **repo** (the default): that repo's memory, steering files and settings
-     file;
-   - **user** (for example `memory-audit user`): the global
-     `~/.claude/CLAUDE.md` and `~/.claude/settings.json`, reviewed **once
-     per cycle**, not once per repo. It checks every section against the
-     "minimal; move it to a managed home" rule (§5.2). Drafts stay off
-     GitHub.
-
-   **Memory is experimental.** The memory mechanism may be replaced
-   (vergil-project/.github#561). The steering and settings layers must not
-   depend on the memory layer, so that removing memory leaves the rest of the
-   review working.
+2. **Judgment (a new `steering-audit` skill in vergil-claude-plugin):** it
+   reviews the steering and settings files. It borrows memory-audit's flow:
+   verify each item, suggest a disposition, and wait for the human's
+   decision. For steering files it runs `/doctor prompt-audit` and
+   `/paad:pushback`, and it checks settings against the ownership model.
+   - **Scopes.** It has two explicit scopes:
+     - **repo** (the default): that repo's `CLAUDE.md`, `.claude/rules/` and
+       `.claude/settings.json`;
+     - **user** (`steering-audit user`): the global `~/.claude/CLAUDE.md` and
+       `~/.claude/settings.json`, reviewed **once per cycle**, not once per
+       repo. It checks every section against the "minimal; move it to a
+       managed home" rule (§5.2). Drafts stay off GitHub.
+   - **Memory is out of scope.** `memory-audit` is not changed. The memory
+     mechanism is expected to be replaced (vergil-project/.github#561), so
+     `steering-audit` neither reads nor depends on memory.
    - **When to run it:** at least quarterly, and whenever a Claude Code
-     release changes settings or memory behavior. The model document says so.
+     release changes settings or instruction-file behavior. The model
+     document says so.
    - **What it re-verifies:** the model's platform facts, against the docs
      at the time of the run.
    - **Findings:** handled under umbrella §2.4. Each one is fixed, filed to
@@ -371,7 +383,7 @@ needs judgment.
 - The bridge mechanics and the deprecation-warning text.
 - Whether the audit compares the settings file whole or key by key, as long
   as the result is "equal to the template".
-- How the extended memory-audit invokes prompt-audit. If it cannot be
+- How `steering-audit` invokes prompt-audit. If it cannot be
   invoked from a skill, the skill tells the human to run it and then reads
   the report.
 
@@ -386,22 +398,25 @@ needs judgment.
 - **Validation task (§5.4):** cold-rebuild check on an agent VM, run after
   the sweeps and the user-file update.
 
-## 9. Agent's calls — review these
+## 9. Design decisions
 
-The human skipped the brainstorm questions, so these decisions are the
-agent's and need confirming in design review. The first three most affect
-what gets built.
+The human skipped the brainstorm questions, so the agent made these calls.
+The human confirmed the first three in design review (2026-10-27); the rest
+stand as the agent's calls in the approved spec.
 
-1. **Plugins and marketplaces move to user scope only.** They are removed
-   from the repo files and the template (§5.1, §5.3). Reason: §3.5–3.6 show
-   that a second definition is either useless (a project-only enable doesn't
-   install) or harmful (the whole-entry override, and a project `true` that
-   the user cannot turn off).
-2. **AGENTS.md is deleted, not made canonical or turned into a pointer.**
-   Reason: only Claude Code is used, and Claude Code ignores the file next to
-   a `CLAUDE.md`.
-3. **The recurring review extends `memory-audit`** rather than adding a new
-   skill, and it uses `/doctor prompt-audit` as one of its engines.
+1. **Plugins and marketplaces move to user scope only** (confirmed). They
+   are removed from the repo files and the template (§5.1, §5.3). Policy
+   settings stay in the repo under the §5.1 placement rule. Reason: §3.5–3.6
+   show that a second definition is either useless (a project-only enable
+   doesn't install) or harmful (the whole-entry override, and a project
+   `true` that the user cannot turn off).
+2. **AGENTS.md is deleted, not made canonical or turned into a pointer**
+   (confirmed). Reason: only Claude Code is used, and Claude Code ignores the
+   file next to a `CLAUDE.md`.
+3. **The recurring review is a new `steering-audit` skill** (the human's
+   decision, replacing the agent's proposal to extend `memory-audit`). It
+   uses `/doctor prompt-audit` as one of its engines. Memory is expected to
+   be replaced, so the review must not be tied to it.
 4. The line budget becomes a hard audit failure after the cleanup, not a
    warning.
 5. The model document is a new vergil-tooling site page.
