@@ -100,7 +100,10 @@ operational: they have no code PR, and they close on `Outcome: SUCCESS`.
   - an advisory is "named" when it is in any issue's `ghsa_ids`.
 - `show <issue>` prints every pair the issue names, in body order, in the
   current per-pair format, with a blank line between pairs. It refuses an
-  issue with no lines, as today.
+  issue with no lines, as today. Before printing anything, it checks with
+  one `list_advisories` call that every named advisory exists. If any is
+  missing, it prints nothing and exits 1 with `advisory(ies) <GHSA>[, …] do
+  not exist in <home>`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_parse_advisory_refs_reads_every_line_in_order`: a body naming
@@ -121,8 +124,13 @@ operational: they have no code PR, and they close on `Outcome: SUCCESS`.
   - `TestClassify.test_second_line_names_missing_advisory`: exactly one
     broken line, naming the issue and that GHSA ID;
   - `test_show_issue_prints_every_pair` (`test_vrg_security_record.py`);
-  - `test_sweep_counts_an_issue_with_two_advisories_once_per_advisory`
-    (`test_vrg_epic_audit.py`).
+  - `test_show_issue_refuses_when_a_named_advisory_is_missing`: names A
+    (exists) and B (missing) → exit 1, stdout empty, and the message names
+    B;
+  - `test_sweep_closes_both_advisories_of_one_closed_issue`
+    (`test_vrg_epic_audit.py`): one closed issue naming A and B, with two
+    draft advisories that each track only it → output contains `2 advisory
+    state(s) synced, 0 broken pair(s)`, and both are PATCHed to `closed`.
 - [ ] **Step 2: Run them; expect FAIL.** Existing tests that read
   `SecurityIssue.ghsa_id` fail too; move them to `ghsa_ids`.
 - [ ] **Step 3: Implement the rules above.**
@@ -146,7 +154,10 @@ Blocked by Task 1.
 - Modify: `src/vergil_tooling/lib/security_records.py`: remove
   `parse_advisory_ref`.
 - Test: `tests/vergil_tooling/test_intake_route.py`,
-  `tests/vergil_tooling/test_queue_view.py`.
+  `tests/vergil_tooling/test_queue_view.py`, and
+  `tests/vergil_tooling/test_security_records.py`. Delete
+  `test_parse_advisory_ref_*` and the `parse_advisory_ref` import; Task 1's
+  `parse_advisory_refs` tests replace them.
 
 **Interfaces:** consumes `parse_advisory_refs` (Task 1).
 
@@ -186,7 +197,7 @@ Blocked by Task 1.
   - `test_planning_ready_after_every_advisory_retargeted`.
 - [ ] **Step 2: Run them; expect FAIL.**
 - [ ] **Step 3: Implement the rules above, and delete `parse_advisory_ref`**
-  (no caller remains).
+  and its tests. After this task no caller remains.
 - [ ] **Step 4: Run `vrg-container-run -- vrg-validate`; expect PASS.**
 - [ ] **Step 5: Commit and run report-ready.**
 
@@ -200,11 +211,16 @@ Blocked by Task 2 (the note wording).
 
 - Modify: `skills/epic-create/SKILL.md`, step 9's security sub-bullet and
   step 10's held sub-bullet.
+- Modify: `docs/site/docs/skills/index.md`, the epic-create paragraph
+  (lines 64-68). It becomes "hands each advisory to its fix task(s) or, for
+  a design-only finding, the documentation task, before posting `Tasks
+  filed: yes`".
 
 - [ ] Step 9: the planning issue's body has **one or more** `Security
   advisory:` lines. Once the fix task(s) are filed, retarget **each**
-  advisory to the task(s) that fix it, one `vrg-security-record retarget
-  <GHSA-id> --to …` per advisory. A finding the revised design resolves by
+  advisory to the task(s) that fix it. The text contains the exact phrase
+  `one vrg-security-record retarget <GHSA-id> --to … per advisory`, which
+  Task 5 checks for. A finding the revised design resolves by
   itself goes to the epic's documentation task, but **only** when no shipped
   code has the weakness; a finding about shipped behaviour always goes to a
   fix task (spec §4.3). Post `Tasks filed: yes` only after every retarget
@@ -228,11 +244,17 @@ Blocked by Tasks 1 and 2.
   - the recipes for design review and agentic review (spec §4.4), with the
     reason D records with plain `create`;
   - the migration check (spec §4.5).
-- Modify: `docs/site/docs/reference/dev/security-record.md`: `show` with
-  several pairs.
-- Modify: the `vrg-intake-route` and `vrg-queue` reference pages, for the
-  split refusal and the hold note.
+- Modify: `docs/site/docs/reference/dev/security-record.md`:
+  - `show` with several pairs;
+  - the hold and routing paragraph (lines 215-222).
+- Modify: `docs/site/docs/reference/cli-tools-overview.md`: the
+  `vrg-intake-route` section (from line 251) gets the split refusal, and the
+  `vrg-queue` section (lines 329-338) gets the new hold note.
+- Modify: `docs/site/docs/standards/github-issues.md` (around line 616), the
+  hold note.
 
+- [ ] Grep `docs/site` for `held: advisory` and update every hit to Task 2's
+  note.
 - [ ] Write the changes. Every example uses placeholder GHSA IDs and the
   text "not a real finding".
 - [ ] Run `vrg-container-run -- vrg-validate`; expect PASS. Commit and run
@@ -248,13 +270,17 @@ Blocked by Tasks 1–4. **Preconditions (human-attested):**
   `v2.1` line resolves to it (name the version);
 - a vergil-claude-plugin release containing Task 3 is published (name the
   version, cut **after** Task 3 merged);
-- the sweep's tooling install resolves to that vergil-tooling release.
+- the sweep's tooling install resolves to that vergil-tooling release;
+- the human has run `vrg-vm update` on the host for the agent VM. It is a
+  host command, not an agent one.
 
-- [ ] In the agent VM, run `vrg-vm update`. Then check:
-  - `python -c "from vergil_tooling.lib.security_records import
-    parse_advisory_refs"` succeeds;
-  - the installed `epic-create` step 9 text says "retarget **each**
-    advisory".
+- [ ] In the agent VM, check:
+  - `/opt/vergil/vergil-tooling/venv/bin/python -c "import
+    importlib.metadata as m, vergil_tooling.lib.security_records as s;
+    print(m.version('vergil-tooling')); s.parse_advisory_refs"` prints the
+    named release's version and exits 0;
+  - the installed `epic-create` step 9 text contains `one
+    vrg-security-record retarget <GHSA-id> --to … per advisory`.
 - [ ] Record `Outcome: SUCCESS` with both versions.
 
 ---
@@ -264,12 +290,11 @@ Blocked by Tasks 1–4. **Preconditions (human-attested):**
 Blocked by Task 5. **Precondition (human-attested):** the human will dispatch
 `epic-sweep.yml` when asked.
 
-- [ ] **Migration count first** (spec §4.5). Record:
-  - from `vrg-security-record list`: the number of issues naming more than
-    one advisory, and the number of planning items tracked by an advisory;
+- [ ] **Migration check first** (spec §4.5). Record:
+  - the number of records `vrg-security-record list` shows;
   - the broken-pair count from a dispatched sweep's summary line.
 
-  Repair any inconsistent record by hand under this task, then re-count.
+  Repair any broken pair by hand under this task, then re-check.
 - [ ] Create a test intake issue I and attach two records to it. Use `create
   --issue I` twice, with details text "PROBE-A′ not a real finding 1" and
   "… 2" and severity low. Expected: I has both lines and one `security`
@@ -278,6 +303,8 @@ Blocked by Task 5. **Precondition (human-attested):** the human will dispatch
   keeps B's line and the label, and X has A's.
 - [ ] Run `retarget <B> --to X`. Expected: I has no lines and no label, and
   X has both.
+- [ ] Drop I: `vrg-intake-route <I> drop --reason "end-to-end test issue for
+  #573"`.
 - [ ] Close X, then ask the human to dispatch the sweep. Expected: both
   advisories are closed, the run reports 0 broken pairs, and `vrg-gh run
   view <id> --log` does not contain `PROBE-A′`.
