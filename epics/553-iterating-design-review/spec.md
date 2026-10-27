@@ -62,8 +62,8 @@ A new reference document, `vergil-claude-plugin/docs/paad-review-doctrine.md`,
 holds the shared doctrine:
 
 - **§1 Common core:** umbrella §3.1, rewritten as operating instructions for an
-  orchestrator, plus the severity mapping (3.5) and the classification
-  procedure (3.6).
+  orchestrator, plus the canonical severity mapping for every paad scale and
+  the classification procedure (both 3.6).
 - **§2 Mode 1, human-gated:** umbrella §3.2 plus the mechanisms in this spec:
   the reviewer prompt contract, output checks, the round comment format, the
   checkpoint report and recommendation logic, and security handling.
@@ -200,13 +200,34 @@ accepted it. It is **repair** if the text it criticises was added by an
 earlier round's commit. Otherwise it is **new**. Where a finding fits both
 known and repair, it is known. Round 1 of stage 1 has only new findings.
 
-**Severity mapping** (the orchestrator maps; it never re-grades):
+**Severity mapping.** paad's skills use several severity scales. The vergil
+workflow maps every one of them onto **one canonical scale**, GitHub's
+(`critical`, `high`, `medium`, `low`), so that a severity means the same thing
+in a checkpoint count, a security record (3.8) and anywhere else it is used.
 
-| paad severity | Mapped |
-|---|---|
-| pushback *critical*, *serious*; alignment *critical* | high |
-| pushback *moderate*; alignment *important* | medium |
-| pushback *minor*; alignment *minor* | low |
+- **One table, in the doctrine.** The canonical mapping lives in
+  `docs/paad-review-doctrine.md` §1 and nowhere else. Other docs link to it
+  and do not copy it. The security-records guide's own table
+  (`vergil-tooling/docs/site/docs/guides/security-records.md`, "Severity")
+  is replaced by a link.
+- **The reviewer assigns severity** in its skill's own terms. The
+  orchestrator maps it with the table and never re-grades.
+- **Design reviews use only high, medium and low** (umbrella §3.1), so their
+  scales fold onto those three.
+
+The pushback and alignment columns are fixed by this design. The other
+columns are starting values, which the plan checks against each paad 2.0.2
+skill's own text:
+
+| Canonical | pushback | alignment | agentic-review | agentic-owasp | agentic-architecture | agentic-a11y |
+|---|---|---|---|---|---|---|
+| `critical` | n/a | n/a | Critical | Critical | n/a | critical |
+| `high` | critical, serious | Critical | Important | High | High | serious |
+| `medium` | moderate | Important | Suggestion | Medium | Medium | moderate |
+| `low` | minor | Minor | n/a | Low | Low | minor |
+
+Child D owns the agentic-review column for mode 2 and may revise it. Changing
+any column later is a doctrine change.
 
 A finding is **structural** when it is about scope (bundled features, a split),
 or when the change it asks for adds or removes a whole section, mechanism or
@@ -375,7 +396,7 @@ security details in any public record.
 |---|---|
 | `vergil-claude-plugin` | `docs/paad-review-doctrine.md`; the `epic-create` rewrite; `docs/paad-policy.md` pointer and register rows; the skills index page |
 | `vergil-project/.github` | this spec and plan; `paad/config/` files only if the fallback is needed |
-| `vergil-tooling` | `docs/site/docs/standards/github-issues.md` pipeline steps (via the documentation review) |
+| `vergil-tooling` | `docs/site/docs/standards/github-issues.md` pipeline steps, and the "Severity" table in `docs/site/docs/guides/security-records.md` replaced by a link to the doctrine (both via the documentation review) |
 | `docs` | `management/workflow.md` and `management/tools-and-skills.md` (via the documentation review) |
 
 ## 6. Constraints
