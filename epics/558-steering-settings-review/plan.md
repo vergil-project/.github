@@ -69,8 +69,8 @@ operational: they have no code PR and close on `Outcome: SUCCESS`.
   - `CLAUDE.md template region matches the previous template; replace it with the current template (epic vergil-project/.github#558).`
 - **Personal files stay off GitHub.** Drafts of `~/.claude/CLAUDE.md` and
   `~/.claude/settings.json` are never posted in issues, PR bodies,
-  report-ready notes or commits. Record only "reviewed and applied on
-  <date>" and a neutral summary of the kinds of changes.
+  report-ready notes or commits. Record only `reviewed and applied on
+  <date>` and a neutral summary of the kinds of changes.
 - **No memory dependency.** `steering-audit` doesn't read, write or mention
   memory files. `memory-audit` is not changed.
 - **Placement law.** Each task is filed in the repo of its heading.
@@ -132,12 +132,14 @@ alignment):
 ### Task 1: Ownership model page (vergil-tooling, implementation)
 
 **Files:**
+
 - Create: `docs/site/docs/guides/claude-config-ownership.md`
 - Modify: `docs/site/mkdocs.yml` (nav, under "Identity & Permissions", after "Permission Model")
 - Modify: `docs/site/docs/guides/permission-model.md`, `docs/site/docs/reference/config-audit.md`, `docs/site/docs/guides/consuming-repo-setup.md` (one link each)
 - Modify: `src/vergil_tooling/lib/vm_guest.py:401-403,447-452` (comments only)
 
 **Interfaces:**
+
 - Produces: the page anchor `claude-config-ownership.md`. Task 4's skill
   and the sweeps (Task 5) cite it as "the ownership model".
 
@@ -161,6 +163,7 @@ alignment):
 ### Task 2: New templates and the bridged audit (vergil-tooling, implementation)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/data/claude_settings.json` (to the Global Constraints shape)
 - Create: `src/vergil_tooling/data/claude_settings_previous.json` (today's repo file: the old template **with** `"ref": "main"` seeded)
 - Modify: `src/vergil_tooling/data/claude_md_consumer.md` (to the Decided content)
@@ -172,6 +175,7 @@ alignment):
 - Test: `tests/vergil_tooling/test_repo_config.py`, `tests/vergil_tooling/test_repo_init.py`, `tests/vergil_tooling/test_update_deps_vergil_eco.py`
 
 **Interfaces:**
+
 - Produces:
   - `_load_template(previous: bool = False) -> str`
   - `_load_settings_template(previous: bool = False) -> dict[str, Any]`
@@ -250,10 +254,12 @@ Blocked by Task 1 and Task 2.
 Blocked by Task 1.
 
 **Files:**
+
 - Create: `skills/steering-audit/SKILL.md`
 - Modify: `README.md` (skills table), `docs/site/docs/skills/index.md` (table row and a `## steering-audit` section), `CLAUDE.md` if it lists the skills
 
 **Interfaces:**
+
 - Consumes: the ownership model page (Task 1).
 - Produces: the invocations `/vergil:steering-audit` (repo scope) and
   `/vergil:steering-audit user`.
@@ -360,6 +366,7 @@ Blocked by Task 3, Task 4, and **every one of Tasks 5a–5i**.
 Blocked by every Task 5 task.
 
 **Files:**
+
 - Delete: `src/vergil_tooling/data/claude_settings_previous.json`, `src/vergil_tooling/data/claude_md_consumer_previous.md`
 - Modify: `src/vergil_tooling/lib/repo_config.py`:
   - remove the bridge and the legacy no-marker path;
