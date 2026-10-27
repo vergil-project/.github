@@ -145,6 +145,13 @@ The doctrine gives a prompt template. Every reviewer prompt must:
   the spec for spec pushback, the plan for plan pushback (with the spec named
   as context, not as the document under review), and the spec and the plan
   for alignment;
+- **work in the docs worktree:** every Bash command starts
+  `cd <docs-worktree> && …`, and every subagent the skill dispatches is told
+  the same. paad then writes its default paths (`paad/security/`) in the
+  worktree, where the main session collects them. The prompt says nothing else
+  about where paad writes: adapting to paad's defaults in caller code is more
+  reliable than overriding the skill's prose (the same rule as mode 2);
+- use `vrg-git`, since raw `git` is blocked;
 - give the **review-only directives** from umbrella §3.2:
   - collect every finding;
   - edit nothing and write nothing, except paad's own `paad/security/` file;
@@ -167,22 +174,24 @@ The doctrine gives a prompt template. Every reviewer prompt must:
   a `Config:` line when a config file was followed, then one block per finding
   with its paad severity, its section reference, the "Y happens, because Z"
   claim, and its options; then `Discards: <k>` followed by one line each; then
-  `Security: <k> finding(s) in <absolute path of the security file>`, or
-  `Security: 0`.
+  `Security: <k> finding(s)` or `Security: 0`; then every file paad wrote,
+  each as an absolute path.
 
 ### 3.5 Output checks and failed rounds
 
-After every review, the main session checks structure, not prose:
+Before dispatch, the main session lists the `paad/` of the session's starting
+directory. After every review, it checks structure, not prose:
 
 - the version line is present, and when the reviewer followed a config file,
   the `Config:` line is too;
 - every finding carries a paad severity and a section reference;
 - the `Discards:` and `Security:` lines are present;
-- when `Security:` reports findings, the file exists at the absolute path it
-  names;
+- every file paad wrote, as an absolute path, is under the docs worktree's
+  `paad/security/`, and when `Security:` reports findings, that file exists;
+- nothing new appeared under the `paad/` of the session's starting directory;
 - `vrg-git status --porcelain` in the worktree is empty. `paad/security/` is
-  ignored in every repo by the managed `.gitignore` block, so the security
-  file never shows, wherever it was written.
+  ignored by the managed `.gitignore` block, so the security file does not
+  show.
 
 A failed check is a **failed round**. It is never treated as a pass. The main
 session reverts any stray edit (`vrg-git restore` on tracked files the
@@ -198,6 +207,11 @@ against:
 - earlier round comments on the planning issue for this epic (all stages), and
 - the diffs of earlier round commits on the docs branch
   (`vrg-git log -p origin/develop..HEAD -- epics/<N>-<slug>/`).
+
+Only comments whose author passes `vrg-trusted-authors` count (doctrine §1;
+the command comes from child D, vergil-project/vergil-tooling#3741). Anyone can
+comment on a public issue, and a forged "decision" must not turn a finding into
+a known one.
 
 A finding is **known** if an earlier round raised it or the human deliberately
 accepted it. It is **repair** if the text it criticises was added by an
@@ -238,19 +252,35 @@ A finding is **structural** when it is about scope (bundled features, a split),
 or when the change it asks for adds or removes a whole section, mechanism or
 task. The main session tags structural findings in the round comment.
 
-**Recommendation.** Apply umbrella §3.1's signals, with continue signals
-winning. Continue signals count only **new** and **repair** findings. A known
-finding has already been decided, so it cannot argue for another round; a
-fresh reviewer will raise a rejected finding again. Known findings still
-appear in the checkpoint counts.
+**Recommendation.** The recommendation is advice to the human, who decides
+every round (3.3 step 7). It applies umbrella §3.1's signals, with continue
+signals winning, but **only new findings argue for another round**:
 
-- *continue* if any new or repair finding is high or structural, or if this
-  round's commit
-  changed the artifact materially (an accepted structural or high finding);
+- a **known** finding has already been decided, and a fresh reviewer will
+  raise a rejected finding again;
+- a **repair** finding is about an earlier round's own addition. A high repair
+  is still walked through and fixed in its round, but another round would
+  mostly re-review the repairs, which is the #469 pattern the stop signal
+  exists to catch.
+
+This is a deliberate reading of umbrella §3.1's "any high-severity or
+structural finding". It rests on the ad hoc trials of mode 1 on children E
+(planning issue vergil-project/.github#506) and D
+(vergil-project/vergil-claude-plugin#677). In both, mostly-repair rounds
+recommended *continue* only because some repairs were high.
+
+- *continue* if any **new** finding is high or structural, or if this round's
+  commit changed the artifact materially (an accepted new structural or high
+  finding);
 - otherwise *stop* if the round raised nothing new, or only one or two low
-  findings remain, or more than half the findings are repairs, or the artifact
-  grew in each of the last three rounds of this stage;
+  findings remain, or more than half the findings are repairs (even when some
+  are high), or the artifact grew in each of the last three rounds of this
+  stage;
 - otherwise *continue*.
+
+**Repair concentration** is the largest number of this round's repairs that
+trace back to one earlier addition. It makes the #469 pattern visible at a
+glance.
 
 **Growth** is the change in the artifact's line count and its count of `##`
 and `###` headings, from before the round to after its commit. For alignment,
@@ -269,7 +299,8 @@ One comment per round on the planning issue, posted with
   The fixed prefix `Design review: <stage> round <n>` is how a resumed session
   rebuilds the stage and round count.
 - **Checkpoint:** raised, accepted, rejected and dropped counts; the mapped
-  severity mix; new, known and repair counts; the growth delta; the
+  severity mix; new, known and repair counts; the repair concentration; the
+  growth delta; the
   recommendation and its signal; the round-4 note when it applies; and the
   failed-check note when it applies.
 - **Findings:** one entry per finding, with its round ID (`<stage-letter><n>.<i>`,
@@ -291,25 +322,30 @@ followed by a progress comment that names the next stage.
 
 ### 3.8 Security findings
 
-The reviewer writes security findings under `paad/security/`, as paad 2.0
-does. paad resolves that path from the reviewer's working directory, which is
-the session root and not necessarily the docs worktree, so the reviewer returns
-the file's absolute path (3.4) and the main session reads the file from there.
-The main session walks the human through each finding in the terminal, like
-any other. Then:
+paad writes security findings under the docs worktree's ignored
+`paad/security/` (3.4), and the main session reads them from there. It walks
+the human through each finding in the terminal, like any other. Recording
+follows child A′'s contract (epic vergil-project/.github#573, spec §4.4), under
+which one issue can name several advisories:
 
 - **accepted** (the spec or plan now states the requirement): record it with
-  `vrg-security-record` as **its own** security record, one advisory with its
-  own dedicated issue, related to the planning issue in the way child A′
-  (vergil-project/.github#571) defines. A planning issue can produce several
-  such records. The step-9 handoff moves each record to the task or tasks that
-  implement the requirement;
-- **rejected or dropped:** record it with `vrg-security-record create` and no
-  `--issue`, which creates its own neutral intake issue. The human's reason goes
-  into the advisory details, not into a public record.
+  `vrg-security-record create --repo <affected repo> --issue <planning issue>
+  …`. A planning issue may carry several;
+- **rejected or dropped:** record it with plain `vrg-security-record create`
+  (no `--issue`), which creates its own neutral intake issue. The human's
+  reason goes into the advisory details, not into a public record.
 
-The task that implements this section is blocked by A′. Until A′ lands, the
-exact commands for accepted findings are not fixed.
+**Step 9 handoff.** For each advisory on the planning issue, run one
+`vrg-security-record retarget <GHSA-id> --to <task> […]`, one after another and
+never in parallel:
+
+- a finding about **shipped** behaviour always goes to a fix task;
+- a finding the revised design resolves by itself goes to the epic's
+  documentation task, but only when no shipped code has the weakness.
+
+`vrg-queue planning` holds the planning issue until every advisory is
+retargeted. The task that implements this section is blocked by A′'s
+implementation.
 
 **Cleanup.** Once every finding in a security file has been recorded, the main
 session deletes the file, so no scratch copy of the details is left behind. If
@@ -357,9 +393,9 @@ If the validation spike (3.13) shows that the prompt alone cannot keep the
 reviewer review-only, the fallback is paad's experimental config:
 `paad/config/pushback.md` and `paad/config/alignment.md`, holding the
 review-only directives. paad reads config relative to the reviewer's working
-directory, which is the session root, so the file must be present in whichever
-repo the session started in. How a common config file reaches every such repo
-is decided when the fallback is built. Each file names the paad version it was
+directory, which is the docs worktree (3.4), so the files are committed in the
+epic's home repo (`vergil-project/.github`, and any self-homed private repo
+that runs `epic-create`). Each file names the paad version it was
 written for (paad-policy §1, §4). If config is also not enough, the next step is asking the paad authors
 for a report-only mode (umbrella §3.2); that request is outside this epic.
 
@@ -432,3 +468,6 @@ security details in any public record.
   paad on the agent VMs.
 - paad's config mechanism is experimental and paad is unpinned (paad-policy
   §1, §4).
+- Prerequisites from sibling children: A′'s one-to-many security records
+  (epic vergil-project/.github#573) for 3.8, and D's `vrg-trusted-authors`
+  (vergil-project/vergil-tooling#3741) for classification (3.6).
