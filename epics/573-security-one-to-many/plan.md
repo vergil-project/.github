@@ -334,6 +334,6 @@ issues (vergil-project/.github#469, vergil-project/vergil-claude-plugin#677).
   - §4.6 → Tasks 3 and 4, plus the documentation-review bookend.
 - **Types:** `parse_advisory_refs` and `SecurityIssue.ghsa_ids` are defined
   in Task 1 and used by those names in Task 2.
-- **Proportion:** about 1.6 times the spec's length, with no function
+- **Proportion:** about 1.7 times the spec's length, with no function
   bodies. The extra length is the test names and the exact refusal and note
   wording, which Tasks 2 and 3 share.
