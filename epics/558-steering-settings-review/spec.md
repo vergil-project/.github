@@ -353,11 +353,12 @@ The model:
      template region, so no repo is ever without a rule.
 
   Moves to homes other than the template land through ordinary PRs in the
-  receiving repos. The revised
-  global file itself is drafted **off GitHub**: in the session, or in a local
-  scratch file. The human reviews it and applies it on the host. Its content
-  never goes into an issue, PR body or report-ready note; the epic records
-  only that it was reviewed and applied, and on what date.
+  receiving repos. The global file has no change control, so it is reviewed
+  **in the session only**: the agent writes no file of any kind, and the
+  human decides and makes every change on the host. Its content never goes
+  into an issue, PR body or report-ready note; the epic records only that it
+  was reviewed and applied, and on what date. Change control for personal
+  files is intake item vergil-project/.github#586.
 
 ### 5.3 Settings cleanup
 
@@ -368,18 +369,25 @@ The model:
   `render_claude_settings` stops seeding the ref. The audit change reaches
   the fleet only through a vergil-tooling release, which is a human action.
 - **Local settings file.** `.claude/settings.local.json` stays in the
-  managed `.gitignore` block, untracked. `vrg-validate`, `vrg-commit` and
-  `vrg-pr-workflow report-ready` check **both** copies Claude Code may load:
+  managed `.gitignore` block, untracked. `vrg-commit`,
+  `vrg-pr-workflow report-ready` and `vrg-container-run` (host-side) check
+  **both** copies Claude Code may load:
   - the main checkout's root, found through `git rev-parse
     --git-common-dir` (§3.5);
   - the current worktree's own copy.
 
-  They refuse to run if either copy exists with any content other than `{}`.
-  An absent file passes. The error says why the file must stay absent or
-  `{}`, and that any rule it held belongs in the repo template or the user
-  file.
+  For an **agent** identity they refuse to run if either copy exists with
+  any content other than `{}`. A **human** identity gets the same message as
+  a warning and the tool proceeds: the file changes agent behavior, not the
+  human's own release and dependency-update runs. An absent file passes. The
+  message says why the file must stay absent or `{}`, and that any rule it
+  held belongs in the repo template or the user file.
+  - `vrg-validate`, inside the container, checks the worktree copy. It
+    cannot see the main checkout's working tree there, so it says so rather
+    than passing silently.
   - These are the agent's chokepoints, and they don't depend on Claude Code
-    hooks. `vrg-hook-guard` also warns early.
+    hooks. The hook guard is not one: a local file that disables hooks
+    would disable it too.
   - The nightly audit does not check this file: it can't see an ignored
     file in a CI checkout.
 - **Release model.** Every consuming repo pins `vergil = "v2.1"`, the
@@ -411,8 +419,9 @@ The model:
   the new template. A standing mechanism for later template changes (an
   audit that always accepts the current and previous template) is out of
   scope; it is intake item vergil-project/.github#580.
-- **User file.** The agent drafts the changes off GitHub, as for the global
-  `CLAUDE.md`, and the human applies them on the host. The drafted changes:
+- **User file.** Reviewed in the session only, as for the global
+  `CLAUDE.md`; the human makes the changes on the host. The changes to
+  consider:
   - keep the `vergil-marketplace` definition, now the only one;
   - fix or remove the macOS-only `statusLine`;
   - confirm or remove the `AskUserQuestion` deny hook. This is the human's
@@ -436,9 +445,11 @@ checks on a cold-rebuilt agent VM that:
   checkout's root** makes `vrg-commit` in a worktree refuse, and removing
   the file lets it proceed.
 
-It also records whether user-enabled plugins were installed **when the first
-session started, without `/reload-plugins`** (§3.5), and without
-`vm_guest`'s reconcile step. That settles §3.8.
+It also records whether user-enabled plugins are installed **when a session
+starts, without `/reload-plugins`** (§3.5), and without `vm_guest`'s
+reconcile step. A rebuild always runs that step, so this is a separate probe:
+uninstall the plugins, start a fresh session, and record what came back.
+That settles §3.8.
 
 ### 5.5 Recurring review
 
@@ -457,7 +468,8 @@ needs judgment.
 2. **Judgment (a new `steering-audit` skill in vergil-claude-plugin):** it
    reviews the steering and settings files. For each item it verifies,
    suggests a disposition, and waits for the human's decision.
-   - **Steering files:** it runs `/paad:pushback`, plus its own mechanical
+   - **Steering files:** it runs `/paad:pushback` as a findings-only review
+     (no edits, no report files), plus its own mechanical
      checks: every referenced path exists, every named command resolves,
      the line count, and the ownership rules.
    - **Settings files:** it checks them against the ownership model.
@@ -470,13 +482,13 @@ needs judgment.
      - **user** (`steering-audit user`): the global `~/.claude/CLAUDE.md` and
        `~/.claude/settings.json`, reviewed **once per cycle**, not once per
        repo. It checks every section against the "minimal; move it to a
-       managed home" rule (§5.2). Drafts stay off GitHub, and **its findings
-       never go to intake**: the public queue would expose personal content.
-       Each user-scope finding is fixed on the host by the human or dropped
-       by the human with a reason. Anything deferred stays in a local
-       scratch note. The public record shows only that the review ran, its
-       date, and counts. This is the user scope's exception to umbrella
-       §2.4.
+       managed home" rule (§5.2). User scope is **read-only and
+       interactive only**: these files have no change control (§5.2), so
+       the skill writes no file of any kind, and every change is the
+       human's, made on the host. **Its findings never go to intake**: the
+       public queue would expose personal content. The public record shows
+       only that the review ran, its date, and counts. This is the user
+       scope's exception to umbrella §2.4.
    - **Memory is out of scope.** `steering-audit` neither reads nor depends
      on memory (vergil-project/.github#561).
    - **When to run it:** at least quarterly, and whenever a Claude Code
