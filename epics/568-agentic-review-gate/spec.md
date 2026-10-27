@@ -5,7 +5,7 @@
   is in its comments)
 - **Umbrella:** vergil-project/.github#500 (child D). Child F depends on this
   epic.
-- **Status:** draft, in design review
+- **Status:** approved
 - **Brainstorm source:** none. The umbrella spec (§3.1, §3.3, §4.D) settled
   the rules, the planning-time spike (section 3) settled feasibility, and the
   human skipped the brainstorm questions.
