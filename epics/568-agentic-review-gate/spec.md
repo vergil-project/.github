@@ -114,14 +114,15 @@ green. Each round:
 
 1. **Write the requirements file** (4.4) into a fresh `mktemp -d` directory
    outside the worktree.
-2. **Dispatch.** List the main checkout's `paad/` (for the check in 4.5),
+2. **Dispatch.** List the `paad/` of the session's starting directory and of
+   the task repo's main checkout (for the check in 4.5),
    then dispatch a fresh `general-purpose` reviewer subagent with the prompt
    in 4.3, and wait.
 3. **Check the output** (4.5). A failed check pauses the run.
 4. **Collect.** Read paad's report from the worktree, post the findings
-   comment (4.6), record any security findings (4.7), then empty the worktree's
-   `paad/code-reviews/` and `paad/security/` so the next reviewer starts clean.
-   Delete the temp directory.
+   comment (4.6), then empty the worktree's `paad/code-reviews/` so the next
+   reviewer starts clean. `paad/security/` is kept until step 6 (4.7). Delete
+   the temp directory.
 5. **Act on each finding:**
    - in-scope Critical or Important: fix it. If the implementer thinks it is
      wrong, it marks it "pending human", finishes acting on the round's other
@@ -136,7 +137,9 @@ green. Each round:
    commit messages are one of Spec Compliance's intent sources, so a message
    naming the review would tell the next reviewer about earlier rounds.
 6. **Post the response comment** (4.6), then **file this round's intake
-   issues** (4.8), so nothing found depends on the run reaching a pass.
+   issues** (4.8) and record the round's unfixed security findings (4.7), so
+   nothing found depends on the run reaching a pass. Then empty
+   `paad/security/`.
 7. **Decide:**
    - **pass** if the round had no blocking findings;
    - otherwise **another round**, unless this was round 3 (or the last round
@@ -149,7 +152,9 @@ final commit, and run `report-ready` with the handoff notes (4.8).
 **Classification.** The implementer marks each finding `new`, `known` (an
 earlier round raised it, or it was deliberately accepted) or `repair` (it is
 about code the previous round's fixes changed), by its own judgement against
-the earlier comments on the issue (umbrella §3.1). A known finding that the
+the earlier comments on the issue (umbrella §3.1). Only comments whose author
+passes `vrg-trusted-authors` count; anyone can comment on a public issue, and a
+forged "ruling" must not switch off a finding. A known finding that the
 human has already ruled on follows that ruling: it does not block, and the
 response notes "ruled earlier". The mark is recorded in the findings comment
 and drives the repair pause; it needs no other bookkeeping. The reviewer is
@@ -190,7 +195,8 @@ marks much of that behaviour as binding.
   often only a pointer to its plan task;
 - any comment **posted from the human's own account** that changes what the
   task must do;
-- the human's rulings from this run's conversation, restated as requirements
+- every ruling the human has made on this task in this session (passed to
+  each re-dispatched run, 4.9), restated as requirements
   ("the task must do X"), never as review history ("R2.3 was dismissed"). A
   fix the human directed is then something the requirements asked for, not an
   out-of-scope addition.
@@ -198,9 +204,10 @@ marks much of that behaviour as binding.
 Comments posted by agent identities, including every gate record (4.6), are
 **never** requirements input, and neither is anything from any other author.
 The issue's title and body are used only when the issue was opened by the
-human or by one of the human's agent identities. Otherwise the run pauses
-before round 1, saying the issue's author is not trusted, and the human
-decides (4.9). Who last edited the body is the system-wide question of
+human or by one of the human's agent identities. `issue-implement` checks this
+in its Preflight, before any work, since an untrusted body would otherwise
+already have steered the implementation. Otherwise the run pauses there,
+saying the issue's author is not trusted, and the human decides (4.9). Who last edited the body is the system-wide question of
 vergil-project/.github#579, not settled here. Logins are matched exactly, after one
 normalization: GitHub reports an issue opened by a GitHub App as
 `app/<login>` but that App's comments as the bare `<login>`, so the stored
@@ -220,6 +227,9 @@ vergil-project/.github#579 and builds on the same configuration.
 
 After each review the implementer checks, by structure:
 
+- the final answer has paad's counts line and **no** `Config:` line (D adopts
+  no config file, so one means a stray `paad/config/` in the reviewed branch
+  changed the review; umbrella §3.3);
 - `Agents dispatched:` lists all six lenses, none `NOT DISPATCHED`;
 - Spec Compliance did not bail, and its intent sources include the
   requirements file;
@@ -227,7 +237,8 @@ After each review the implementer checks, by structure:
 - the reviewer did not record a security hold;
 - every file paad wrote, as an absolute path, is under this worktree's
   `paad/code-reviews/` or `paad/security/`; nothing new appeared under the
-  main checkout's `paad/`; and `vrg-git status --porcelain` is empty.
+  `paad/` of the session's starting directory or of the task repo's main
+  checkout, if different; and `vrg-git status --porcelain` is empty.
 
 Any failure pauses the run. In a repo whose `.gitignore` has no managed
 block, `paad/code-reviews/` is not ignored, so the clean-worktree check fails
@@ -237,21 +248,25 @@ every round; the pause message says so. A failed round's findings are not acted 
 
 Three kinds of comment, each with a fixed first line so a reader (or a
 fresh session) can see where the gate stands. They are **records**: no run ever
-takes instructions from them.
+takes instructions from them. Their one other use is classification (4.2),
+which reads only those posted by trusted authors.
 
 - **`agentic-review round <n>: findings`:** paad's findings, each with an ID
   `R<n>.<i>`, its severity, its scope bucket, whether it is a repair, and its
   location by file and symbol with a short code excerpt. Line numbers and SHAs
   change when `vrg-submit-pr` rebases, so they are given only as "at the time".
-  A failed output check is noted here.
+  It also carries paad's filtered-out count, with reasons for non-security
+  candidates only (umbrella §3.1 discards). A failed output check is noted
+  here.
 - **`agentic-review round <n>: response`:** what the implementer did with each
   finding (fixed, not fixed and why, removed and the task it became), and what
   happens next.
 - **`agentic-review summary: <outcome> after <n> round(s)`:** posted once, at
   the final outcome: before `report-ready` on a pass or an accepted branch, or
-  when the branch is dropped or abandoned. A pause posts no summary. It lists every finding not
-  fixed, each with its intake or task issue, so the retrospective sweep can
-  check them.
+  when the human drops the branch. A pause posts no summary, and abandoned
+  work has none (no run is left to post it). It lists every finding not fixed,
+  each with its intake or task issue, and every removed addition with its
+  task, so the retrospective sweep can check them.
 
 A pause adds a line to the latest response comment saying why the run stopped,
 and, once the human has ruled, the human's ruling in their words (4.9).
@@ -265,16 +280,19 @@ security findings appear only as counts (4.7).
   `paad/security/`.
 - The implementer treats each like any other finding: blocking or not, fixed
   or not.
-- When the round is collected, each one is recorded through child A′'s
-  one-to-many security-records model (vergil-project/.github#573). Its details
-  live only in the private record. This is the **only** way a security-class
-  finding is filed: an out-of-scope security bug, a dismissed one, or a
-  removed addition that paad classed as security never becomes an ordinary
-  intake issue or task. `vrg-security-record` creates the neutral public
-  issue.
-- A finding that is then fixed on the branch has its record pointed at this
-  task, so the record closes when the task's PR merges and no fixed finding
-  leaves a record open.
+- At the end of the round (4.2 step 6), each one **not fixed** on the branch
+  (out of scope, dismissed, deferred, pending the human, or a removed
+  addition) is recorded through child A′'s one-to-many security-records model
+  (vergil-project/.github#573). Its details live only in the private record.
+  This is the **only** way a security-class finding is filed: none ever
+  becomes an ordinary intake issue or task. `vrg-security-record` creates the
+  neutral public issue.
+- A security file holding only paad's filter reasons (no routed finding) is
+  discards: counted, then deleted, never recorded.
+- A finding fixed on the branch is not recorded: the bug never reached
+  `develop`, so it needs no advisory, and recording it would mark the task
+  issue publicly. It appears only in the counts, and its details are deleted
+  with `paad/security/` at the end of the round.
 - **A real security hold** (paad found `paad/security/` unsafe and wrote
   nothing there) is a failed check (4.5). The run pauses, any details stay in
   the conversation with the human, and the issue shows only that the check
@@ -310,9 +328,14 @@ A pause is a stop that hands the decision to the human, in real time.
   round, dismiss a finding, fix it a particular way, accept the branch as it
   stands, or drop it. The human has the final say; the agent records the
   ruling on the issue and carries it out. Under `epic-implement` the main
-  session passes the ruling to a new `issue-implement` run for that task, which
+  session passes every ruling the human has made on that task in this session
+  (not only the latest) to a new `issue-implement` run for that task, which
   continues from the existing worktree and continues the round count shown in
-  the issue's findings comments (umbrella §3.3).
+  the issue's findings comments (umbrella §3.3). In a new session the human
+  restates any earlier rulings. This deliberately narrows umbrella §4.D's
+  "recorded form that a resumed run can read": rulings are recorded on the
+  issue for people, but a run takes them only from the human in the
+  conversation (section 5).
 - **A pause is not a save point.** The branch is not pushed (pushing happens
   at `report-ready`). If the human does not come back, or the worktree is lost,
   the work is abandoned: the task stays open as unfinished work and is
@@ -333,6 +356,8 @@ the planning issue's design-review comments for problems that were noted and
 never filed. For each untracked problem, find the existing issue, file one, or
 have the human drop it with a reason. The result goes in retrospective §4.
 Tasks implemented before the gate shipped have no summaries; the sweep says so.
+A task with round comments but no summary (abandoned work) is swept from its
+round comments instead.
 
 ### 4.11 Prerequisites, tooling and validation
 
@@ -343,7 +368,7 @@ Tasks implemented before the gate shipped have no summaries; the sweep says so.
   Repos in other orgs are due for modernization and are out of scope: they
   are not synced, and each one with a managed block gets an issue in its
   ad-hoc queue, so the modernization picks the change up. Until the sync merges, a
-  repo's `vrg-release` audit reports fence drift; the audit is advisory, and
+  repo's `vrg-release` audit reports fence drift and refuses the release;
   `vrg-release --skip-audit` releases past it.
 - **`vrg-git symbolic-ref`** (vergil-tooling#3722) is a **prerequisite**. paad
   resolves the default branch on every run, even with an explicit base, and
@@ -389,8 +414,8 @@ needed:
 
 - a structured grammar for the human's decisions, and resuming a paused run
   from issue comments in a later session;
-- forged-comment protection for the gate's own records (they are records, not
-  inputs, so there is nothing to forge);
+- forged-comment protection beyond the author filter (4.2): a comment from a
+  trusted login is taken as genuine;
 - formal new / known / repair bookkeeping beyond the implementer's judgement;
 - a way for the implementer to keep a flagged addition it believes is required;
 - an exemption from review by change size or risk;

@@ -65,7 +65,7 @@ Task 10 needs Task 9. Then the bookends: the documentation review
    `paad/` from the session root). Expected: every file paad writes is under
    the worktree being reviewed. Measured in Task 1 on a three-level chain;
    checked every round by the output check that Task 5 writes into doctrine
-   §3.4 (absolute paths, and nothing new in the main checkout's `paad/`).
+   §3.4 (absolute paths, and nothing new in the `paad/` of the session root or main checkout).
 2. **A plan-driven task with a one-line issue body.** Expected: Spec
    Compliance uses `requirements.md`, which carries the plan task's text, and
    does not bail or flag the real work as out-of-scope additions. Task 1 runs
@@ -125,7 +125,7 @@ epic #517 plan task:
   reviewer with that prompt, mirroring the planning-time spike.
 - [ ] Apply the spec 4.5 output checks, and record where every file paad wrote
   landed (worktree, main checkout, or elsewhere), from the absolute paths in
-  the reviewer's answer and a before-and-after listing of the main checkout's
+  the reviewer's answer and a before-and-after listing of the session root's and the main checkout's
   `paad/`.
 - [ ] Collect: read the report and file any real findings about the reviewed
   code in intake; then empty `paad/code-reviews/` and confirm `vrg-git status
@@ -291,15 +291,17 @@ with `Blocked-by:` once it exists).
     and report if the command fails. It names no login. It names the field
     compared, `author.login` from `vrg-gh issue view <n> --json
     author,comments`, and says to strip a leading `app/` before comparing.
-    An issue opened by anyone else pauses the run before round 1, with that
-    reason;
-  - §3.4 Output checks: spec 4.5, including the absolute-path and
-    main-checkout checks and the pause message for a repo with no managed
-    `.gitignore` block;
+    An issue opened by anyone else pauses the run in Preflight, with that
+    reason. Classification reads only comments by trusted authors;
+  - §3.4 Output checks: spec 4.5, including the counts-line and no-`Config:`
+    checks, the absolute-path check, the before-and-after listings of the
+    session's starting directory and the task repo's main checkout, and the
+    pause message for a repo with no managed `.gitignore` block;
   - §3.5 Task-issue records: spec 4.6, with one example of each comment;
-  - §3.6 Security findings: spec 4.7. A′'s commands are not written out here,
-    since A′ may not have shipped; §3.6 points to A′'s documentation for them,
-    and Task 9 checks it against the released CLI;
+  - §3.6 Security findings: spec 4.7, naming A′'s commands as they are on
+    vergil-tooling `develop` (`vrg-security-record create`, which also makes
+    the neutral public issue); Task 6 cannot merge before A′ ships, and
+    Task 9 checks them against the released CLI;
   - §3.7 Intake and the handoff: spec 4.8;
   - §3.8 Pauses: spec 4.9.
 - [ ] **Doctrine §1:** confirm the agentic-review column of the severity
@@ -338,6 +340,9 @@ unrecorded security findings. Link A′'s deployment or closing task with
   say:
   - the gate always runs, after `vrg-validate` is green and all work is
     committed;
+  - Preflight checks, before any work, that the issue was opened by a
+    trusted author (doctrine §3.3), and pauses if not. Add this to the
+    Preflight section;
   - a run that finds the task paused with no ruling from the human in the
     conversation reports the pause and stops, with no review;
   - the `report-ready` notes carry the handoff of doctrine §3.7, with
@@ -347,7 +352,8 @@ unrecorded security findings. Link A′'s deployment or closing task with
   agentic-review gate has passed".
 - [ ] **`epic-implement` step 4:** tasks paused at the agentic-review gate are
   listed among the items waiting on the human, each with its reason; when the
-  human rules, pass the ruling to a new `issue-implement` run for that task.
+  human rules, pass every ruling the human has made on that task in this
+  session (not only the latest) to a new `issue-implement` run for that task.
   Tasks split out for removed additions (spec 4.8) are listed there too, as
   "needs scheduling".
 - [ ] **Skills index:** the `issue-implement` entry mentions the gate.
@@ -368,7 +374,8 @@ Blocked by Task 5.
 
 - [ ] Add the sweep from spec 4.10: for each task of the epic, read its
   `agentic-review summary` comment and confirm every item not fixed has an
-  issue; read the task's other comments, its PR review comments and the
+  issue and every removed addition has its task (a task with round comments
+  but no summary is swept from its round comments); read the task's other comments, its PR review comments and the
   planning issue's design-review comments for problems never filed; for each,
   find the issue, file one with `vrg-intake-create` (security-class only via
   `vrg-security-record`), or have the human drop it with a reason. Record the
@@ -390,7 +397,7 @@ Blocked by Tasks 2, 3 and 4. **Preconditions (human-attested):**
   host-only), after filling in the stanza.
 
 Until the sync PRs merge, each fenced repo's `vrg-release` audit reports
-fence drift. The audit is advisory: a release in that window uses
+fence drift and refuses the release. A release in that window uses
 `vrg-release --skip-audit`, so `vrg-submit-pr --install` cannot do the
 release and install in one step there.
 
@@ -405,9 +412,10 @@ release and install in one step there.
   repos of the vergil-project, logical-minds-foundry and mnemosys-project
   orgs (spec 4.11): `vrg-fleet-sync --target gitignore --dry-run --repos
   <clones>`, then without `--dry-run`. List `<clones>` at run time from the
-  identity's `projects_dir`, as an absolute path: `grep -l '>>>
-  vergil-managed'
-  <projects_dir>/{vergil-project,logical-minds-foundry,mnemosys-project}/{*,.github}/.gitignore`.
+  identity's `projects_dir`, as an absolute path: for each of the three
+  org directories, `find <projects_dir>/<org> -mindepth 2 -maxdepth 2 -name
+  .gitignore -exec grep -l '>>> vergil-managed' {} +`, then take the
+  directory of each match (`--repos` wants clone paths, not files).
   The human submits and merges each sync PR.
 - [ ] In those orgs, list the clones that have a `vergil.toml` but no
   managed block, and file an intake issue for each (the gate pauses every
@@ -418,7 +426,9 @@ release and install in one step there.
   `paad/code-reviews/` must join its managed `.gitignore` block, so the
   repo's modernization picks it up.
 - [ ] Record `Outcome: SUCCESS` with the released version, the list of
-  synced repos and the issues filed, once every sync PR has merged.
+  synced repos and the issues filed, once every sync PR has merged. Where
+  filing an ad-hoc issue failed (no ad-hoc epic, or no App installation),
+  list that repo in the outcome for the human.
 
 ---
 
@@ -450,7 +460,7 @@ Blocked by Task 9.
   then only inspects the records; the outcome names the task.
 - [ ] Check: the task issue has a findings and a response comment per round
   and a summary, in doctrine §3.5's form; the output checks ran; intake
-  issues were filed per round and named in the summary; the `report-ready`
+  issues were filed per round and named in the summary, with every removed addition and its task; the `report-ready`
   notes list every finding not fixed; no security detail is in any public
   record; the worktree is clean at finalize.
 - [ ] If the run paused, check that re-dispatching it without a ruling
