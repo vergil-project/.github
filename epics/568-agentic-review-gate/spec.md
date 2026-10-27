@@ -169,7 +169,8 @@ The doctrine holds the template. It tells the reviewer to:
   review into separate passes, and for anything else take the most
   conservative option and say so;
 - edit nothing, and never edit paad's output;
-- return paad's own final answer, which lists the files paad wrote.
+- return paad's own final answer, which lists the files paad wrote, giving
+  each as an absolute path.
 
 The prompt says nothing about where paad writes. paad writes its default paths
 in the worktree, and the caller collects them (4.2 step 4). Adapting to paad's
@@ -194,7 +195,10 @@ marks much of that behaviour as binding.
 Comments posted by agent identities, including every gate record (4.6), are
 **never** requirements input, and neither is anything from any other author.
 The issue body is used when it was written by the human or by one of the
-human's agent identities. Logins are matched exactly.
+human's agent identities. Logins are matched exactly, after one
+normalization: GitHub reports an issue opened by a GitHub App as
+`app/<login>` but that App's comments as the bare `<login>`, so the stored
+form is the bare login and a leading `app/` is stripped before comparing.
 
 **The trusted logins are configuration, never hard-coded** in a skill, the
 doctrine or any tool. They live in the host's `~/.config/vergil/identities.toml`
@@ -215,10 +219,13 @@ After each review the implementer checks, by structure:
   requirements file;
 - `Verifier warnings: none`;
 - the reviewer did not record a security hold;
-- every file paad wrote is under this worktree's `paad/code-reviews/` or
-  `paad/security/`, and `vrg-git status --porcelain` is empty.
+- every file paad wrote, as an absolute path, is under this worktree's
+  `paad/code-reviews/` or `paad/security/`; nothing new appeared under the
+  main checkout's `paad/`; and `vrg-git status --porcelain` is empty.
 
-Any failure pauses the run. A failed round's findings are not acted on.
+Any failure pauses the run. In a repo whose `.gitignore` has no managed
+block, `paad/code-reviews/` is not ignored, so the clean-worktree check fails
+every round; the pause message says so. A failed round's findings are not acted on.
 
 ### 4.6 What goes on the task issue
 
@@ -278,7 +285,8 @@ security findings appear only as counts (4.7).
   its reason and issue, every removed addition with its task, and any commit
   made after the last round (a late Suggestion fix), marked unreviewed. Tasks
   split out for removed additions are not in the epic's plan, so the handoff
-  asks the human to schedule them.
+  asks the human to schedule them, and `epic-implement` lists them among the
+  items waiting on the human as "needs scheduling".
 
 ### 4.9 Pauses and `epic-implement`
 
@@ -319,7 +327,13 @@ Tasks implemented before the gate shipped have no summaries; the sweep says so.
 
 - **`paad/code-reviews/` ignored.** It joins `paad/security/` in the managed
   `.gitignore` block, synced to every repo **before** the gate ships;
-  otherwise every round fails the clean-worktree check.
+  otherwise every round fails the clean-worktree check. The sync covers the
+  vergil-project, logical-minds-foundry and mnemosys-project orgs. Repos in
+  other orgs are due for modernization and are not held to it: where the
+  change cannot be deployed to one, an issue in that repo's ad-hoc queue
+  records why, so the modernization picks it up. Until the sync merges, a
+  repo's `vrg-release` audit reports fence drift; the audit is advisory, and
+  `vrg-release --skip-audit` releases past it.
 - **`vrg-git` additions** (vergil-tooling#3722) are a **prerequisite**. paad
   resolves the default branch on every run, even with an explicit base, and
   without `symbolic-ref` it can fail in repos with no local `main`.
