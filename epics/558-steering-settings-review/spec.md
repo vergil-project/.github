@@ -64,7 +64,11 @@ Known problems:
   section (agents stop at `report-ready` and never run `vrg-submit-pr`; the
   branch freeze) and the cloud-session prompt contract exist only in
   vergil-tooling's `CLAUDE.md`. Agents in the other eight repos never load
-  them. The plugin skills cover part of this.
+  them. The plugin skills cover part of this: the cloud-session contract is
+  already stated in full, fleet-wide, by the `issue-implement` skill's
+  relay-handoff section, so only the handoff and freeze rules need a new
+  home (§5.2). vergil-tooling keeps the cloud contract's full text as its
+  own reference.
 - **AGENTS.md files are dead and harmful.** By default, Claude Code does not
   read an `AGENTS.md` when a `CLAUDE.md` exists (§3), so these files are seen only by
   other tools. Their content is also wrong: vergil-tooling's tells agents to
@@ -97,11 +101,14 @@ nightly `ops-github-config` audit is managed. On 2026-10-27 that is 16 repos:
   mq-resiliency-observability;
 - two in mnemosys-project: docs and melete.
 
-These are out of scope:
+**Org scope.** Three orgs are in scope: `vergil-project`,
+`logical-minds-foundry` and `mnemosys-project`. Three are on hold:
+`mq-rest-admin-project`, `diogenes-project` and `vergils-nemesis`. Nothing in
+an on-hold org is changed; each gets one ad-hoc issue that tracks bringing it
+into this model when the org is revived. Every other repo or checkout is
+ignored.
 
-- repos that pin `v2.1` but run no nightly audit (the mq-rest-admin-project
-  repos);
-- repos on `v2.0` (for example diogenes and the-infrastructure-mindset).
+Within the in-scope orgs, repos on `v2.0` are outside the managed fleet.
 
 Throughout this spec, **"the fleet"** means the managed repos, found by a
 mechanical scan at each step that needs the list (§6), not a hand-kept
@@ -232,7 +239,8 @@ The model document (§5.1) re-verifies them when it is written.
   vergil-claude-plugin (§5.2), keeps a short "no memory writes without
   approval" rule in the template, and adds no dependency on memory.
   `vrg-vm`'s memory projection is left for #561.
-- Repos vergil doesn't manage (§2.1a). Rules that move out of the global
+- Repos outside the three in-scope orgs, and unmanaged repos within them
+  (§2.1a). Rules that move out of the global
   `~/.claude/CLAUDE.md` into the vergil template no longer reach them, and
   that is accepted. A repo that needs them is brought under vergil
   management.
@@ -382,18 +390,24 @@ The model:
   Claude Code keep the file elsewhere; that case is a known limit, recorded
   on the model page.
 
+  The guard acts only in repos whose `origin` belongs to one of the three
+  in-scope orgs (§2.1a); anywhere else it is silent. Before it ships, stray
+  copies in those orgs' checkouts, on the host and the VMs, are removed or
+  reduced to `{}`.
+
   For an **agent** identity they refuse to run if any copy exists with
   any content other than `{}`, and tell the agent to stop and ask the
-  human. A **human** identity gets the same message as
+  human. A session counts as an agent when **any** identity signal says so;
+  an environment variable claiming human cannot override a provisioned
+  agent VM. A **human** identity gets the same message as
   a warning and the tool proceeds: the file changes agent behavior, not the
   human's own release and dependency-update runs. An absent file passes. The
   message says why the file must stay absent or `{}`, and that any rule it
   held belongs in the repo template or the user file.
-  - `vrg-validate` enforces the same way when run outside a container.
-    Inside the container it neither sees the main checkout's working tree
-    nor receives the identity, and `vrg-container-run` has already checked
-    every copy before starting it, so it says so in one line and does not
-    check again.
+  - `vrg-validate` is not a chokepoint. It only runs inside a dev
+    container, where it sees neither the main checkout's working tree nor
+    the identity, and `vrg-container-run` has already checked every copy
+    before starting the container. CI checkouts hold no local file.
   - These are the agent's chokepoints, and they don't depend on Claude Code
     hooks. The hook guard is not one: a local file that disables hooks
     would disable it too.
@@ -445,6 +459,8 @@ A validation task, run after the settings and steering cleanup is deployed,
 checks on a cold-rebuilt agent VM that:
 
 - every enabled plugin is installed;
+- the vergil marketplace is loaded at ref `main`, now that only the user
+  file names the ref;
 - the guard hook blocks a raw `git` call;
 - a commit made by an agent has no `Co-Authored-By` trailer, and the
   `report-ready` summary and notes carry no attribution line (agents never
@@ -482,6 +498,10 @@ needs judgment.
      checks: every referenced path exists, every named command resolves,
      the line count, and the ownership rules.
    - **Settings files:** it checks them against the ownership model.
+   - **Skill validation.** The plugin's `validate-custom` gains a minimal
+     check that each skill's frontmatter has a matching `name` and a
+     `description`, at the human's request; wider plugin validation is
+     intake item vergil-project/.github#587.
    - **Optional extra:** `/doctor prompt-audit` (§3.10) can't be run by an
      agent. The model page mentions it as an optional check the human can
      run by hand; the skill does not depend on it.
@@ -513,7 +533,9 @@ needs judgment.
 - Public repos: the repo files, issues, PR bodies, report-ready notes and
   the relay ref are public. The user-level files (`~/.claude/CLAUDE.md`,
   `~/.claude/settings.json`) are **personal**: their content never goes into
-  any of those. Only the fact and date of their review are recorded.
+  any of those. Only the fact and date of their review, section counts, and
+  the names of sections that move to a public home are recorded; the names
+  and content of sections that stay are not.
 - Agents use `vrg-git` and `vrg-gh` only, and stop at `report-ready`.
 - Placement law: each task is filed in the repo whose PR closes it.
 - **Ordering:**
