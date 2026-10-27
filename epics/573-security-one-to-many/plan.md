@@ -69,7 +69,7 @@ operational: they have no code PR, and they close on `Outcome: SUCCESS`.
 - Modify: `src/vergil_tooling/lib/security_records.py`:
   - add `parse_advisory_refs`;
   - `unmark_issue`, `SecurityIssue`, `security_issues`, `_issue_problem`,
-    `classify` and `retarget`.
+    `_tracking_problems`, `classify` and `retarget`.
 - Modify: `src/vergil_tooling/bin/vrg_security_record.py`: `show <issue>`
   (around line 381).
 - Test: `tests/vergil_tooling/test_security_records.py`,
@@ -97,7 +97,9 @@ operational: they have no code PR, and they close on `Outcome: SUCCESS`.
   - a `security` issue with no lines is broken;
   - **each** of its lines is checked (the named advisory exists and tracks
     the issue), and each failure is its own broken line;
-  - an advisory is "named" when it is in any issue's `ghsa_ids`.
+  - an advisory is "named" when it is in any issue's `ghsa_ids`;
+  - `_tracking_problems`: a tracked issue points back when the advisory's
+    GHSA ID is in that issue's `ghsa_ids`.
 - `show <issue>` prints every pair the issue names, in body order, in the
   current per-pair format, with a blank line between pairs. It refuses an
   issue with no lines, as today. Before printing anything, it checks with
@@ -115,6 +117,7 @@ operational: they have no code PR, and they close on `Outcome: SUCCESS`.
     lines; unmark A → B's line and the label stay, A's line goes, and one
     comment is posted;
   - `test_unmark_issue_drops_label_with_the_last_line`;
+  - `test_mark_issue_adds_a_second_advisory_line_and_keeps_the_first`;
   - `test_retarget_two_advisories_off_one_issue_in_either_order`: an issue
     naming A and B; retarget A then B to X (and B then A) → the issue has no
     lines and no label, and X has both;
@@ -220,7 +223,8 @@ Blocked by Task 2 (the note wording).
   advisory:` lines. Once the fix task(s) are filed, retarget **each**
   advisory to the task(s) that fix it. The text contains the exact phrase
   `one vrg-security-record retarget <GHSA-id> --to … per advisory`, which
-  Task 5 checks for. A finding the revised design resolves by
+  Task 5 checks for. It says to run the retargets one after another, never
+  in parallel (spec §4.3). A finding the revised design resolves by
   itself goes to the epic's documentation task, but **only** when no shipped
   code has the weakness; a finding about shipped behaviour always goes to a
   fix task (spec §4.3). Post `Tasks filed: yes` only after every retarget
@@ -243,15 +247,16 @@ Blocked by Tasks 1 and 2.
   - the per-advisory step 9 handoff, and the docs-task rule (spec §4.3);
   - the recipes for design review and agentic review (spec §4.4), with the
     reason D records with plain `create`;
-  - the migration check (spec §4.5).
+  - the migration check (spec §4.5);
+  - the "When the issue moves" section: split refuses an item naming
+    several advisories, transfer and recreate retarget every advisory, and
+    the label goes with the last line.
 - Modify: `docs/site/docs/reference/dev/security-record.md`:
   - `show` with several pairs;
   - the hold and routing paragraph (lines 215-222).
 - Modify: `docs/site/docs/reference/cli-tools-overview.md`: the
   `vrg-intake-route` section (from line 251) gets the split refusal, and the
   `vrg-queue` section (lines 329-338) gets the new hold note.
-- Modify: `docs/site/docs/standards/github-issues.md` (around line 616), the
-  hold note.
 
 - [ ] Grep `docs/site` for `held: advisory` and update every hit to Task 2's
   note.
@@ -321,7 +326,10 @@ Blocked by Task 5. **Precondition (human-attested):** the human will dispatch
 
 **Planning-time action** (the `epic-create` session, after the docs PR is
 handed off, with no task): post spec §4.4's recipes on C's and D's planning
-issues (vergil-project/.github#469, vergil-project/vergil-claude-plugin#677).
+issues (vergil-project/.github#469, vergil-project/vergil-claude-plugin#677),
+labelled as pending the docs PR's merge. Record both comment URLs in a
+progress comment on vergil-project/.github#571. If review changes §4.4, post
+the recipes again.
 
 ## Self-Review
 

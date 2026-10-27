@@ -106,7 +106,8 @@ An issue names any number of advisories, one `Security advisory:` line each.
   every line both ways.
 - `retarget` keeps its shape; "the issue names this advisory" becomes a
   membership test.
-- `show <issue>` prints every pair the issue names, in body order.
+- `show <issue>` prints every pair the issue names, in body order. It
+  refuses, printing nothing, if any named advisory is missing.
 
 ### 4.2 Holds and routing
 
@@ -124,7 +125,9 @@ An issue names any number of advisories, one `Security advisory:` line each.
 
 For **each** advisory the planning issue names, once its fix task(s) are
 filed, run `vrg-security-record retarget <GHSA-id> --to <task> [--to <task>
-…]`. Post `Tasks filed: yes` only after every retarget succeeds. The planning
+…]`. Run the retargets one after another, never in parallel: each one
+rewrites the issue body, so two at once can write back a line the other
+removed. Post `Tasks filed: yes` only after every retarget succeeds. The planning
 hold (§4.2) keeps the planning issue open until then.
 
 A finding that the revised design resolves by itself (no task implements it,
@@ -144,8 +147,9 @@ the code.
 - **Child D** (#568, spec §4.11, agentic-review), which records at collection,
   before it knows whether a finding will be fixed:
   - at collection, record each `new` or `repair` security finding with plain
-    `create`. A `known` finding already has its record, so it is not recorded
-    again;
+    `create`. A `known` finding already has its record, made in an earlier
+    round of the same task, so it is not recorded again. Its record is split
+    when the finding is fixed, unless it was already split;
   - fixed on the branch: `vrg-intake-route <record> split --into <task>`,
     which retargets the advisory to the task and closes the record, so the
     advisory closes when the task does;
@@ -156,8 +160,10 @@ the code.
     `Security record moved to <record>` comment on the task, pointing from
     the shipped diff to the open record.
 - This epic posts these recipes on C's and D's planning issues
-  (vergil-project/.github#469, vergil-project/vergil-claude-plugin#677); their
-  own documentation tasks revise their specs.
+  (vergil-project/.github#469, vergil-project/vergil-claude-plugin#677), once
+  the docs PR is handed off and labelled as pending its merge, because C and
+  D are being planned at the same time. If review changes this section, the
+  recipes are posted again. Their own documentation tasks revise their specs.
 
 ### 4.5 Migration
 
