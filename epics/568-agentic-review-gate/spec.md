@@ -98,10 +98,13 @@ issue.
 - **What it showed for the design:**
   - a requirements file named in the prompt works as Spec Compliance's intent
     source;
-  - paad left `paad/code-reviews/` (report and `backlog.md`) untracked in the
-    worktree;
+  - paad wrote its report and `backlog.md` to `paad/code-reviews/` in the
+    worktree, its default. The design adapts to that default instead of
+    redirecting it (4.4);
   - the reviewer silently corrected paad's output (it recomputed the backlog
     IDs), so the prompt must forbid editing paad's output;
+  - the spike did not test the full prompt contract (4.5) or a plan-driven
+    task; the plan's first task does (4.19);
   - raw `git` is denied by the vergil hook in a managed repo. With the prompt
     naming `vrg-git`, the explicit base and a `cd <worktree> &&` prefix,
     nothing was denied;
@@ -116,57 +119,150 @@ issue.
   `vergil-claude-plugin/docs/paad-review-doctrine.md` with §1 (common core) and
   §2 (mode 1), and a stub §3 that this epic writes. §3 holds the mode 2 rules
   (section 2 above, as operating instructions) and every mechanism in this
-  section: the run directory, the reviewer prompt contract, the output checks,
+  section: where paad's output goes and how it is collected, the requirements
+  file, the reviewer prompt contract, the output checks,
   the comment protocol, loop control, security handling, intake filing and the
   handoff. §1's canonical severity table keeps one source; this epic confirms
-  the agentic-review column (4.6).
+  the agentic-review column (4.7).
 - **`issue-implement`** gains a section, "The agentic-review gate", between
   "Implement" and "Record the PR metadata and hand off". It keeps only the
   procedure and links to doctrine §3 for the rules, as C does for
   `epic-create`.
-- **`epic-implement`** and **`epic-retrospective`** change as 4.13 and 4.14
+- **`epic-implement`** and **`epic-retrospective`** change as 4.14 and 4.15
   describe.
 
-### 4.2 The gate in `issue-implement`
+### 4.2 Trusted authors
+
+The gate acts only on issue content written by a **trusted author**: the
+human's own GitHub account, or one of the human's agent App identities. Content
+from any other author is never input. This applies to everything the gate
+reads from an issue: the body and the "Requirement changes" comments that go
+into `requirements.md` (4.4), every `agentic-review` header comment it uses to
+rebuild state, and every decision comment (4.9).
+
+- **An explicit allowlist of logins,** not GitHub's author association. The
+  agents' own comments carry `authorAssociation: NONE`, so an association
+  check cannot recognise them. Logins are compared after removing the `app/`
+  prefix that GitHub puts on an App-authored issue (`app/<name>` as issue
+  author, `<name>` as comment author).
+- **Read with authors:** `vrg-gh issue view <N> --repo <owner>/<repo> --json
+  author,body,comments`, which gives each comment's `author.login`.
+- **Untrusted content is skipped and noted:** a comment from any other author
+  is ignored, even one that carries an `agentic-review` header, and the next
+  comment the gate posts lists it by URL as ignored. An issue whose body is
+  not from a trusted author pauses the run.
+- **Round, response, pause and summary comments** are trusted only from an
+  agent identity. **Decision comments** are trusted from the human's account,
+  or from an agent identity when the comment quotes the human's instruction
+  (4.9).
+- **Where the list lives:** the system-wide rule for every tool and skill that
+  reads issues is planned separately (vergil-project/.github#579), and will own
+  the canonical list. Until it ships, doctrine §3 names the trusted logins, and
+  the gate reads them from there.
+
+### 4.3 The gate in `issue-implement`
 
 The gate is entered when the implementation is committed and
 `vrg-container-run -- vrg-validate` is green. Its steps:
 
-1. **Resume check.** Read the task issue's comments
-   (`vrg-gh issue view <N> --repo <owner>/<repo> --comments`) and rebuild the
-   state from the fixed header lines (4.8): the last round number, whether it
-   ended in a pause, and any `agentic-review decision:` comment after the
-   pause. With no earlier rounds, start at round 1.
-2. **Round** (4.3 to 4.7), then the response comment.
-3. **Decide** (4.9): a new round, a pass, or a pause.
-4. **On a pass:** file the intake issues and the removal tasks (4.11, 4.7),
-   post the summary comment (4.8), confirm `vrg-validate` is green at the final
-   commit, and go to `report-ready` with the handoff notes (4.12).
+1. **Resume check.** Read the task issue's comments with their authors
+   (4.2) and rebuild the state from the fixed header lines of trusted
+   comments (4.9): the last round number, whether it ended in a pause, and any
+   `agentic-review decision:` comment after the pause. With no earlier rounds,
+   start at round 1.
+2. **Round** (4.4 to 4.8), then the response comment.
+3. **Decide** (4.10): a new round, a pass, or a pause.
+4. **On a pass,** including one reached by an `accept` decision: file the
+   intake issues (4.12), post the summary comment (4.9), confirm `vrg-validate` is green at the final
+   commit, and go to `report-ready` with the handoff notes (4.13).
 5. **On a pause:** post the pause comment and stop, reporting the reason. The
    branch is not reported ready, so it is not frozen.
+6. **On a `stop:` decision:** file the intake issues exactly as on a pass,
+   post the summary comment with outcome `stopped`, and end without
+   `report-ready`. Every end state files what was found, so nothing depends on
+   a pass (umbrella §2.4).
 
-### 4.3 The run directory and the requirements file
+**Entering the gate on a resumed run.** `issue-implement` gains a resume entry
+before its preflight step 5 (worktree creation): when the worktree for this
+task's branch already exists and the issue carries trusted `agentic-review`
+comments, it skips worktree creation and implementation and goes straight to
+the gate's resume check. Without this, preflight would try to create a
+worktree that already exists.
 
-Each round uses a **run directory outside the worktree**:
-`${XDG_CACHE_HOME:-$HOME/.cache}/vergil/agentic-review/<owner>-<repo>-<N>/round-<n>/`.
-It holds two files, both transient (the issue comments are the record):
+**A paused run is unfinished work, not a checkpoint.** The branch is not
+pushed at a pause: `issue-implement` pushes only at `report-ready`, which is the
+checkpoint. The commits a pause comment cites therefore exist only in that
+machine's worktree, and the human inspects them there or asks the agent to
+show them. The pause comment says so, and names the machine (the
+`vrg-whoami --platform` value) and the worktree path. The risk is accepted: a
+pause asks for the human's prompt attention, and paused work that is not
+resumed promptly is treated as abandoned. If the worktree is lost or goes
+stale, the human records `stop: <reason>` and the task is restarted from
+`develop`, not salvaged. Long-lived unfinished branches are a hygiene problem
+the workflow avoids.
 
-- `requirements.md`, written by the implementer before dispatch: the task
-  issue's title and body (`vrg-gh issue view <N> --json title,body`), plus,
-  quoted under a "Requirement changes" heading, any human comment on the issue
-  that changes what the task must do. It never contains `agentic-review`
-  comments, so the reviewer's fresh context holds.
-- `report.md`, written by the reviewer: paad's report, redirected here
-  (4.4).
+### 4.4 Where paad's output goes, and the requirements file
 
-This answers two §4.D problems. agentic-review's argument grammar accepts only
-a base and a path, so a spec file cannot be passed as an argument: the skill
-would read it as a path filter and find an empty diff. The prompt instead names
-the file and tells the orchestrator to give it to Spec Compliance as its
-explicit spec file, which the spike showed works. And the report never lands in
-the worktree.
+**Adapt to paad; do not redirect it.** paad's skills are prose a model
+follows, and the parts of them we would override are marked binding in paad's
+own text (for example, its report template calls a skipped backlog write "a
+review defect"). Instructions that contradict a skill are the least reliable
+part of any prompt. The caller is code we control, so the design lets paad do
+what it does by default and does the routing in the caller.
 
-### 4.4 The reviewer prompt contract
+- **paad writes where it always does,** relative to its working directory,
+  which is the task's own worktree: the report and `backlog.md` under
+  `paad/code-reviews/`, and security findings under `paad/security/`.
+- **Both directories are ignored.** `paad/code-reviews/` joins `paad/security/`
+  in the managed `.gitignore` block that `vrg-gitignore-sync` keeps in every
+  repo, so paad's files never show in `vrg-git status --porcelain`. The
+  worktree stays clean for the next round and for `vrg-finalize-pr`, and
+  nothing paad writes can be committed by accident.
+- **Every task's output stays in its own worktree.** Concurrent tasks in the
+  same repo each review in their own worktree, so they never share or
+  overwrite each other's paad files, and nothing is written to the main
+  checkout. The output checks (4.6) assert this every round.
+- **The implementer collects after each round** (4.6 first, then the rest):
+  it reads the report at the path paad lists under "Files written", posts the
+  findings comment from it, records each security finding through child A's
+  mechanism (4.11), and then **empties `paad/code-reviews/` and
+  `paad/security/`** in the worktree. The next round's reviewer therefore
+  starts with no paad backlog and no earlier report, so nothing from earlier
+  rounds reaches it through paad's files.
+
+**The requirements file.** Each round also uses a fresh **temporary
+directory** outside the worktree, created by the implementer with
+`mktemp -d`. The reviewer runs on the same machine, so it reads the same path,
+and the random name tells it nothing about which round it is in. The
+implementer deletes the directory once the round's comments are posted;
+anything a crashed run leaves behind is ordinary temp-directory litter that
+the OS cleans up. It holds one file:
+
+- `requirements.md`, written by the implementer before dispatch, with three
+  parts:
+  - the task issue's title and body (`vrg-gh issue view <N> --json
+    title,body`);
+  - when the issue belongs to a finite epic with a plan, the text of the plan
+    task the issue implements, verbatim, and the spec sections that task
+    cites, verbatim. Both are read from the epic home's `origin/develop`
+    (`epics/<N>-<slug>/plan.md` and `spec.md`). An epic task's body is often
+    only a pointer to its plan task, so without this Spec Compliance would
+    have almost no intent to check against;
+  - quoted under a "Requirement changes" heading, any comment from the
+    human's own account (4.2) that changes what the task must do.
+
+  It never contains `agentic-review` comments, so the reviewer's fresh context
+  holds.
+
+This answers the Spec Compliance problem in §4.D. agentic-review's argument
+grammar accepts only a base and a path, so a spec file cannot be passed as an
+argument: the skill would read it as a path filter and find an empty diff. The
+prompt instead names the file and tells the orchestrator to give it to Spec
+Compliance as its explicit spec file. That is Spec Compliance's own
+first-listed intent source, so this supplies an input paad expects rather
+than changing its behaviour, and the spike showed it works.
+
+### 4.5 The reviewer prompt contract
 
 The doctrine gives a prompt template. The implementer starts a fresh
 `general-purpose` subagent with it, in the background, and waits for it. Every
@@ -192,37 +288,40 @@ reviewer prompt must:
 - **Pass no information about earlier rounds:** no round number, no earlier
   findings, no decisions. Review the whole change against the base, including
   code that looks like recent fixes.
-- **Redirect paad's files.** Write the report to `<run-dir>/report.md` instead
-  of `paad/code-reviews/`. Do not read or write `paad/code-reviews/backlog.md`;
-  out-of-scope bugs are reported in the answer, and the backlog pre-filter is
-  given an empty slice. Security findings still go to `paad/security/` as paad
-  writes them (4.10).
-- **Forbid edits:** change no file in the repository, and never edit paad's
-  output after it is produced. A discrepancy the reviewer notices (as in the
-  spike) is reported as a note, not corrected.
+- **Leave paad's file handling alone.** The prompt says nothing about where
+  paad writes; paad writes its default paths in the worktree (4.4).
+- **Forbid edits:** change no file in the repository other than what paad
+  itself writes under `paad/`, and never edit paad's output after it is
+  produced. A discrepancy the reviewer notices (as in the spike) is reported
+  as a note, not corrected.
 - **Give the standing answers,** so the run never stops to ask:
   - *conversation history:* none exists (fresh subagent);
   - *uncommitted changes:* stop and return `precondition failed: uncommitted
     changes`. The implementer always commits first, so this is a bug, and the
-    round fails (4.5);
+    round fails (4.6);
   - *ref or path:* cannot arise with `origin/<base>`; if asked, it is the base;
   - *empty diff:* return paad's "No changes to review" answer; the round
-    fails (4.5);
-  - *security hold or ordinary report:* always **hold**;
+    fails (4.6);
+  - *security hold or ordinary report:* always **hold**. paad asks this only
+    when `paad/security/` is unsafe, and a hold means paad writes no security
+    file, so the round **fails** (4.6): the `Questions:` line says only
+    `security hold`, and the human fixes `paad/security/` before resuming;
   - *anything else:* do not ask; take the most conservative option, continue,
     and list the question and the choice in the answer.
 - **Give the return format:**
   1. first line `Running paad:agentic-review v<version>`;
   2. a `Config: <path>` line if a paad config file was followed;
-  3. the report from `<run-dir>/report.md`, verbatim;
-  4. paad's Post-Review counts line
-     (`Critical: N (in-scope) / X (out-of-scope), Important: …, Suggestion: …`);
-  5. `Files written:` one line per path;
-  6. `Questions:` each question met and the standing answer used, or `none`;
-  7. `Notes:` discrepancies noticed, or `none`;
-  8. `Security: <k> finding(s) in paad/security/<file>`, or `Security: 0`.
+  3. paad's Post-Review answer as paad produced it, including its
+     `Files written or updated:` list with **absolute** paths and its counts
+     line (`Critical: N (in-scope) / X (out-of-scope), Important: …,
+     Suggestion: …`). The full report is read from its file by the
+     implementer, not retyped by the reviewer;
+  4. `Files written:` every path written, absolute;
+  5. `Questions:` each question met and the standing answer used, or `none`;
+  6. `Notes:` discrepancies noticed, or `none`;
+  7. `Security: <k> finding(s) in paad/security/<file>`, or `Security: 0`.
 
-### 4.5 Output checks and failed rounds
+### 4.6 Output checks and failed rounds
 
 After every review the implementer checks structure, not prose:
 
@@ -238,17 +337,30 @@ After every review the implementer checks structure, not prose:
   Other lenses may bail with their own reason token; that is a lens doing its
   job, not a failure;
 - `Verifier warnings: none`;
-- `Files written:` names nothing inside the worktree except under
-  `paad/security/`, and `vrg-git status --porcelain` in the worktree is empty
-  (`paad/security/` is ignored, so it does not show).
+- **no security hold:** the `Questions:` line does not record a security hold;
+- **no security detail outside `paad/security/`:** the `Questions:` and
+  `Notes:` lines, which are copied into the public findings comment, carry no
+  security detail;
+- **the output is in this worktree:** every path under `Files written:`
+  resolves to a file under this task's worktree, inside `paad/code-reviews/` or
+  `paad/security/`, and the report file exists there;
+- **nothing escaped it:** the main checkout's `paad/code-reviews/` and
+  `paad/security/` are unchanged from before the round (the implementer lists
+  them before dispatch and compares), and no path outside the worktree was
+  written;
+- `vrg-git status --porcelain` in the worktree is empty. Both `paad/`
+  directories are ignored, so paad's files do not show; anything that does show
+  is a stray edit.
 
 A failed check is a **failed round**: it is recorded in the findings comment
-(4.8) and **pauses** the run (§3.3). It is never a pass, and the findings of a
+(4.9) and **pauses** the run (§3.3). It is never a pass, and the findings of a
 failed round are not acted on. Before pausing, the implementer restores the
 worktree to its committed state: it reverts any tracked file the reviewer
-changed and deletes any untracked file it created outside `paad/security/`.
+changed and deletes any untracked file it created. paad's files from a failed
+round are kept until the pause comment is posted, so the human can inspect
+them, and security details among them are handled under 4.11.
 
-### 4.6 Classification and severity
+### 4.7 Classification and severity
 
 **Severity.** agentic-review's scale is Critical, Important and Suggestion
 (umbrella §3.1). This epic confirms the starting agentic-review column of the
@@ -263,40 +375,47 @@ as given, as it takes severity.
 
 **Classification** (the implementer's job, after the round):
 
-- **known:** an earlier round on this task raised the same problem (same
-  location and claim), as recorded in its findings comments;
-- **repair:** the finding's anchor line is in a hunk changed by an earlier
-  round's fix commit, which the response comments name by SHA;
+- **known:** an earlier round on this task raised the same problem (the same
+  claim about the same code, matched by file, symbol and excerpt), as recorded
+  in its findings comments;
+- **repair:** the code the finding is anchored on is code an earlier round's
+  fix added or changed, matched by content against the `fixed:` lines of
+  earlier response comments (file, symbol and excerpt), not by SHA or line, so
+  the match survives a rebase;
 - **new:** anything else. Round 1 has only new findings.
 
 Where a finding is both known and repair, it is known. A known blocking finding
 is blocking again: an earlier fix did not hold.
 
-### 4.7 Acting on findings
+### 4.8 Acting on findings
 
 | Finding | Implementer's action |
 |---|---|
-| In-scope Critical or Important | Fix it. If the implementer believes it is wrong, it does not fix it and the run pauses (4.9). |
+| In-scope Critical or Important | Fix it. If the implementer believes it is wrong, it does not fix it and the run pauses (4.10). |
 | In-scope Suggestion | Fix it, or record why not. A deferred one goes to intake at handoff. |
-| Out-of-scope addition | Remove it from the branch; at handoff, file it as a task (below). |
-| Out-of-scope bug | Leave it; at handoff, file it in intake (4.11). |
+| Out-of-scope addition | Remove it from the branch and file it as a task (below). If the implementer judges the code is required by `requirements.md` and was misclassified, it keeps it instead, and records `kept: <quote from requirements.md>` in the response. |
+| Out-of-scope bug | Leave it; at handoff, file it in intake (4.12). |
 
 - **Fix commits** are ordinary `vrg-commit` commits whose messages describe the
   change, never the review: no round number, finding ID or "per review". Commit
   messages are one of Spec Compliance's intent sources, so a message naming the
   review would carry earlier rounds into the next reviewer's context. The
-  response comment maps each finding to its commit SHA.
+  response comment maps each finding to its fix by content (4.9), except
+  security findings, whose fixes are never mapped in public (4.11).
 - **Validation** follows `issue-implement`'s normal discipline; there is no
   review-specific rule. Each round starts from a committed state, and the
   branch must be green at its final commit before `report-ready`.
-- **Removal tasks:** `vrg-issue-create --epic <the task's epic, or adhoc>
-  --repo <owner>/<repo> --title … --body-file …`. The body describes the removed
-  code (enough to rebuild it), and names the task and the round finding it came
-  from. Removal never pauses the run.
+- **Removal tasks** are filed **at removal**, not at handoff, so removed code
+  is never lost when a run ends early: `vrg-issue-create --epic <the task's
+  epic, or adhoc> --repo <owner>/<repo> --blocked-by <task ref> --title …
+  --body-file …`. `--blocked-by` keeps `epic-implement` from starting it
+  before the code it builds on has merged. The body describes the removed
+  code (enough to rebuild it), and names the task and the round finding it
+  came from. Removal never pauses the run.
 - **Anything else noticed** along the way (a problem the review did not raise)
   is filed in intake at handoff, like an out-of-scope bug (umbrella §2.4).
 
-### 4.8 The issue-comment protocol
+### 4.9 The issue-comment protocol
 
 All comments go on the task issue, posted with `vrg-gh issue comment <N>
 --repo <owner>/<repo> --body-file <tmp>`. Each opens with a fixed header line,
@@ -305,14 +424,23 @@ which is how a resumed run rebuilds its state:
 | Header line | Posted | Contents |
 |---|---|---|
 | `agentic-review round <n>: findings` | after each review | the reviewed base and head SHAs; the paad version; the check result (`checks: passed`, or `checks: failed (<which>)`); counts by paad severity, mapped severity, bucket and classification; one entry per finding; discards; security count; the `Questions:` and `Notes:` lines |
-| `agentic-review round <n>: response` | after acting | one line per finding: `fixed <sha>`, `not fixed: <reason>`, `removed` or `deferred` (filed at handoff), or `dismissal requested: <reason>`; then the decision: `next: round <n+1>`, `next: pass` or `next: pause` |
+| `agentic-review round <n>: response` | after acting | one line per finding: `fixed: <file> :: <symbol>: <what changed, with a short excerpt of the new code> (commit <sha> at the time)`, `not fixed: <reason>`, `removed -> <task ref>`, `kept: <requirement quote>`, `deferred` (filed at handoff), or `dismissal requested: <reason>`; then the decision: `next: round <n+1>`, `next: pass` or `next: pause` |
 | `agentic-review paused: <reason>` | on a pause | the reason, the decision needed from the human, and how to resume |
 | `agentic-review decision: <decision>` | after a pause | the human's ruling (below) |
 | `agentic-review summary: <outcome> after <n> round(s)` | before `report-ready` | the handoff record and mapping block (below) |
 
+**References are by content, never by SHA or line alone.** `vrg-submit-pr`
+rebases every branch onto its base at submit, and a mid-gate rebase is allowed
+when a conflict forces one, so commit SHAs and line numbers change. Every
+record therefore identifies code by its **file and symbol plus a short excerpt
+of the code itself**, and any SHA or line number it carries is marked as "at
+the time" and is informational only. Matching (classification in 4.7, the
+retrospective sweep in 4.15) uses the content, never the SHA.
+
 **Finding entries.** Each finding has an ID `R<n>.<i>` (round, then index),
-its paad and mapped severity, bucket, classification, `file:line`, the claim,
-and paad's suggested fix. The full report follows in a collapsed `<details>`
+its paad and mapped severity, bucket, classification, its location (file,
+symbol, and the anchored code excerpt, with paad's `file:line` at the time),
+the claim, and paad's suggested fix. The full report follows in a collapsed `<details>`
 block. A comment over GitHub's 65,536-character limit is split into parts, each
 first line followed by `(part <i>/<m>)`, as in C.
 
@@ -320,8 +448,20 @@ first line followed by `(part <i>/<m>)`, as in C.
 The decision is recorded as an `agentic-review decision:` comment, posted by
 the human or, on the human's explicit instruction, by the agent, which states
 that it is posting the human's decision. An agent never posts a decision on
-its own judgment. The forms are:
+its own judgment.
 
+**The human has the final say.** The agents follow deterministic rules, and
+wherever the rules leave a judgment call, the run pauses and the human makes
+it. A decision is never second-guessed: the agent records it, with the human's
+reason, and acts on it. The human may disagree with the review, or agree with
+it and accept the work anyway, or accept it and have the finding filed for
+later; each is a legitimate ruling. The forms are:
+
+- `accept: <reason>`: the run passes as it stands. Any finding still open is
+  recorded as accepted by the human with that reason, and the last round's
+  fixes are listed as `unreviewed:`;
+- `accept, file R<n>.<i>: <reason>`: the same, and the named findings are
+  filed in intake at handoff, mapped as `unaddressed:` with the reason;
 - `allow <k> more round(s)`;
 - `R<n>.<i> dismissed: <reason>` (the finding stops blocking; it is recorded as
   dismissed and filed in intake at handoff, per §3.3);
@@ -337,25 +477,31 @@ them mechanically:
 unaddressed: R1.3 -> vergil-project/.github#600 (suggestion, deferred)
 unaddressed: R2.1 -> vergil-project/.github#601 (out-of-scope bug)
 unaddressed: R2.4 -> vergil-project/.github#602 (dismissed by decision)
+accepted: R3.2 (accepted by the human: "<reason>")
 noticed: vergil-project/.github#603 (found while implementing)
 removed: R1.5 -> vergil-project/vergil-tooling#3800
-unreviewed: 1a2b3c4 <commit subject>
-security: 2 recorded
+kept: R1.6 (required by: "<requirement quote>")
+unreviewed: <commit subject> (files: <paths>; 1a2b3c4 at the time)
+security: S1.2 -> fixed
+security: S2.1 -> recorded
 ```
 
-A finding matched to an existing issue (4.11) maps to that issue.
+A finding matched to an existing issue (4.12) maps to that issue.
 
-### 4.9 Loop control
+### 4.10 Loop control
 
 - **New round** when the round's checks passed, it had a blocking finding,
   and every blocking finding was fixed.
 - **Pass** when the checks passed and there was no blocking finding (after any
   decision comment is applied).
 - **Pause** when:
-  - the checks failed (4.5);
+  - the checks failed (4.6);
   - the round was the last allowed one (3, plus any rounds a decision allowed)
     and it had any blocking finding, fixed or not;
   - the implementer requests dismissal of a blocking finding;
+  - a fresh reviewer flags again, as an out-of-scope addition, code the
+    implementer kept as required in an earlier round (`kept:`). The second
+    flag is the signal that the call needs the human;
   - from round 2 on, more than half of the round's findings are repairs.
 
   Pause conditions are checked after the response, so a pause comment always
@@ -363,36 +509,65 @@ A finding matched to an existing issue (4.11) maps to that issue.
 - **Resume.** The run reads the comments, applies the decision comment, and
   continues: `allow <k> more round(s)` raises the cap and starts round
   `<n+1>`; a dismissal or a "must be fixed" ruling is applied to the open
-  finding and the decision in 4.9 is re-taken for that round. A pause with no
+  finding and the decision in 4.10 is re-taken for that round. A pause with no
   decision comment does not resume; the run reports that it is still waiting.
+- **A half-finished round.** A round with a findings comment and no response
+  comment (the run crashed or lost its context mid-fix) is rerun as a fresh
+  review of the branch as it stands. The new findings comment keeps the same
+  round number with `(rerun)` added to its header, and the earlier findings
+  comment of that round is not acted on.
 - **Commits after the last round** (§4.D). Suggestion fixes and removals in the
   passing round produce commits the reviewer never saw. They do not trigger
   another round, since a Suggestion never causes a round on its own. Each is
   listed as `unreviewed:` in the summary and in the handoff, and the final
   commit must pass `vrg-validate`.
 
-### 4.10 Security findings
+### 4.11 Security findings
 
 - The reviewer **holds** every security finding, so paad writes it under
   `paad/security/` in the worktree (ignored by paad's own `.gitignore` and by
-  the managed `.gitignore`). It persists across rounds on that machine, which
-  keeps paad's own security de-duplication working within the task.
-- The implementer reads those files and handles each security finding under
-  the same rules as any other: blocking or not, fixed or not, in scope or not.
-- **Records,** through child A's mechanism:
-  - fixed on the branch: `vrg-security-record create --repo <owner>/<repo>
-    --issue <task ref> --severity <mapped> …`, attaching the advisory to the
-    task, so the advisory closes when the task does;
-  - not fixed (deferred, dismissed or out of scope):
-    `vrg-security-record create` with no `--issue`, which creates its own
-    neutral intake issue.
-- **Public records show counts only.** Findings and response comments, the
-  summary (`security: <k> recorded`), the pause comment and the `report-ready`
-  notes give counts and never a description, file, symbol or GHSA ID. A
-  security finding that blocks is described in a pause comment only as
-  "a security finding blocks; see the advisory attached to this task".
+  the managed `.gitignore`).
+- The implementer handles each security finding under the same rules as any
+  other: blocking or not, fixed or not, in scope or not.
+- **Recorded when the round is collected,** not at handoff, because the
+  implementer empties `paad/security/` before the next round (4.4) and a
+  worktree's ignored files do not survive finalize or a move to another
+  machine.
+- **Through the one-to-many records model of child A′**
+  (vergil-project/.github#573), which this part of the design depends on:
+  - at collection, every new security finding gets its **own** record: a
+    private advisory and a dedicated neutral record issue that names the task
+    as the work that found it (`Found in: <task ref>`). One task can produce
+    several, which A′'s model holds;
+  - a finding that repeats one already recorded for this task (matched by the
+    implementer against the task's records, since paad's security backlog is
+    emptied each round) is not recorded twice;
+  - **fixed on the branch:** the advisory is handed to the task under A′'s
+    attach rule ("this issue's own work fixes it"), so it closes when the task
+    does;
+  - **not fixed** (deferred, dismissed or out of scope): the record stays
+    with its own record issue, so the problem stays open after the task
+    closes.
+- **Public records carry no security detail,** only neutral IDs and counts:
+  - security findings get IDs `S<n>.<i>` (round, index) that carry no detail.
+    In findings and response comments each appears only as its ID and
+    `security: see advisory`; the response gives counts
+    (`security: <k> fixed, <m> recorded`);
+  - a commit that fixes a security finding gets a neutral message that says
+    nothing about the weakness, and its SHA is never mapped to the finding in
+    any public place; the advisory's private details record the fix by
+    content (file, symbol and excerpt), with the SHA at the time;
+  - the summary's mapping block carries one line per security finding with no
+    detail (`security: S1.2 -> recorded` or `security: S1.2 -> fixed`), which
+    the retrospective sweep checks against `vrg-security-record list` (IDs and
+    states only, 4.15);
+  - the counts-only rule covers task-issue comments, commit messages, the PR
+    title and body, the pause comment and the `report-ready` notes. No public
+    record carries a description, file, symbol or GHSA ID. A blocking security
+    finding appears in a pause comment only as "a security finding blocks; see
+    its advisory".
 
-### 4.11 Intake filing and de-duplication
+### 4.12 Intake filing and de-duplication
 
 paad's committed code-review backlog is **retired in mode 2** and replaced by
 intake, the system of record for follow-on work (umbrella §2.4). This is the
@@ -414,28 +589,32 @@ de-duplication choice §3.3 asks for, and goes in the deviations register.
 - Filing too much is preferred (§3.3): when unsure whether two are the same,
   file a new one and name the possible duplicate.
 
-### 4.12 The handoff
+### 4.13 The handoff
 
 The `report-ready --notes` gain an `agentic-review` section: the outcome and
 round count; every finding not fixed, with its reason and intake ref; every
-removal with its task; the unreviewed commits; the security count; and the
-paad version (with a drift note, 4.15). The same text is the summary shown to
+removal with its task; every flagged addition kept as required, with the
+requirement it rests on; the unreviewed commits; the security count; and the
+paad version (with a drift note, 4.16). The same text is the summary shown to
 the human, or returned to `epic-implement`. The notes are public through the
 relay ref, which is why security appears only as a count.
 
-### 4.13 `epic-implement`
+### 4.14 `epic-implement`
 
 - **Step 4 (the gate):** tasks paused at the agentic-review gate are listed
   among the items waiting on the human, each with its pause reason and the
   decision needed.
+- **Step 2 (runnable frontier):** a task whose latest trusted gate comment is
+  an `agentic-review paused:` comment with no later decision comment is
+  **waiting on the human**, not runnable, so re-entry does not re-dispatch it.
 - **Re-entry:** a paused task is not frozen and not finished. Once the human
-  has decided, the decision comment is posted (4.8), and the task is run
+  has decided, the decision comment is posted (4.9), and the task is run
   through `issue-implement` again, which resumes from its comments.
 - **No other change.** `epic-implement` keeps no state of its own; the task
   issue holds it. Parallelism is unchanged; each running task now runs its own
   reviews.
 
-### 4.14 The retrospective sweep
+### 4.15 The retrospective sweep
 
 `epic-retrospective` gains a step after its preflight and before drafting:
 **the unaddressed-findings sweep**.
@@ -462,22 +641,26 @@ relay ref, which is why security appears only as a count.
 Tasks implemented before this epic's plugin release have no agentic-review
 comments; the sweep checks only steps 2–4 for them and says so.
 
-### 4.15 paad version drift and the config fallback
+### 4.16 paad version drift and the config fallback
 
 - **Drift.** Doctrine §3 names the paad version the prompt contract was last
   verified against. Each findings comment records the version the reviewer
-  announced. A difference is **not** a pause: the structural checks (4.5) catch
+  announced. A difference is **not** a pause: the structural checks (4.6) catch
   real breakage. It is noted in the handoff (`paad <x> ran; contract verified
   on <y>`) so drift is visible, and a re-verification task is filed in intake
   the first time a new version is seen.
-- **Config fallback.** The spike showed that prompting alone keeps the run
-  unattended, so `paad/config/agentic-review.md` is **not adopted**. If prompting
-  proves unreliable in use, note that paad reads config relative to the working
-  directory, which is the member repo's worktree: the file would have to exist
-  in every managed repo, distributed by vergil-tooling's managed-file sync, and
-  name its paad version (paad-policy §1, §4). That is a later decision.
+- **No config file.** `paad/config/agentic-review.md` is **not adopted**.
+  paad reads config only relative to the working directory, so there is no
+  global location: the file would have to exist in every managed repo,
+  distributed by vergil-tooling's managed-file sync. And it is prose the skill
+  follows, the same kind of instruction as the reviewer prompt, so it would
+  not be more reliable. The design instead avoids overriding paad at all
+  (4.4): the prompt supplies only environment facts, the requirements file and
+  standing answers. If the re-spike (4.19) shows that one of those still needs
+  a persistent home, adopting a managed config file is the next step, with its
+  paad version named (paad-policy §1, §4).
 
-### 4.16 `vrg-git` additions
+### 4.17 `vrg-git` additions
 
 vergil-tooling#3722 adds the read form of `symbolic-ref` and the global `-C`
 option to `vrg-git`, and checks every other read-only command agentic-review
@@ -486,30 +669,43 @@ every command that changes things stays controlled. The gate does **not**
 depend on it: the prompt's `cd` prefix and explicit base work today. Once it
 ships, the prompt template drops the "no `-C`, no `symbolic-ref`" sentence.
 
-### 4.17 Deviations register additions
+### 4.18 Deviations register additions
 
-Add rows to `vergil-claude-plugin/docs/paad-policy.md` §7:
+Replace the existing register row "agentic-review results are not left as
+report files in the worktree; D routes them through the subagent's answer into
+task-issue comments" with the first row below, and add the rest to
+`vergil-claude-plugin/docs/paad-policy.md` §7. Update paad-policy §2 ("Report
+files") to match the first row.
 
 | Deviation from paad | Reason |
 |---|---|
-| paad's committed code-review backlog is not used in mode 2; out-of-scope bugs go to intake and are de-duplicated against open issues by a `Finding:` line | Intake is the system of record for follow-on work (umbrella §2.4). Two backlogs would drift, and a backlog file in the worktree breaks the clean-state check. |
+| agentic-review writes its report and backlog where it always does, but `paad/code-reviews/` is ignored (managed `.gitignore`) rather than committed, and the implementer collects the files into task-issue comments and empties the directory after each round | The task issue is the record of each round (umbrella §3.3). Ignoring the directory keeps the worktree clean for the next round and for finalize without changing paad's behaviour; emptying it keeps earlier rounds out of the next reviewer's context. |
+| paad's code-review backlog does not persist in mode 2; out-of-scope bugs go to intake and are de-duplicated against open issues by a `Finding:` line | Intake is the system of record for follow-on work (umbrella §2.4). A second backlog would drift from it. |
 | Out-of-scope additions are removed and filed as their own task by the implementer, not left to a per-PR keep/split/revert decision by the user | An agent implements only its issue (umbrella §3.3). The removal is reversible: the task holds enough to rebuild it. |
 | Out-of-scope bugs are filed in intake by the implementer, not presented to the user batched by tier | The run is unattended; intake is where the human triages them. |
 | Commits after the final round (Suggestion fixes, removals) are not re-reviewed; they are listed as unreviewed in the handoff | A Suggestion never causes a round on its own (umbrella §3.3). Listing them keeps the handoff honest. |
 | The Spec Compliance intent source is a requirements file named in the reviewer prompt, not a spec-file argument | The skill's argument grammar takes only a base and a path; a file argument is read as a path filter. Raise with the paad authors. |
 
-### 4.18 Validation
+### 4.19 Validation
 
-- **Spike:** done at planning time (section 3).
+- **Feasibility spike:** done at planning time (section 3).
+- **Re-spike, first:** a `validation` task runs the full gate procedure by
+  hand, with the exact prompt template from doctrine §3, on a real
+  **plan-driven** task branch, twice. Success: both runs pass every output
+  check (4.6), Spec Compliance names the requirements file (including the plan
+  task text) as its intent source, paad's files land only in that worktree's
+  ignored `paad/` directories, and collecting and emptying them leaves the
+  worktree clean. It runs before the skill change ships. A failure goes back to
+  the human before the skill rewrite continues.
 - **Dogfood, last:** once the plugin release containing the gate is installed
   (a human-gated release, then a deployment task), run `issue-implement` on a
   real task, ideally one that needs a fix round, and check: the comments follow
-  4.8; the checks ran; intake issues and removal tasks were filed and mapped;
+  4.9; the checks ran; intake issues and removal tasks were filed and mapped;
   the handoff lists everything not fixed; the worktree is clean at finalize.
   Pause and resume are checked if the run pauses; otherwise the validation
   records that they were not exercised.
 - **The sweep** is exercised by this epic's own retrospective only for its
-  pre-release tasks (4.14); its first full run is on the next epic implemented
+  pre-release tasks (4.15); its first full run is on the next epic implemented
   after the release, which the dogfood task names.
 
 ## 5. Goals, non-goals, anti-goals
@@ -542,7 +738,7 @@ treats the gate as optional.
 | Repo | Deliverable |
 |---|---|
 | `vergil-claude-plugin` | doctrine §3 (in C's `docs/paad-review-doctrine.md`); the `issue-implement` gate; the `epic-implement` and `epic-retrospective` changes; `docs/paad-policy.md` register rows; the skills index page |
-| `vergil-tooling` | the `vrg-git` additions (#3722); `docs/site/docs/standards/github-issues.md` (via the documentation review) |
+| `vergil-tooling` | `paad/code-reviews/` in the managed `.gitignore` block, and a fleet sync; the `vrg-git` additions (#3722); `docs/site/docs/standards/github-issues.md` (via the documentation review) |
 | `docs` | `management/workflow.md` and `management/tools-and-skills.md` (via the documentation review) |
 | `vergil-project/.github` | this spec and plan |
 
@@ -555,6 +751,9 @@ treats the gate as optional.
   (umbrella §7).
 - The doctrine §3 work depends on child C creating
   `docs/paad-review-doctrine.md`.
+- The security handling (4.11) depends on child A′
+  (vergil-project/.github#573): today's tooling reads only one advisory per
+  issue.
 - Cost: about 6.5 minutes and 7 subagents per round on a 250-line diff (spike);
   up to three rounds per task before a pause.
 - paad is unpinned and its output format can change in any release; the
