@@ -10,7 +10,7 @@ rules say so; `epic-retrospective` sweeps for untracked problems.
 **Architecture:** almost all of the change is skill and doctrine text in
 vergil-claude-plugin; the loop is carried out by the implementing agent
 following that text. vergil-tooling gains one managed `.gitignore` line and
-the `vrg-git` read-only additions. A re-spike validates the exact reviewer
+the `vrg-git` read-only `symbolic-ref`. A re-spike validates the exact reviewer
 prompt first; a deployment and a dogfood run close the epic out.
 
 **Tech Stack:** Markdown skills and docs (vergil-claude-plugin); Python 3.12+
@@ -43,7 +43,7 @@ the repo named in its heading**, with paths relative to that repo's root.
 - **External prerequisites:**
   - child C's `docs/paad-review-doctrine.md` (epic vergil-project/.github#553)
     exists before Task 5 starts;
-  - child A′ (vergil-project/.github#573) has shipped before Task 9.
+  - child A′ (vergil-project/.github#573) has shipped before Task 6 merges.
 - **Tooling:** validation `vrg-container-run -- vrg-validate`; commits
   `vrg-commit`; handoff `vrg-pr-workflow report-ready`. Releases are
   human-gated; the agent never cuts one.
@@ -52,8 +52,9 @@ the repo named in its heading**, with paths relative to that repo's root.
 
 **Order:** Tasks 2, 3 and 4 have no dependencies within the epic and run in
 parallel. Task 1 needs Tasks 2 and 3, released and installed. Task 5 needs
-Tasks 1 and 4 and child C's doctrine document. Tasks 6 and 7 need Task 5.
-Task 8 needs Tasks 2, 3 and 4. Task 9 needs Tasks 6, 7 and 8 and child A′.
+Tasks 1 and 4 and child C's doctrine document. Task 7 needs Task 5. Task 8
+needs Tasks 2, 3 and 4. Task 6 needs Tasks 5 and 8 and child A′. Task 9
+needs Tasks 6, 7 and 8.
 Task 10 needs Task 9. Then the bookends: the documentation review
 (vergil-project/vergil-tooling#3721), then the retrospective
 (vergil-project/.github#570).
@@ -100,12 +101,14 @@ local `.git/info/exclude` (untracked, local only) before the first run. This
 has the same effect as the managed line will have.
 
 **Targets:** two merged, plan-driven tasks, each in a detached throwaway
-worktree at the merge commit, base = the commit's first parent (full SHA):
+worktree at the squash commit, base = the commit's first parent (full SHA).
+Before writing `requirements.md`, confirm each referenced issue is the cited
+epic #517 plan task:
 
-- vergil-claude-plugin `624f6ad` (#740, closes plugin#732 = epic #517 plan
-  Task 7);
-- vergil-tooling `22c3c03dda` (#3697, closes tooling#3681 = epic #517 plan
-  Task 6). vergil-tooling has no local `main`, so this run also exercises
+- vergil-claude-plugin `624f6ad` (squash commit of #740, "Ref #732" =
+  epic #517 plan Task 7);
+- vergil-tooling `22c3c03dda` (squash commit of #3697, "Ref #3681" =
+  epic #517 plan Task 6). vergil-tooling has no local `main`, so this run also exercises
   Review Focus 3.
 
 **Procedure** (for each target, twice):
@@ -162,41 +165,32 @@ No blockers.
 - [ ] **Step 2: Run `vrg-container-run -- vrg-validate`.** Expected: both new
   tests FAIL.
 - [ ] **Step 3: Make the data-file edit,** then resync this repo's own fence
-  with `vrg-gitignore-sync`.
+  with `vrg-gitignore-sync --write` (its default only checks).
 - [ ] **Step 4: Run `vrg-container-run -- vrg-validate`.** Expected: PASS.
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope gitignore`) and
   run report-ready.
 
 ---
 
-### Task 3: `vrg-git` read-only additions (vergil-tooling, implementation)
+### Task 3: `vrg-git` read-only `symbolic-ref` (vergil-tooling, implementation)
 
 Existing issue vergil-project/vergil-tooling#3722; its body is the scope. No
-blockers.
+blockers. The global `-C` option is not part of this epic: it was split out
+to vergil-project/vergil-tooling#3737, because the gate does not use it.
 
 **Interfaces:**
 
-- Produces: `vrg-git symbolic-ref refs/remotes/origin/HEAD` (read form) and
-  `vrg-git -C <path> <subcommand> …`, with every existing policy check
-  applied to the repo `-C` names.
+- Produces: `vrg-git symbolic-ref refs/remotes/origin/HEAD` (read form).
 
 - [ ] **Step 1: Write the failing tests** in the `vrg-git` test module:
   - `test_symbolic_ref_read_is_allowed`, parametrized over no flag, `-q`,
     `--quiet` and `--short`;
   - `test_symbolic_ref_write_and_delete_are_refused` (`symbolic-ref <name>
-    <ref>`, `-d`, `--delete`, `-m`);
-  - `test_dash_c_runs_in_named_repo`;
-  - `test_dash_c_applies_policy_to_named_repo`, parametrized over every
-    policy check `vrg-git --help` lists (the main-worktree branch switch,
-    `worktree add` outside `.worktrees/`, the issue-branch/directory
-    lockstep, protected-branch force, the freeze, and the flag deny-list):
-    each gives the same answer under `-C` as under `cd`.
+    <ref>`, `-d`, `--delete`, `-m`).
 - [ ] **Step 2: Run `vrg-container-run -- vrg-validate`.** Expected: FAIL.
-- [ ] **Step 3: Implement:** parse a leading `-C <path>` before subcommand
-  dispatch and resolve the policy context from that path; allow
-  `symbolic-ref` only with one positional argument, no `-d`/`--delete`/`-m`,
-  and optionally `-q`/`--quiet`/`--short`. Update
-  the `--help` text.
+- [ ] **Step 3: Implement:** allow `symbolic-ref` only with one positional
+  argument, no `-d`/`--delete`/`-m`, and optionally `-q`/`--quiet`/`--short`.
+  Update the `--help` text.
 - [ ] **Step 4:** check every other read-only command that agentic-review's
   `SKILL.md` and `references/*.md` (paad 2.0.2) name against the allowlist,
   and add any missing read-only one with a test.
@@ -235,7 +229,8 @@ No blockers.
   - `@dataclass(frozen=True) class TrustedAuthors: human: tuple[str, ...];
     agents: tuple[str, ...]`;
   - `parse_trusted_authors(raw: Mapping[str, object]) -> TrustedAuthors`:
-    raises `ValueError` naming the problem when `human` is missing or empty,
+    raises `ValueError` naming the problem when `human` or `agents` is
+    missing or empty (agent identities open most task issues),
     when any entry is not a non-empty string, when an entry has the
     `app/` prefix (the stored form is the bare login, spec 4.4), or when a
     login is in both lists;
@@ -252,6 +247,7 @@ No blockers.
   as `example-human` and `example-agent`):
   - `test_parse_trusted_authors_reads_both_lists`;
   - `test_parse_trusted_authors_requires_a_human`;
+  - `test_parse_trusted_authors_requires_an_agent`;
   - `test_parse_trusted_authors_rejects_login_in_both_lists`;
   - `test_parse_trusted_authors_rejects_app_prefixed_login`
     (`app/example-agent`);
@@ -275,7 +271,7 @@ No blockers.
 
 ### Task 5: Doctrine §3 and the paad policy (vergil-claude-plugin, implementation)
 
-Blocked by Task 1. Also needs child C's `docs/paad-review-doctrine.md` on
+Blocked by Tasks 1 and 4. Also needs child C's `docs/paad-review-doctrine.md` on
 `develop` (a text dependency: C's tasks are not filed yet; link the C task
 with `Blocked-by:` once it exists).
 
@@ -294,7 +290,9 @@ with `Blocked-by:` once it exists).
     trusted logins by running `vrg-trusted-authors` (Task 4), and to stop
     and report if the command fails. It names no login. It names the field
     compared, `author.login` from `vrg-gh issue view <n> --json
-    author,comments`, and says to strip a leading `app/` before comparing;
+    author,comments`, and says to strip a leading `app/` before comparing.
+    An issue opened by anyone else pauses the run before round 1, with that
+    reason;
   - §3.4 Output checks: spec 4.5, including the absolute-path and
     main-checkout checks and the pause message for a repo with no managed
     `.gitignore` block;
@@ -321,7 +319,12 @@ with `Blocked-by:` once it exists).
 
 ### Task 6: The gate in `issue-implement`, and `epic-implement` (vergil-claude-plugin, implementation)
 
-Blocked by Task 5.
+Blocked by Tasks 5 and 8, and by child A′ (vergil-project/.github#573)
+having shipped. The gate reaches every agent VM with the first plugin release
+after this task merges, so it must not merge before its prerequisites are
+deployed (spec 4.11): without A′, emptying `paad/security/` would delete
+unrecorded security findings. Link A′'s deployment or closing task with
+`Blocked-by:`.
 
 **Files:**
 
@@ -330,7 +333,7 @@ Blocked by Task 5.
 - Modify: `docs/site/docs/skills/index.md`, the `issue-implement` entry.
 
 - [ ] **`issue-implement`:** add the section "The agentic-review gate"
-  between "Implement" and "Record the PR metadata and hand off". It states the
+  immediately before "Record the PR metadata and hand off". It states the
   steps of spec 4.2 in order and links doctrine §3 for the detail. It must
   say:
   - the gate always runs, after `vrg-validate` is green and all work is
@@ -396,7 +399,8 @@ release and install in one step there.
 - [ ] In the agent VM, confirm `vrg-git symbolic-ref
   refs/remotes/origin/HEAD` works, `vrg-trusted-authors` prints the
   configured human and agent logins, and `paad/code-reviews/` is in the
-  managed base (`vrg-gitignore-sync --check` in a clone).
+  managed base (`vrg-gitignore-sync --check` passes in a clone whose fence
+  already has the line, and that fence contains `paad/code-reviews/`).
 - [ ] Fleet sync, as epic #500 plan Task 2 did for `paad/security/`, over the
   repos of the vergil-project, logical-minds-foundry and mnemosys-project
   orgs (spec 4.11): `vrg-fleet-sync --target gitignore --dry-run --repos
@@ -408,10 +412,11 @@ release and install in one step there.
 - [ ] In those orgs, list the clones that have a `vergil.toml` but no
   managed block, and file an intake issue for each (the gate pauses every
   round there, spec 4.5).
-- [ ] Repos in other orgs are not synced. Where one has a managed block but
-  the sync cannot be deployed there, file an issue in that repo's ad-hoc
-  queue (`vrg-issue-create --epic adhoc --repo <owner>/<repo>`) saying what
-  blocks it, so the repo's modernization picks it up.
+- [ ] Repos in other orgs are out of scope and not synced. For each clone
+  there with a managed block, file one issue in that repo's ad-hoc queue
+  (`vrg-issue-create --epic adhoc --repo <owner>/<repo>`) saying that
+  `paad/code-reviews/` must join its managed `.gitignore` block, so the
+  repo's modernization picks it up.
 - [ ] Record `Outcome: SUCCESS` with the released version, the list of
   synced repos and the issues filed, once every sync PR has merged.
 
@@ -421,7 +426,6 @@ release and install in one step there.
 
 Blocked by Tasks 6, 7 and 8. **Preconditions (human-attested):**
 
-- child A′ (vergil-project/.github#573) has shipped;
 - a vergil-claude-plugin release containing Tasks 5–7 is published;
 - the human has run `vrg-vm update --all` on the host since that release.
 
@@ -451,7 +455,8 @@ Blocked by Task 9.
   record; the worktree is clean at finalize.
 - [ ] If the run paused, check that re-dispatching it without a ruling
   reports the pause and stops (Review Focus 5); otherwise record that pauses
-  were not exercised.
+  were not exercised. Likewise, if no round produced a security finding,
+  record that security findings were not exercised (Review Focus 4).
 - [ ] Record in the outcome what the loop actually did: rounds, findings by
   severity and bucket, time, and anything that surprised. This is the first
   data for tuning (spec section 5).

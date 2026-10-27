@@ -114,7 +114,9 @@ green. Each round:
 
 1. **Write the requirements file** (4.4) into a fresh `mktemp -d` directory
    outside the worktree.
-2. **Dispatch** a fresh reviewer subagent with the prompt in 4.3, and wait.
+2. **Dispatch.** List the main checkout's `paad/` (for the check in 4.5),
+   then dispatch a fresh `general-purpose` reviewer subagent with the prompt
+   in 4.3, and wait.
 3. **Check the output** (4.5). A failed check pauses the run.
 4. **Collect.** Read paad's report from the worktree, post the findings
    comment (4.6), record any security findings (4.7), then empty the worktree's
@@ -155,7 +157,8 @@ never told about earlier rounds.
 
 ### 4.3 The reviewer prompt
 
-The doctrine holds the template. It tells the reviewer to:
+The doctrine holds the template. It tells the reviewer that it starts with a
+fresh context, so paad's context-window pre-flight does not apply, and to:
 
 - invoke `paad:agentic-review` with one argument, `origin/<base>`, after the
   implementer has run `vrg-git fetch origin`;
@@ -194,8 +197,11 @@ marks much of that behaviour as binding.
 
 Comments posted by agent identities, including every gate record (4.6), are
 **never** requirements input, and neither is anything from any other author.
-The issue body is used when it was written by the human or by one of the
-human's agent identities. Logins are matched exactly, after one
+The issue's title and body are used only when the issue was opened by the
+human or by one of the human's agent identities. Otherwise the run pauses
+before round 1, saying the issue's author is not trusted, and the human
+decides (4.9). Who last edited the body is the system-wide question of
+vergil-project/.github#579, not settled here. Logins are matched exactly, after one
 normalization: GitHub reports an issue opened by a GitHub App as
 `app/<login>` but that App's comments as the bare `<login>`, so the stored
 form is the bare login and a leading `app/` is stripped before comparing.
@@ -241,8 +247,9 @@ takes instructions from them.
 - **`agentic-review round <n>: response`:** what the implementer did with each
   finding (fixed, not fixed and why, removed and the task it became), and what
   happens next.
-- **`agentic-review summary: <outcome> after <n> round(s)`:** before
-  `report-ready`, or when a run ends without a pass. It lists every finding not
+- **`agentic-review summary: <outcome> after <n> round(s)`:** posted once, at
+  the final outcome: before `report-ready` on a pass or an accepted branch, or
+  when the branch is dropped or abandoned. A pause posts no summary. It lists every finding not
   fixed, each with its intake or task issue, so the retrospective sweep can
   check them.
 
@@ -265,6 +272,9 @@ security findings appear only as counts (4.7).
   removed addition that paad classed as security never becomes an ordinary
   intake issue or task. `vrg-security-record` creates the neutral public
   issue.
+- A finding that is then fixed on the branch has its record pointed at this
+  task, so the record closes when the task's PR merges and no fixed finding
+  leaves a record open.
 - **A real security hold** (paad found `paad/security/` unsafe and wrote
   nothing there) is a failed check (4.5). The run pauses, any details stay in
   the conversation with the human, and the issue shows only that the check
@@ -283,7 +293,8 @@ security findings appear only as counts (4.7).
 - **The handoff.** The `report-ready` notes, and the summary shown to the human,
   give the outcome and the round count, and list every finding not fixed with
   its reason and issue, every removed addition with its task, and any commit
-  made after the last round (a late Suggestion fix), marked unreviewed. Tasks
+  made after the last reviewed HEAD (fixes and removals from the passing
+  round, a late Suggestion fix), marked unreviewed. Tasks
   split out for removed additions are not in the epic's plan, so the handoff
   asks the human to schedule them, and `epic-implement` lists them among the
   items waiting on the human as "needs scheduling".
@@ -328,13 +339,13 @@ Tasks implemented before the gate shipped have no summaries; the sweep says so.
 - **`paad/code-reviews/` ignored.** It joins `paad/security/` in the managed
   `.gitignore` block, synced to every repo **before** the gate ships;
   otherwise every round fails the clean-worktree check. The sync covers the
-  vergil-project, logical-minds-foundry and mnemosys-project orgs. Repos in
-  other orgs are due for modernization and are not held to it: where the
-  change cannot be deployed to one, an issue in that repo's ad-hoc queue
-  records why, so the modernization picks it up. Until the sync merges, a
+  vergil-project, logical-minds-foundry and mnemosys-project orgs only.
+  Repos in other orgs are due for modernization and are out of scope: they
+  are not synced, and each one with a managed block gets an issue in its
+  ad-hoc queue, so the modernization picks the change up. Until the sync merges, a
   repo's `vrg-release` audit reports fence drift; the audit is advisory, and
   `vrg-release --skip-audit` releases past it.
-- **`vrg-git` additions** (vergil-tooling#3722) are a **prerequisite**. paad
+- **`vrg-git symbolic-ref`** (vergil-tooling#3722) is a **prerequisite**. paad
   resolves the default branch on every run, even with an explicit base, and
   without `symbolic-ref` it can fail in repos with no local `main`.
 - **Trusted-authors configuration** (4.4): the `[trusted_authors]` stanza,
@@ -406,7 +417,7 @@ them.
 | Repo | Deliverable |
 |---|---|
 | `vergil-claude-plugin` | doctrine §3; the `issue-implement` gate; the `epic-implement` and `epic-retrospective` changes; `docs/paad-policy.md` updates; the skills index page |
-| `vergil-tooling` | `paad/code-reviews/` in the managed `.gitignore` and a fleet sync; the `vrg-git` additions (#3722); the trusted-authors configuration and accessor; site docs via the documentation review |
+| `vergil-tooling` | `paad/code-reviews/` in the managed `.gitignore` and a fleet sync; `vrg-git symbolic-ref` (#3722); the trusted-authors configuration and accessor; site docs via the documentation review |
 | `docs` | `management/workflow.md` and `management/tools-and-skills.md` (via the documentation review) |
 | `vergil-project/.github` | this spec and plan |
 
