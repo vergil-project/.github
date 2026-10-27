@@ -73,9 +73,11 @@ operational: they have no code PR and close on `Outcome: SUCCESS`.
   <date>" and a neutral summary of the kinds of changes.
 - **No memory dependency.** `steering-audit` doesn't read, write or mention
   memory files. `memory-audit` is not changed.
-- **Placement law.** Each task is filed in the repo of its heading. Releases
-  and pin bumps (`vrg-release`, `vrg-update-deps`) are human actions; agents
-  only attest that they happened.
+- **Placement law.** Each task is filed in the repo of its heading.
+- **Release model.** Both audit changes ship as **v2.1 patch releases**.
+  Every consuming repo pins the rolling `v2.1` tag, so a release reaches all
+  repos on the next nightly config audit, with no pin bump. Releases
+  (`vrg-release`) are human actions; agents only attest that they happened.
 - **Platform facts** are cited from `https://code.claude.com/docs/en/` pages
   and re-verified, with the verification date recorded, whenever the model
   page changes.
@@ -216,21 +218,30 @@ alignment):
     against the current template) and for the legacy verbatim match.
 - [ ] **Step 5: Update this repo's own files.** Replace this repo's
   `CLAUDE.md` region and `.claude/settings.json`. Remove the body text that
-  the template region now covers.
+  the template region now covers. The "Cloud session prompt contract" stays
+  in this repo's body: it is mostly human-side, and its agent-relevant part
+  (stop at report-ready; report-ready text is public) is in the template's
+  PR-handoff section.
 - [ ] **Step 6: Run the tests and see them pass.** Then run
   `vrg-container-run -- vrg-validate`. Expected: PASS at 100% coverage.
-- [ ] **Step 7: Commit** with `vrg-commit --type feat --scope repo-config`.
+- [ ] **Step 7: Refactor.** Move the shared `importlib.resources` read into
+  `_read_data_file(name: str) -> str`. `_load_template` and
+  `_load_settings_template` become thin wrappers that only pick the file
+  name (current or `_previous`) and, for settings, parse the JSON. Check
+  for duplication between the settings and CLAUDE.md three-way checks.
+  Re-run the tests: PASS.
+- [ ] **Step 8: Commit** with `vrg-commit --type feat --scope repo-config`.
 
-### Task 3: Release the bridged audit and bump the fleet (vergil-tooling, deployment)
+### Task 3: Release the bridged audit (vergil-tooling, deployment)
 
 Blocked by Task 1 and Task 2.
 
-- **Precondition (human-attested):** a vergil-tooling release containing
-  Task 2 is published, and `vrg-update-deps` has bumped every one of the
-  eight consuming repos to it.
-- **Procedure:** for each consuming repo, run `vrg-github-repo-config audit`
-  from its checkout. Expected: exit 0, with the bridge warning(s) and no
-  `DiffItem`.
+- **Precondition (human-attested):** a v2.1 patch release containing Task 2
+  is published, and the rolling `v2.1` tag points to it.
+- **Procedure:** after the next nightly run, check each consuming repo's
+  `ops.yml` config-audit job. Alternatively, run `vrg-github-repo-config
+  audit` from each repo's checkout with the released tooling installed.
+  Expected: exit 0, with the bridge warning(s) and no `DiffItem`.
 - **Acceptance:** all eight repos exit 0. A red result is a FAILURE, and the
   task stays open.
 
@@ -311,18 +322,25 @@ Steps (each repo):
   - Move part-of-repo guidance to `.claude/rules/` with `paths` frontmatter.
   - Before deleting an `AGENTS.md`, move anything in it that is still true
     and not already in `CLAUDE.md`.
-- [ ] **Step 4: Check the result.** `wc -l CLAUDE.md` must show at most
+- [ ] **Step 4: Review again.** Run `/vergil:steering-audit` on the
+  trimmed files (the spec's "before and after" review) and resolve its
+  findings with the human.
+- [ ] **Step 5: Check the result.** `wc -l CLAUDE.md` must show at most
   200, and `vrg-github-repo-config audit` must exit 0 with **no** bridge
   warning. Run `vrg-container-run -- vrg-validate`; expected: PASS.
-- [ ] **Step 5: Commit** with `vrg-commit --type docs --scope claude-md`.
-  The report-ready notes list where each moved section went.
+- [ ] **Step 6: Commit** with `vrg-commit --type docs --scope claude-md`.
+  The report-ready notes list where each moved section went, and **every
+  instruction deleted** together with where it is still covered (template
+  region, hook guard, skill or docs). This is the evidence for the spec's
+  "no lost instruction" anti-goal.
 
 ### Task 6: User-level review and apply (.github, validation)
 
-Blocked by Task 3 and Task 4.
+Blocked by Task 3, Task 4, and **every one of Tasks 5a–5i**.
 
-- **Precondition:** the template region carrying the moved sections is
-  released (Task 3).
+- **Precondition:** every repo's `CLAUDE.md` carries the new template
+  region, which has the Memory and Engineering principles sections, so
+  removing those sections from the global file leaves no repo without them.
 - **Procedure:**
   1. The agent runs `/vergil:steering-audit user` with the human, applying
      the Decided-content classification and fixing the user settings:
@@ -366,16 +384,23 @@ Blocked by every Task 5 task.
   code.
 - [ ] **Step 4: Run the tests and see them pass.** Then run
   `vrg-container-run -- vrg-validate`; expected PASS at 100% coverage.
-- [ ] **Step 5: Commit** with `vrg-commit --type feat --scope repo-config`.
+- [ ] **Step 5: Refactor.** Remove imports and constants left unused
+  (`grep -rn 'EXPECTED_MARKETPLACE_REF\|is_deprecated_marketplace_ref\|MARKETPLACE_NAME' src tests`
+  should show only live uses). Collapse `_load_template(previous=...)`
+  back to the single current file. Re-run validation: PASS.
+- [ ] **Step 6: Release gate.** Note in the report-ready notes that this
+  PR must not be released until every Task 5 sweep has merged, because a
+  v2.1 patch takes effect fleet-wide that night.
+- [ ] **Step 7: Commit** with `vrg-commit --type feat --scope repo-config`.
 
-### Task 8: Release the tightened audit and bump the fleet (vergil-tooling, deployment)
+### Task 8: Release the tightened audit (vergil-tooling, deployment)
 
 Blocked by Task 7.
 
-- **Precondition (human-attested):** a release containing Task 7 is
-  published, and all eight consuming repos are bumped to it.
-- **Procedure:** run `vrg-github-repo-config audit` in every repo.
-  Expected: exit 0 with **no warnings**.
+- **Precondition (human-attested):** a v2.1 patch release containing
+  Task 7 is published, and the rolling `v2.1` tag points to it.
+- **Procedure:** after the next nightly run, check every repo's
+  config-audit job, as in Task 3. Expected: exit 0 with **no warnings**.
 
 ### Task 9: Cold-rebuild check on an agent VM (.github, validation)
 
@@ -410,7 +435,7 @@ Blocked by Task 6 and Task 8.
 | 4 | 1 |
 | 5a (vergil-tooling) | 2, 4 |
 | 5b–5i | 3, 4 |
-| 6 (validation) | 3, 4 |
+| 6 (validation) | 3, 4, 5a–5i |
 | 7 | 5a–5i |
 | 8 (deploy) | 7 |
 | 9 (validation) | 6, 8 |

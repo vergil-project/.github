@@ -196,6 +196,10 @@ The model document (§5.1) re-verifies them when it is written.
   epic therefore builds its recurring review as a separate `steering-audit`
   skill, leaves `memory-audit` untouched, and adds no new dependency on
   memory (§5.5).
+- Projects outside vergil. The scope is vergil only (the human's decision in
+  alignment). Rules that move out of the global `~/.claude/CLAUDE.md` into
+  the vergil template no longer reach non-vergil projects, and that is
+  accepted. A repo that needs them is brought under vergil.
 - Rewriting the content of the plugin skills. Skill text may be trimmed only
   where it restates a steering file.
 
@@ -288,16 +292,25 @@ The model:
   repo file to equal the template exactly (after JSON parsing), which
   replaces the per-key checks. `render_claude_settings` stops seeding the
   ref. The audit change reaches the fleet only through a vergil-tooling
-  release and pin bump, which are human actions.
+  release, which is a human action.
+- **Release model.** Every consuming repo pins `vergil = "v2.1"`, the
+  rolling minor tag that each patch release force-updates
+  (`vergil-tooling/docs/site/docs/guides/releasing.md`). Both audit changes
+  in this epic ship as **v2.1 patch releases**. Each one therefore reaches all
+  repos on the next nightly run, with no per-repo pin bump.
 - **Bridge.** The config audit is not part of `vrg-validate`. It runs in each
-  repo's nightly `ops.yml` job, against the vergil-tooling version pinned in
-  that repo. `vrg-update-deps` bumps the pin but doesn't rewrite the CLAUDE.md
-  template region or `settings.json`. Without a bridge, every repo's nightly
-  run would go red between its pin bump and its sweep PR. So, for one
-  release, the audit accepts **either the previous or the new** shape of
-  **both** the CLAUDE.md template region and `.claude/settings.json`, with a
-  deprecation warning for the old shape (the #1974 pattern). The bridge is
-  removed once every repo is swept.
+  repo's nightly `ops.yml` job, against the vergil-tooling version that
+  `v2.1` points to. A release doesn't rewrite any repo's CLAUDE.md template
+  region or `settings.json`. Without a bridge, every repo's nightly run would
+  go red the night after the release and stay red until its sweep PR. So,
+  for one release, the audit accepts **either the previous or the new** shape
+  of **both** the CLAUDE.md template region and `.claude/settings.json`, with
+  a deprecation warning for the old shape (the #1974 pattern).
+- **Bridge removal.** This is a second patch release, published only after
+  every repo's sweep has merged, because it takes effect fleet-wide that
+  night. It also removes the code the new shape makes dead:
+  `normalize_claude_ref` in `vrg-update-deps` and the marketplace-ref
+  constants, wherever nothing else uses them.
 - **Repo files.** Each of the nine repos is regenerated from the new
   template.
 - **User file.** The agent drafts the changes off GitHub, as for the global
@@ -368,10 +381,17 @@ needs judgment.
   any of those. Only the fact and date of their review are recorded.
 - Agents use `vrg-git` and `vrg-gh` only, and stop at `report-ready`.
 - Placement law: each task is filed in the repo whose PR closes it.
-- **Ordering:** the template and audit change, then a human release and pin
-  bump, then the per-repo sweeps, then the bridge removal and the hard
-  line-budget check (each again through a release and pin bump). Every
-  repo's nightly config audit and `vrg-validate` stay green throughout.
+- **Ordering:**
+  1. the template and audit change;
+  2. a human v2.1 patch release;
+  3. the per-repo sweeps;
+  4. the user-level review, after **every** sweep has merged, so no repo is
+     ever without a rule that moved out of the global file;
+  5. the bridge removal and the hard line-budget check, in a second v2.1
+     patch release published only after every sweep has merged.
+
+  Every repo's nightly config audit and `vrg-validate` stay green
+  throughout.
 - Host files (`~/.claude/CLAUDE.md`, `~/.claude/settings.json`) are changed
   only by the human.
 
@@ -392,9 +412,10 @@ needs judgment.
 - Docs task: vergil-project/.github#559 (this spec and the plan).
 - Documentation review: vergil-project/vergil-tooling#3720.
 - Retrospective: vergil-project/.github#560.
-- **Deployment task:** the vergil-tooling release with the new audit and
-  template, and the fleet pin bump. The release is a human-attested
-  precondition.
+- **Two deployment tasks**, one per v2.1 patch release: the bridged audit
+  with the new templates, and later the tightened audit. Each release is a
+  human-attested precondition. The task checks the next nightly audit
+  across the fleet.
 - **Validation task (§5.4):** cold-rebuild check on an agent VM, run after
   the sweeps and the user-file update.
 
