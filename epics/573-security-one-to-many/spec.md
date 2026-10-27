@@ -177,7 +177,10 @@ origin. It is not allowed with `--issue`.
   `Found in: <owner>/<repo>#<N>` to its body. The line is exact and alone on
   its line, like the other reference lines.
 - `--resume` carries `--found-in` through: the printed resume command includes
-  it, and a resumed create adds the line if it's missing.
+  it, and a resumed create adds the line if it's missing. Resume looks for the
+  record issue in the **same** queue home that `create` chose under the
+  placement rule below, never a separately derived one. Otherwise a record
+  placed in an origin's home would be missed and created a second time.
 
 **Placement** (*my call*). The record issue lives in a queue home's intake,
 as today. Never in the affected code repo, and `retarget` stays the hop to
@@ -192,6 +195,12 @@ home is chosen so a public issue never names private work:
 A record issue in a private home may name a public origin, so nothing private
 reaches a public page.
 
+When the origin and the affected repo are **both private and different
+repos**, `--found-in` is refused (*my call*). A record in one private repo
+must not name another private repo's work: they may belong to different
+clients. The refusal says to use plain `create` and to put the relation in
+the advisory details, which are private.
+
 **Queries.**
 
 - `vrg-security-record list --found-in <ref>` lists the record issues found in
@@ -201,6 +210,16 @@ reaches a public page.
 The origin's ref in `Found in:` is neutral by the same reasoning as the GHSA
 ID in #517 §4.1. It says that the origin's work produced a security record,
 and nothing about what the record is.
+
+**Trade-off, accepted.** GitHub's cross-reference puts each record issue's
+neutral title on a public origin's timeline. A reader can then line up "a
+record was found here" with the origin's public text, such as a spec under
+design review. This is accepted because:
+
+- the spec already states the requirement publicly ("write the requirement,
+  never the weakness");
+- the umbrella's rules (§3.1) already allow public counts;
+- a record is meant to live about a day.
 
 ### 4.4 Choosing the recipe
 
@@ -236,7 +255,10 @@ origin's work, so intake review must not route it on its own.
 - `vrg-intake-route` refuses every route of a held item except **split**,
   naming the origin. Split is the handoff (§4.6). `--release` lets any route
   through, for an origin that decides the finding isn't its own after all;
-  the item's `Found in:` line stays as provenance.
+  the item's `Found in:` line stays as provenance. There is no route-less
+  release back to ordinary intake (*my call*). An origin that changes its
+  mind routes the item there and then (defer, planning, one-off or drop),
+  so nothing needs to remember a released state.
 - When the origin closes, the hold lapses and the item is an ordinary intake
   item, with no tool action. A finding is never lost by its origin closing.
   It goes back into the queue, visible, oldest first, and the sweep keeps
@@ -263,6 +285,12 @@ in this issue not yet handed to fix tasks — see vrg-security-record list
   …] --reason "fix planned under <epic>"`. Split already retargets the
   advisory to the tasks before it closes the record issue, and stops with the
   record open on any failure;
+- a finding the design **resolves by itself**, so that no task implements
+  it (the revised spec removes the mechanism, or forbids the weak shape), is
+  split into the epic's **documentation task**. The docs PR publishes the
+  revised spec, so its merge is when the weakness is resolved, and the
+  advisory closes with that task through the sweep. It is never dropped: a
+  drop would record a fixed finding as "not planned";
 - for each advisory the planning issue itself names (a security item that
   went through planning): `vrg-security-record retarget`, as today, once per
   advisory.
@@ -319,7 +347,8 @@ No migration code is written (*my call*), since §3 expects zero records.
 - **Child C** (#553, spec §3.8): accepted findings use
   `create --found-in <planning issue>`, not `--issue`. Rejected or dropped
   findings use plain `create`, unchanged. The step 9 handoff becomes the split
-  of §4.6. This epic posts the required change on C's planning issue (#469);
+  of §4.6, including the split into the documentation task for a finding the
+  design resolves by itself. This epic posts the required change on C's planning issue (#469);
   C's own documentation task revises its spec.
 - **Child D** (#568, spec §4.10): no command changes. Findings fixed on the
   branch keep `create --issue <task>`, which now holds any number of findings
