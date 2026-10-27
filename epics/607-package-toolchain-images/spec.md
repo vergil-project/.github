@@ -4,7 +4,7 @@
 - **Planning issue:** vergil-project/.github#606 (review history is in its
   comments)
 - **Status:** design approved 2026-10-27; pushback round 1 done (2 findings,
-  both accepted)
+  both accepted); alignment done (3 findings, all accepted)
 - **Repos:** vergil-containers (the images), vergil-actions (the setup action),
   vergil-tooling (the package target registry)
 - **Builds on:** epic vergil-project/.github#213 (manifest-driven container builds)
@@ -238,7 +238,11 @@ job downloads a separate CPython 3.14 (about 35 MiB) just for the driver.
   builds carry none. The plan decides whether the driver follows the derived
   runtime or a single constant both sites read, and records why. It must not
   add a third, independent definition. The documented host install
-  (`--python 3.14` in `vergil.toml` and CLAUDE.md) is aligned in the same task.
+  (`--python 3.14` in vergil-tooling's `vergil.toml`, `CLAUDE.md`,
+  `docs/site/docs/getting-started.md` and
+  `docs/site/docs/guides/consuming-repo-setup.md`) is aligned in the epic's
+  docs-review sweep once the driver version is settled, because those files
+  live in vergil-tooling and the driver change lands in vergil-actions.
 The raw-image path is transitional. `ci-package.yml@v2.1` is shared, and a
 consumer whose pinned vergil-tooling predates §5.2 still emits raw images. A
 follow-on task removes the raw-image path, `os-prereqs.sh` and the action's

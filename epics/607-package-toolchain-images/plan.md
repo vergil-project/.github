@@ -240,9 +240,20 @@ Blocked-by Task 3.
 **Files:**
 
 - Create: `docker/pkg-ubuntu/Dockerfile.template`, `docker/pkg-rhel/Dockerfile.template`
-- Create: `docker/common/uv.dockerfile` (curl and `sh` only, so both families
-  can include it; installs to `/usr/local/bin` the way
-  `common/python-support.dockerfile` does, leading edge)
+- Create: `docker/common/uv.dockerfile`, pinned the way
+  `common/nfpm.dockerfile` is: `ARG TARGETARCH`, `ARG UV_VERSION=<x.y.z>` (start
+  from the action's current 0.12.23 or the latest release), download
+  `uv-<triple>.tar.gz` from
+  `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/`, verify it
+  against the release's `uv-<triple>.tar.gz.sha256` with `sha256sum -c`, and
+  extract `uv` and `uvx` to `/usr/local/bin`. `<triple>` is
+  `x86_64-unknown-linux-gnu` or `aarch64-unknown-linux-gnu` from `TARGETARCH`.
+  It uses only `curl`, `sha256sum` and `tar`, so both families can include it.
+- Modify: `docker/pins/pins.yml` (an `auto-managed` `uv` entry in the style
+  of the `nfpm` entry, so the daily upstream refresh floats `UV_VERSION`)
+- Modify: `.hadolint.yaml` (ignore `DL3041`, the dnf pin rule, with the same
+  pinning-doctrine comment as `DL3008`: dnf packages float for the same
+  reason apt packages do)
 - Create: `docker/common/apt-mirror.dockerfile` (amd64-only mirror list,
   sources rewrite and fast-fail config, matching
   vergil-actions `actions/package/setup/os-prereqs.sh` exactly: the same three
@@ -287,8 +298,9 @@ then `uv`, `nfpm`, and the marker. Each template ends with a build-time check
   then `--check` passes. `docker/generate.sh` succeeds and hadolint is clean
   (via validation).
 - [ ] **Step 4: Pins:** nFPM rides the existing auto-managed
-  `common/nfpm.dockerfile` entry; uv floats like `python-support`, so it needs
-  no `pins.yml` entry. `check_pins.py` passes (via validation).
+  `common/nfpm.dockerfile` entry, and uv gets its new auto-managed entry.
+  `check_pins.py` passes (via validation). Confirm `resolve_latest.py` resolves
+  uv's latest release; extend its source list if it does not.
 - [ ] **Step 5: Validate, commit, report-ready.**
   `vrg-commit --type feat --scope images --message "add pkg-ubuntu and pkg-rhel package toolchain images"`.
 
@@ -430,8 +442,8 @@ release (checked by reading each repo's `vergil.toml`).
 ### Bookends (already filed)
 
 - Docs: vergil-project/.github#608 (this spec and plan).
-- Docs review: vergil-project/vergil-tooling#3758. Add to its sweep: align the
-  documented host install's `--python 3.14` (`vergil.toml` comment,
+- Docs review: vergil-project/vergil-tooling#3758. Its sweep includes (spec
+  §5.3): align the documented host install's `--python 3.14` (`vergil.toml` comment,
   `CLAUDE.md`, `docs/site/docs/getting-started.md`,
   `docs/site/docs/guides/consuming-repo-setup.md`) with the driver version Task
   2 settles on.
@@ -446,6 +458,7 @@ release (checked by reading each repo's `vergil.toml`).
 | §5.1 images and contents | T4, Global Constraints |
 | §5.1 manifest placement | T3 |
 | §5.1 template reuse | T4 (nfpm and uv fragments) |
+| §2 goal 3, pins in vergil-containers | T4 (uv and nFPM pins), T6 (action pins removed) |
 | §5.1 apt mirror config | T4 `apt-mirror` |
 | §5.1 lists removed | T4 |
 | §5.1 OS upgrade | T4 |
