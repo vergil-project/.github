@@ -97,8 +97,7 @@ sections, in this order, with these line caps:
 | Engineering principles | ≤ 6 | Correctness over cost over speed; never ship known-broken code. No silent failures: no swallowed exceptions or fallbacks that hide errors. (Moved from the global file.) |
 | paad | ≤ 3 | paad usage policy and deviations: `vergil-claude-plugin/docs/paad-policy.md`. |
 
-**Global `~/.claude/CLAUDE.md` classification** (agent's call, for review in
-alignment):
+**Global `~/.claude/CLAUDE.md` classification**:
 
 | Section | Disposition |
 |---|---|

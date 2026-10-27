@@ -1,16 +1,13 @@
 # Steering-file and Claude settings review
 
 - **Epic:** vergil-project/.github#558
-- **Planning issue:** vergil-project/.github#506
+- **Planning issue:** vergil-project/.github#506 (review history is in its
+  comments)
 - **Umbrella:** vergil-project/.github#500 (child E). Depends on B's Tasks 1
   and 3 (vergil-project/vergil-tooling#3666,
   vergil-project/vergil-claude-plugin#727), both closed.
-- **Status:** approved design (2026-10-27)
-- **Review history:** the comments on the planning issue,
-  vergil-project/.github#506
-- **Design source:** umbrella spec §4.E. The human skipped the brainstorm
-  questions, so the decisions that §4.E leaves open are the agent's calls.
-  They are collected in §9 for review.
+- **Status:** draft, in design review
+- **Brainstorm source:** umbrella spec §4.E
 
 ## 1. Intent
 
@@ -196,8 +193,7 @@ The model document (§5.1) re-verifies them when it is written.
   epic therefore builds its recurring review as a separate `steering-audit`
   skill, leaves `memory-audit` untouched, and adds no new dependency on
   memory (§5.5).
-- Projects outside vergil. The scope is vergil only (the human's decision in
-  alignment). Rules that move out of the global `~/.claude/CLAUDE.md` into
+- Projects outside vergil. The scope is vergil only. Rules that move out of the global `~/.claude/CLAUDE.md` into
   the vergil template no longer reach non-vergil projects, and that is
   accepted. A repo that needs them is brought under vergil.
 - Rewriting the content of the plugin skills. Skill text may be trimmed only
@@ -224,7 +220,7 @@ This is a new versioned site page in vergil-tooling,
 records the docs URLs and the verification date, and it is the reference the
 recurring review checks against.
 
-**Placement rule (approved).** A setting lives in the change-controlled repo
+**Placement rule.** A setting lives in the change-controlled repo
 file unless the platform forces it into user scope. The repo file is
 reviewed, versioned and audited nightly; the user file is none of those, and
 it should stay minimal. Plugin enablement and marketplaces are forced into
@@ -421,26 +417,22 @@ needs judgment.
 
 ## 9. Design decisions
 
-The human skipped the brainstorm questions, so the agent made these calls.
-The human confirmed the first three in design review (2026-10-27); the rest
-stand as the agent's calls in the approved spec.
-
-1. **Plugins and marketplaces move to user scope only** (confirmed). They
+1. **Plugins and marketplaces move to user scope only.** They
    are removed from the repo files and the template (§5.1, §5.3). Policy
    settings stay in the repo under the §5.1 placement rule. Reason: §3.5–3.6
    show that a second definition is either useless (a project-only enable
    doesn't install) or harmful (the whole-entry override, and a project
    `true` that the user cannot turn off).
-2. **AGENTS.md is deleted, not made canonical or turned into a pointer**
-   (confirmed). Reason: only Claude Code is used, and Claude Code ignores the
-   file next to a `CLAUDE.md`.
-3. **The recurring review is a new `steering-audit` skill** (the human's
-   decision, replacing the agent's proposal to extend `memory-audit`). It
-   uses `/doctor prompt-audit` as one of its engines. Memory is expected to
-   be replaced, so the review must not be tied to it.
+2. **AGENTS.md is deleted, not made canonical or turned into a pointer.**
+   Reason: only Claude Code is used, and Claude Code ignores the file next to
+   a `CLAUDE.md`.
+3. **The recurring review is a new `steering-audit` skill,** not an
+   extension of `memory-audit`. It uses `/doctor prompt-audit` as one of its
+   engines. Memory is expected to be replaced, so the review must not be
+   tied to it.
 4. The line budget becomes a hard audit failure after the cleanup, not a
    warning.
 5. The model document is a new vergil-tooling site page.
 6. Managed settings stay unused.
-7. The `AskUserQuestion` deny hook in the user file is left for the human to
-   decide; the agent proposes no change to it.
+7. The `AskUserQuestion` deny hook in the user file is the human's to
+   decide; no change to it is proposed.
