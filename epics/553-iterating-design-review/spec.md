@@ -172,6 +172,11 @@ The doctrine gives a prompt template. Every reviewer prompt must:
   - skip pushback's report file, and skip alignment's TDD rewrite: instead,
     report each code task that is not in red/green/refactor form as a minor
     finding;
+  - for alignment only: paad 2.0.2's `alignment` has no security routing of
+    its own, so the prompt gives it paad's shared security definition (the one
+    pushback carries) and tells it to write any such finding to
+    `paad/security/alignment-<date>-<topic>.md` after the same `.gitignore`
+    check pushback makes, and to return only a count;
   - return the full ranked list with discards;
 - say to review the **whole** artifact, including mechanisms that look like
   recent additions, and that removing a mechanism is a legitimate finding;
@@ -193,7 +198,8 @@ The doctrine gives a prompt template. Every reviewer prompt must:
 ### 3.5 Output checks and failed rounds
 
 Before dispatch, the main session lists the `paad/` of the session's starting
-directory. After every review, it checks structure, not prose:
+directory and records the docs worktree's branch and HEAD SHA. After every
+review, it checks structure, not prose:
 
 - the version line is present. A version other than the one the doctrine
   records is a warning in the round comment, not a failure;
@@ -206,6 +212,8 @@ directory. After every review, it checks structure, not prose:
 - every file paad wrote, as an absolute path, is under the docs worktree's
   `paad/security/`, and when `Security:` reports findings, that file exists;
 - nothing new appeared under the `paad/` of the session's starting directory;
+- the worktree's branch and HEAD SHA are unchanged, so the reviewer neither
+  committed nor moved HEAD;
 - `vrg-git status --porcelain` in the worktree is empty. `paad/security/` is
   ignored by the managed `.gitignore` block, so the security file does not
   show.
@@ -214,9 +222,14 @@ A failed check is a **broken round**: the reviewer did not produce a usable
 review, which says nothing about the design. It is never treated as a pass,
 and its findings are not acted on. The main session:
 
-1. reverts anything the reviewer changed: `vrg-git checkout -- <file>` for
-   each changed tracked file, and `rm` for each untracked path that
-   `vrg-git status --porcelain` lists;
+1. reverts anything the reviewer changed: it restores the recorded branch and
+   HEAD SHA if either moved (with an allowed `vrg-git` command, such as
+   `switch -C <branch> <sha>`; `reset` is not on the allowlist, and the plan
+   confirms the command), runs `vrg-git checkout -- <file>` for each changed
+   tracked file, and `rm` for each untracked path that
+   `vrg-git status --porcelain` lists. It deletes the broken run's
+   `paad/security/` files unread: nobody has walked through them, and the
+   re-run raises those findings again;
 2. re-runs the round once, automatically, with a fresh reviewer;
 3. on a second broken run, stops and asks the human, who chooses: retry,
    run the skill interactively in the main session as `epic-create` does
@@ -238,9 +251,10 @@ against:
 - the diffs of earlier round commits, found by the SHAs those comments record
   (`vrg-git show <sha>`); and
 - for security findings, which public records show only as counts, the
-  advisories already on this planning issue, read with
-  `vrg-security-record show` or `list --details` in the main session's terminal
-  only.
+  advisories that earlier rounds recorded. Each round comment lists the GHSA
+  IDs its round created (3.7), whether they sit on the planning issue or on
+  their own intake issues. The main session reads each with
+  `vrg-security-record show <GHSA-id>`, in its terminal only.
 
 Only comments whose author passes `vrg-trusted-authors` count (doctrine §1;
 the command comes from child D, vergil-project/vergil-tooling#3741). Anyone can
@@ -346,7 +360,9 @@ One comment per round on the planning issue, posted with
   structural tag, a summary of the claim, the decision, and the reason or
   intake ref.
 - **Discards:** the count and one line each.
-- **Security:** a count only (3.8).
+- **Security:** the count, how many were accepted, the GHSA IDs this round
+  created, and "scratch copy kept" when cleanup did not happen (3.8). No
+  titles, descriptions or details.
 - The comment carries no marker lines (`Epic:`, `Docs task:`,
   `Tasks filed:`), so the queue view's marker parsing is unaffected.
 
@@ -362,9 +378,19 @@ followed by a progress comment that names the next stage.
 paad writes security findings under the docs worktree's ignored
 `paad/security/` (3.4). paad names the file by date and document only, so a
 later round on the same day would overwrite it. Once the output checks pass,
-the main session therefore moves the round's security file to a private scratch
-directory outside the worktree, named for the round, and works from that copy.
-It walks the human through each finding in the terminal, like any other.
+the main session therefore moves the round's security files to a **scratch
+copy** and works from there. The copy's path is fixed and derivable from the
+planning issue and the round ID, so a resumed session finds it:
+`${XDG_STATE_HOME:-~/.local/state}/vergil/design-review/<owner>-<repo>-<M>/<round-id>/`,
+created with mode 700, outside any repo. (D's per-round `mktemp -d` suits
+files that need not survive a pause; these must.) It walks the human through
+each finding in the terminal, like any other.
+
+**Screening.** Before posting the round comment, the main session screens every
+ordinary finding against paad's shared security definition. A finding that
+qualifies moves to this path, and its summary never reaches the round comment.
+This catches anything a reviewer failed to route, alignment's in particular
+(3.4).
 
 Only **new** and **repair** security findings are recorded. A **known** one
 already has its record (3.6). Recording follows child A′'s contract (epic
@@ -386,15 +412,18 @@ task, or to the documentation task, is already in `epic-create`
 (vergil-project/vergil-claude-plugin#756). This epic does not change it; the
 `epic-create` rewrite keeps it as it is.
 
-**Cleanup.** Once every finding in the scratch copy has been recorded, the main
-session deletes the copy, so no scratch details are left behind. If any record
-fails, the copy is kept and the round comment reports the failure. A copy is
-never deleted while a finding in it is unrecorded.
+**Cleanup.** Once every finding in the scratch copy has been recorded or
+classified known, the main session deletes the copy, so no scratch details are
+left behind. If any record fails, the copy is kept and the round comment says
+"scratch copy kept" with the failure. A copy is never deleted while a new or
+repair finding in it is unrecorded. A broken round's security files are
+deleted unread (3.5).
 
-The round comment shows only the count of security findings and how many were
-accepted. No GHSA IDs, titles or descriptions appear in the round comment, the
-spec, the plan or commit messages. The advisory's link to the planning issue is
-A's mechanism and is neutral by design.
+The round comment shows the count of security findings, how many were
+accepted, and the GHSA IDs the round created. A GHSA ID reveals only that a
+record exists, as A's guide allows. No titles, descriptions or details appear
+in the round comment, the spec, the plan or commit messages. The advisory's
+link to the planning issue is A's mechanism and is neutral by design.
 
 ### 3.9 No review history in specs and plans
 
@@ -462,12 +491,15 @@ Add rows to `vergil-claude-plugin/docs/paad-policy.md` §7:
 - **Spike, first:** a `validation` task runs the reviewer prompt (3.4) on an
   already published spec and plan (`epics/517-security-records/`) twice for
   each of the three stage configurations, and applies the output checks (3.5).
-  One extra run reviews a copy of the spec seeded with a security-shaped
-  weakness, from a session started in a different repo from the docs
+  Two extra runs review copies seeded with a security-shaped weakness: one
+  pushback run on a seeded spec, and one alignment run on a seeded spec and
+  plan, which tests alignment's security directive and the screening (3.4,
+  3.8). Both run from a session started in a different repo from the docs
   worktree, so the security-file path (3.4, 3.5) and its cleanup (3.8) are
-  exercised. The seeded finding is recorded with plain
-  `vrg-security-record create` and a neutral `PROBE:` summary (as A's guide
-  does for its own probe), and its intake issue is then closed as "not
+  exercised. The seeded copies are committed on a spike-only local branch in
+  its own worktree, which is never pushed. Each seeded finding is recorded with
+  plain `vrg-security-record create` and a neutral `PROBE:` summary (as A's
+  guide does for its own probe), and its intake issue is then closed as "not
   planned". Success: every run passes the checks and leaves the worktree
   clean, and the scratch copy is deleted. The result decides whether the
   fallback (3.11) is built. If it fails, its result
