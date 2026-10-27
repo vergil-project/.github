@@ -194,10 +194,17 @@ marks much of that behaviour as binding.
 Comments posted by agent identities, including every gate record (4.6), are
 **never** requirements input, and neither is anything from any other author.
 The issue body is used when it was written by the human or by one of the
-human's agent identities. Logins are matched exactly. The system-wide version
-of this rule, for every tool and skill that reads issues, is planned in
-vergil-project/.github#579, which will own the list of trusted logins; until
-then the doctrine names them.
+human's agent identities. Logins are matched exactly.
+
+**The trusted logins are configuration, never hard-coded** in a skill, the
+doctrine or any tool. They live in the host's `~/.config/vergil/identities.toml`
+under a `[trusted_authors]` stanza (`human` and `agents`, each a list of
+GitHub logins), are delivered into every agent VM by `vrg-vm` as it delivers
+the other vergil config files, and are read through one accessor command that
+fails loudly when nothing is configured. The gate runs the accessor; the
+doctrine names the command, not the logins. The system-wide version of this
+rule, for every tool and skill that reads issues, is planned in
+vergil-project/.github#579 and builds on the same configuration.
 
 ### 4.5 Output checks
 
@@ -316,6 +323,9 @@ Tasks implemented before the gate shipped have no summaries; the sweep says so.
 - **`vrg-git` additions** (vergil-tooling#3722) are a **prerequisite**. paad
   resolves the default branch on every run, even with an explicit base, and
   without `symbolic-ref` it can fail in repos with no local `main`.
+- **Trusted-authors configuration** (4.4): the `[trusted_authors]` stanza,
+  its delivery into VMs, and the accessor command, in vergil-tooling, before
+  the gate ships.
 - **Child C's doctrine document** must exist before §3 is written.
 - **Child A′** (#573) is a **prerequisite** of the gate. Without it, emptying
   `paad/security/` after a round would delete security findings that were
@@ -382,7 +392,7 @@ them.
 | Repo | Deliverable |
 |---|---|
 | `vergil-claude-plugin` | doctrine §3; the `issue-implement` gate; the `epic-implement` and `epic-retrospective` changes; `docs/paad-policy.md` updates; the skills index page |
-| `vergil-tooling` | `paad/code-reviews/` in the managed `.gitignore` and a fleet sync; the `vrg-git` additions (#3722); site docs via the documentation review |
+| `vergil-tooling` | `paad/code-reviews/` in the managed `.gitignore` and a fleet sync; the `vrg-git` additions (#3722); the trusted-authors configuration and accessor; site docs via the documentation review |
 | `docs` | `management/workflow.md` and `management/tools-and-skills.md` (via the documentation review) |
 | `vergil-project/.github` | this spec and plan |
 
