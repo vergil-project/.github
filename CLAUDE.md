@@ -95,14 +95,6 @@ Rules for this session:
 
 All fields are required.
 
-## Archived epics — do not read
-
-`epics/archive/` holds abandoned design attempts, kept only as a record.
-**Never read anything under `epics/archive/`**, in any branch or in git
-history, and never use it as input, context or precedent for current work.
-The same applies to issues whose title starts with `[archived]`. See
-`epics/archive/README.md`.
-
 ## Shell command policy
 
 Use `vrg-git` instead of `git` for all git operations. Use `vrg-gh`
@@ -122,6 +114,14 @@ vrg-container-run -- vrg-validate
 This is the **only** validation command. Do not run individual linters,
 formatters, or other tools outside of `vrg-validate`. If a tool is not
 invoked by `vrg-validate`, it is not part of the validation pipeline.
+
+## Archived epics — do not read
+
+`epics/archive/` holds abandoned design attempts, kept only as a record.
+**Never read anything under `epics/archive/`**, in any branch or in git
+history, and never use it as input, context or precedent for current work.
+The same applies to issues whose title starts with `[archived]`. See
+`epics/archive/README.md`.
 
 ## Development Commands
 
