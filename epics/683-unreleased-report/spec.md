@@ -55,9 +55,13 @@ following each PR to its issue and epic by hand.
 - **Silently missing a change.** Every commit on `develop` past the release
   boundary must appear in the output, either under a PR or as a direct commit.
   A report that looks complete but isn't is worse than no report.
-- **Guessing.** If a lookup fails (API error, permission, rate limit), the
-  command fails with the error. It never prints a partial report as if it were
-  whole (CLAUDE.md: no silent failures).
+- **Guessing.** If a lookup fails (a transport error, an auth or permission
+  error, a rate limit), the command fails with the error. It never prints a
+  partial report as if it were whole (CLAUDE.md: no silent failures).
+- **Aborting on bad data.** Bad data in a PR is not a failed lookup. A PR
+  body with more than one tracking ref (`extract_tracking_ref` raises), or a
+  tracking ref to an issue that doesn't exist (404), is listed under Unlinked
+  with its reason, and the run goes on.
 
 ## 5. Design
 
@@ -88,7 +92,22 @@ boundary (`lib/changelog.py`, `configs/cliff.toml`).
   use merge commits (`Merge pull request #N …`). `linkage.extract_merge_pr`
   already parses both forms.
 - Commits brought in by a merge commit (the branch side of a dependency-update
-  PR) belong to that PR and are not listed separately.
+  PR) belong to that PR and are not listed separately. Membership is decided
+  from commit parents (the commits reachable from the merge commit's second
+  parent and not from its first), never from commit subjects.
+- **Release-machinery PRs are excluded.** After the boundary tag is placed,
+  `vrg-release` merges its own `release/*` PRs into `develop` (for example
+  the `release/post-<version>` bump). A PR whose head branch is a release
+  branch (`release.is_release_branch`), and every commit it brings in, is the
+  release boundary itself rather than unreleased work. It is never listed and
+  never counts toward the PR count, the "nothing unreleased" check or the
+  org-mode age. Straight after a release, the report must say "nothing
+  unreleased".
+- **`--show-release-prs`** lists them anyway, for diagnosis, in a
+  `Release machinery` group after every other group. They still don't count
+  toward the PR count, the "nothing unreleased" check or the age. The flag is
+  separate from `--verbose`, which controls how much of each PR is shown, not
+  which PRs are shown.
 - A commit whose PR can't be parsed from its subject is looked up with
   `repos/{repo}/commits/{sha}/pulls`. Only if that finds nothing is it listed
   as a **direct commit** (see 5.4).
@@ -112,15 +131,17 @@ boundary (`lib/changelog.py`, `configs/cliff.toml`).
 | Epic | Issue's parent is a finite epic (labelled `epic`, not a standing kind) | `Epic <owner/repo#N>: <epic title>` |
 | Ad-hoc | Parent is the repo's ad-hoc epic **or one of its quarterly archives** (closed ad-hoc tasks drain there) | `Ad-hoc` |
 | Dependency updates | Recognised as in 5.3 | `Dependency updates` |
-| Unlinked | No tracking ref, the issue has no parent, or the parent is any other standing epic (intake, planning, deferred); plus direct commits | `Unlinked` |
+| Unlinked | **Everything else** (the catch-all), including no tracking ref, an issue with no parent, and any parent that is neither a finite epic nor this repo's ad-hoc epic or archive (other standing epics and their archives, another repo's ad-hoc epic, a plain issue); plus direct commits | `Unlinked` |
 
 - Epic groups come first, ordered by their earliest merge. Ad-hoc,
   Dependency updates and Unlinked follow in that order. Empty groups are
   omitted.
 - Within a group, PRs are in merge order.
 - Each Unlinked entry gives its reason in a short suffix
-  (`— no tracking ref`, `— issue has no epic`, `— direct commit`), because an
-  unlinked change is worth a second look in an org that tracks everything.
+  (`— no tracking ref`, `— multiple tracking refs`, `— tracking issue not
+  found`, `— issue has no epic`, `— parent <ref> is not an epic`,
+  `— direct commit`), because an unlinked change is worth a second
+  look in an org that tracks everything.
 
 ### 5.5 Output
 
@@ -152,14 +173,22 @@ Single repo, terse (the default):
   PR), indented. It is the same data with more of it shown.
 - **Nothing pending:** `## vergil-tooling — nothing unreleased since v2.1.278
   (2026-10-28)`.
+- **Author trust.** A PR whose author is in the trusted-authors set
+  (`lib/trusted_authors`) is shown as above. For any other author, the PR line
+  ends with `— untrusted author @<login>`. In `--verbose`, its message or body
+  is shown inside a fenced block labelled as untrusted author content, never
+  as plain report text.
 
 ### 5.6 Org mode
 
-- `--org [ORG]` sweeps every non-archived repo in the org that is managed
-  (`epics.is_managed_repo`: it has a `vergil.toml`) and has a `develop`
-  branch. `ORG` defaults to the current repo's owner. Repos are listed with
-  `github.list_org_repos`, and private repos are included, because the report
-  goes only to the caller's terminal.
+- `--org [ORG]` sweeps every public, non-archived repo in the org that is
+  managed (`epics.is_managed_repo`: it has a `vergil.toml`) and has a
+  `develop` branch. `ORG` defaults to the current repo's owner. Repos are
+  listed with `github.list_org_repos`.
+- **Private repos are excluded by default.** `--include-private` adds them.
+  The command reads through the GitHub App identity, so it can see what the
+  caller may not be entitled to, and agents relay command output into public
+  places (report-ready notes, issue comments, docs PRs).
 - The output opens with a **summary table**: one row per repo with pending
   work (repo, PR count, newest release and its date, age of the oldest
   unreleased merge), sorted so that **the repo whose unreleased work has waited
@@ -168,10 +197,20 @@ Single repo, terse (the default):
 - Then each repo with pending work gets its single-repo block (5.5), in the
   same order as the table. `--verbose` applies to every block.
 
-### 5.7 Interface
+### 5.7 Private content
+
+- Whatever the mode, every block for a private repo, every summary table row
+  for one, and every epic heading whose epic lives in a private home is
+  marked `(private)`. This includes a public repo's PR whose tracked issue
+  belongs to a private epic.
+- `--help` and the CLI overview entry state the rule: output marked
+  `(private)` must not be relayed into public artifacts.
+
+### 5.8 Interface
 
 ```text
-vrg-unreleased [--repo OWNER/NAME | --org [ORG]] [--verbose]
+vrg-unreleased [--repo OWNER/NAME | --org [ORG] [--include-private]]
+               [--verbose] [--show-release-prs]
 ```
 
 - No target: the current directory's repo (resolved like `vrg-branch-sweep`).
@@ -192,15 +231,21 @@ vrg-unreleased [--repo OWNER/NAME | --org [ORG]] [--verbose]
   Both are enforced by existing tests.
 - Tests fake GitHub by patching `lib/github.py` and `epics` functions, as the
   existing report tests do. They cover each group, merge-commit PRs, direct
-  commits, no release, nothing pending, and a failed lookup that aborts.
+  commits, an archive parent landing in Unlinked, multiple tracking refs and
+  a missing tracking issue landing in Unlinked, no release, nothing pending,
+  and a failed lookup that aborts. One
+  test uses the real post-release shape: two `release/*` merge commits, each
+  with its inner commit, past the boundary tag and nothing else. The expected
+  result is "nothing unreleased".
 
 ## 7. Delivery
 
 Two implementation tasks in vergil-tooling, then the bookends:
 
-1. **Core:** the single-repo command (5.1 to 5.5 and 5.7 without `--org`),
-   with tests and the CLI overview entry.
-2. **Org mode:** `--org` (5.6), with tests and the overview entry updated.
+1. **Core:** the single-repo command (5.1 to 5.5, 5.7, and 5.8 without
+   `--org`), with tests and the CLI overview entry.
+2. **Org mode:** `--org` and `--include-private` (5.6), with tests and the
+   overview entry updated.
 3. Bookends: documentation review (vergil-project/vergil-tooling#3803), then
    the retrospective (#685).
 
