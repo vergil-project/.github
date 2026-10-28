@@ -59,9 +59,11 @@ following each PR to its issue and epic by hand.
   error, a rate limit), the command fails with the error. It never prints a
   partial report as if it were whole (CLAUDE.md: no silent failures).
 - **Aborting on bad data.** Bad data in a PR is not a failed lookup. A PR
-  body with more than one tracking ref (`extract_tracking_ref` raises), or a
-  tracking ref to an issue that doesn't exist (404), is listed under Unlinked
-  with its reason, and the run goes on.
+  body with more than one tracking ref (`extract_tracking_ref` raises), a
+  tracking ref to an issue that doesn't exist (404), or a commit subject
+  naming a PR that doesn't exist (5.2), is listed under Unlinked with its
+  reason, and the run goes on. An untrusted PR or epic author is
+  not bad data: it aborts (5.5).
 
 ## 5. Design
 
@@ -73,18 +75,28 @@ on `main`, the lightweight tag `develop-vX.Y.Z` on the `develop` tip, and a
 GitHub Release. The changelog tooling already uses `develop-v*` as its
 boundary (`lib/changelog.py`, `configs/cliff.toml`).
 
-- **Boundary:** the highest `develop-vX.Y.Z` tag by semantic version (not by
-  date). The pending set is the commits reachable from `develop` and not from
-  that tag (`compare/develop-vX.Y.Z...develop`, paginated so that a large gap
-  is never truncated).
+- **Newest release:** the highest `vX.Y.Z` tag by semantic version (not by
+  date). Rolling `vX.Y` tags are ignored.
+- **Pending set:** the commits reachable from `develop` and not from `vX.Y.Z`
+  (`compare/vX.Y.Z...develop`, paginated so that a large gap is never
+  truncated). The merge base is the commit the release branch was cut from,
+  so a PR merged to `develop` while that release was in flight is correctly
+  reported as unreleased. This intentionally differs from the changelog's
+  `develop-v*` boundary, which counts such a PR as released (a separate
+  defect, vergil-project/vergil-tooling#3805).
 - **Release date:** the `published_at` of the GitHub Release for `vX.Y.Z`. If
-  that release doesn't exist, use the date of the `develop-vX.Y.Z` tag's
-  commit and say so in the header.
-- **No release yet:** if the repo has no `develop-v*` tag, the report says
+  that release doesn't exist, use the date of the `vX.Y.Z` tag's commit and
+  say so in the header.
+- **No release yet:** if the repo has no `vX.Y.Z` tag, the report says
   "no release yet" and lists nothing. Listing all of `develop` would be noise.
-- **Known limit:** the `develop-v` tag is taken at CD time, after the release
-  PR merges, so a PR merged to `develop` while a release was in flight counts
-  as released. This matches the changelog's own boundary and is accepted.
+- **Release in flight.** The command reports a snapshot and assumes `develop`
+  is quiet, which is when it is normally run (just before `vrg-release`). If a
+  release is running, the output may look odd, and the report says why rather
+  than trying to model it. It checks cheaply for an open release tracking
+  issue (`release.is_release_tracking_issue`) or an open PR from a `release/*`
+  branch, by a trusted author (5.5). If either exists, the header carries one line: `release in flight
+  (<ref>): results may be inconsistent until it finishes`. This is
+  informational only and changes nothing else.
 
 ### 5.2 Commits to PRs
 
@@ -108,9 +120,13 @@ boundary (`lib/changelog.py`, `configs/cliff.toml`).
   toward the PR count, the "nothing unreleased" check or the age. The flag is
   separate from `--verbose`, which controls how much of each PR is shown, not
   which PRs are shown.
-- A commit whose PR can't be parsed from its subject is looked up with
+- A PR number parsed from a subject is accepted only if that PR's
+  `merge_commit_sha` is this commit. Otherwise, as for a commit whose subject
+  has no PR number, the commit is looked up with
   `repos/{repo}/commits/{sha}/pulls`. Only if that finds nothing is it listed
-  as a **direct commit** (see 5.4).
+  as a **direct commit** (see 5.4). A parsed PR number that doesn't exist
+  (404) is bad data, not a failed lookup: the commit goes on to the same
+  fallback.
 
 ### 5.3 PRs to issues to epics
 
@@ -120,9 +136,11 @@ boundary (`lib/changelog.py`, `configs/cliff.toml`).
   linkage never populates it.
 - **Issue to epic:** `epics.parent_of`, the native parent first and then the
   `Parent:` body line.
-- **Dependency-update PR:** the `dependency-update` label, or a head branch
-  starting with `deps/update-`. It is classified before any issue lookup,
-  because these PRs carry no `Ref` line.
+- **Dependency-update PR:** a PR with the `dependency-update` label, which
+  needs triage rights to apply. It is classified before any issue lookup,
+  because these PRs carry no `Ref` line. A PR whose head branch starts with
+  `deps/update-` but lacks the label goes to Unlinked
+  (`— deps branch without label`).
 
 ### 5.4 Groups and order
 
@@ -140,7 +158,7 @@ boundary (`lib/changelog.py`, `configs/cliff.toml`).
 - Each Unlinked entry gives its reason in a short suffix
   (`— no tracking ref`, `— multiple tracking refs`, `— tracking issue not
   found`, `— issue has no epic`, `— parent <ref> is not an epic`,
-  `— direct commit`), because an unlinked change is worth a second
+  `— deps branch without label`, `— direct commit`), because an unlinked change is worth a second
   look in an org that tracks everything.
 
 ### 5.5 Output
@@ -173,11 +191,31 @@ Single repo, terse (the default):
   PR), indented. It is the same data with more of it shown.
 - **Nothing pending:** `## vergil-tooling — nothing unreleased since v2.1.278
   (2026-10-28)`.
-- **Author trust.** A PR whose author is in the trusted-authors set
-  (`lib/trusted_authors`) is shown as above. For any other author, the PR line
-  ends with `— untrusted author @<login>`. In `--verbose`, its message or body
-  is shown inside a fenced block labelled as untrusted author content, never
-  as plain report text.
+- **Author trust.** Everything the report displays comes from a trusted
+  author, or the run aborts:
+
+  | Author | Rule |
+  | --- | --- |
+  | PR author (feature and dependency-update PRs; covers the PR title, squash message and merge-PR body) | Must be trusted. Otherwise the command fails, naming the PR and the login. |
+  | Author of an epic shown as a group heading | Must be trusted. Otherwise the command fails, naming the epic and the login. |
+  | Author of the issue a PR tracks | Not checked: only its parent link is used, and setting that needs write access. |
+  | Git author of a commit | Not checked: unverified metadata. PR commits are covered by the PR author, and direct commits are already flagged under Unlinked. |
+  | Author of a release tracking issue or `release/*` PR (5.1) | An untrusted one is ignored, and the in-flight line does not fire. |
+
+  PRs come only from trusted authors, so an untrusted PR or epic author is a
+  security anomaly, not bad data. It never goes to Unlinked.
+- **The trust list is required.** It comes from `load_trusted_authors()`
+  (the `trusted_authors` stanza in the identities file). If it is missing,
+  the command fails with the library's `TrustedAuthorsNotConfiguredError`.
+  There is no default: without the list, nothing is trusted and nothing is
+  reported.
+- **One shared comparison.** `lib/trusted_authors` has a loader but no
+  comparison helper yet. The core task adds one there (for example
+  `TrustedAuthors.is_trusted(login)`), so every consumer applies the same
+  rule rather than reimplementing it. The rule: strip only a leading `app/`;
+  a `<login>[bot]` login is trusted only if `<login>` is in the `agents`
+  list, never by matching the `human` list; every match is exact and
+  case-sensitive.
 
 ### 5.6 Org mode
 
@@ -199,10 +237,14 @@ Single repo, terse (the default):
 
 ### 5.7 Private content
 
-- Whatever the mode, every block for a private repo, every summary table row
-  for one, and every epic heading whose epic lives in a private home is
-  marked `(private)`. This includes a public repo's PR whose tracked issue
-  belongs to a private epic.
+- Whatever the mode, anything resolved from a private repo or a private
+  epic home is marked `(private)` wherever it appears: a repo block, a
+  summary table row, an epic heading, and a ref inside an Unlinked reason.
+  This includes a public repo's PR whose tracked issue belongs to a private
+  epic.
+- `--repo` naming a private repo, or running inside a private repo's
+  checkout, is allowed without `--include-private`, because the caller named
+  that repo explicitly. Its output is still marked.
 - `--help` and the CLI overview entry state the rule: output marked
   `(private)` must not be relayed into public artifacts.
 
@@ -232,11 +274,20 @@ vrg-unreleased [--repo OWNER/NAME | --org [ORG] [--include-private]]
 - Tests fake GitHub by patching `lib/github.py` and `epics` functions, as the
   existing report tests do. They cover each group, merge-commit PRs, direct
   commits, an archive parent landing in Unlinked, multiple tracking refs and
-  a missing tracking issue landing in Unlinked, no release, nothing pending,
-  and a failed lookup that aborts. One
-  test uses the real post-release shape: two `release/*` merge commits, each
-  with its inner commit, past the boundary tag and nothing else. The expected
-  result is "nothing unreleased".
+  a missing tracking issue landing in Unlinked, a subject `(#N)` whose PR did
+  not produce the commit, a deps branch without the label, no release,
+  nothing pending, and a failed lookup that aborts. One test uses the real
+  post-release shape: only the `release/post-*` merge commit and its bump
+  commit past `vX.Y.Z`. The expected result is "nothing unreleased".
+- The security controls have named tests:
+  - private repos excluded without `--include-private`, and included and
+    marked with it;
+  - a public repo's PR under a private epic, marked;
+  - an untrusted PR author and an untrusted epic author, each aborting;
+  - a missing trust list, aborting;
+  - an untrusted release tracking issue, ignored by the in-flight check;
+  - the `is_trusted()` rules (`app/` prefix, `[bot]` against the `agents`
+    list only, exact case-sensitive match).
 
 ## 7. Delivery
 
