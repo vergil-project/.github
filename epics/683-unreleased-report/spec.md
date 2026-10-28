@@ -60,7 +60,8 @@ following each PR to its issue and epic by hand.
   partial report as if it were whole (CLAUDE.md: no silent failures).
 - **Aborting on bad data.** Bad data in a PR is not a failed lookup. A PR
   body with more than one tracking ref (`extract_tracking_ref` raises), a
-  tracking ref to an issue that doesn't exist (404), or a commit subject
+  tracking ref or parent link to an issue that doesn't exist (404 or 410), or
+  a commit subject
   naming a PR that doesn't exist (5.2), is listed under Unlinked with its
   reason, and the run goes on. An untrusted PR or epic author is
   not bad data: it aborts (5.5).
@@ -115,6 +116,10 @@ boundary (`lib/changelog.py`, `configs/cliff.toml`).
   never counts toward the PR count, the "nothing unreleased" check or the
   org-mode age. Straight after a release, the report must say "nothing
   unreleased".
+- **Hidden work is always visible.** Whenever any release-machinery PRs were
+  excluded, the header carries one line counting them:
+  `<k> release-machinery PR(s) hidden; --show-release-prs to list`. A PR can't
+  be quietly hidden just by its branch name.
 - **`--show-release-prs`** lists them anyway, for diagnosis, in a
   `Release machinery` group after every other group. They still don't count
   toward the PR count, the "nothing unreleased" check or the age. The flag is
@@ -124,7 +129,11 @@ boundary (`lib/changelog.py`, `configs/cliff.toml`).
   `merge_commit_sha` is this commit. Otherwise, as for a commit whose subject
   has no PR number, the commit is looked up with
   `repos/{repo}/commits/{sha}/pulls`. Only if that finds nothing is it listed
-  as a **direct commit** (see 5.4). A parsed PR number that doesn't exist
+  as a **direct commit** (see 5.4). A rebase-merged PR (rebase merges are
+  allowed fleet-wide) puts several commits on `develop`, with its merge
+  commit SHA being only the last of them. That run is recognised and
+  listed as one entry with the PR's title, never as direct commits. A parsed
+  PR number that doesn't exist
   (404) is bad data, not a failed lookup: the commit goes on to the same
   fallback.
 
@@ -158,7 +167,7 @@ boundary (`lib/changelog.py`, `configs/cliff.toml`).
 - Each Unlinked entry gives its reason in a short suffix
   (`— no tracking ref`, `— multiple tracking refs`, `— tracking issue not
   found`, `— tracking issue author not trusted`, `— issue has no epic`,
-  `— parent <ref> is not an epic`,
+  `— parent <ref> is not an epic`, `— parent <ref> not found`,
   `— deps branch without label`, `— direct commit`), because an unlinked change is worth a second
   look in an org that tracks everything.
 

@@ -42,11 +42,13 @@ pytest with `unittest.mock.patch`.
   `Unlinked`, then `Release machinery` (only with `--show-release-prs`).
 - Unlinked reasons, verbatim: `— no tracking ref`, `— multiple tracking refs`,
   `— tracking issue not found`, `— tracking issue author not trusted`,
-  `— issue has no epic`,
+  `— issue has no epic`, `— parent <ref> not found`,
   `— parent <ref> is not an epic`, `— deps branch without label`,
   `— direct commit`.
 - In-flight line, verbatim: `release in flight (<ref>): results may be
   inconsistent until it finishes`.
+- Hidden-count line, verbatim: `<k> release-machinery PR(s) hidden;
+  --show-release-prs to list`, shown whenever `<k>` > 0 and the flag is off.
 
 ## Review Focus
 
@@ -194,7 +196,10 @@ when the value is the sentinel `NOT_FOUND`, raises the value itself when it
 is a `BaseException` instance, and fails the test on any unrouted call. An
 autouse fixture in the module calls `github.repo_visibility.cache_clear()`
 before each test, and every test that touches visibility patches
-`github.is_public` explicitly. Every later task reuses both.
+`github.is_public` explicitly. The helper also patches `github.graphql` and
+`github.read_output` to fail the test on any call not routed (or patched
+away, as `epics.parent_of` and `github.repo_exists` are in Task 4's tests), so
+no test can reach real `gh`. Every later task reuses both.
 
 ```python
 def test_newest_release_orders_numerically() -> None:
@@ -298,11 +303,14 @@ Tidy names, duplication and structure without changing behaviour, then re-run `v
 - Consumes: `linkage.extract_merge_pr(subject)`, `release.is_release_branch`,
   `TrustedAuthors.is_trusted`, Task 2's `UnreleasedError`.
 - Produces:
-  - `@dataclass(frozen=True) class Change: sha: str; merged_at: str; subject: str; message_body: str; pr: dict[str, Any] | None`
-    (`pr` is the REST pull object, or None for a direct commit)
+  - `@dataclass(frozen=True) class Change: sha: str; merged_at: str; subject: str; message_body: str; is_merge: bool; rebased: bool; pr: dict[str, Any] | None`
+    (`is_merge` is `len(parents) >= 2`; `rebased` marks a collapsed
+    rebase-merged run; `pr` is the REST pull object, or None for a direct
+    commit)
   - `mainline(commits: list[dict[str, Any]]) -> list[tuple[dict[str, Any], frozenset[str]]]`:
     first-parent commits oldest first, each with the SHAs it brings in
-  - `resolve_pr(repo: str, commit: dict[str, Any]) -> dict[str, Any] | None`
+  - `resolve_pr(repo: str, commit: dict[str, Any], later: frozenset[str]) -> dict[str, Any] | None`
+    (`later` is the mainline SHAs after this commit)
   - `class UntrustedAuthorError(UnreleasedError)`, whose message names the
     item and the login
   - `changes(repo: str, commits: list[dict[str, Any]], trust: TrustedAuthors) -> tuple[list[Change], list[Change]]`:
@@ -314,6 +322,7 @@ Endpoint calls: `read_json("api", f"repos/{repo}/pulls/{n}")` and
 **The mainline algorithm** (not determined by the signature):
 
 ```text
+if commits is empty: return []        (nothing past the merge base is valid)
 S   = {c.sha for c in commits}
 tip = the single sha in S that is no commit's parent within S
       (zero or several → raise UnreleasedError("compare range has no single tip"))
@@ -349,6 +358,10 @@ def test_stacked_branches_share_commits() -> None:
     assert [(c["sha"], owned) for c, owned in main] == [
         ("m1", frozenset({"a1"})), ("m2", frozenset({"b1"}))]
 
+def test_empty_range() -> None:
+    assert unreleased.mainline([]) == []
+    assert unreleased.changes("o/r", [], _TRUST) == ([], [])
+
 def test_mainline_rejects_two_tips() -> None:
     with pytest.raises(unreleased.UnreleasedError, match="single tip"):
         unreleased.mainline([_commit("a", ["base"], "x"), _commit("b", ["base"], "y")])
@@ -356,18 +369,18 @@ def test_mainline_rejects_two_tips() -> None:
 def test_subject_pr_with_matching_merge_sha() -> None:
     routes = {"repos/o/r/pulls/10": _pr(10, merge_commit_sha="a")}
     with _fake_github(routes):
-        assert unreleased.resolve_pr("o/r", _commit("a", ["base"], "feat: x (#10)"))["number"] == 10
+        assert unreleased.resolve_pr("o/r", _commit("a", ["base"], "feat: x (#10)"), frozenset())["number"] == 10
 
 def test_subject_pr_with_other_merge_sha_falls_back() -> None:
     routes = {"repos/o/r/pulls/10": _pr(10, merge_commit_sha="zzz"),
               "repos/o/r/commits/a/pulls": [_pr(12, merge_commit_sha="a")]}
     with _fake_github(routes):
-        assert unreleased.resolve_pr("o/r", _commit("a", ["base"], "fix: y (#10)"))["number"] == 12
+        assert unreleased.resolve_pr("o/r", _commit("a", ["base"], "fix: y (#10)"), frozenset())["number"] == 12
 
 def test_subject_pr_404_falls_back_to_direct_commit() -> None:
     routes = {"repos/o/r/pulls/10": NOT_FOUND, "repos/o/r/commits/a/pulls": []}
     with _fake_github(routes):
-        assert unreleased.resolve_pr("o/r", _commit("a", ["base"], "fix: y (#10)")) is None
+        assert unreleased.resolve_pr("o/r", _commit("a", ["base"], "fix: y (#10)"), frozenset()) is None
 
 def test_post_release_shape_is_nothing_unreleased() -> None:
     commits = [_commit("bump", ["v-tag"], "chore: bump version"),
@@ -392,6 +405,16 @@ def test_prless_merge_lists_owned_commits() -> None:
         counted, _ = unreleased.changes("o/r", commits, _TRUST)
     assert [(c.sha, c.pr) for c in counted] == [("m", None), ("b1", None)]
 
+def test_rebase_merged_pr_is_one_entry() -> None:
+    commits = [_commit("r1", ["base"], "feat: part 1"),
+               _commit("r2", ["r1"], "feat: part 2"),
+               _commit("r3", ["r2"], "feat: part 3")]
+    pr = _pr(20, merge_commit_sha="r3", title="feat: three-part change")
+    routes = {"repos/o/r/commits/r1/pulls": [pr]}
+    with _fake_github(routes):
+        counted, _ = unreleased.changes("o/r", commits, _TRUST)
+    assert [(c.sha, c.rebased, c.pr["number"]) for c in counted] == [("r3", True, 20)]
+
 def test_untrusted_pr_author_aborts() -> None:
     routes = {"repos/o/r/pulls/10": _pr(10, merge_commit_sha="a", author="example-stranger")}
     with _fake_github(routes), pytest.raises(unreleased.UntrustedAuthorError, match="#10.*example-stranger"):
@@ -400,7 +423,7 @@ def test_untrusted_pr_author_aborts() -> None:
 
 `_pr(number, *, merge_commit_sha, head="feature/x", author="example-agent[bot]",
 labels=(), body="Ref #1", title=None, merged_at="2026-10-28T00:00:00Z")`
-builds the REST pull shape.
+builds the REST pull shape, with `base.ref` set to `develop`.
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -411,10 +434,16 @@ Expected: FAIL with `AttributeError` for `mainline`, `resolve_pr` and
 - [ ] **Step 3: Implement**
 
 `resolve_pr` follows spec §5.2: accept the subject's PR only when
-`merge_commit_sha == commit sha`, then try `commits/{sha}/pulls` for the first
-entry with that `merge_commit_sha`, else None. A 404 on `pulls/{n}` falls
-through, and any other error propagates. `changes` runs `mainline`, resolves
-each mainline commit, checks every resolved PR's `user.login` with
+`merge_commit_sha == commit sha`, then try `commits/{sha}/pulls`. From that
+list it takes the first entry with that `merge_commit_sha`, or failing that a
+merged PR with base `develop` whose `merge_commit_sha` is in `later` (a
+rebase merge), else None. A 404 on `pulls/{n}` falls through, and any other
+error propagates. `changes` runs `mainline` and resolves each mainline commit.
+When the PR's `merge_commit_sha` is a later mainline commit, every mainline
+commit from this one through that one collapses into a single `Change` with
+`sha` set to the PR's `merge_commit_sha` and `rebased=True`, and the walk
+resumes after it. The renderer uses PR text when `is_merge or rebased`.
+`changes` also checks every resolved PR's `user.login` with
 `is_trusted` (raising `UntrustedAuthorError`), and routes PRs whose
 `head.ref` is a release branch to `release_machinery`. A mainline merge commit
 with no PR is a direct commit, and so is each commit it owns (oldest first,
@@ -470,7 +499,11 @@ Rules, in order (spec §5.3, §5.4):
 3. head ref starts `deps/update-` → unlinked, `— deps branch without label`.
 4. `extract_tracking_ref(body)`: `ValueError` → `— multiple tracking refs`;
    None → `— no tracking ref`. A bare `#N` resolves in `repo`.
-5. Tracked issue 404: probe its repo with `github.repo_exists(owner, name)`.
+"Gone" below means a `GitHubAPIError` that is a 404
+(`remote_config.is_not_found`) or a 410 (`"410"` in its stderr or stdout),
+tested by a private `_is_gone(exc)`. Any other error propagates.
+
+5. Tracked issue gone: probe its repo with `github.repo_exists(owner, name)`.
    If the repo is visible → `— tracking issue not found`. If it isn't, raise
    `UnreleasedError("cannot read <ref>: its repo is not visible to the App")`,
    because a permission problem must fail the run (spec §4).
@@ -478,6 +511,8 @@ Rules, in order (spec §5.3, §5.4):
    `— tracking issue author not trusted`. `parent_of` is never called for it,
    so neither its native parent nor its `Parent:` body line is followed.
 6. `parent_of` None → `— issue has no epic`.
+6a. Parent issue fetch gone (for example a mistyped `Parent:` line) →
+   `— parent <ref> not found`, with `<ref>` marked ` (private)` as in rule 9.
 7. Parent labels have `epic` and `standing_kind_of` is None → epic. Check the
    epic author with `is_trusted` (raising `UntrustedAuthorError`).
    `epic_private = vis.is_private(<parent owner/repo>)`.
@@ -500,7 +535,14 @@ One test per rule, each asserting the full `Placement`, named:
 - `test_classify_no_tracking_ref`
 - `test_classify_null_body`: a PR built with `body=None` and passed through
   `changes` lands in Unlinked with `— no tracking ref`.
+Every Task 4 test patches `github.repo_exists` and `epics.parent_of`
+explicitly.
+
 - `test_classify_tracking_issue_not_found`: 404, and `repo_exists` is True.
+- `test_classify_tracking_issue_gone_410`: 410, and `repo_exists` is True.
+  Same reason.
+- `test_classify_parent_not_found`: `parent_of` returns `o/r#999`, whose
+  fetch 404s. Expect `— parent o/r#999 not found`.
 - `test_classify_tracking_issue_repo_invisible_aborts`: 404, and
   `repo_exists` is False. Raises `UnreleasedError`.
 - `test_classify_untrusted_tracking_issue_author`: the tracked issue's
@@ -588,6 +630,7 @@ Rendered shape (spec §5.5):
 ```text
 ## <bare>[ (private)] — <n> PRs[ and <d> direct commits] unreleased since <tag> (<YYYY-MM-DD>)[ (tag date; no GitHub Release)]
 [> release in flight (<ref>): results may be inconsistent until it finishes]
+[> <k> release-machinery PR(s) hidden; --show-release-prs to list]
 
 ### <heading>
 - #<N> <title>[ <reason>]
@@ -596,9 +639,9 @@ Rendered shape (spec §5.5):
 ```
 
 - Title: the squash subject with a trailing ` (#N)` removed, or the PR title
-  when the commit is a merge commit (two or more parents).
-- Verbose detail: `message_body` for a squash, the PR `body` for a merge
-  commit. Omit it when it's empty.
+  when `change.is_merge or change.rebased`. Never infer this from the subject.
+- Verbose detail: `message_body` for a squash, the PR `body` when
+  `change.is_merge or change.rebased`. Omit it when it's empty.
 - Nothing pending: `## <bare>[ (private)] — nothing unreleased since <tag> (<date>)`.
 - No release: `## <bare>[ (private)] — no release yet`.
 - Singular forms: `1 PR`, `1 direct commit`.
@@ -608,6 +651,9 @@ Rendered shape (spec §5.5):
 - `test_render_spec_example`: a `RepoReport` built directly with the five PRs
   of spec §5.5. Assert that `render_repo(..., verbose=False,
   show_release_prs=False)` equals the spec's block exactly.
+- `test_render_title_uses_is_merge_not_subject`: a squash whose subject
+  starts with "Merge pull request" keeps that subject as its title, while a
+  merge commit with an edited subject shows its PR title.
 - `test_render_verbose_indents_body`
 - `test_render_verbose_null_body_merge_pr`: a merge-commit PR whose body was
   `null` renders its line with no detail.
@@ -616,9 +662,17 @@ Rendered shape (spec §5.5):
 - `test_render_private_repo_header`
 - `test_render_in_flight_line`
 - `test_render_tag_date_fallback`
-- `test_render_release_machinery_only_with_flag`: absent by default. With
-  the flag it appears last, and the header count is unchanged.
+- `test_render_release_machinery_only_with_flag`: absent by default, but the
+  header carries `> 1 release-machinery PR(s) hidden; --show-release-prs to list`.
+  With the flag the group appears last and the PR count is unchanged.
+- `test_render_hidden_line_after_nothing_unreleased`: straight after a
+  release, the "nothing unreleased" header is followed by the hidden-count
+  line.
 - `test_render_epic_groups_ordered_by_first_merge`
+- `test_gather_repo_empty_range_is_nothing_unreleased`: the compare returns
+  no commits (`total_commits: 0`) and a trusted release tracking issue is
+  open. The report has no groups and `in_flight` set, and renders the
+  "nothing unreleased" header followed by the in-flight line.
 - `test_gather_repo_no_release_skips_compare`: the fake has no compare route,
   so a compare call would fail the test.
 - `test_gather_repo_end_to_end`: tags, release, compare (one squash PR under an
@@ -679,7 +733,8 @@ report-ready notes)."
 Flow: load the trust list first, so a missing one fails before any GitHub
 call. Resolve the repo (`--repo`, or `github.current_repo()`). Then, inside
 `github.target_org(owner)`, gather and print. Catch
-`TrustedAuthorsNotConfiguredError` and `UnreleasedError` (which includes
+`TrustedAuthorsNotConfiguredError`, a `ValueError` from the
+`load_trusted_authors()` call alone (malformed list), and `UnreleasedError` (which includes
 `UntrustedAuthorError`), print `vrg-unreleased: <message>` to stderr and
 return 1. Handle `MissingGitHubTokenError` and `NoInstallationError` as
 `vrg_roadmap.py` does. Let everything else propagate.
@@ -689,6 +744,9 @@ return 1. Handle `MissingGitHubTokenError` and `NoInstallationError` as
 - `test_missing_trust_list_fails_before_github`: patch `load_trusted_authors`
   to raise and `gather_repo` to fail if called. Expect exit 1, with stderr
   containing `vrg-unreleased:`.
+- `test_invalid_trust_list_exits_1`: `load_trusted_authors` raises
+  `ValueError("trusted_authors: bad entry")`. Expect exit 1, a clean
+  `vrg-unreleased:` line, and no traceback.
 - `test_untrusted_author_exits_1`: `gather_repo` raises
   `UntrustedAuthorError("PR #10 by example-stranger")`. Expect exit 1, with
   stderr naming both.
@@ -799,7 +857,10 @@ when its list is empty.
   `gather_org` raises.
 - CLI: `test_org_flag_defaults_to_current_owner` (`--org` with no value uses
   the owner of `github.current_repo()`), `test_include_private_requires_org`
-  (exit 1), and `test_org_and_repo_mutually_exclusive` (exit 1).
+  (exit 1, `--include-private` alone), `test_include_private_with_bare_org`
+  (`--include-private --org` runs org mode), and
+  `test_org_and_repo_mutually_exclusive` (exit 1, pinned to the bare form
+  `--org --repo o/r` as well as `--org o --repo o/r`).
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -807,7 +868,10 @@ Run: `vrg-container-run -- vrg-validate`
 Expected: FAIL with `AttributeError` for `gather_org` and `render_org`, and
 the CLI tests fail on the unknown `--org`.
 
-- [ ] **Step 3: Implement `gather_org` and `render_org`, and add `--org [ORG]` (`nargs="?"`, `const=""`) and `--include-private` to the command, then update the overview's Args row and paragraph**
+- [ ] **Step 3: Implement `gather_org` and `render_org`, and add `--org [ORG]` (`nargs="?"`, `const=""`, `default=None`) and `--include-private` to the command, then update the overview's Args row and paragraph**
+
+Every org-mode check uses `args.org is not None`, never truthiness, because
+a bare `--org` gives the falsy `""`.
 
 - [ ] **Step 4: Run to verify they pass, on every interpreter**
 
