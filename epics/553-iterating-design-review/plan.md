@@ -22,7 +22,7 @@ and `paad:alignment` 2.0.2; `vrg-security-record` and `vrg-trusted-authors`
 **Planning issue:** vergil-project/.github#469 (review history is in its
 comments)
 
-**Status:** draft, in design review
+**Status:** approved
 
 **Shape:** an epic-level plan. Each numbered task is **one issue and one PR in
 the repo named in its heading**, with paths relative to that repo's root.

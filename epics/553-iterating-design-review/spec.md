@@ -5,7 +5,7 @@
   comments)
 - **Umbrella:** vergil-project/.github#500 (child C). Child F depends on this
   epic.
-- **Status:** draft, in design review
+- **Status:** approved
 - **Brainstorm source:** none. The umbrella spec (§3.1, §3.2, §4.C) settled
   the design, so the human skipped the brainstorm.
 
