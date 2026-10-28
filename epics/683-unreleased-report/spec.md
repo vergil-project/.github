@@ -168,7 +168,7 @@ Markdown on stdout, the same style as `vrg-roadmap` and `vrg-activity-log`.
 Single repo, terse (the default):
 
 ```text
-## vergil-tooling — 6 PRs unreleased since v2.1.278 (2026-10-28)
+## vergil-tooling — 5 PRs unreleased since v2.1.278 (2026-10-28)
 
 ### Epic vergil-project/.github#573: Several advisories per issue
 - #712 feat(security): retarget accepts several --to refs
