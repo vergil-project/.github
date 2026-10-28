@@ -94,11 +94,13 @@ The tasks group into the two implementation issues of spec §7, each one PR:
 ### Task 1: Shared trust comparison
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/trusted_authors.py` (the `TrustedAuthors`
   dataclass)
 - Test: `tests/vergil_tooling/test_trusted_authors.py`
 
 **Interfaces:**
+
 - Produces: `TrustedAuthors.is_trusted(self, login: str) -> bool`
 
 - [ ] **Step 1: Write the failing tests**
@@ -155,10 +157,12 @@ Tidy names, duplication and structure without changing behaviour, then re-run `v
 ### Task 2: Release boundary and in-flight check
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/unreleased.py`
 - Create: `tests/vergil_tooling/test_unreleased.py`
 
 **Interfaces:**
+
 - Consumes: `github.read_json(*args)`, `github.read_json_paginated(endpoint,
   key=None)`, `github.GitHubAPIError`, `remote_config.is_not_found(exc)`,
   `release.is_release_tracking_issue(title, body)`,
@@ -296,10 +300,12 @@ Tidy names, duplication and structure without changing behaviour, then re-run `v
 ### Task 3: Partition the compare range into PRs
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/unreleased.py`
 - Test: `tests/vergil_tooling/test_unreleased.py`
 
 **Interfaces:**
+
 - Consumes: `linkage.extract_merge_pr(subject)`, `release.is_release_branch`,
   `TrustedAuthors.is_trusted`, Task 2's `UnreleasedError`.
 - Produces:
@@ -471,10 +477,12 @@ Tidy names, duplication and structure without changing behaviour, then re-run `v
 ### Task 4: Classify each change into a group
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/unreleased.py`
 - Test: `tests/vergil_tooling/test_unreleased.py`
 
 **Interfaces:**
+
 - Consumes: `linkage.extract_tracking_ref(text)` (raises `ValueError` on
   several refs), `epics.parent_of(IssueRef) -> IssueRef | None`,
   `epics.IssueRef`, `epics.standing_kind_of(labels)`, `epics.ADHOC`,
@@ -494,6 +502,7 @@ tracked issue (existence) and the parent epic (`title`, `labels`,
 `user.login`).
 
 Rules, in order (spec §5.3, §5.4):
+
 1. `change.pr is None` → unlinked, `— direct commit`.
 2. `dependency-update` label → deps.
 3. head ref starts `deps/update-` → unlinked, `— deps branch without label`.
@@ -516,7 +525,7 @@ tested by a private `_is_gone(exc)`. Any other error propagates.
    does. If the repo is not visible, raise
    `UnreleasedError("cannot read <ref>: its repo is not visible to the App")`.
    If it is visible → `— parent <ref> not found`, with `<ref>` marked
-   ` (private)` as in rule 9. `vis.is_private` is never called on a repo the
+   the `(private)` marker as in rule 9. `vis.is_private` is never called on a repo the
    probe hasn't confirmed.
 7. Parent labels have `epic` and `standing_kind_of` is None → epic. Check the
    epic author with `is_trusted` (raising `UntrustedAuthorError`).
@@ -527,7 +536,7 @@ tested by a private `_is_gone(exc)`. Any other error propagates.
    `name == <bare repo>`), and in both cases the parent's owner equals the
    repo's owner → adhoc.
 9. Otherwise → unlinked, `— parent <ref> is not an epic`, where `<ref>` is the
-   parent's `slug` followed by ` (private)` when
+   parent's `slug` followed by the `(private)` marker when
    `vis.is_private(<parent owner/repo>)`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -615,10 +624,12 @@ Tidy names, duplication and structure without changing behaviour, then re-run `v
 ### Task 5: Assemble and render a repo report
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/unreleased.py`
 - Test: `tests/vergil_tooling/test_unreleased.py`
 
 **Interfaces:**
+
 - Consumes: Tasks 2–4.
 - Produces:
   - `@dataclass(frozen=True) class Entry: change: Change; placement: Placement`
@@ -631,7 +642,7 @@ Tidy names, duplication and structure without changing behaviour, then re-run `v
     (no release → empty groups, and no compare call)
   - `render_repo(report: RepoReport, *, verbose: bool, show_release_prs: bool) -> str`
 
-Group headings: `Epic <slug>: <title>` (with ` (private)` appended when
+Group headings: `Epic <slug>: <title>` (with the `(private)` marker appended when
 `epic_private`), `Ad-hoc`, `Dependency updates`, `Unlinked`,
 `Release machinery`. Epic groups are ordered by their first entry's
 `merged_at`. Entries keep merge order within a group.
@@ -653,7 +664,7 @@ A direct commit is rendered by short SHA and reason only. Its subject and
 body are never printed, not even with `--verbose`, because no trusted author
 stands behind them (spec §5.5).
 
-- Title: the squash subject with a trailing ` (#N)` removed, or the PR title
+- Title: the squash subject with its trailing `(#N)` removed, or the PR title
   when `change.is_merge or change.rebased`. Never infer this from the subject.
 - Verbose detail: `message_body` for a squash, the PR `body` when
   `change.is_merge or change.rebased`. Omit it when it's empty.
@@ -730,6 +741,7 @@ Tidy names, duplication and structure without changing behaviour, then re-run `v
 ### Task 6: The command, single-repo mode
 
 **Files:**
+
 - Create: `src/vergil_tooling/bin/vrg_unreleased.py`
 - Modify: `pyproject.toml` (`[project.scripts]`: `vrg-unreleased = "vergil_tooling.bin.vrg_unreleased:main"`)
 - Modify: `docs/site/docs/reference/cli-tools-overview.md` (a new
@@ -737,6 +749,7 @@ Tidy names, duplication and structure without changing behaviour, then re-run `v
 - Test: `tests/vergil_tooling/test_vrg_unreleased.py`
 
 **Interfaces:**
+
 - Consumes: `unreleased.gather_repo`, `unreleased.render_repo`,
   `unreleased.Visibility`, `unreleased.UnreleasedError`,
   `trusted_authors.load_trusted_authors()`,
@@ -788,6 +801,7 @@ The entry-point test and the overview test fail as well until Step 3.
 - [ ] **Step 3: Implement `main`, add the entry point and the overview section**
 
 Use the attribute table of `vrg-roadmap`:
+
 - Source: `vergil_tooling.bin.vrg_unreleased`.
 - Args: `--repo OWNER/NAME`, `--verbose`, `--show-release-prs`.
 - Preconditions: GitHub App credentials for the target org, and the
@@ -819,12 +833,14 @@ Issue A ends here: hand off with `vrg-pr-workflow report-ready`.
 ### Task 7: Org mode (Issue B)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/unreleased.py`
 - Modify: `src/vergil_tooling/bin/vrg_unreleased.py`
 - Modify: `docs/site/docs/reference/cli-tools-overview.md`
 - Test: `tests/vergil_tooling/test_unreleased.py`, `tests/vergil_tooling/test_vrg_unreleased.py`
 
 **Interfaces:**
+
 - Consumes: `github.list_org_repos(org) -> list[str]` (bare names,
   non-archived), `epics.is_managed_repo(repo)`,
   `read_json("api", f"repos/{repo}/branches/develop")` (404 means no
@@ -872,7 +888,7 @@ rather than the current checkout's org.
 - `test_gather_org_excludes_private_by_default`: three repos, one private.
   The private one is never gathered.
 - `test_gather_org_include_private_marks`: with `include_private=True`, the
-  private repo's row and block carry ` (private)`.
+  private repo's row and block carry the `(private)` marker.
 - `test_gather_org_skips_unmanaged_and_no_develop`: assert that the calls
   made use the qualified strings (`is_managed_repo("o/a")` and
   `repos/o/b/branches/develop`), never a bare name.
@@ -880,7 +896,7 @@ rather than the current checkout's org.
 - `test_render_org_trailing_lines`
 - `test_render_org_trailing_lines_mark_private`: one private repo with
   nothing pending and one private repo with no release both show
-  ` (private)` in their trailing line.
+  the `(private)` marker in their trailing line.
 - `test_render_org_days`: `now` is fixed, giving `3d`.
 - `test_render_org_direct_only_row`: a repo with 0 PRs and 2 direct commits
   shows `0 + 2 direct`.
