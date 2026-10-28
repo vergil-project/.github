@@ -74,9 +74,9 @@ holds the shared doctrine:
 - **§3 Mode 2, autonomous:** a stub saying child D
   (epic vergil-project/.github#568) writes it.
 
-It lives next to `docs/paad-policy.md`. The plugin ships `docs/` (the cached
-plugin directory includes it), and skills already link there
-(`skills/handoff/SKILL.md` → `../../docs/paad-policy.md`). `epic-create` keeps
+It lives next to `docs/paad-policy.md`. The plugin ships `docs/`: the cached
+plugin directory includes it (checked in vergil 2.1.39–2.1.45), so a skill can
+link to `../../docs/paad-review-doctrine.md`. `epic-create` keeps
 only the step-by-step procedure and links to the doctrine for the rules, so
 `epic-create` and D's `issue-implement` share one source.
 
@@ -90,10 +90,10 @@ where noted.
 
 | Step | Today | New |
 |---|---|---|
-| 3 | Write the spec | Write the spec. Its header follows 3.9. |
+| 3 | Write the spec | Write the spec, and commit it. Its header follows 3.9. |
 | 4 | `paad:pushback` once | **Stage 1: spec pushback rounds** (3.3). |
-| 5 | Human review | Human review of the spec (unchanged). |
-| 6 | `superpowers:writing-plans` | Unchanged: one automated pass, no rounds. |
+| 5 | Human review | Human review of the spec. Any edits are committed. |
+| 6 | `superpowers:writing-plans` | One automated pass, no rounds. The plan is committed. |
 | 7 | `paad:alignment` once | **Stage 2: plan pushback rounds**, then **Stage 3: alignment rounds** (3.3). |
 
 The four-stage interaction-doctrine table in `epic-create` becomes:
@@ -103,6 +103,10 @@ The four-stage interaction-doctrine table in `epic-create` becomes:
 | `superpowers:brainstorming` | interactive | Unchanged. |
 | Design review (pushback on the spec, pushback on the plan, alignment) | **human-gated rounds** | A fresh review-only subagent per round. The main session walks the human through the findings, and the human decides every further round. |
 | `superpowers:writing-plans` | automated | Unchanged. |
+
+The commits in steps 3, 5 and 6 are ordinary commits, not round commits, so
+the worktree is clean before each stage's first round (3.5), and their text
+does not count as an earlier round's addition (3.6).
 
 At the end of each stage the human chooses to stop that stage, and the
 pipeline moves to the next one. Stage 3 may change both the spec and the plan,
@@ -118,15 +122,20 @@ each stage.
    with the reviewer prompt (3.4). It runs in the background, because the
    human cares about the result, not the work (umbrella §2.2).
 2. **Check the output** (3.5). A failed check is a broken round (3.5).
-3. **Classify and map severity** (3.6).
+3. **Screen, classify and map severity:** screen every ordinary finding
+   (3.8) first, so a security finding is handled as one in every later step,
+   then classify and map severity (3.6).
 4. **Walk the human through the findings,** one at a time and in severity
    order, the way `paad:pushback` does today: the problem, options from best to
    worst, and a recommendation. "A response is not a decision" applies: a
    question gets an answer and the same options again. Findings mapped to
    **low** are the exception: they are presented together at the end, as one
    batch with the recommended option for each, and the human accepts them or
-   pulls any out for discussion. Each still gets its own decision. Each
-   finding ends as:
+   pulls any out for discussion. Each still gets its own decision. **Known**
+   findings (3.6) keep their earlier decision, cited by the earlier round ID
+   (for example, "known: rejected in S2.3"). They are listed in the same
+   batch, and one is walked through again only if the human pulls it out.
+   Each finding ends as:
    - **accepted:** the main session applies the change;
    - **rejected:** the human gives a reason, and the artifact is not changed;
    - **dropped:** the human gives a reason, or the main session files it in
@@ -176,18 +185,21 @@ The doctrine gives a prompt template. Every reviewer prompt must:
   - skip pushback's report file, and skip alignment's TDD rewrite: instead,
     report each code task that is not in red/green/refactor form as a minor
     finding;
-  - for alignment only: paad 2.0.2's `alignment` has no security routing of
-    its own, so the prompt gives it paad's shared security definition (the one
-    pushback carries) and tells it to write any such finding to
-    `paad/security/alignment-<date>-<topic>.md` after the same `.gitignore`
-    check pushback makes, and to return only a count;
+  - for both skills, one security directive: the prompt gives paad's shared
+    security definition (the one pushback carries) and tells the reviewer to
+    write any such finding to `paad/security/<skill>-<date>-<topic>.md`, after
+    the `.gitignore` check pushback makes, with each finding's paad severity
+    and section reference, and to return only a count. paad
+    2.0.2's `alignment` has no security routing of its own, and `pushback`
+    routes only while writing the report this prompt skips;
   - return the full ranked list with discards;
 - say to review the **whole** artifact, including mechanisms that look like
   recent additions, and that removing a mechanism is a legitimate finding;
 - give the **git history rule** (this resolves umbrella §3.2's open
   provenance point): the reality check reads the recent history of the
   **member repos the artifact names** (their `origin/develop`), for conflicts
-  between the artifact and the code. It must not read the history, diffs or
+  between the artifact and the code. The prompt gives each member repo's
+  absolute local path, and the main session fetches each one before dispatch. It must not read the history, diffs or
   commit messages of the epic's own `epics/<N>-<slug>/` directory, and must not
   read the planning issue. Anchoring on earlier rounds is what §3.1 rules out;
 - pass no information about earlier rounds: no round number, no earlier
@@ -204,7 +216,8 @@ The doctrine gives a prompt template. Every reviewer prompt must:
 Before dispatch, the main session lists the `paad/` of the session's starting
 directory, records the docs worktree's branch and HEAD SHA, and confirms that
 `vrg-git status --porcelain` in the worktree is empty, so a reviewer always
-sees committed text. A dirty worktree at that point (for example, a session
+sees committed text, and that the worktree's `paad/security/` holds nothing
+but its `.gitignore`, so every security file found afterwards is this run's. A dirty worktree at that point (for example, a session
 resumed partway through a walk-through) is shown to the human as a diff. The
 human either commits it as the interrupted round's commit, with its round
 comment, or discards it. After every review, the main session checks
@@ -232,12 +245,15 @@ review, which says nothing about the design. It is never treated as a pass,
 and its findings are not acted on. The main session:
 
 1. reverts anything the reviewer changed, staged or not, in this order:
-   - restores the recorded branch and HEAD SHA if either moved, with
-     `vrg-git switch -C <branch> <sha>` (`reset` is not on the allowlist);
    - runs `vrg-git checkout HEAD -- <file>` for each changed tracked file,
      which restores both the index and the file;
    - runs `vrg-git rm --cached <path>` and then `rm <path>` for each staged
      new file, and `rm` for each untracked path;
+   - then restores the recorded branch and HEAD SHA if either moved, with
+     `vrg-git switch -C <branch> <sha>`, or `vrg-git switch --detach <sha>`
+     for a detached worktree (`reset` is not on the allowlist). Restoring the
+     files first means the switch never meets a local change it would
+     overwrite;
    - confirms `vrg-git status --porcelain` is empty. If it is not, the
      revert has failed, and the main session stops and asks the human.
 
@@ -270,9 +286,12 @@ against:
   `vrg-security-record show <GHSA-id>`, in its terminal only.
 
 Only comments whose author passes `vrg-trusted-authors` count (doctrine §1;
-the command comes from child D, vergil-project/vergil-tooling#3741). Anyone can
-comment on a public issue, and a forged "decision" must not turn a finding into
-a known one.
+the command comes from child D, vergil-project/vergil-tooling#3741). This
+applies to every planning-issue comment the skill reads, not only here: for
+classification, for rebuilding the stage and round count on resume (3.7), and
+for finding a kept scratch copy (3.8). Anyone can comment on a public issue,
+and a forged comment must not turn a finding into a known one or change where
+the pipeline resumes.
 
 A finding is **known** if an earlier round raised it or the human deliberately
 accepted it. It is **repair** if the text it criticises was added by an
@@ -333,11 +352,9 @@ vergil-project/.github#506) and D (vergil-project/vergil-claude-plugin#677). In
 both, mostly-repair rounds recommended *continue* only because some repairs
 were high. Doctrine §1 notes the narrowing and points here.
 
-- *continue* if any **new** finding is high or structural, or if this round's
-  commit changed the artifact materially (an accepted new structural or high
-  finding);
-- otherwise *stop* if the round raised nothing new, or only one or two low
-  findings remain, or more than half the findings are repairs (even when some
+- *continue* if any **new** finding is high or structural;
+- otherwise *stop* if the round raised nothing new, or this round raised only
+  one or two findings, all low, or more than half the findings are repairs (even when some
   are high), or the artifact grew in each of the last three rounds of this
   stage;
 - otherwise *continue*.
@@ -373,7 +390,8 @@ One comment per round on the planning issue, posted with
   pushback, `A` for alignment), paad and mapped severity, classification,
   structural tag, a summary of the claim, the decision, and the reason or
   intake ref.
-- **Discards:** the count and one line each.
+- **Discards:** the count and one line each, except discards withheld by
+  screening (3.8), which appear only as a count.
 - **Security:** the count, how many were accepted, the GHSA IDs this round
   created, and "scratch copy kept" when cleanup did not happen (3.8). No
   titles, descriptions or details.
@@ -396,15 +414,22 @@ the main session therefore moves the round's security files to a **scratch
 copy** and works from there. The copy's path is fixed and derivable from the
 planning issue and the round ID, so a resumed session finds it:
 `${XDG_STATE_HOME:-$HOME/.local/state}/vergil/design-review/<owner>-<repo>-<M>/<round-id>/`,
-created with mode 700, outside any repo. (D's per-round `mktemp -d` suits
+created with mode 700, outside any repo. A round ID used in this path must
+match `^[SPA][0-9]+$`; otherwise the main session refuses and asks the human.
+(D's per-round `mktemp -d` suits
 files that need not survive a pause; these must.) After each move, the main
 session confirms that the resolved path is absolute and outside every repo,
 and that `vrg-git status --porcelain` in the docs worktree is still empty. It
 walks the human through each finding in the terminal, like any other.
 
-**Screening.** Before posting the round comment, the main session screens every
-ordinary finding against paad's shared security definition. A finding that
-qualifies moves to this path, and its summary never reaches the round comment.
+**Screening.** Right after the output checks, before classification and the
+walk-through (3.3 step 3), the main session screens every ordinary finding
+against paad's shared security definition. A finding that qualifies moves to
+this path and is handled as a security finding from then on, so its summary
+never reaches an intake issue, a commit message or the round comment. The
+reviewer's discard lines are screened the same way. A discard that qualifies
+goes to the scratch copy for the human to see in the terminal, and the round
+comment shows only how many discards were withheld.
 This catches anything a reviewer failed to route, alignment's in particular
 (3.4).
 
@@ -443,10 +468,12 @@ link to the planning issue is A's mechanism and is neutral by design.
 
 ### 3.9 No review history in specs and plans
 
-A spec or plan header may carry only: `Epic`, `Planning issue` (with "review
-history is in its comments"), `Umbrella` when there is one, `Status` (one of
-`draft, in design review`, `approved`, or `superseded by <ref>`), and
-`Brainstorm source`. It must not carry:
+A spec or plan header must carry `Planning issue` (with "review history is in
+its comments") and `Status` (one of `draft, in design review`, `approved`, or
+`superseded by <ref>`). Other header fields are free, such as `Epic`,
+`Umbrella`, `Brainstorm source`, or the Goal, Architecture, Tech Stack and
+Spec lines that `superpowers:writing-plans` writes. A spec or plan must not
+carry:
 
 - a `Review:` line, a per-round log, or a count of findings;
 - inline notes saying which round, review or decision produced which text
@@ -553,7 +580,7 @@ security details in any public record.
 |---|---|
 | `vergil-claude-plugin` | `docs/paad-review-doctrine.md`; the `epic-create` rewrite; `docs/paad-policy.md` pointer and register rows; the skills index page; the pipeline description in `CLAUDE.md` |
 | `vergil-project/.github` | this spec and plan; `paad/config/` files only if the fallback is needed (3.11) |
-| `vergil-tooling` | `docs/site/docs/standards/github-issues.md` pipeline steps, and the "Severity" table in `docs/site/docs/guides/security-records.md` replaced by a link to the doctrine (both via the documentation review) |
+| `vergil-tooling` | `docs/site/docs/standards/github-issues.md` pipeline steps; in `docs/site/docs/guides/security-records.md`, the "Severity" table replaced by a link to the doctrine, and the design-review recipe ("Recording findings from a review") brought into line with 3.8 (all via the documentation review) |
 | `docs` | `management/workflow.md` and `management/tools-and-skills.md` (via the documentation review) |
 
 ## 6. Constraints
@@ -568,5 +595,6 @@ security details in any public record.
   §1, §4).
 - Prerequisites from sibling children: the release and deployment of A′'s
   one-to-many security records (vergil-project/vergil-tooling#3733, epic
-  vergil-project/.github#573) for 3.8, and D's `vrg-trusted-authors`
-  (vergil-project/vergil-tooling#3741) for classification (3.6).
+  vergil-project/.github#573; done) for 3.8, and D's `vrg-trusted-authors`
+  (vergil-project/vergil-tooling#3741, deployed by
+  vergil-project/vergil-tooling#3742) for classification (3.6).

@@ -17,7 +17,12 @@ and `paad:alignment` 2.0.2; `vrg-security-record` and `vrg-trusted-authors`
 (vergil-tooling); GitHub issues.
 
 **Spec:** `epics/553-iterating-design-review/spec.md`
-(vergil-project/.github#553; planning issue vergil-project/.github#469)
+(vergil-project/.github#553)
+
+**Planning issue:** vergil-project/.github#469 (review history is in its
+comments)
+
+**Status:** draft, in design review
 
 **Shape:** an epic-level plan. Each numbered task is **one issue and one PR in
 the repo named in its heading**, with paths relative to that repo's root.
@@ -42,8 +47,8 @@ cycle; each checks its text with `vrg-validate` and named content checks.
   spec, plan, PR text or `report-ready` notes; counts and GHSA IDs only (spec
   3.8).
 - **External prerequisites:**
-  - A′'s release and deploy, vergil-project/vergil-tooling#3733, before Task 3
-    merges;
+  - A′'s release and deploy, vergil-project/vergil-tooling#3733: done
+    (closed);
   - D's tooling deployment, vergil-project/vergil-tooling#3742 (which ships
     `vrg-trusted-authors`, vergil-project/vergil-tooling#3741), before Task 3
     merges.
@@ -52,15 +57,16 @@ cycle; each checks its text with `vrg-validate` and named content checks.
   human-gated; the agent never cuts one.
 
 **Order:** Task 1 has no blockers. Task 2 needs Task 1. Task 3 needs Task 2
-and both external prerequisites. Task 4 needs Task 3. Task 5 needs Task 4.
+and vergil-project/vergil-tooling#3742. Task 4 needs Task 3. Task 5 needs Task 4.
 Then the bookends: the documentation review
 (vergil-project/vergil-tooling#3719), then the retrospective
 (vergil-project/.github#555). D's doctrine task
 (vergil-project/vergil-claude-plugin#759) needs Task 2: when Task 2 is filed,
 add a `Blocked-by:` line for it to #759. At the same time, add
 vergil-tooling's `docs/site/docs/guides/security-records.md` "Severity"
-table (to be replaced by a link to doctrine §1.3) to the documentation
-review's (#3719) list of known places.
+table (to be replaced by a link to doctrine §1.3) and its "Recording findings
+from a review" recipe (to match spec 3.8's handling of rejected findings) to
+the documentation review's (#3719) list of known places.
 
 ## Review Focus
 
@@ -107,7 +113,10 @@ below and records the outcome. Below, `<T>` is this task's issue number.
   published `epics/517-security-records/spec.md` and `plan.md`. The session
   starts at the `.github` project root.
 - **Seeded runs:** a second worktree, `.worktrees/issue-<T>-seeded-spike/`,
-  on the local branch `feature/<T>-seeded-spike`. It holds copies of the 517
+  on the local branch `feature/<T>-seeded-spike`, created with
+  `vrg-git worktree add -b feature/<T>-seeded-spike <path> origin/develop`
+  so that it tracks `origin/develop` and `vrg-git` lets it be deleted later
+  without pushing. It holds copies of the 517
   spec and plan, each with one security-shaped weakness added, committed with
   `vrg-commit`. The branch is never pushed, and is deleted with its worktree
   at the end. These runs start from a session at the root of a different
@@ -120,16 +129,17 @@ below and records the outcome. Below, `<T>` is this task's issue number.
   worktree. This task's outcome comment records the final text, which Task 2
   copies into the doctrine verbatim.
 - [ ] Before each run, list the starting directory's `paad/`, record the
-  worktree's branch and HEAD SHA, and confirm `vrg-git status --porcelain` is
-  empty (spec 3.5).
+  worktree's branch and HEAD SHA, confirm `vrg-git status --porcelain` is
+  empty and the worktree's `paad/security/` holds only `.gitignore`, and
+  fetch the member repos the prompt names (spec 3.4, 3.5).
 - [ ] Plain runs, each twice, each with a fresh `general-purpose` subagent:
   spec pushback (the spec), plan pushback (the plan, with the spec as
   context), alignment (both).
 - [ ] Seeded runs, once each: pushback on the seeded spec; alignment on the
   seeded spec and plan.
 - [ ] After each run, apply every spec 3.5 check and record the result per
-  check. Then screen every ordinary finding against paad's shared security
-  definition (spec 3.8), and record separately how many security findings
+  check. Then screen every ordinary finding and every discard line against
+  paad's shared security definition (spec 3.8), and record separately how many security findings
   the reviewer routed and how many screening caught.
 - [ ] Security files: move each run's files to the scratch copy at
   `${XDG_STATE_HOME:-$HOME/.local/state}/vergil/design-review/vergil-project-.github-<T>/<run-id>/`
@@ -142,11 +152,14 @@ below and records the outcome. Below, `<T>` is this task's issue number.
   its findings are recorded or the human has decided.
 - [ ] **Revert drill:** in the seeded-run worktree (on a branch, like a real
   docs worktree), record the branch and HEAD SHA, then make one commit, one
-  unstaged tracked edit, one staged tracked edit, one staged new file and one
-  untracked file. Restore the recorded state with spec 3.5's commands only,
-  in its order: `vrg-git switch -C feature/<T>-seeded-spike <sha>`,
+  unstaged tracked edit to a file that commit also changed, one staged
+  tracked edit, one staged new file and one untracked file. Restore the
+  recorded state with spec 3.5's commands only, in its order:
   `vrg-git checkout HEAD -- <file>`, `vrg-git rm --cached <path>` then
-  `rm <path>`, and `rm <path>`. Confirm the HEAD SHA matches the record and
+  `rm <path>`, `rm <path>`, and last
+  `vrg-git switch -C feature/<T>-seeded-spike <sha>`. Then repeat the drill
+  in the detached plain-run worktree with a commit and one tracked edit,
+  restoring with `vrg-git switch --detach <sha>`. Confirm the HEAD SHA matches the record and
   `vrg-git status --porcelain` is empty. (`vrg-git` on develop allows
   `switch`, `rm` and `checkout`, and denies only `checkout -- .` and
   `checkout -- *`; this drill confirms it in practice.)
@@ -168,7 +181,12 @@ built, before Task 2 starts.
 `paad/config/pushback.md` and `paad/config/alignment.md` in
 `vergil-project/.github`, per spec 3.11, applying only to a prompt that
 carries a review-only marker, and each naming its paad version. Its `Config:`
-line becomes an expected value in doctrine §2.4.
+line becomes an expected value in doctrine §2.4. If it is filed:
+
+- Task 2 gains a `Blocked-by:` line for it;
+- after it merges, Task 1 stays open and re-runs every run with the marker
+  added to the prompt template, then records its outcome as above;
+- Task 2 copies the re-run's prompt, marker included.
 
 ---
 
@@ -226,12 +244,12 @@ Blocked by Task 1.
 
 ### Task 3: Mode 1 in `epic-create` (vergil-claude-plugin, implementation)
 
-Blocked by Task 2, vergil-project/vergil-tooling#3733 and
-vergil-project/vergil-tooling#3742. The new skill reaches every agent VM with
-the first plugin release after this task merges, so it must not merge before
-the commands it uses are deployed: without A′, `--issue` cannot add a second
-advisory to a planning issue, and without `vrg-trusted-authors`,
-classification cannot run. Link all three with `Blocked-by:`.
+Blocked by Task 2 and vergil-project/vergil-tooling#3742. The new skill
+reaches every agent VM with the first plugin release after this task merges,
+so it must not merge before the commands it uses are deployed: without
+`vrg-trusted-authors`, classification and resume cannot run. (A′'s
+`--issue` support, vergil-project/vergil-tooling#3733, is already deployed.)
+Link both with `Blocked-by:`.
 
 **Files:**
 
@@ -247,9 +265,9 @@ classification cannot run. Link all three with `Blocked-by:`.
 - [ ] **"The four-stage interaction doctrine"** becomes "The interaction
   doctrine", with spec 3.2's three-row table. Keep the human-judgment
   principle for brainstorming. For design review, say that findings are
-  walked one at a time, except that findings mapped to low are presented as
-  one batch at the end, each with its own decision recorded (spec 3.3 step
-  4).
+  walked one at a time, except that findings mapped to low, and known
+  findings with their earlier decision cited, are presented as one batch at
+  the end, each with its own decision recorded (spec 3.3 step 4).
 - [ ] **New section "Design review rounds"** before "Workflow": the seven
   steps of spec 3.3, one or two lines each, each linking its doctrine §2
   subsection. It says the reviewer runs in the background and the human
@@ -257,14 +275,16 @@ classification cannot run. Link all three with `Blocked-by:`.
 - [ ] **Workflow:** step 3 adds the spec header rule (spec 3.9, linking
   doctrine §2.8), with its reason; step 4 becomes "Stage 1: spec pushback
   rounds"; step 7 becomes "Stage 2: plan pushback rounds, then Stage 3:
-  alignment rounds"; steps 5 and 6 are unchanged; step 9's advisory handoff
+  alignment rounds"; steps 3, 5 and 6 each commit their output as an
+  ordinary commit, not a round commit (spec 3.2); step 9's advisory handoff
   is unchanged.
 - [ ] **Progress comments:** the stage-boundary list names spec pushback
   done, plan pushback done and alignment done; round comments carry no
   marker lines; when the human stops a stage, a progress comment naming the
   next stage follows the round comment.
-- [ ] **Resuming** (the entry-points table's planning row): rebuild the
-  stage and round count from the latest `Design review: <stage> round <n>`
+- [ ] **Resuming** (the entry-points table's planning row): reading only
+  comments whose author passes `vrg-trusted-authors` (doctrine §1.2), rebuild
+  the stage and round count from the latest `Design review: <stage> round <n>`
   first line, and find any kept scratch copy at the doctrine §2.7 path. If
   the docs worktree is dirty, show the human the diff; the human commits it
   as the interrupted round's commit (with its round comment) or discards it,
@@ -317,8 +337,8 @@ Blocked by Task 4.
   checked" line, findings, discards, security); a progress comment after each stopped stage; every finding not
   addressed ended accepted, rejected or dropped with a reason or an intake
   ref; no security detail in any public record.
-- [ ] Check the spec and plan headers carry only the fields of doctrine §2.8
-  and no review history.
+- [ ] Check the spec and plan headers carry the `Planning issue` and `Status`
+  fields of doctrine §2.8, and that neither document carries review history.
 - [ ] Record whether a broken round, a resumed session, a security finding,
   or a classification against an untrusted comment happened (Review Focus 1,
   2, 4 and 5), and for each that did not, say it was not exercised.
