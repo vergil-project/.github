@@ -157,7 +157,8 @@ boundary (`lib/changelog.py`, `configs/cliff.toml`).
 - Within a group, PRs are in merge order.
 - Each Unlinked entry gives its reason in a short suffix
   (`— no tracking ref`, `— multiple tracking refs`, `— tracking issue not
-  found`, `— issue has no epic`, `— parent <ref> is not an epic`,
+  found`, `— tracking issue author not trusted`, `— issue has no epic`,
+  `— parent <ref> is not an epic`,
   `— deps branch without label`, `— direct commit`), because an unlinked change is worth a second
   look in an org that tracks everything.
 
@@ -198,7 +199,7 @@ Single repo, terse (the default):
   | --- | --- |
   | PR author (feature and dependency-update PRs; covers the PR title, squash message and merge-PR body) | Must be trusted. Otherwise the command fails, naming the PR and the login. |
   | Author of an epic shown as a group heading | Must be trusted. Otherwise the command fails, naming the epic and the login. |
-  | Author of the issue a PR tracks | Not checked: only its parent link is used, and setting that needs write access. |
+  | Author of the issue a PR tracks | Must be trusted for its parent link to be used, because that link is data read from the issue. An untrusted one is ignored, like an untrusted comment: the PR goes to Unlinked (`— tracking issue author not trusted`) and the run goes on, since anyone may legitimately open an issue. |
   | Git author of a commit | Not checked: unverified metadata. PR commits are covered by the PR author, and direct commits are already flagged under Unlinked. |
   | Author of a release tracking issue or `release/*` PR (5.1) | An untrusted one is ignored, and the in-flight line does not fire. |
 
@@ -284,6 +285,8 @@ vrg-unreleased [--repo OWNER/NAME | --org [ORG] [--include-private]]
     marked with it;
   - a public repo's PR under a private epic, marked;
   - an untrusted PR author and an untrusted epic author, each aborting;
+  - a tracked issue by an untrusted author, whose parent link is not
+    followed (Unlinked);
   - a missing trust list, aborting;
   - an untrusted release tracking issue, ignored by the in-flight check;
   - the `is_trusted()` rules (`app/` prefix, `[bot]` against the `agents`

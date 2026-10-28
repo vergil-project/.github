@@ -41,7 +41,8 @@ pytest with `unittest.mock.patch`.
 - Group order: epics (by earliest merge), `Ad-hoc`, `Dependency updates`,
   `Unlinked`, then `Release machinery` (only with `--show-release-prs`).
 - Unlinked reasons, verbatim: `— no tracking ref`, `— multiple tracking refs`,
-  `— tracking issue not found`, `— issue has no epic`,
+  `— tracking issue not found`, `— tracking issue author not trusted`,
+  `— issue has no epic`,
   `— parent <ref> is not an epic`, `— deps branch without label`,
   `— direct commit`.
 - In-flight line, verbatim: `release in flight (<ref>): results may be
@@ -139,7 +140,11 @@ leading ``app/``" sentence to point at `is_trusted`.
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Refactor with the tests green**
+
+Tidy names, duplication and structure without changing behaviour, then re-run `vrg-container-run -- vrg-validate`. Expected: PASS.
+
+- [ ] **Step 6: Commit**
 
 `vrg-commit --type feat --scope trusted-authors --message "add a shared is_trusted comparison"`
 
@@ -173,6 +178,7 @@ Endpoint calls, fixed so tests can fake them:
 | tags | `read_json_paginated(f"repos/{repo}/tags")` |
 | release | `read_json("api", f"repos/{repo}/releases/tags/{tag}")` → `published_at` |
 | tag commit (fallback) | `read_json("api", f"repos/{repo}/commits/{tag}")` → `commit.committer.date` |
+| compare total | `read_json("api", f"repos/{repo}/compare/{tag}...develop?per_page=1")` → `total_commits` |
 | compare | `read_json_paginated(f"repos/{repo}/compare/{tag}...develop", key="commits")` |
 | open issues | `read_json_paginated(f"repos/{repo}/issues?state=open")` (skip items with `pull_request`) |
 | open PRs | `read_json_paginated(f"repos/{repo}/pulls?state=open")` |
@@ -182,10 +188,13 @@ Endpoint calls, fixed so tests can fake them:
 A `_fake_github(routes: dict[str, object])` context manager in the test
 module patches `vergil_tooling.lib.github.read_json` and
 `read_json_paginated`. It looks the call up by endpoint string (the
-`read_json` endpoint is `args[1]`), returns the routed value, raises a routed
+`read_json` endpoint is `args[1]`), and returns the routed value. It raises
 `github.GitHubAPIError(1, ["gh", "api"], stderr="gh: Not Found (HTTP 404)")`
-when the value is the sentinel `NOT_FOUND`, and fails the test on any
-unrouted call. Every later task reuses it.
+when the value is the sentinel `NOT_FOUND`, raises the value itself when it
+is a `BaseException` instance, and fails the test on any unrouted call. An
+autouse fixture in the module calls `github.repo_visibility.cache_clear()`
+before each test, and every test that touches visibility patches
+`github.is_public` explicitly. Every later task reuses both.
 
 ```python
 def test_newest_release_orders_numerically() -> None:
@@ -214,6 +223,18 @@ def test_newest_release_propagates_non_404() -> None:
               "repos/o/r/releases/tags/v1.0.0": github.GitHubAPIError(1, ["gh"], stderr="HTTP 502")}
     with _fake_github(routes), pytest.raises(github.GitHubAPIError):
         unreleased.newest_release("o/r")
+
+def test_pending_commits_complete() -> None:
+    routes = {"repos/o/r/compare/v1.0.0...develop?per_page=1": {"total_commits": 2},
+              "repos/o/r/compare/v1.0.0...develop": [{"sha": "a"}, {"sha": "b"}]}
+    with _fake_github(routes):
+        assert [c["sha"] for c in unreleased.pending_commits("o/r", "v1.0.0")] == ["a", "b"]
+
+def test_pending_commits_truncated_raises() -> None:
+    routes = {"repos/o/r/compare/v1.0.0...develop?per_page=1": {"total_commits": 3},
+              "repos/o/r/compare/v1.0.0...develop": [{"sha": "a"}, {"sha": "b"}]}
+    with _fake_github(routes), pytest.raises(unreleased.UnreleasedError, match="2 of 3"):
+        unreleased.pending_commits("o/r", "v1.0.0")
 
 def test_in_flight_trusted_tracking_issue() -> None:
     routes = {"repos/o/r/issues?state=open": [
@@ -246,8 +267,9 @@ Expected: FAIL with `ModuleNotFoundError: vergil_tooling.lib.unreleased`.
 - [ ] **Step 3: Implement**
 
 `newest_release` matches tag names against `^v(\d+)\.(\d+)\.(\d+)$` and takes
-the max by integer tuple. `pending_commits` is the one compare call (no test
-of its own here; Task 5 exercises it). `in_flight` returns the first trusted
+the max by integer tuple. `pending_commits` reads `total_commits`, fetches
+every page, and raises `UnreleasedError("compare returned <got> of <total>
+commits")` when the counts differ. `in_flight` returns the first trusted
 open release tracking issue, else the first trusted open PR whose head is a
 release branch, else None. An issue takes precedence over a PR.
 
@@ -256,7 +278,11 @@ release branch, else None. An issue takes precedence over a PR.
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Refactor with the tests green**
+
+Tidy names, duplication and structure without changing behaviour, then re-run `vrg-container-run -- vrg-validate`. Expected: PASS.
+
+- [ ] **Step 6: Commit**
 
 `vrg-commit --type feat --scope unreleased --message "find the release boundary and detect an in-flight release"`
 
@@ -292,8 +318,9 @@ S   = {c.sha for c in commits}
 tip = the single sha in S that is no commit's parent within S
       (zero or several → raise UnreleasedError("compare range has no single tip"))
 main = walk parents[0] from tip while the sha is in S; reverse to oldest first
+reach(x) = shas in S reachable from x (inclusive), walking all parents, within S
 for each m in main with len(parents) >= 2:
-    owned(m) = commits in S reachable from parents[1:], stopping at shas in main
+    owned(m) = (union of reach(p) for p in parents[1:]) - reach(parents[0]) - main
 every sha in S must be in main or exactly one owned set,
       else raise UnreleasedError naming the stray sha
 ```
@@ -311,6 +338,16 @@ def test_merge_commit_owns_branch_side() -> None:
                _commit("m", ["a", "b2"], "Merge pull request #11 from o/deps/update-2.1.279")]
     main = unreleased.mainline(commits)
     assert [(c["sha"], owned) for c, owned in main] == [("a", frozenset()), ("m", frozenset({"b1", "b2"}))]
+
+def test_stacked_branches_share_commits() -> None:
+    # deps branch B was cut from deps branch A before A merged
+    commits = [_commit("a1", ["base"], "A 1"),
+               _commit("m1", ["base", "a1"], "Merge pull request #11 from o/deps/a"),
+               _commit("b1", ["a1"], "B 1"),
+               _commit("m2", ["m1", "b1"], "Merge pull request #12 from o/deps/b")]
+    main = unreleased.mainline(commits)
+    assert [(c["sha"], owned) for c, owned in main] == [
+        ("m1", frozenset({"a1"})), ("m2", frozenset({"b1"}))]
 
 def test_mainline_rejects_two_tips() -> None:
     with pytest.raises(unreleased.UnreleasedError, match="single tip"):
@@ -347,6 +384,14 @@ def test_direct_commit_has_no_pr() -> None:
         counted, _ = unreleased.changes("o/r", [_commit("a", ["base"], "hotfix")], _TRUST)
     assert counted[0].pr is None and counted[0].subject == "hotfix"
 
+def test_prless_merge_lists_owned_commits() -> None:
+    commits = [_commit("b1", ["base"], "side 1"),
+               _commit("m", ["base", "b1"], "Merge branch 'x' into develop")]
+    routes = {"repos/o/r/commits/m/pulls": []}
+    with _fake_github(routes):
+        counted, _ = unreleased.changes("o/r", commits, _TRUST)
+    assert [(c.sha, c.pr) for c in counted] == [("m", None), ("b1", None)]
+
 def test_untrusted_pr_author_aborts() -> None:
     routes = {"repos/o/r/pulls/10": _pr(10, merge_commit_sha="a", author="example-stranger")}
     with _fake_github(routes), pytest.raises(unreleased.UntrustedAuthorError, match="#10.*example-stranger"):
@@ -371,16 +416,24 @@ entry with that `merge_commit_sha`, else None. A 404 on `pulls/{n}` falls
 through, and any other error propagates. `changes` runs `mainline`, resolves
 each mainline commit, checks every resolved PR's `user.login` with
 `is_trusted` (raising `UntrustedAuthorError`), and routes PRs whose
-`head.ref` is a release branch to `release_machinery`. `merged_at` is the PR's
+`head.ref` is a release branch to `release_machinery`. A mainline merge commit
+with no PR is a direct commit, and so is each commit it owns (oldest first,
+straight after it), so no commit is hidden. `merged_at` is the PR's
 `merged_at`, or the commit's committer date for a direct commit.
-`subject`/`message_body` split `commit.message` at the first newline.
+`subject`/`message_body` split `commit.message` at the first newline. The PR
+object stored on `Change` is a copy with `body` normalised to `body or ""`
+(REST returns `null` for an empty body), so later code never sees `None`.
 
 - [ ] **Step 4: Run to verify they pass**
 
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Refactor with the tests green**
+
+Tidy names, duplication and structure without changing behaviour, then re-run `vrg-container-run -- vrg-validate`. Expected: PASS.
+
+- [ ] **Step 6: Commit**
 
 `vrg-commit --type feat --scope unreleased --message "partition the unreleased range into PRs"`
 
@@ -396,7 +449,8 @@ Expected: PASS.
 - Consumes: `linkage.extract_tracking_ref(text)` (raises `ValueError` on
   several refs), `epics.parent_of(IssueRef) -> IssueRef | None`,
   `epics.IssueRef`, `epics.standing_kind_of(labels)`, `epics.ADHOC`,
-  `epics.archive_re(epics.ADHOC)`, `github.is_public(name_with_owner)`, Task 3's
+  `epics.archive_re(epics.ADHOC)`, `github.is_public(name_with_owner)`,
+  `github.repo_exists(owner, name)`, Task 3's
   `Change` and `UntrustedAuthorError`.
 - Produces:
   - `GroupKind = Literal["epic", "adhoc", "deps", "unlinked"]`
@@ -416,7 +470,13 @@ Rules, in order (spec §5.3, §5.4):
 3. head ref starts `deps/update-` → unlinked, `— deps branch without label`.
 4. `extract_tracking_ref(body)`: `ValueError` → `— multiple tracking refs`;
    None → `— no tracking ref`. A bare `#N` resolves in `repo`.
-5. Tracked issue 404 → `— tracking issue not found`.
+5. Tracked issue 404: probe its repo with `github.repo_exists(owner, name)`.
+   If the repo is visible → `— tracking issue not found`. If it isn't, raise
+   `UnreleasedError("cannot read <ref>: its repo is not visible to the App")`,
+   because a permission problem must fail the run (spec §4).
+5a. Tracked issue author (`user.login`) fails `is_trusted` →
+   `— tracking issue author not trusted`. `parent_of` is never called for it,
+   so neither its native parent nor its `Parent:` body line is followed.
 6. `parent_of` None → `— issue has no epic`.
 7. Parent labels have `epic` and `standing_kind_of` is None → epic. Check the
    epic author with `is_trusted` (raising `UntrustedAuthorError`).
@@ -438,7 +498,15 @@ One test per rule, each asserting the full `Placement`, named:
 - `test_classify_deps_branch_without_label`
 - `test_classify_multiple_tracking_refs`
 - `test_classify_no_tracking_ref`
-- `test_classify_tracking_issue_not_found`
+- `test_classify_null_body`: a PR built with `body=None` and passed through
+  `changes` lands in Unlinked with `— no tracking ref`.
+- `test_classify_tracking_issue_not_found`: 404, and `repo_exists` is True.
+- `test_classify_tracking_issue_repo_invisible_aborts`: 404, and
+  `repo_exists` is False. Raises `UnreleasedError`.
+- `test_classify_untrusted_tracking_issue_author`: the tracked issue's
+  author is `example-stranger`. Expect Unlinked with
+  `— tracking issue author not trusted`, and assert that `parent_of` was not
+  called.
 - `test_classify_issue_without_epic`
 - `test_classify_finite_epic`
 - `test_classify_untrusted_epic_author_aborts`
@@ -453,7 +521,7 @@ Plus these two:
 ```python
 def test_cross_repo_tracking_ref() -> None:
     change = _change(pr=_pr(5, merge_commit_sha="a", body="Ref o/other#7"))
-    routes = {"repos/o/other/issues/7": {"title": "t", "labels": [], "user": {"login": "x"}},
+    routes = {"repos/o/other/issues/7": {"title": "t", "labels": [], "user": {"login": "example-human"}},
               "repos/o/.github/issues/683": {"title": "Epic: vrg-unreleased", "labels": [{"name": "epic"}],
                                              "user": {"login": "example-agent[bot]"}}}
     with _fake_github(routes), patch("vergil_tooling.lib.epics.parent_of",
@@ -481,7 +549,11 @@ Expected: FAIL with `AttributeError` for `classify`, `Placement` and
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Refactor with the tests green**
+
+Tidy names, duplication and structure without changing behaviour, then re-run `vrg-container-run -- vrg-validate`. Expected: PASS.
+
+- [ ] **Step 6: Commit**
 
 `vrg-commit --type feat --scope unreleased --message "group unreleased PRs by epic"`
 
@@ -537,6 +609,8 @@ Rendered shape (spec §5.5):
   of spec §5.5. Assert that `render_repo(..., verbose=False,
   show_release_prs=False)` equals the spec's block exactly.
 - `test_render_verbose_indents_body`
+- `test_render_verbose_null_body_merge_pr`: a merge-commit PR whose body was
+  `null` renders its line with no detail.
 - `test_render_nothing_unreleased`
 - `test_render_no_release`
 - `test_render_private_repo_header`
@@ -568,7 +642,11 @@ and groups the results.
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Refactor with the tests green**
+
+Tidy names, duplication and structure without changing behaviour, then re-run `vrg-container-run -- vrg-validate`. Expected: PASS.
+
+- [ ] **Step 6: Commit**
 
 `vrg-commit --type feat --scope unreleased --message "render the unreleased report for a repo"`
 
@@ -647,7 +725,11 @@ the `(private)` relay rule as its last sentence.
 Run: `vrg-container-run -- vrg-validate --all-versions`
 Expected: PASS, with 100% branch coverage.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Refactor with the tests green**
+
+Tidy names, duplication and structure without changing behaviour, then re-run `vrg-container-run -- vrg-validate`. Expected: PASS.
+
+- [ ] **Step 6: Commit**
 
 `vrg-commit --type feat --scope unreleased --message "add the vrg-unreleased command"`
 
@@ -672,6 +754,10 @@ Issue A ends here: hand off with `vrg-pr-workflow report-ready`.
   - `@dataclass(frozen=True) class OrgReport: org: str; reports: tuple[RepoReport, ...]`
   - `gather_org(org: str, trust: TrustedAuthors, vis: Visibility, *, include_private: bool) -> OrgReport`
   - `render_org(report: OrgReport, *, verbose: bool, show_release_prs: bool, now: datetime) -> str`
+
+`list_org_repos` returns bare names. Qualify each as `f"{org}/{name}"`
+before any other call: `is_managed_repo`, `vis.is_private`, the `develop`
+branch probe and `gather_repo` all take `owner/name`.
 
 Repo filter, in this order to keep calls low: skip a private repo unless
 `include_private` (`vis.is_private`), then an unmanaged one, then one with no
@@ -703,7 +789,9 @@ when its list is empty.
   The private one is never gathered.
 - `test_gather_org_include_private_marks`: with `include_private=True`, the
   private repo's row and block carry ` (private)`.
-- `test_gather_org_skips_unmanaged_and_no_develop`
+- `test_gather_org_skips_unmanaged_and_no_develop`: assert that the calls
+  made use the qualified strings (`is_managed_repo("o/a")` and
+  `repos/o/b/branches/develop`), never a bare name.
 - `test_render_org_sorts_longest_waiting_first`
 - `test_render_org_trailing_lines`
 - `test_render_org_days`: `now` is fixed, giving `3d`.
@@ -726,7 +814,11 @@ the CLI tests fail on the unknown `--org`.
 Run: `vrg-container-run -- vrg-validate --all-versions`
 Expected: PASS, with 100% branch coverage.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Refactor with the tests green**
+
+Tidy names, duplication and structure without changing behaviour, then re-run `vrg-container-run -- vrg-validate`. Expected: PASS.
+
+- [ ] **Step 6: Commit**
 
 `vrg-commit --type feat --scope unreleased --message "add org mode to vrg-unreleased"`
 
