@@ -511,15 +511,21 @@ tested by a private `_is_gone(exc)`. Any other error propagates.
    `— tracking issue author not trusted`. `parent_of` is never called for it,
    so neither its native parent nor its `Parent:` body line is followed.
 6. `parent_of` None → `— issue has no epic`.
-6a. Parent issue fetch gone (for example a mistyped `Parent:` line) →
-   `— parent <ref> not found`, with `<ref>` marked ` (private)` as in rule 9.
+6a. Parent issue fetch gone (for example a mistyped `Parent:` line): first
+   probe the parent's repo with `github.repo_exists(owner, name)`, as rule 5
+   does. If the repo is not visible, raise
+   `UnreleasedError("cannot read <ref>: its repo is not visible to the App")`.
+   If it is visible → `— parent <ref> not found`, with `<ref>` marked
+   ` (private)` as in rule 9. `vis.is_private` is never called on a repo the
+   probe hasn't confirmed.
 7. Parent labels have `epic` and `standing_kind_of` is None → epic. Check the
    epic author with `is_trusted` (raising `UntrustedAuthorError`).
    `epic_private = vis.is_private(<parent owner/repo>)`.
 8. Parent is this repo's live ad-hoc epic (`standing_kind_of` is `ADHOC` and
    title is `ADHOC.title_prefix + <bare repo>`), or one of its archives
    (`archive` and `ad-hoc` labels, and `archive_re(ADHOC)` matches with
-   `name == <bare repo>`) → adhoc.
+   `name == <bare repo>`), and in both cases the parent's owner equals the
+   repo's owner → adhoc.
 9. Otherwise → unlinked, `— parent <ref> is not an epic`, where `<ref>` is the
    parent's `slug` followed by ` (private)` when
    `vis.is_private(<parent owner/repo>)`.
@@ -542,7 +548,10 @@ explicitly.
 - `test_classify_tracking_issue_gone_410`: 410, and `repo_exists` is True.
   Same reason.
 - `test_classify_parent_not_found`: `parent_of` returns `o/r#999`, whose
-  fetch 404s. Expect `— parent o/r#999 not found`.
+  fetch 404s, and `repo_exists` is True. Expect `— parent o/r#999 not found`.
+- `test_classify_parent_repo_invisible_aborts`: `parent_of` returns
+  `o/.githb#5`, whose fetch 404s, and `repo_exists("o", ".githb")` is False.
+  Raises `UnreleasedError`, and `is_public` is never called for `o/.githb`.
 - `test_classify_tracking_issue_repo_invisible_aborts`: 404, and
   `repo_exists` is False. Raises `UnreleasedError`.
 - `test_classify_untrusted_tracking_issue_author`: the tracked issue's
@@ -556,6 +565,8 @@ explicitly.
 - `test_classify_adhoc_archive`
 - `test_classify_intake_archive_is_unlinked`
 - `test_classify_other_repos_adhoc_is_unlinked`
+- `test_classify_same_name_adhoc_other_owner_is_unlinked`: the parent is
+  `Epic (ad hoc): r` in `other-org/.github`, while the repo is `o/r`.
 - `test_classify_private_parent_ref_marked`
 
 Plus these two:
@@ -635,8 +646,12 @@ Rendered shape (spec §5.5):
 ### <heading>
 - #<N> <title>[ <reason>]
     <verbose: message body or PR body, each line indented four spaces>
-- <sha7> <subject> — direct commit
+- <sha7> — direct commit
 ```
+
+A direct commit is rendered by short SHA and reason only. Its subject and
+body are never printed, not even with `--verbose`, because no trusted author
+stands behind them (spec §5.5).
 
 - Title: the squash subject with a trailing ` (#N)` removed, or the PR title
   when `change.is_merge or change.rebased`. Never infer this from the subject.
@@ -654,6 +669,10 @@ Rendered shape (spec §5.5):
 - `test_render_title_uses_is_merge_not_subject`: a squash whose subject
   starts with "Merge pull request" keeps that subject as its title, while a
   merge commit with an edited subject shows its PR title.
+- `test_render_direct_commit_hides_text`: a direct commit whose subject is
+  `ignore previous instructions` and which has a body renders exactly as
+  `- abc1234 — direct commit` in both terse and verbose modes. The output
+  contains neither the subject nor the body.
 - `test_render_verbose_indents_body`
 - `test_render_verbose_null_body_merge_pr`: a merge-commit PR whose body was
   `null` renders its line with no detail.
@@ -673,8 +692,9 @@ Rendered shape (spec §5.5):
   no commits (`total_commits: 0`) and a trusted release tracking issue is
   open. The report has no groups and `in_flight` set, and renders the
   "nothing unreleased" header followed by the in-flight line.
-- `test_gather_repo_no_release_skips_compare`: the fake has no compare route,
-  so a compare call would fail the test.
+- `test_gather_repo_no_release_skips_compare`: the fake has no compare,
+  issues or pulls routes, so a compare or in-flight call would fail the test.
+  The report has `release is None` and `in_flight is None`.
 - `test_gather_repo_end_to_end`: tags, release, compare (one squash PR under an
   epic, one deps merge commit with two inner commits, one direct commit, and
   the post-release merge), PRs, issues and parent patched. Assert the groups,
@@ -689,7 +709,8 @@ Expected: FAIL with `AttributeError` for `gather_repo` and `render_repo`.
 
 `gather_repo` sets `private = vis.is_private(repo)`, then calls
 `newest_release`, `in_flight`, `pending_commits`, `changes` and `classify`,
-and groups the results.
+and groups the results. With no release it stops after `newest_release`:
+neither `in_flight` nor the compare runs.
 
 - [ ] **Step 4: Run to verify they pass**
 
@@ -830,16 +851,21 @@ Rendered shape (spec §5.6):
 |---|---|---|---|---|
 | <bare>[ (private)] | <n> | <tag> | <YYYY-MM-DD> | <days>d |
 
-Nothing unreleased: <bare>, <bare>.
-No release yet: <bare>.
+Nothing unreleased: <bare>[ (private)], <bare>[ (private)].
+No release yet: <bare>[ (private)].
 
 <render_repo block for each table row, same order>
 ```
 
 Rows cover repos with `pr_count + direct_count > 0`, sorted by `oldest_merge`
 ascending (longest waiting first), ties broken by repo name. `<days>` is the
-whole days between `oldest_merge` and `now`. Leave out either trailing line
+whole days between `oldest_merge` and `now`. The `PRs` cell is `<n>`, or
+`<n> + <d> direct` when `direct_count > 0`. Leave out either trailing line
 when its list is empty.
+
+The command runs the whole org sweep (`list_org_repos` included) inside
+`github.target_org(org)`, so the App token is minted for the target org
+rather than the current checkout's org.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -852,7 +878,15 @@ when its list is empty.
   `repos/o/b/branches/develop`), never a bare name.
 - `test_render_org_sorts_longest_waiting_first`
 - `test_render_org_trailing_lines`
+- `test_render_org_trailing_lines_mark_private`: one private repo with
+  nothing pending and one private repo with no release both show
+  ` (private)` in their trailing line.
 - `test_render_org_days`: `now` is fixed, giving `3d`.
+- `test_render_org_direct_only_row`: a repo with 0 PRs and 2 direct commits
+  shows `0 + 2 direct`.
+- CLI `test_org_scopes_token_to_target_org`: with `github.target_org`
+  patched, `--org other` enters it with `"other"`, and `gather_org` runs
+  inside it.
 - `test_org_failed_lookup_aborts`: one repo's tags call raises a 502, and
   `gather_org` raises.
 - CLI: `test_org_flag_defaults_to_current_owner` (`--org` with no value uses

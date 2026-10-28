@@ -63,7 +63,10 @@ following each PR to its issue and epic by hand.
   tracking ref or parent link to an issue that doesn't exist (404 or 410), or
   a commit subject
   naming a PR that doesn't exist (5.2), is listed under Unlinked with its
-  reason, and the run goes on. An untrusted PR or epic author is
+  reason, and the run goes on. This applies only when the issue's repo is
+  readable. GitHub gives the same 404 for a missing repo and one the App
+  can't see, so an unreadable repo (behind a tracking ref or a parent link)
+  always fails the run: a permission problem must never pass as bad data. An untrusted PR or epic author is
   not bad data: it aborts (5.5).
 
 ## 5. Design
@@ -209,7 +212,7 @@ Single repo, terse (the default):
   | PR author (feature and dependency-update PRs; covers the PR title, squash message and merge-PR body) | Must be trusted. Otherwise the command fails, naming the PR and the login. |
   | Author of an epic shown as a group heading | Must be trusted. Otherwise the command fails, naming the epic and the login. |
   | Author of the issue a PR tracks | Must be trusted for its parent link to be used, because that link is data read from the issue. An untrusted one is ignored, like an untrusted comment: the PR goes to Unlinked (`— tracking issue author not trusted`) and the run goes on, since anyone may legitimately open an issue. |
-  | Git author of a commit | Not checked: unverified metadata. PR commits are covered by the PR author, and direct commits are already flagged under Unlinked. |
+  | Git author of a commit | Not checked: unverified metadata. PR commits are covered by the PR author. A direct commit's text is therefore never displayed: it is listed by short SHA and reason only (`- <sha7> — direct commit`), with no subject or body, even with `--verbose`. |
   | Author of a release tracking issue or `release/*` PR (5.1) | An untrusted one is ignored, and the in-flight line does not fire. |
 
   PRs come only from trusted authors, so an untrusted PR or epic author is a
@@ -249,7 +252,8 @@ Single repo, terse (the default):
 
 - Whatever the mode, anything resolved from a private repo or a private
   epic home is marked `(private)` wherever it appears: a repo block, a
-  summary table row, an epic heading, and a ref inside an Unlinked reason.
+  summary table row, a name in the summary's trailing lines, an epic heading,
+  and a ref inside an Unlinked reason.
   This includes a public repo's PR whose tracked issue belongs to a private
   epic.
 - `--repo` naming a private repo, or running inside a private repo's
