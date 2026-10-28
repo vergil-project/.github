@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#683
 - **Planning issue:** vergil-project/.github#468 (review history is in its
   comments)
-- **Status:** design agreed in brainstorming 2026-10-28; spec under review
+- **Status:** in design review
 - **Repos:** vergil-tooling (the command and its site docs)
 - **Related, out of scope:** vergil-project/.github#682 (show what a
   dependency-update PR changed)
