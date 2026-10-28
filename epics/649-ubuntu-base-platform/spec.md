@@ -3,8 +3,7 @@
 - **Epic:** vergil-project/.github#649
 - **Planning issue:** vergil-project/.github#605 (review history is in its
   comments)
-- **Status:** design approved 2026-10-28; pushback applied 2026-10-28; spec in
-  review
+- **Status:** draft, in design review
 - **Repos:** vergil-containers (the image tree, manifest, lifecycle adapters),
   vergil-vm (Lima template), vergil-actions (image-internals consumers),
   vergil-tooling (image-internals consumers, site docs)
@@ -193,7 +192,7 @@ toolset, with these changes:
 
 #### 5.2.1 The runtime rule: core tooling never runs on the default runtime
 
-Human decision (2026-10-28, pushback). An interpreted tool is bound to one
+Human decision (2026-10-28). An interpreted tool is bound to one
 installation of its runtime, and a language image's version axis is that same
 runtime. Today that applies to Python and Node. It would apply to Ruby or Perl
 if they became families. Compiled tools (actionlint, shfmt, trivy, tofu, nfpm,
@@ -267,7 +266,7 @@ vergil-python stays the runtime for installed packages and the VMs. Nothing
 here changes vergil-python or the VMs' use of it.
 
 **Installed as a system Python, not through `uv python install`** (human
-decision, 2026-10-28, pushback). `uv python install` registers the interpreter
+decision, 2026-10-28). `uv python install` registers the interpreter
 as uv-*managed*, and vergil-tooling runs uv with `UV_PYTHON` plus
 `UV_PYTHON_PREFERENCE=only-system` (`lib/versions/extensions/python.py`,
 `lib/container_cache.py`), which excludes managed interpreters. So the image
@@ -411,7 +410,7 @@ parent-aware:
   matrix generator emits each entry's parent and its depth in the tree.
   `generate.py` refuses a cycle or a parent that does not exist. This lands in
   **T7 (#515)**, because #213 §0.3.1 orders T7 first and its tiered publish is
-  the first consumer (human decision, 2026-10-28, pushback). Today no entry
+  the first consumer (human decision, 2026-10-28). Today no entry
   declares a parent, so it is a no-op until #649 sets one.
 - **T2 (#510) dependency map.** T2 consumes the `parent:` field T7 added.
   `dependency_map()` adds parent edges: an entry's
@@ -548,9 +547,6 @@ Human decisions (2026-10-28):
 - The containers use python-build-standalone CPython for 3.12–3.15.
   vergil-python stays the runtime for deployed packages and the VMs (§5.3.1).
 - A release freeze, with one cutover release, in a focused window (§7).
-
-Human decisions from pushback (2026-10-28):
-
 - Python is unpacked from python-build-standalone as a system Python at image
   build, not installed with `uv python install`, so the interpreter is baked
   in and `only-system` finds it (§5.3.1).
