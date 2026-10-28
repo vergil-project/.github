@@ -3,7 +3,8 @@
 - **Epic:** vergil-project/.github#649
 - **Planning issue:** vergil-project/.github#605 (review history is in its
   comments)
-- **Status:** design approved 2026-10-28; spec in review
+- **Status:** design approved 2026-10-28; pushback applied 2026-10-28; spec in
+  review
 - **Repos:** vergil-containers (the image tree, manifest, lifecycle adapters),
   vergil-vm (Lima template), vergil-actions (image-internals consumers),
   vergil-tooling (image-internals consumers, site docs)
@@ -136,8 +137,9 @@ This is the de-duplication #213 deferred as ledger item D2.
   one shared layer.
 - **My call:** a language image may not remove anything `base` installs. If a
   tool conflicts with a language, that is a builder question for the plan, not
-  a per-image fork of `base`. The one sanctioned override is the python
-  family's `python3` (§5.2).
+  a per-image fork of `base`. The runtime rule (§5.2.1) is what makes this hold
+  for interpreted tools: a language image adds its own runtime beside `base`'s
+  and owns the default command, without removing anything.
 
 ### 5.2 `base`
 
@@ -151,21 +153,36 @@ toolset, with these changes:
 - **uv and nFPM come from the parent.** `base` stops installing uv (today through
   pip) and drops its `nfpm.dockerfile` include. Each tool then has one pin,
   in `pkg-ubuntu`, as #607 goal 3 intends.
-- **Python** comes from §5.3's Python source. `base` keeps its current series
-  (3.14), and `python3` resolves on `PATH` at `/usr/local/bin/python3`, as the
-  `python:*-slim` images placed it. vergil-actions calls that path directly
-  (§5.5), and needs only `tomllib` (3.11+).
-- **`base`'s Python CLI tools are isolated from `python3`** (my call). yamllint,
-  ansible-lint, semgrep and mkdocs-material with mike install as uv tools, each
-  in its own environment with its own interpreter, not into the system
-  interpreter through pip as today. That makes the next rule safe.
+- **Python** comes from §5.3's Python source, installed at
+  `/opt/python/<series>`. `base` keeps its current series (3.14) as the
+  default: `python3` resolves on `PATH` at `/usr/local/bin/python3`, a link
+  into `/opt/python/3.14`, as the `python:*-slim` images placed it.
+  vergil-actions calls that path directly (§5.5), and needs only `tomllib`
+  (3.11+).
+- **`base`'s Python CLI tools run on the core Python runtime** (§5.2.1).
+  yamllint, ansible-lint, semgrep and mkdocs-material with mike install as uv
+  tools, each in its own environment, created with
+  `/opt/python/3.14/bin/python3.14` by its versioned path, never through
+  `/usr/local/bin/python3`. A uv tool environment is bound to the interpreter
+  path it was created with, so a tool created through the default link would
+  break, or silently run on another series, once a python image replaces that
+  link.
 - **The python family owns `python3`.** In `dev-python:<v>`,
-  `/usr/local/bin/python3` (and `python`, `pip`) is series `<v>`, as it is
-  today when the image is `FROM python:<v>-slim`. The family's own
-  pip-installed tools (pytest-xdist and the rest in today's template) install
-  into that interpreter. A build check asserts `python3 --version` matches the
-  image's series, so a matrix leg can never silently test on `base`'s 3.14.
-  Other language images keep `base`'s 3.14.
+  `/usr/local/bin/python3` (and `python`, `pip`) links to `/opt/python/<v>`, as
+  it is series `<v>` today when the image is `FROM python:<v>-slim`. The
+  family's own pip-installed tools (pytest-xdist and the rest in today's
+  template) install into that interpreter. A build check asserts
+  `python3 --version` matches the image's series, so a matrix leg can never
+  silently test on `base`'s 3.14. Other language images keep `base`'s 3.14 as
+  the default.
+- **Node** for `base`'s one Node tool, markdownlint-cli, is the core Node
+  runtime at `/opt/node/<core-major>` (today 22), from the nodejs.org prebuilt
+  tarball. NodeSource's `.deb` goes, since it allows only one Node on a
+  machine. `base` puts no `node`, `npm` or `npx` on `PATH`; only `ts-node`
+  images have a default Node (§5.3). `markdownlint` on `PATH` is a wrapper that
+  runs the tool with `/opt/node/<core-major>/bin/node` explicitly. npm's
+  generated bin links start with `#!/usr/bin/env node`, which would pick up
+  whatever `node` is on `PATH`, or fail where there is none.
 - **apt-mirror config is inherited on amd64.** #607 bakes the Azure-first mirror
   list and fail-fast timeouts into amd64 `pkg-ubuntu`. Dev images inherit them.
   **My call:** keep them. The mirror list fails over to the default archive, and
@@ -173,6 +190,45 @@ toolset, with these changes:
   images in CI, gains the same protection against the slow Azure mirror that
   prompted #607. A builder check confirms an `apt-get install` from a non-Azure
   network (a Lima VM) still succeeds.
+
+#### 5.2.1 The runtime rule: core tooling never runs on the default runtime
+
+Human decision (2026-10-28, pushback). An interpreted tool is bound to one
+installation of its runtime, and a language image's version axis is that same
+runtime. Today that applies to Python and Node. It would apply to Ruby or Perl
+if they became families. Compiled tools (actionlint, shfmt, trivy, tofu, nfpm,
+uv, gh and the rest) and OS packages are bound to nothing but the OS, and are
+outside this rule.
+
+A runtime in an image has two kinds of consumer:
+
+1. **The language family's toolchain** owns the **default command** (`python3`,
+   `node`): the version the project builds and tests against, which the matrix
+   varies.
+2. **Core tooling** (linters, doc builders, anything in `base`) needs a runtime
+   only to run.
+
+The rule:
+
+- **Core tooling never runs on the default runtime.** It runs on its own
+  **core runtime**, installed side by side at a private, versioned path
+  (`/opt/python/<series>`, `/opt/node/<major>`), and calls it by that path.
+- **Core runtimes have their own pins**, separate from the family windows. A
+  core runtime moves when core tooling needs it to, never because a language
+  image moved. Each core runtime is an entry in the version manifest, under the
+  lifecycle automation like any series.
+- **Only a language family's image sets a default command for its runtime.**
+  The exception is `python3` in `base`, which consumers already rely on (§5.5).
+- **Runtimes are only ever added side by side.** A language image adds its
+  series next to the core runtime and does not remove or overwrite it.
+- **Build checks assert both halves.** Every core tool runs on its pinned core
+  runtime in every image, and the default command matches the family series.
+
+Why: tooling choices (how we lint Markdown) must not be forced to move with an
+unrelated language toolchain (Node 24 in `ts-node:24`), and a language image
+must not inherit a runtime the family never chose. Products that happen to be
+Node applications, installed on a real host, are a separate question:
+vergil-project/.github#674.
 
 ### 5.3 Language images — toolchain sources
 
@@ -183,29 +239,44 @@ series at build time (§4).
 
 | Image | Source on Ubuntu 24.04 (my call unless noted) | Today |
 |---|---|---|
-| python | uv-managed CPython (python-build-standalone) for every window series, 3.12–3.15 (human decision, §5.3.1) | `python:<v>-slim` |
+| python | python-build-standalone release for the series, downloaded checksum-verified and unpacked at `/opt/python/<series>` at image build, newest patch of the series (human decision, §5.3.1) | `python:<v>-slim` |
 | go | Official `go<v>.linux-<arch>.tar.gz` from go.dev, checksum-verified, newest patch of the series | `golang:<v>` |
 | rust | `rustup` with the series' newest stable, minimal profile plus the components the image has today | `rust:<v>-slim` |
 | java | Eclipse Temurin JDK from the Adoptium apt repository (`packages.adoptium.net`, which serves noble) | `eclipse-temurin:<v>-jdk` (Ubuntu 26.04) |
 | cpp-clang | apt.llvm.org `llvm-toolchain-noble-<v>` | `llvm-toolchain-trixie-<v>` |
 | cpp-gcc | **Spike (§8):** `gcc-14` from noble, or the Ubuntu Toolchain PPA, whichever gives a released 14.x | `gcc-14` from trixie main |
-| ts-node | NodeSource `nodistro` channel, unchanged | Same |
+| ts-node | nodejs.org prebuilt tarball, checksum-verified, at `/opt/node/<major>`, newest release of the major (human decision, §5.2.1). `node`, `npm` and `npx` link into `/usr/local/bin` | NodeSource `nodistro` channel |
 
-#### 5.3.1 Why uv-managed Python, not vergil-python
+In `ts-node:<major>`, npm's global prefix is set to `/usr` (my call), so
+`npm root -g` stays `/usr/lib/node_modules` (§5.5).
+
+#### 5.3.1 Why python-build-standalone baked in, not vergil-python
 
 The two serve different jobs (human decision, 2026-10-28):
 
 - **Development** needs the whole supported window. A library is tested on
-  every series from 3.12 to 3.15. uv-managed CPython provides any series on
-  demand, with no publishing step.
+  every series from 3.12 to 3.15. python-build-standalone, the CPython builds
+  uv itself uses, provides any series with no publishing step.
 - **Deployment** needs one runtime per product, chosen by the product. That is
   what the vergil-python runtime packages are for. They cost more to publish and
   roll out, which pays off only where a package is installed on a host. The
   agent VMs use them deliberately, to dogfood the runtime.
 
-So the containers use uv-managed CPython for every series, and vergil-python
-stays the runtime for installed packages and the VMs. Nothing here changes
-vergil-python or the VMs' use of it.
+So the containers use python-build-standalone for every series, and
+vergil-python stays the runtime for installed packages and the VMs. Nothing
+here changes vergil-python or the VMs' use of it.
+
+**Installed as a system Python, not through `uv python install`** (human
+decision, 2026-10-28, pushback). `uv python install` registers the interpreter
+as uv-*managed*, and vergil-tooling runs uv with `UV_PYTHON` plus
+`UV_PYTHON_PREFERENCE=only-system` (`lib/versions/extensions/python.py`,
+`lib/container_cache.py`), which excludes managed interpreters. So the image
+build downloads the release tarball itself, verifies its checksum and unpacks
+it at `/opt/python/<series>`, where uv sees it as a system interpreter. The
+series is baked in at image build, so installing vergil-tooling or syncing a
+project in the container never pays for an interpreter download.
+`vrg-validate --all-versions`, which deliberately uses managed interpreters, is
+unaffected.
 
 Known version movements the spike must confirm or settle:
 
@@ -228,13 +299,16 @@ source:
 
 | Family | Today | After |
 |---|---|---|
-| python | Docker Hub `python:<v>-slim` + vergil apt index | A python-build-standalone release that uv can install for the series. The vergil apt index check stays: it records `runtime_published`, which serves packaging, not the image |
+| python | Docker Hub `python:<v>-slim` + vergil apt index | The newest python-build-standalone release has an install-only build of the series for both architectures; the adapter resolves that release and its checksums itself. The vergil apt index check stays: it records `runtime_published`, which serves packaging, not the image |
 | go | Docker Hub `golang:<v>` | go.dev download listing has a `go<v>.x` release |
 | rust | Docker Hub `rust:<v>-slim` | The Rust release channel manifest for the series |
 | java | Docker Hub `eclipse-temurin:<v>-jdk` | Adoptium apt index for noble has `temurin-<v>-jdk` |
 | cpp-clang | apt.llvm.org `trixie` listing | apt.llvm.org `noble` listing |
 | cpp-gcc | `debian_source_in_suite("gcc-<n>", "trixie")` | The §8 source has a released `gcc-<n>` for noble |
-| ts-node | `deb.nodesource.com/setup_<major>.x` (stale: the image uses `nodistro`) | The `nodistro` index has `nodejs` for the major |
+| ts-node | `deb.nodesource.com/setup_<major>.x` (stale: the image uses `nodistro`) | nodejs.org's release index has a release of the major with `linux-x64` and `linux-arm64` tarballs |
+
+The core runtimes (§5.2.1, core Python and core Node) get manifest entries of
+their own and probe the same sources as their family.
 
 The adapters for a family change in the same PR as that family's image. The
 dates the adapters record (`ga`, `eol`) and their sources (endoflife.date,
@@ -253,8 +327,10 @@ image:
   that path valid in `base` and every language image, and a build check
   asserts it.
 - **vergil-tooling `container.py`** expects global npm modules at
-  `/usr/lib/node_modules`. That holds while Node comes from NodeSource's `.deb`
-  (unchanged, §5.3). A build check asserts it in the images carrying Node.
+  `/usr/lib/node_modules` (`_NPM_GLOBAL_ROOT`, for a consumer's
+  `[container].build-command` global install). §5.3 keeps it true in `ts-node`
+  images by setting npm's global prefix to `/usr`, and a build check asserts
+  `npm root -g`. No other image has a default `npm`.
 - **`[container].system-packages`** (vergil-tooling `container_cache.py`,
   vergil-actions `system-packages`) runs `apt-get install` against the image's
   sources. On Ubuntu some packages live in `universe`, which `ubuntu:24.04`
@@ -282,11 +358,13 @@ image:
 
 Every workflow that names `ubuntu-latest` names `ubuntu-24.04` instead (human
 decision: the floor is 24.04 everywhere, for the same reason Lima is pinned).
-That is 43 places in vergil-actions' `.github/workflows`, plus any in the other
-vergil-project repos' workflows and in doc examples (`getting-started.md`, the
-action pages). The arm64 runner is already `ubuntu-24.04-arm`. A check in
-vergil-actions' validation refuses `ubuntu-latest` in a workflow, so the
-floating label does not come back. Moving runners to 26.04 is part of the
+The scope, counted 2026-10-28: 43 places in vergil-actions'
+`.github/workflows`, 4 workflow files in vergil-containers, and none in the
+other vergil-project repos, plus doc examples (`getting-started.md`, the action
+pages). The arm64 runner is already `ubuntu-24.04-arm`. A check in
+vergil-actions' own validation refuses `ubuntu-latest` in a workflow, so the
+floating label does not come back. vergil-actions has no `scripts/bin/` today;
+where the check lives is the builder's call. Moving runners to 26.04 is part of the
 look-ahead in #651.
 
 ### 5.8 CVE triage
@@ -332,9 +410,11 @@ parent-aware:
   `pkg-ubuntu` `24.04`). No `parent:` means an upstream image, as today. The
   matrix generator emits each entry's parent and its depth in the tree.
   `generate.py` refuses a cycle or a parent that does not exist. This lands in
-  T2 (#510) because T2 is the first consumer. Today no entry declares a parent,
-  so it is a no-op until #649 sets one.
-- **T2 (#510) dependency map.** `dependency_map()` adds parent edges: an entry's
+  **T7 (#515)**, because #213 §0.3.1 orders T7 first and its tiered publish is
+  the first consumer (human decision, 2026-10-28, pushback). Today no entry
+  declares a parent, so it is a no-op until #649 sets one.
+- **T2 (#510) dependency map.** T2 consumes the `parent:` field T7 added.
+  `dependency_map()` adds parent edges: an entry's
   inputs include its parent's inputs, transitively. A change under
   `docker/pkg-ubuntu/**` reaches `base` and every language image.
 - **T5 (#513) selector.** Selecting an entry selects all its descendants. The
@@ -344,7 +424,8 @@ parent-aware:
   parent** (buildx `--build-context` or a local load, the builder's choice),
   because T6′ never pushes. When a PR selects only children, they build on the
   published `dev-` parent.
-- **T7 (#515) native arm64 and publish.** Publishing runs in tiers by depth: a
+- **T7 (#515) native arm64 and publish.** T7 introduces `parent:` (above).
+  Publishing runs in tiers by depth: a
   tier's per-arch builds, stitch and promotion finish before the next tier
   starts, and children `FROM` their parent **by digest** from the same run. This
   holds for the `develop` publish, the release (`prod`) publish, and the nightly
@@ -405,7 +486,9 @@ boundaries:
 9. **Cold-rebuild validation** (§8).
 10. **VM and runner pins** (§5.6, §5.7): a vergil-vm release, then the
     `vrg-vm rebuild` deployment task, and the runner-label PRs. These are
-    independent of steps 5–9 and can land any time in the window.
+    independent of steps 5–9 and can land any time in the window. The
+    runner-label PRs touch `.github/workflows/**`, so GitHub refuses the
+    agent's push; the human's `vrg-submit-pr` pushes those branches.
 
 ## 8. Risks, spike and validation
 
@@ -415,10 +498,16 @@ amd64 and arm64:
 
 - the GCC 14 source: a released 14.x on noble, which channel, and the libstdc++
   question in §5.3;
-- uv-managed CPython: every window series installs, `/usr/local/bin/python3`
-  resolves, and the python family's override (§5.2) works;
-- the Go, Rust, Temurin, LLVM and NodeSource sources for every series in the
-  manifest;
+- python-build-standalone: every window series unpacks at
+  `/opt/python/<series>` on both architectures; uv, with
+  `UV_PYTHON_PREFERENCE=only-system`, finds it; `/usr/local/bin/python3`
+  resolves; the python family's default (§5.2) works; and `base`'s uv tools
+  still run on 3.14 in a `dev-python:3.12` trial;
+- Node side by side: markdownlint runs on the core Node in a trial with no
+  default `node` and in a `ts-node:24` trial, and `npm root -g` is
+  `/usr/lib/node_modules` there;
+- the Go, Rust, Temurin and LLVM sources and nodejs.org tarballs for every
+  series in the manifest;
 - noble's cmake and cppcheck versions against what the C++ images ship today;
 - one `vrg-validate` run of vergil-tooling itself in a trial `dev-python`.
 
@@ -456,15 +545,27 @@ Human decisions (2026-10-28):
 - Install-tests stay on the minimal `pkg-*` images (§3).
 - Lima is pinned to 24.04 (§5.6), and `ubuntu-latest` runners are pinned to
   `ubuntu-24.04` (§5.7).
-- The containers use uv-managed CPython for 3.12–3.15. vergil-python stays
-  the runtime for deployed packages and the VMs (§5.3.1).
+- The containers use python-build-standalone CPython for 3.12–3.15.
+  vergil-python stays the runtime for deployed packages and the VMs (§5.3.1).
 - A release freeze, with one cutover release, in a focused window (§7).
+
+Human decisions from pushback (2026-10-28):
+
+- Python is unpacked from python-build-standalone as a system Python at image
+  build, not installed with `uv python install`, so the interpreter is baked
+  in and `only-system` finds it (§5.3.1).
+- The runtime rule: core tooling runs on its own side-by-side core runtime,
+  never on the default runtime, and only a language family sets the default
+  command. Node moves to nodejs.org tarballs for this (§5.2.1).
+- The `parent:` manifest field lands in #213's T7, which goes first, and T2
+  consumes it (§6.1).
 
 My calls, open to correction: §5.1 (no removals from `base`), §5.2 (marker
 removed in `base`; amd64 apt-mirror config inherited; Python CLI tools as uv
-tools; the python family owns `python3`), §5.6 (keep the racc seed), §6.2 (the
-`pkg-ubuntu` FROM-ability check), §8 (pre-release consumer check), and the
-toolchain sources in §5.3 other than Python.
+tools; the python family owns `python3`; no default `node` outside `ts-node`),
+§5.3 (npm's global prefix `/usr` in `ts-node`), §5.6 (keep the racc seed), §6.2
+(the `pkg-ubuntu` FROM-ability check), §8 (pre-release consumer check), and the
+toolchain sources in §5.3 other than Python and Node.
 
 ## 10. Left to the builder
 
@@ -474,7 +575,10 @@ toolchain sources in §5.3 other than Python.
 - Which `base` fragments language images keep including after the rebase,
   provided the result has no duplicate installs.
 - The exact build checks (marker absent, `/usr/local/bin/python3`, npm root,
-  OS release), and where they live.
+  core tools on their core runtimes, OS release), and where they live.
+- The manifest shape of the core runtimes (§5.2.1), and how the markdownlint
+  wrapper is generated.
+- Where vergil-actions' `ubuntu-latest` check lives (§5.7).
 - Whether the C++ and TypeScript READMEs keep their image-structure sections,
   once the "compose fragments, never FROM-chain" convention they record is
   gone.
