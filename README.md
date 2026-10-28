@@ -22,7 +22,12 @@ organization.
 | `CODE_OF_CONDUCT.md` | Contributor Covenant v2.1 |
 | `SECURITY.md` | Vulnerability reporting policy |
 | `SUPPORT.md` | Where to get help |
+| `epics/<N>-<slug>/` | Each epic's spec, plan and retrospective (`epics/archive/` is a record of abandoned attempts) |
+| `docs/` | Older specs and plans (`docs/specs/`, `docs/plans/`) and security snapshots (`docs/security/`) |
 | `.github/workflows/ci.yml` | CI for this repo |
+| `.github/workflows/ops.yml` | Daily GitHub config audit |
+| `.github/workflows/epic-rollup.yml` | Closes an epic when its last task closes |
+| `.github/workflows/epic-sweep.yml` | Daily sweep that closes epics and tasks a rollup missed |
 
 ## How inheritance works
 
