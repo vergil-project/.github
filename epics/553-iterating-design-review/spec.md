@@ -122,7 +122,11 @@ each stage.
 4. **Walk the human through the findings,** one at a time and in severity
    order, the way `paad:pushback` does today: the problem, options from best to
    worst, and a recommendation. "A response is not a decision" applies: a
-   question gets an answer and the same options again. Each finding ends as:
+   question gets an answer and the same options again. Findings mapped to
+   **low** are the exception: they are presented together at the end, as one
+   batch with the recommended option for each, and the human accepts them or
+   pulls any out for discussion. Each still gets its own decision. Each
+   finding ends as:
    - **accepted:** the main session applies the change;
    - **rejected:** the human gives a reason, and the artifact is not changed;
    - **dropped:** the human gives a reason, or the main session files it in
@@ -198,8 +202,13 @@ The doctrine gives a prompt template. Every reviewer prompt must:
 ### 3.5 Output checks and failed rounds
 
 Before dispatch, the main session lists the `paad/` of the session's starting
-directory and records the docs worktree's branch and HEAD SHA. After every
-review, it checks structure, not prose:
+directory, records the docs worktree's branch and HEAD SHA, and confirms that
+`vrg-git status --porcelain` in the worktree is empty, so a reviewer always
+sees committed text. A dirty worktree at that point (for example, a session
+resumed partway through a walk-through) is shown to the human as a diff. The
+human either commits it as the interrupted round's commit, with its round
+comment, or discards it. After every review, the main session checks
+structure, not prose:
 
 - the version line is present. A version other than the one the doctrine
   records is a warning in the round comment, not a failure;
@@ -222,14 +231,18 @@ A failed check is a **broken round**: the reviewer did not produce a usable
 review, which says nothing about the design. It is never treated as a pass,
 and its findings are not acted on. The main session:
 
-1. reverts anything the reviewer changed: it restores the recorded branch and
-   HEAD SHA if either moved (with an allowed `vrg-git` command, such as
-   `switch -C <branch> <sha>`; `reset` is not on the allowlist, and the plan
-   confirms the command), runs `vrg-git checkout -- <file>` for each changed
-   tracked file, and `rm` for each untracked path that
-   `vrg-git status --porcelain` lists. It deletes the broken run's
-   `paad/security/` files unread: nobody has walked through them, and the
-   re-run raises those findings again;
+1. reverts anything the reviewer changed, staged or not, in this order:
+   - restores the recorded branch and HEAD SHA if either moved, with
+     `vrg-git switch -C <branch> <sha>` (`reset` is not on the allowlist);
+   - runs `vrg-git checkout HEAD -- <file>` for each changed tracked file,
+     which restores both the index and the file;
+   - runs `vrg-git rm --cached <path>` and then `rm <path>` for each staged
+     new file, and `rm` for each untracked path;
+   - confirms `vrg-git status --porcelain` is empty. If it is not, the
+     revert has failed, and the main session stops and asks the human.
+
+   It deletes the broken run's `paad/security/` files unread: nobody has
+   walked through them, and the re-run raises those findings again;
 2. re-runs the round once, automatically, with a fresh reviewer;
 3. on a second broken run, stops and asks the human, who chooses: retry,
    run the skill interactively in the main session as `epic-create` does
@@ -351,7 +364,8 @@ One comment per round on the planning issue, posted with
   rebuilds the stage and round count.
 - **Checkpoint:** raised, accepted, rejected and dropped counts; the mapped
   severity mix; new, known and repair counts; the repair concentration; the
-  growth delta; the round commit's SHA, or "no commit"; the recommendation and
+  growth delta; a "classification: trusted authors checked" line, confirming
+  `vrg-trusted-authors` ran (3.6); the round commit's SHA, or "no commit"; the recommendation and
   its signal; the round-4 note when it applies; and the broken-round note
   (including any version warning or recorded skip) when it applies.
 - **Findings:** one entry per finding, with its round ID (`<stage-letter><n>.<i>`,
@@ -381,10 +395,12 @@ later round on the same day would overwrite it. Once the output checks pass,
 the main session therefore moves the round's security files to a **scratch
 copy** and works from there. The copy's path is fixed and derivable from the
 planning issue and the round ID, so a resumed session finds it:
-`${XDG_STATE_HOME:-~/.local/state}/vergil/design-review/<owner>-<repo>-<M>/<round-id>/`,
+`${XDG_STATE_HOME:-$HOME/.local/state}/vergil/design-review/<owner>-<repo>-<M>/<round-id>/`,
 created with mode 700, outside any repo. (D's per-round `mktemp -d` suits
-files that need not survive a pause; these must.) It walks the human through
-each finding in the terminal, like any other.
+files that need not survive a pause; these must.) After each move, the main
+session confirms that the resolved path is absolute and outside every repo,
+and that `vrg-git status --porcelain` in the docs worktree is still empty. It
+walks the human through each finding in the terminal, like any other.
 
 **Screening.** Before posting the round comment, the main session screens every
 ordinary finding against paad's shared security definition. A finding that

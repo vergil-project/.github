@@ -57,19 +57,22 @@ Then the bookends: the documentation review
 (vergil-project/vergil-tooling#3719), then the retrospective
 (vergil-project/.github#555). D's doctrine task
 (vergil-project/vergil-claude-plugin#759) needs Task 2: when Task 2 is filed,
-add a `Blocked-by:` line for it to #759.
+add a `Blocked-by:` line for it to #759. At the same time, add
+vergil-tooling's `docs/site/docs/guides/security-records.md` "Severity"
+table (to be replaced by a link to doctrine §1.3) to the documentation
+review's (#3719) list of known places.
 
 ## Review Focus
 
-1. **A reviewer that changes the worktree** (an edit, an untracked file, a
-   commit, a moved HEAD). Expected: the output checks catch it, and the
-   revert restores the recorded branch and SHA with allowed `vrg-git`
-   commands only. Task 1 drills the revert; Task 2 writes the confirmed
+1. **A reviewer that changes the worktree** (an edit, a staged change, an
+   untracked file, a commit, a moved HEAD). Expected: the output checks catch
+   it, the revert restores the recorded branch and SHA with allowed `vrg-git`
+   commands only, and the tree is clean before the re-run. Task 1 drills the revert; Task 2 writes the confirmed
    commands into doctrine §2.4.
 2. **A security-shaped weakness reviewed by `alignment`,** which has no
-   security routing of its own. Expected: the finding lands only in
-   `paad/security/` or is caught by screening, and never reaches a public
-   record. Task 1's seeded alignment run; Task 5 checks the real records.
+   security routing of its own. Expected: the reviewer routes the finding to
+   `paad/security/` as its prompt directs; screening catches anything it
+   misses; nothing reaches a public record. Task 1's seeded alignment run; Task 5 checks the real records.
 3. **A session started in a different repo from the docs worktree.**
    Expected: every file paad writes is under the docs worktree's
    `paad/security/`, and nothing new appears in the starting directory's
@@ -81,8 +84,7 @@ add a `Blocked-by:` line for it to #759.
    Task 5 records whether it was exercised.
 5. **A comment on the planning issue from someone untrusted** that claims a
    decision. Expected: classification ignores it. Task 2's text in doctrine
-   §1.2; Task 5 checks that the classification step ran
-   `vrg-trusted-authors`.
+   §1.2; Task 5 checks each round comment's "trusted authors checked" line.
 
 ---
 
@@ -117,36 +119,45 @@ below and records the outcome. Below, `<T>` is this task's issue number.
   placeholders for the skill, the absolute document paths and the docs
   worktree. This task's outcome comment records the final text, which Task 2
   copies into the doctrine verbatim.
-- [ ] Before each run, list the starting directory's `paad/` and record the
-  worktree's branch and HEAD SHA (spec 3.5).
+- [ ] Before each run, list the starting directory's `paad/`, record the
+  worktree's branch and HEAD SHA, and confirm `vrg-git status --porcelain` is
+  empty (spec 3.5).
 - [ ] Plain runs, each twice, each with a fresh `general-purpose` subagent:
   spec pushback (the spec), plan pushback (the plan, with the spec as
   context), alignment (both).
 - [ ] Seeded runs, once each: pushback on the seeded spec; alignment on the
   seeded spec and plan.
 - [ ] After each run, apply every spec 3.5 check and record the result per
-  check.
+  check. Then screen every ordinary finding against paad's shared security
+  definition (spec 3.8), and record separately how many security findings
+  the reviewer routed and how many screening caught.
 - [ ] Security files: move each run's files to the scratch copy at
-  `${XDG_STATE_HOME:-~/.local/state}/vergil/design-review/vergil-project-.github-<T>/<run-id>/`
-  (mode 700). Record each seeded finding with plain `vrg-security-record
+  `${XDG_STATE_HOME:-$HOME/.local/state}/vergil/design-review/vergil-project-.github-<T>/<run-id>/`
+  (mode 700). After each move, confirm the resolved path is absolute and
+  outside every repo, and that the worktree's `vrg-git status --porcelain`
+  is still empty. Record each seeded finding with plain `vrg-security-record
   create` and a neutral `PROBE:` summary, then close its intake issue as "not
   planned". For a security finding from a plain run, tell the human the count
   only; the human decides whether to record it. Delete each scratch copy once
   its findings are recorded or the human has decided.
 - [ ] **Revert drill:** in the seeded-run worktree (on a branch, like a real
   docs worktree), record the branch and HEAD SHA, then make one commit, one
-  tracked edit and one untracked file. Restore the recorded state with spec
-  3.5's commands only: `vrg-git checkout -- <file>`, `rm <path>`, then
-  `vrg-git switch -C feature/<T>-seeded-spike <sha>`. Confirm the HEAD SHA
-  matches the record and `vrg-git status --porcelain` is empty. (`vrg-git` on develop allows
-  `switch` with any flags and denies only `checkout -- .` and `checkout -- *`;
-  this drill confirms it in practice.)
+  unstaged tracked edit, one staged tracked edit, one staged new file and one
+  untracked file. Restore the recorded state with spec 3.5's commands only,
+  in its order: `vrg-git switch -C feature/<T>-seeded-spike <sha>`,
+  `vrg-git checkout HEAD -- <file>`, `vrg-git rm --cached <path>` then
+  `rm <path>`, and `rm <path>`. Confirm the HEAD SHA matches the record and
+  `vrg-git status --porcelain` is empty. (`vrg-git` on develop allows
+  `switch`, `rm` and `checkout`, and denies only `checkout -- .` and
+  `checkout -- *`; this drill confirms it in practice.)
 - [ ] Remove both worktrees and delete the seeded branch.
 
 **Acceptance:** all eight runs pass every check; every paad file lands in
-that run's worktree; the seeded runs' findings were routed to
-`paad/security/` or caught by screening, and no security detail reached the
-ordinary findings; every scratch copy is deleted; the revert drill restores
+that run's worktree; in each seeded run, the reviewer itself routed the
+seeded finding to `paad/security/` (a finding caught only by screening is
+recorded as its own result and fails that run); no security detail reached a
+public record; every scratch copy resolved to an absolute path outside
+every repo, left the worktree clean, and is deleted; the revert drill restores
 the recorded state. The outcome comment carries the final prompt text, the
 revert commands as run, and, per run, the time taken and the counts of
 findings, discards and security findings. **On failure,** record it and stop:
@@ -195,7 +206,8 @@ Blocked by Task 1.
 - [ ] **Doctrine §2,** from spec 3.2–3.11 in that order:
   - §2.3 carries **Task 1's prompt template, verbatim**;
   - §2.4 names the revert commands as Task 1's outcome records them, and the
-    recorded paad version, 2.0.2;
+    paad version Task 1's runs reported. If that is not 2.0.2, re-check every
+    severity column against that version's skills before writing §1.3;
   - §2.6 gives one example round comment, with an invented planning issue
     and no real finding.
 - [ ] **Doctrine §3:** one paragraph saying child D (epic
@@ -223,15 +235,21 @@ classification cannot run. Link all three with `Blocked-by:`.
 
 **Files:**
 
-- Modify: `skills/epic-create/SKILL.md`.
+- Modify: `skills/epic-create/SKILL.md`, including the frontmatter
+  `description`.
 - Modify: `docs/site/docs/skills/index.md`, the `epic-create` table row and
-  section.
+  section, and the execution-doctrine sentence "(brainstorm → pushback →
+  alignment)".
 - Modify: `CLAUDE.md`, the three-skill lifecycle bullet for `epic-create` and
-  the execution-doctrine sentence "(brainstorm → pushback → alignment)".
+  the execution-doctrine sentence, only where they still exist when this task
+  runs (E's epic #558 Task 5b trims that file).
 
 - [ ] **"The four-stage interaction doctrine"** becomes "The interaction
   doctrine", with spec 3.2's three-row table. Keep the human-judgment
-  principle.
+  principle for brainstorming. For design review, say that findings are
+  walked one at a time, except that findings mapped to low are presented as
+  one batch at the end, each with its own decision recorded (spec 3.3 step
+  4).
 - [ ] **New section "Design review rounds"** before "Workflow": the seven
   steps of spec 3.3, one or two lines each, each linking its doctrine §2
   subsection. It says the reviewer runs in the background and the human
@@ -247,7 +265,10 @@ classification cannot run. Link all three with `Blocked-by:`.
   next stage follows the round comment.
 - [ ] **Resuming** (the entry-points table's planning row): rebuild the
   stage and round count from the latest `Design review: <stage> round <n>`
-  first line, and find any kept scratch copy at the doctrine §2.7 path.
+  first line, and find any kept scratch copy at the doctrine §2.7 path. If
+  the docs worktree is dirty, show the human the diff; the human commits it
+  as the interrupted round's commit (with its round comment) or discards it,
+  before any reviewer is dispatched (doctrine §2.4).
 - [ ] **Planning issue** (spec 3.10): state that every epic has one, that
   links run both ways (the epic's `Planning:` line, the spec header's
   `Planning issue` line, the step 10 closing comment), and that the planning
@@ -292,8 +313,8 @@ Blocked by Task 4.
   This task then only inspects the records; the outcome names that planning
   issue.
 - [ ] Check, on that planning issue: one round comment per round, each in
-  doctrine §2.6's form (first line, checkpoint, findings, discards,
-  security); a progress comment after each stopped stage; every finding not
+  doctrine §2.6's form (first line, checkpoint with its "trusted authors
+  checked" line, findings, discards, security); a progress comment after each stopped stage; every finding not
   addressed ended accepted, rejected or dropped with a reason or an intake
   ref; no security detail in any public record.
 - [ ] Check the spec and plan headers carry only the fields of doctrine §2.8
