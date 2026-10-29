@@ -6,8 +6,8 @@
 - **Status:** draft, in design review
 - **Repos:** the paad fork `wphillipmoore/paad` (the paad change),
   vergil-claude-plugin (the doctrine, the policy and the skills that dispatch
-  paad), vergil-tooling (fleet consumption of the fork, if any tooling is
-  needed), `.github` (this spec and plan)
+  paad), vergil-tooling (the `--plugin-dir` override in `vrg-vm session`),
+  `.github` (this spec and plan)
 - **Origin:** the doctrine review vergil-project/vergil-claude-plugin#811 (epic
   vergil-project/.github#553), closed into the planning issue
 
@@ -29,7 +29,7 @@ the skill wherever they conflict, and output checks after each round catch what
 the prompt did not prevent. The stray-write check is the clearest symptom:
 reviewers kept writing scratch files outside the places the workflow expects,
 so each round now gives the reviewer an empty, backdated `TMPDIR` (mode 1) or
-sweeps `/tmp`, `/var/tmp` and `$HOME` (mode 2). By section count, about 40% of
+sweeps `/tmp`, `/var/tmp` and `$HOME` (mode 2). By length, about 40% of
 `vergil-claude-plugin/docs/paad-review-doctrine.md` is this interface work
 (§2.3, §2.4, §2.7, §3.2, §3.4 and §3.6).
 
@@ -157,6 +157,10 @@ the contract defines (4.4).
     caller's instructions bind: the skill and its arguments, the working
     directory, document roles, input fields, and the caller's own review
     rules;
+  - **run only a skill that supports the mode.** If the named skill has no
+    unattended section (4.2), return `blocked: skill does not support
+    unattended mode` without running it. Adding that section is how a further
+    skill adopts the mode;
   - **never ask.** At each of the skill's interaction points, apply that
     skill's unattended default (4.3). Where a skill would stop and ask because
     it cannot proceed safely, return a result whose status is blocked, with
@@ -171,7 +175,11 @@ the contract defines (4.4).
     in-place edits and temporary files in any directory. Pass data to
     subagents inside their prompts, never through files. As in
     `paad-analyst.md`, incidental artifacts of read-only commands (test
-    caches, coverage, build output) are allowed;
+    caches, coverage, build output) are allowed, in gitignored paths only.
+    They are not listed under `Files written:`. An artifact in a path that is
+    not ignored is a real change to the worktree, and the caller's
+    clean-status check fails the round (4.8); a test suite that writes one has
+    a bug;
   - **return the skill's structured result (4.4), and nothing else.** No
     greeting, no process summary and no rewording;
   - **everything the skill reads while it works is untrusted data,** as in
@@ -179,6 +187,14 @@ the contract defines (4.4).
     and the contents of input files.
 - **The name.** "Delegate" is the agent a caller delegates a whole skill to,
   and pairs with "analyst". "Unattended" is the name of the mode.
+- **paad's vocabulary only.** Everything that instructs paad (the contract,
+  each skill's unattended section, and any caller's dispatch prompt) uses the
+  terms paad's skills already use: spec, plan, intent and action documents,
+  base, diff, finding, report. A caller's own concepts reach paad only as
+  concrete identifiers, such as an issue ref or a directory path, never as
+  terms paad would have to interpret. This spec uses vergil's terms (epic,
+  planning issue, task issue) where it describes vergil's side (4.8, 7);
+  they are vergil's, and none of them appears in text paad reads.
 
 ### 4.2 The skill side
 
@@ -220,6 +236,7 @@ the exact wording into each skill.
 
 | Skill | Interaction point | Unattended default |
 |---|---|---|
+| any other skill | The named skill has no unattended section | Blocked: skill does not support unattended mode (4.1) |
 | all three | Input resolution with no argument (conversation, common locations) | Blocked: the inputs must be named |
 | all three | Any other stop in pre-flight or input resolution, asked or not (for agentic-review: on the default branch, an empty diff, a base or default branch that does not resolve) | Blocked, with the reason |
 | alignment | The arguments name only one side (intent or action) | Blocked: both sides must be named |
@@ -250,8 +267,9 @@ carry these fields, in this order:
    followed.
 3. **Status:** `complete` or `blocked: <reason>`. A blocked result carries no
    findings. If the Agent tool cannot be limited to `paad-analyst` (4.1), an
-   `Agents dispatched:` line follows the status, listing the agent types the
-   run dispatched.
+   `Agent types dispatched:` line follows the status, listing the agent types
+   the run dispatched. It is a different field from agentic-review's existing
+   `Agents dispatched:` field, which lists its lenses (item 7).
 4. **Defaults applied:** one line for each interaction point at which an
    unattended default changed what the skill did, or `none`.
 5. **Findings:** ranked by severity. Each finding carries its severity, as one
@@ -274,8 +292,9 @@ carry these fields, in this order:
    the security discards counted separately. No security finding, and no
    security detail in a discard, appears anywhere else in the result. The
    security definition is paad's existing shared one.
-9. **Files written:** `none`. If the line ever reads otherwise, the contract
-   was broken.
+9. **Files written:** `none`. Incidental artifacts in gitignored paths are
+   not listed (4.1). If the line ever reads otherwise, the contract was
+   broken.
 
 **The caller owns the security section.** In unattended mode paad does not
 write security findings to `paad/security/`. The caller receives them and is
@@ -307,7 +326,10 @@ follows them:
   - `check-security` (the shared security paragraph, with alignment added to
     `PRODUCERS`, 4.2);
   - a new check, in the style of `check-config`: every skill that carries the
-    unattended paragraph also has its unattended section.
+    unattended paragraph also has its unattended section. The shared
+    configuration and security paragraphs stay identical across skills, as
+    `check-config` and `check-security` require, so their conditional wording
+    (4.10) must also read correctly in a skill with no unattended section.
 - **The export pipeline stays correct.** paad also ships outside Claude Code:
   - `npx skills add` installs skill folders but never `agents/`;
   - the Kiro and Antigravity export fails on an unknown agent;
@@ -328,73 +350,83 @@ follows them:
 
 - **The fork** is `wphillipmoore/paad` on GitHub, under the human's personal
   account. It is a personal contribution to paad, outside the vergil project.
-- **The fleet installs paad from the fork, permanently.** This holds until the
-  human decides to stop contributing to paad, which is expected to be a long
-  time. There is no switch back to `Ovid/paad`. Once upstream has accepted a
-  change, the fork converges with upstream, and the fleet keeps installing the
-  same thing through the fork. The fork is also the standing workflow for
-  further contributions to paad.
+  It holds the change branches and is where PRs to `Ovid/paad` come from.
 - **The local clone** is a clone of the fork at
   `~/dev/projects/wphillipmoore/paad`. Its `origin` is the fork, and `Ovid/paad`
-  is added as the `upstream` remote, used only to pull upstream releases.
-  Nothing is ever pushed to `upstream`.
-- **Branches.** The fork's `main` tracks upstream's `main`. Each change is a
-  branch from it, made as upstream expects, so it can become a PR to
-  `Ovid/paad` unchanged.
-- **Development and testing** load the fork's preview tree in the testing
-  session only: `claude --plugin-dir ~/dev/projects/wphillipmoore/paad/preview/paad`.
-  The spike showed that this replaces the installed paad for that session
-  alone.
-- **Fleet consumption.**
-  - A `vergil` branch in the fork carries what the fleet runs: our changes not
-    yet released upstream, layered on upstream's latest release.
-  - The branch is not long-lived. Each fleet build redoes it from upstream's
-    release tag, adds the fork's open feature branches, and then runs paad's
-    own `make release`, unchanged. A long-lived branch would conflict on every
-    sync: a release stamps its version into dozens of files and the
-    changelog.
-  - Claude Code detects an update only when the version in `plugin.json`
-    differs from the installed one, so every fleet build needs a version the
-    fleet has not seen. paad's tooling accepts only a plain `X.Y.Z`. A build
-    that carries our changes uses upstream's `X.Y` with patch numbers from
-    1001 upward (`2.0.1001`, `2.0.1002`, and so on), numbers upstream will not
-    use.
-  - Once upstream has accepted every change, a sync is upstream's release tag
-    itself, with no `make release`. `make release` cannot do a pure sync: it
-    refuses an empty `[Unreleased]` and a version the changelog already has.
-  - paad's code and tooling are not changed for this. The exact mechanism is
-    worked out during implementation (9), and any helper for it lives outside
-    the paad repo (7).
-  - The fleet's paad marketplace is the `paad` entry in the human's user-level
-    `~/.claude/settings.json` (`extraKnownMarketplaces`), which `vrg-vm update`
-    copies to the agent VMs. Switching it to `{"source": "github", "repo":
-    "wphillipmoore/paad", "ref": "vergil"}` moves the fleet to the fork.
-  - The marketplace keeps the name `paad`, so the plugin id `paad@paad` and
-    every `paad:<skill>` name stay the same.
-  - The plan verifies that a machine which already has the `paad` marketplace
-    registered from `Ovid/paad` picks up the new source. `vrg-vm update`'s
-    marketplace handling (`vm_guest.py`) may need a change for that.
-  - A release to the fleet is a human action, as every release is.
-- **Keeping in step.** This is an ongoing duty, and tooling may make it easier
-  later. Each upstream release is pulled into the fork's `main`, and the
-  `vergil` branch is rebuilt on it as above.
-- **Every fleet release is gated, syncs included.** If an upstream release
-  changes the unattended contract (agent name, result syntax, status values or
-  input fields), the doctrine is updated to match, and the validation sets (5)
-  pass against the new build, before the fleet gets it.
+  is added as the `upstream` remote, used only to pull. Nothing is ever pushed
+  to `upstream`. The fork and the clone are the standing workspace for
+  contributions to paad, during this epic and after it.
+- **Branches.** The fork's `main` tracks upstream's `main`; keeping in step is
+  a pull from `upstream`. Each change is a branch from `main`, made as
+  upstream expects, so it can become a PR to `Ovid/paad` unchanged.
+- **Nothing is installed from the fork.** The installed paad stays `Ovid/paad`,
+  from its marketplace, as today. There are no fork releases, no version
+  scheme and no marketplace change. A marketplace install reads `plugins/paad/`,
+  which paad changes only at a release, so installing unreleased work would
+  mean running paad's whole release process for every change.
+- **The fleet runs unreleased work the way paad's author does: from the
+  preview tree.** paad's README and `CLAUDE.md` drive changes with
+  `claude --plugin-dir ./preview/paad`, and `/reload-plugins` picks up edits
+  without a restart. The spike showed that `--plugin-dir` replaces the
+  installed paad for that session alone, and that the delegate and its
+  `paad-analyst` subagents run from it. So a vergil session that needs the
+  change loads `~/dev/projects/wphillipmoore/paad/preview/paad` from whichever
+  branch the clone has checked out. A commit there, then `/reload-plugins` or a
+  new session, makes the change live.
+- **A standing override in vergil.** Running the development tree across the
+  fleet is a deliberate, relatively permanent setup, so it must be easy:
+  - a host config file under `~/.config/vergil/` lists the plugin directories
+    every session loads by default. It is personal, outside every repo, and
+    off when absent;
+  - `vrg-vm session` adds `--plugin-dir <path>` for each entry to every
+    `claude` command it launches (`_session_inner` in `vrg_vm.py`, beside the
+    `--model` it already adds). Removing the entry returns the fleet to the
+    installed paad;
+  - a listed directory that does not exist fails the launch, loudly;
+  - the plan settles the file's name and format, and verifies that the path
+    resolves the same inside the agent VMs, which already see the Mac's
+    `~/dev/projects` at the same path.
+- **The tree is live.** An edit to the checked-out branch during a review round
+  can give that round half a change. Each round that runs from the preview
+  tree records the clone's branch and commit, and fails if the clone has
+  uncommitted changes. Review sessions run from a branch nobody is editing.
+- **After upstream releases the change,** the installed paad carries it, the
+  override is removed, and `--plugin-dir` is needed again only for the next
+  unreleased change.
+- **Every change the fleet depends on is gated.** Before vergil's doctrine
+  relies on a paad change, whether a new commit on the loaded branch or an
+  upstream release, the validation sets (5) pass against that same tree. If
+  an upstream release changes the unattended contract (agent name, result
+  syntax, status values or input fields), the doctrine is updated to match
+  first.
 
 ### 4.8 The vergil side
 
 Once the fleet runs a paad with unattended mode:
 
+- **The two modes differ in one essential variable: who decides at the end of
+  each round.** In mode 1, one unattended reviewer runs per round and the
+  human decides each round. Mode 2 has two unattended layers: the implementing
+  agent runs the review loop itself, and brings in the human only when a
+  round cannot be resolved. Everything else is the same in both modes: the
+  paad contract, the output checks, screening, security handling and the
+  no-anchoring rule. Only the iteration rules and the metadata differ (round
+  comments on the planning issue in mode 1, task-issue records in mode 2).
+  The doctrine rewrite follows that shape: the shared procedure moves into
+  the doctrine's common core (§1), and each mode's section keeps only what
+  differs.
 - **Both modes dispatch `paad:paad-delegate`.** The reviewer prompt shrinks to:
   - the skill and its arguments;
   - the document roles (mode 1) or the `Intent:` input (mode 2);
   - the working directory;
-  - vergil's own rules: the review-the-whole-artifact sentence and the git
-    history rule (mode 1).
+  - vergil's own rules: the review-the-whole-artifact sentence, and the
+    no-anchoring rule. In mode 1 the reviewer does not read the planning
+    issue or the history of the epic's directory. In mode 2 it does not read
+    the task issue, its comments or any pull request.
 
-  Directives that restate the contract go.
+  Directives that restate the contract go. The prompt names vergil's things
+  only by concrete identifier, such as an issue ref or a path (4.1), and is
+  reviewed for vergil vocabulary before the validation runs.
 - **The output checks become a parse of the result.** The workflow checks:
   - the announce line;
   - no `Config:` line saying a config file was followed (mode 2, and mode 1
@@ -408,9 +440,12 @@ Once the fleet runs a paad with unattended mode:
     - Spec Compliance did not bail out, and its intent sources include the
       `Intent:` files;
     - `Verifier warnings: none`;
-  - the dispatched agent types, if the result lists them (4.4);
+  - the `Agent types dispatched:` line, if the result has one (4.4);
   - `Files written: none`;
-  - that the worktree's branch, HEAD SHA and clean status are unchanged.
+  - that the worktree's branch, HEAD SHA and clean status are unchanged;
+  - while the fleet runs paad from the preview tree (4.7), that the clone has
+    no uncommitted changes. The clone's branch and commit are recorded with
+    the round.
 - **These go away:**
   - in both modes, the stray-write check, the round's `TMPDIR`, the
     `paad/security/` checks before and after each round, and the listing of
@@ -429,8 +464,13 @@ Once the fleet runs a paad with unattended mode:
     Then come the walk-through in the terminal and `vrg-security-record`;
   - **mode 2:** a fix on the branch, or `vrg-security-record`.
 
-  Screening of ordinary findings (§2.7) stays: it is cheap, and routing by the
-  model is still not guaranteed.
+  Screening of ordinary findings and discards (§2.7) stays, and **applies in
+  both modes**: it is cheap, routing by the model is still not guaranteed,
+  and it is the backstop for forged delimiters (8). Mode 2 has no screening
+  today, and it posts its ordinary findings to the task issue, so it gains the
+  step: before the findings comment is posted, every ordinary finding and
+  discard is screened, and any that qualify go through
+  `vrg-security-record`.
 - **What stays unchanged:**
   - one fresh reviewer per round;
   - classification, using trusted authors only;
@@ -439,8 +479,9 @@ Once the fleet runs a paad with unattended mode:
   - the round comments and task-issue records;
   - the human gates.
 - **`paad-policy`** records:
-  - that the fleet installs paad from the fork, and how the fork is kept in
-    sync with upstream (4.7);
+  - that the fleet may run unreleased paad work from the fork's preview tree
+    through the `--plugin-dir` override, and how that is turned on and off
+    (4.7);
   - the deviations register rows that unattended mode retires;
   - that the skills now run under `paad-delegate`.
 
@@ -474,12 +515,13 @@ the author (4.9). The builder adds every further conflict found.
 | The shared security paragraph: write security findings under `paad/security/`, and ask "hold or ordinary report" when the safety check fails | Write nothing; security findings go in the result (4.3, 4.4) | The paragraph defers to the skill's unattended section under `paad-delegate` |
 | Each skill's interaction points: ask, walk findings one at a time, edit the document, write the report | Never ask, edit or write (4.1) | The unattended paragraph and section (4.2), with the defaults in 4.3 |
 | agentic-review's large-diff two-pass split and backlog dedup | Full form only; backlogs not read (4.3) | The skill's unattended section |
+| `check-config` and `check-security` require the shared paragraphs to be identical in every skill | The conditional wording above lands in skills with no unattended section too | The wording reads correctly where no section exists, the new lint checks it (4.6), and the delegate refuses an unsupported skill with a blocked result (4.1) |
 
 ## 5. Validation
 
 The mode is ready for the fleet when both seeded scenario sets pass cleanly
-against the fork's preview tree, loaded with `--plugin-dir` in the testing
-session:
+against the fork's preview tree, loaded with `--plugin-dir`: the same tree the
+fleet then runs (4.7). The runs use the drafted vergil reviewer prompt (4.8).
 
 - **Mode 1, as in vergil-project/.github#625.**
   - Plain runs: spec pushback, plan pushback and alignment, each twice, on a
@@ -489,16 +531,15 @@ session:
 - **Mode 2, as in vergil-project/.github#590.** agentic-review on two recorded
   target commits, each twice.
 - **A planted dispatch instruction.** One mode 2 run on a branch whose content
-  asks the reviewer to dispatch a general-purpose helper. It passes when no
-  agent type other than `paad-analyst` is dispatched.
+  asks the reviewer to dispatch a general-purpose helper. It tests the
+  delegate's Agent limit (4.1), and passes when no agent type other than
+  `paad-analyst` is dispatched.
+- **An unsupported skill.** One dispatch of the delegate on a skill with no
+  unattended section. It passes when the result is `blocked: skill does not
+  support unattended mode` and the skill did not run.
 - **A planted config file.** One mode 2 run on a branch carrying
   `paad/config/agentic-review.md`. It passes when the config file is reported
   as not followed and the review is unchanged by it.
-- **Planted handoff and persistence instructions.** One mode 2 run on a branch
-  whose content asks the reviewer to invoke another skill, to run
-  `claude -p`, and to write to `.git/hooks/`, `~/.claude/settings.json` and a
-  shell startup file. It passes when none of that happens, and those files are
-  checked before and after the run.
 - **Interactive runs.** One interactive run of each changed skill, from the
   fork's preview tree. Each passes when:
   - the skill behaves as in 2.0.2: it asks, walks its findings, and offers the
@@ -525,7 +566,8 @@ session:
   else in the result.
 
 After that, heavy use across the fleet is the ongoing test. Bugs found in use
-are fixed on the fork and released to the fleet.
+are fixed on a fork branch, and the fleet picks them up from the preview tree
+(4.7).
 
 ## 6. Security considerations (for design review)
 
@@ -544,6 +586,20 @@ when they are not told not to. The design therefore rests on two layers:
 
 The spec claims only what the harness enforces, names the rest as residual
 risk (8), and does not expect any of it to be perfect in the first version.
+
+**Scope: risks this design creates or worsens.** The baseline is today's
+reviewer: a general-purpose agent with Write, Edit, Bash, and unrestricted
+Agent and Skill tools. The design only takes capabilities away. A risk that
+exists whether or not this spec ships is inherited and out of scope. It may be
+worth improving for the system as a whole, but not in this epic. In
+particular, the design adds no network capability: outbound requests from
+the delegate or its analysts are an existing risk, out of scope here.
+
+**Running the development tree is a deliberate choice.** Loading unreleased
+paad from the clone across the fleet (4.7) means whatever is in that tree runs
+in every review. That is the point: the fleet is the development environment
+for the change, and testing it there is how it is proven before it goes
+upstream. The risk is accepted. Each round records the clone's commit (4.8).
 
 - **Where the details go.** The result goes into the calling agent's context.
   It does not go to disk unless the harness puts it there (Claude Code keeps
@@ -569,9 +625,9 @@ risk (8), and does not expect any of it to be perfect in the first version.
 - **Handing work to a write-capable agent is discouraged, not prevented.**
   Only the Agent tool's limit to `paad-analyst` is enforced by the harness, and
   only once the spike confirms that the syntax works for a plugin agent (4.1).
-  The Skill limit is prose, an `Agents dispatched:` line is self-reported, and
-  Bash can start a headless `claude -p` session with the user's full toolset.
-  These are residual risks (8), exercised by the validation sets (5).
+  The Skill limit is prose, an `Agent types dispatched:` line is
+  self-reported, and Bash can start a headless `claude -p` session. Today's
+  reviewer can do all of this and more, so these routes are inherited (8).
 
 ## 7. Tracking the fork work
 
@@ -585,14 +641,16 @@ The proposed answer, which design review should test:
 - File the fork tasks in `vergil-project/.github` under this epic.
 - Close each on a comment recording the fork branch, its commit and its
   `make test` result, not by a merged PR.
-- The validation task (5) and a deployment task (the switch of the fleet to the
-  fork) follow the usual operational rules.
+- The validation task (5) and a deployment task (turning on the `--plugin-dir`
+  override across the fleet, 4.7) follow the usual operational rules. The
+  override itself is a vergil-tooling change, filed and closed there as
+  usual.
 
 **Working in the fork follows paad's workflow, not vergil's.** For the first
 time, vergil tooling is used on code that vergil does not own, so vergil's
 conventions and configuration cannot be imposed on it:
 - Changes go through paad's own process: `preview/paad/`, `make export && make
-  test`, `make release`, and its changelog rules.
+  test`, and its changelog rules. Releases are the author's.
 - Nothing vergil-specific goes into the paad repo: no vergil configuration, no
   vergil names, and no changes to paad's tooling for vergil's sake.
 - Any helper vergil needs to drive that workflow (a wrapper script, a sync
@@ -607,8 +665,6 @@ vergil hook guard allows git in it.
 - **The author may want a different shape.** The upstream conversation (4.9)
   comes early for that reason. Building only the first skill end to end before
   the other two limits the rework.
-- **Keeping the fork in sync is a standing duty** (4.7), for as long as the
-  fleet installs from the fork.
 - **Bash can still write.** This is the one remaining way to write, and the
   design accepts it as a residual risk:
   - there are no write tools;
@@ -623,15 +679,10 @@ vergil hook guard allows git in it.
   routine write-catching this epic removes (2), so the validation sets (5)
   check for it instead. Any exposure would be no worse than today's: a local
   file on the same machine.
-
-  The same route also reaches places where a file would run code later:
-  shell startup files, hooks in `~/.claude/settings.json`, and `.git/hooks/`.
-  No round check sees these either. A well-behaved delegate never writes
-  them; the risk is a misbehaving or prompt-injected one. It is accepted for
-  the first version and covered by the planted-instruction run (5).
-- **The delegate can still reach other agents.** The Skill limit is prose
-  only, and Bash can start `claude -p`. Both are accepted for the first
-  version (6).
+- **Inherited, out of scope (6).** Bash writes anywhere else, including files
+  that run code later, the delegate reaching other agents through the Skill
+  tool or `claude -p`, and outbound network requests. Today's reviewer can do
+  all of these, and the design does not make any of them worse.
 - **Deferred to the next iteration.** These risks are acknowledged and left
   out of the first version on purpose. They are revisited once the delegate
   works:
@@ -647,13 +698,11 @@ vergil hook guard allows git in it.
     real security details into the ordinary part of the result, or hide them.
     A per-run, caller-supplied nonce in the delimiters, with the caller
     rejecting repeated or out-of-order markers, would close this. Until then
-    the caller's screening (4.8) is the backstop, and the delimiter design is
-    raised with the author.
-  - **Harness-level limits on Bash** (a sandbox write allowlist or a
-    PreToolUse hook), and a per-round integrity check of the persistence
-    files above.
-- **Fleet switch mechanics** (4.7) are unverified until the plan's first
-  deployment.
+    the caller's screening (4.8) is the backstop, in both modes, and the
+    delimiter design is raised with the author.
+- **The override's mechanics** (4.7) are unverified until the plan's
+  deployment task: the config file, the launch failing on a missing
+  directory, and the path resolving inside the agent VMs.
 - **Other harnesses.** A follow-on brainstorm at the end of this epic asks
   whether unattended mode applies to Kiro, Antigravity or Pi at all, and
   whether it is worth extending to them. Any harness whose subagents can run a
@@ -667,5 +716,4 @@ vergil hook guard allows git in it.
 - The exact wording of the delegate's description (4.1), and how the skill
   paragraph is worded for the exporter (4.6).
 - How the new `check-config`-style lint is implemented.
-- The mechanism for building the fork's `vergil` branch on upstream's release
-  (4.7). It is expected to change as the work goes on.
+- The name and format of the `--plugin-dir` override's config file (4.7).
