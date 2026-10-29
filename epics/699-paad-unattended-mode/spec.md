@@ -164,10 +164,13 @@ the contract defines (4.4).
     caller's instructions bind: the skill and its arguments, the working
     directory, document roles, input fields, and the caller's own review
     rules;
-  - **run only a skill that supports the mode.** If the named skill has no
-    unattended section (4.2), return `blocked: skill does not support
-    unattended mode` without running it. Adding that section is how a further
-    skill adopts the mode;
+  - **run only a skill that supports the mode.** The contract itself lists
+    the supported skills: `paad:pushback`, `paad:alignment` and
+    `paad:agentic-review`. A skill not on the list returns `blocked: skill
+    does not support unattended mode` before anything is invoked, so the
+    delegate never loads a skill only to find it unsupported. A further skill
+    adopts the mode by gaining its unattended section and its name on this
+    list, in the same change;
   - **never ask.** At each of the skill's interaction points, apply that
     skill's unattended default (4.3). Where a skill would stop and ask because
     it cannot proceed safely, return a result whose status is blocked, with
@@ -241,7 +244,7 @@ the exact wording into each skill.
 
 | Skill | Interaction point | Unattended default |
 |---|---|---|
-| any other skill | The named skill has no unattended section | Blocked: skill does not support unattended mode (4.1) |
+| any other skill | The named skill is not on the contract's supported list | Blocked: skill does not support unattended mode (4.1) |
 | pushback, alignment | Input resolution with no argument (conversation, common locations) | Blocked: the inputs must be named |
 | agentic-review | No arguments | Review against the resolved default branch, as today (the skill's common form), and list it under "Defaults applied" |
 | all three | The analyst agent is not available (the skills' general-purpose fallback) | Blocked: analyst agent not available (4.1) |
@@ -568,6 +571,14 @@ imposed on interactive users without the author's agreement:
   self-test and the access and triggering clause vergil keeps in its own
   prompt (4.8).
 
+One observation goes with them, not as a proposal: the skills use different
+severity scales (pushback `critical`/`serious`/`moderate`/`minor`, alignment
+`Critical`/`Important`/`Minor`, agentic-review
+`Critical`/`Important`/`Suggestion`), and pushback's lives only in its report
+template. Each unattended section restates its skill's own scale unchanged,
+and the caller maps it (vergil's doctrine §1.3). Whether to unify the scales
+for every user is the author's call.
+
 ### 4.10 Where the delegate contradicts paad's existing prose
 
 Some of the delegate's instructions knowingly contradict text that paad's
@@ -670,7 +681,9 @@ paad from the clone across the fleet (4.7) means whatever is in that tree runs
 in every review. That is the point: the fleet is the development environment
 for the change, and testing it there is how it is proven before it goes
 upstream. The risk is accepted. The fleet runs a dedicated checkout that
-moves only on purpose (4.7).
+moves only on purpose (4.7). The fleet checkout sits on the folder every Lima
+VM mounts read-write, so an uncommitted edit there changes what every later
+session runs, and nothing checks for it; that is accepted too.
 
 - **Where the details go.** The result goes into the calling agent's context.
   It does not go to disk unless the harness puts it there (Claude Code keeps
@@ -727,9 +740,13 @@ conventions and configuration cannot be imposed on it:
 - Any helper vergil needs to drive that workflow (a wrapper script, a sync
   step) lives outside the paad repo.
 
-The plan also has to settle how agents work in the fork clone, which is not a
-vergil-managed repo. That covers whether `vrg-git` works there and whether the
-vergil hook guard allows git in it.
+**Git writes in the fork are the human's.** The fork clone is not a
+vergil-managed repo: the vergil hook guard blocks raw `git`, `vrg-git` places
+worktrees only under a repo's `.worktrees/`, and `vrg-commit` writes vergil's
+commit style rather than paad's. So the human clones, creates the fleet
+worktree, commits and pushes, with `!`. Agents edit files, run paad's checks
+and prepare commit messages in paad's style, and use `vrg-git` only for
+read-only commands shown to work there.
 
 ## 8. Risks and open points
 
@@ -770,8 +787,12 @@ vergil hook guard allows git in it.
     real security details into the ordinary part of the result, or hide them.
     A per-run, caller-supplied nonce in the delimiters, with the caller
     rejecting repeated or out-of-order markers, would close this. Until then
-    the caller's screening (4.8) is the backstop, in both modes, and the
-    delimiter design is raised with the author.
+    the caller's screening (4.8) is the backstop, in both modes, the caller
+    refuses any result whose markers are missing, repeated or out of order,
+    and the delimiter design is raised with the author.
+  - **A read-only mount of the fleet checkout.** If Lima can mount one folder
+    read-only for the VMs, the fleet checkout could not be edited from a VM
+    at all, which removes the accepted risk in 6.
 - **The override's mechanics** (4.7) are unverified until the plan's
   deployment task: the config file, the launch failing on a missing
   directory, and the path resolving inside the Lima VMs.
