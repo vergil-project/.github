@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#699
 - **Planning issue:** vergil-project/.github#698 (review history is in its
   comments)
-- **Status:** draft, in design review
+- **Status:** approved
 - **Repos:** the paad fork `wphillipmoore/paad` (the paad change),
   vergil-claude-plugin (the doctrine, the policy and the skills that dispatch
   paad), vergil-tooling (the `--plugin-dir` override in `vrg-vm session`),
