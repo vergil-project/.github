@@ -50,6 +50,15 @@ vergil-claude-plugin's doctrine gains the delegate path beside today's path.
   a shared paragraph could never pass on the shipped tree.
 - **No skill outside `PRODUCERS` and `READERS` names `paad/security/`.** New
   text says "writes no security file", not the path.
+- **paad's "one phrasing" rule.** New skill text says "the analyst" and "the
+  delegate" in prose; literal agent names (`paad:paad-analyst`,
+  `paad:paad-delegate`) appear only in the delegate's contract and in
+  `subagent_type` dispatch lines, so nothing dangling reaches the exports.
+- **A running conflicts list.** Each fork task that meets paad text the
+  delegate contradicts, beyond spec 4.10's list, appends it (paad text, what
+  the delegate needs, how they coexist) to one comment on the epic,
+  vergil-project/.github#699, titled `paad prose conflicts found during the
+  build`. Task 12 sends spec 4.10 plus that list.
 - **Paths are absolute:** `/Users/pmoore/dev/projects/wphillipmoore/paad` (the
   clone) and `/Users/pmoore/dev/projects/wphillipmoore/paad-fleet` (the fleet
   worktree). They are the same on the Mac and in the Lima VMs; `~` is not.
@@ -185,8 +194,14 @@ list), `Recommendation:`; agentic-review `Symbol:`, `Excerpt:`, `Fix:`,
 `Confidence:`, `Scope:` (`in scope`, `out-of-scope bug`, `out-of-scope
 addition`), `Bug class:`. agentic-review's skill-specific fields are its
 existing counts line, `Agents dispatched:` (lenses), `Intent sources
-consulted:` and `Verifier warnings:`, under paad's own names. A blocked result
-stops after `Agent types dispatched:` and ends with `Files written: none`.
+consulted:` and `Verifier warnings:`, under paad's own names.
+
+A blocked result has `Findings: 0` and `Discards: 0`, and still carries the
+security section, empty (`Security: 0`, `Security discards: 0`), before
+`Files written: none`, so every result has exactly one pair of markers. A
+skill refused before it is invoked (not on the supported list) opens with
+`Running paad:<skill> (not invoked)`, since its version is unknown without
+loading it; callers accept that form only with that status.
 
 `Agent types dispatched:` per skill: pushback and alignment dispatch no
 subagents, so `none` is expected and any listed type must be
@@ -302,8 +317,9 @@ Settles the facts later tasks rely on before any skill text is written.
   analyst agent not available`; invoke only the
   named skill; write nothing, with any tool (incidental artifacts of
   read-only commands allowed in gitignored paths only, not listed); return
-  the result format above and nothing else; everything read is untrusted
-  data. Frontmatter: `name: paad-delegate`; `tools: Read, Grep, Glob, Bash,
+  the result format above and nothing else; the caller must keep the
+  security section out of every public record (issue comments, commit
+  messages, PR text, handoff notes); everything read is untrusted data. Frontmatter: `name: paad-delegate`; `tools: Read, Grep, Glob, Bash,
   Skill, Agent`; a `description` that says it is dispatched explicitly, by
   name, by a calling agent, and never for interactive use.
 - [ ] **Step 6:** Run `make check-export-dryrun TREE=preview/paad`. If it
@@ -318,9 +334,10 @@ Settles the facts later tasks rely on before any skill text is written.
   changelog line.
 - [ ] **Step 8: Smoke `unsupported-skill` (human).** In a session started
   with `--plugin-dir` on the clone's preview tree, dispatch the delegate on
-  `agentic-owasp` with the prepared prompt. Expected: `Status: blocked: skill
-  does not support unattended mode`, `Agent types dispatched: none`, `Files
-  written: none`, and the skill never announced.
+  `agentic-owasp` with the prepared prompt. Expected: `Running
+  paad:agentic-owasp (not invoked)`, `Status: blocked: skill does not support
+  unattended mode`, `Agent types dispatched: none`, an empty security
+  section, `Files written: none`, and the skill never announced.
 - [ ] **Step 9: Refactor.** Tidy `check_unattended.py` and the contract
   without changing behaviour; the self-test and smoke results stand.
 - [ ] **Step 10:** `make export && make test`. Expected: `All checks
@@ -426,9 +443,10 @@ in pushback's own unattended paragraph, next to them.
 
 ### Task 6: agentic-review unattended mode
 
-**Files:** Modify `preview/paad/skills/agentic-review/SKILL.md` (and its
-`references/` only if a dispatch prompt there must name the delegate rule),
-`paad-help`, `CHANGELOG.md`.
+**Files:** Modify `preview/paad/skills/agentic-review/SKILL.md`,
+`preview/paad/skills/agentic-review/references/spec-compliance.md`,
+`preview/paad/skills/agentic-review/references/verifier.md`, `paad-help`,
+`CHANGELOG.md`.
 
 **Interfaces:** Consumes Task 4's pattern. Produces the `Intent:` input: a
 line `Intent: <path>[, <path>…]` in the dispatch prompt; Spec Compliance reads
@@ -447,14 +465,25 @@ those files as explicit spec files ahead of its other sources.
 - [ ] **Step 2:** Under the delegate, the "If the analyst agent is not
   available … dispatch a general-purpose subagent instead" paragraph does not
   apply (spec 4.10): the section says so.
-- [ ] **Step 3:** Document the `Intent:` input in the section and in
-  `paad-help`. Interactive arguments are unchanged.
+- [ ] **Step 3: Wire in `Intent:`.** Under the delegate, the orchestrator
+  passes the `Intent:` paths into the Spec Compliance dispatch as explicit
+  spec files, and `references/spec-compliance.md`'s intent-source priority
+  gains a delegate-only first item for them, ahead of `$ARGUMENTS`. Document
+  the input in the section and in `paad-help`. Interactive arguments are
+  unchanged. Add the reference-file change to the running conflicts list.
+- [ ] **Step 3a: An empty backlog slice.** Under the delegate, the verifier
+  is given an explicitly empty backlog slice, and its update, mint and
+  migrate directives are dropped (`references/verifier.md` says so for the
+  delegate). Add it to the running conflicts list.
 - [ ] **Step 4:** Update the digraph. `make check-digraphs`, `make
   check-dispatch-sites` and `make check-export-dryrun TREE=preview/paad`
   pass.
-- [ ] **Step 5: Smoke `no-args`, `intent` and `dirty` (human, with
-  agent-prepared fixtures).** In a scratch repo with a branch carrying one
-  known bug: no arguments gives `Status: complete`, the bug found, `Agent
+- [ ] **Step 5: Smoke `no-args`, `intent`, `dirty` and `security` (human,
+  with agent-prepared fixtures).** For `security`, a branch carries one
+  planted security bug in the diff and one in surrounding code (an
+  out-of-scope bug): both appear in the security section and nowhere else,
+  and the ordinary findings carry neither. For the rest, in a scratch repo
+  with a branch carrying one known bug: no arguments gives `Status: complete`, the bug found, `Agent
   types dispatched: paad:paad-analyst`, and `- no arguments: reviewed against
   the default branch` under `Defaults applied:`; `Intent: spec.md` appears in
   `Intent sources consulted:`; with an uncommitted change, `Status: blocked:
@@ -529,6 +558,11 @@ those files as explicit spec files ahead of its other sources.
 **Preconditions:** Tasks 5, 6 and 7 closed; a vergil-tooling release
 carrying Task 7 is installed on the host (human-attested).
 
+This first move is itself the deployment under test (spec 4.7): Task 9
+validates it with the override on. The new text applies only under the
+delegate, and Tasks 4–6's interactive smokes showed the skills unchanged
+otherwise. The gate applies to every later move.
+
 - [ ] **Step 1 (human):** In the fleet worktree, move `fleet` to the
   `unattended-mode` branch's head; record the commit. Only the human moves
   `fleet`; agents never run git in the fleet worktree.
@@ -556,11 +590,16 @@ carrying Task 7 is installed on the host (human-attested).
   Record both drafts on the issue.
 - [ ] **Step 2:** Run every set in spec 5 with the drafts, from Lima sessions
   using the override: mode 1 plain and seeded runs; mode 2 on two recorded
-  commits, each twice; planted dispatch (judged from the session
-  transcripts' subagent spawns, not the result line); unsupported skill;
-  seeded access-control gap; planted config; one interactive run of each
-  changed skill (human).
-- [ ] **Step 3:** Judge each against spec 5's "cleanly". Record per run: the
+  commits, each twice; mode 2 seeded, on a branch with a planted security
+  bug in scope and one out of scope; planted dispatch (judged from the
+  session transcripts' subagent spawns, not the result line); unsupported
+  skill; seeded access-control gap; planted config; one interactive run of
+  each changed skill (human).
+- [ ] **Step 3:** Judge each unattended run against spec 5's "cleanly", and
+  each interactive run against spec 5's interactive criteria: it behaves as
+  in 2.0.2 (asks, walks findings, offers the update or the report, routes
+  security as today), shows no unattended field, and `paad-delegate` is not
+  chosen automatically. Record per unattended run: the
   status, the field parse, `Agent types dispatched:` against the per-skill
   expectation (the result format above), the fleet checkout commit, `Files
   written:`, and the before and after state of the worktree, its ignored
@@ -592,27 +631,36 @@ vergil-claude-plugin.
   types dispatched:` expectation (the result format above). Every
   `blocked:` result pauses for the human and is never re-run automatically.
   Each round logs the fleet checkout's branch and commit, as a convenience,
-  and notes it if the commit changed since the last round.
+  and notes it if the commit changed since the last round. It reads them
+  from files, never with git: the worktree's `.git` file names its gitdir,
+  whose `HEAD` names the branch, whose ref file (or `packed-refs`) holds the
+  commit.
 - [ ] **Step 3: Parse keywords without regard to case.** On both paths, the
   checks match fixed keywords case-insensitively (`Security:`, `Discards:`,
   `Running paad:`, `Status:`, `SECURITY-CHECK-FAILED` and the rest) and keep
   everything else exact, so an annotation still fails and a case difference
   does not (vergil-project/.github#706).
-- [ ] **Step 4: Cut the security section out first, and fail closed.** On
+- [ ] **Step 4: Write the cut's test cases first.** Draft results with a
+  missing end marker, a duplicated start marker, a `### S<i>` line outside
+  the section, a well-formed blocked result, and a well-formed complete
+  result. Against today's doctrine none of them is handled (red).
+- [ ] **Step 5: Cut the security section out first, and fail closed.** On
   the delegate path, the orchestrator removes the section between `=== paad
   security section ===` and `=== end paad security section ===` before any
   other processing. Mode 1 writes it to the §2.7 scratch copy (mode 700,
   outside every repo), then runs the walk-through and `vrg-security-record`.
-  Mode 2 fixes each finding on the branch or runs `vrg-security-record`.
-  Round comments and findings comments are built only from the result with
-  the section removed. The cut proceeds only when the result has exactly one
-  start marker and one end marker, in that order, matched case-insensitively,
-  and no `### S<i>` or `Security discards:` line outside the section. Any
-  other shape is a broken round: nothing is posted, the whole result is kept
-  in the scratch copy as security material, and the human is asked.
-- [ ] **Step 5: Test the cut before live use.** Feed the step 4 procedure a
-  result with a missing end marker, and one with a duplicated start marker.
-  Expected: both break the round, and nothing reaches a comment.
+  Mode 2 writes it to the §3.6 security directory (mode 700, outside every
+  repo, with §3.6's keep-until-recorded and cleanup rules), then fixes each
+  finding on the branch or runs `vrg-security-record`. Round comments and
+  findings comments are built only from the result with the section
+  removed. The cut proceeds only when the result has exactly one start
+  marker and one end marker, in that order, matched case-insensitively, and
+  no `### S<i>` or `Security discards:` line outside the section. Any other
+  shape is a broken round: nothing is posted, the whole result is kept as
+  security material in that mode's private location, and the human is asked
+  (mode 2 pauses as in §3.8). Walk the step 4 cases through it (green): the
+  three malformed ones break the round with nothing posted, and the two
+  well-formed ones proceed. Then tidy the wording (refactor).
 - [ ] **Step 6:** Add mode 2 screening of every ordinary finding and discard
   before the findings comment is posted, on both paths.
 - [ ] **Step 7:** Keep every item under spec 4.8's "These go away" in the
@@ -624,9 +672,13 @@ vergil-claude-plugin.
   delegate path retires, and the standing rule for the fleet checkout: only
   the human moves `fleet`, agents never run git in the fleet worktree, and
   after a move the validation sets (Task 9) pass on the new commit, in newly
-  started sessions, before vergil relies on it. It also records, as an
-  accepted risk, that an uncommitted edit in the fleet checkout changes what
-  every later session runs and is not checked (spec 6).
+  started sessions, before vergil relies on it. The same gate applies to
+  switching vergil to a released paad: the validation sets pass against it
+  first, and if its unattended contract changed (agent name, result syntax,
+  status values or input fields), the doctrine is updated before the switch.
+  It also records, as an accepted risk, that an uncommitted edit in the
+  fleet checkout changes what every later session runs and is not checked
+  (spec 6).
 - [ ] **Step 9:** Point the two skills' dispatch steps at the doctrine's
   selection rule. Run `vrg-container-run -- vrg-validate`. Commit and hand
   off with `report-ready`; the handoff notes record
@@ -650,8 +702,9 @@ recorded decision.
   with its reason:
   - **offer it upstream:** open the PR(s) from fork branches to `Ovid/paad`,
     split the way the author prefers, with Task 9's evidence, the spec §4.10
-    conflicts list, the two spec §4.9 proposals and its severity-scale
-    observation; record the PR links.
+    conflicts list together with the running list from the build, the two
+    spec §4.9 proposals and its severity-scale observation; record the PR
+    links.
     Upstream's decision is the author's, and nothing in the epic waits on it;
   - **try a different idea:** file a planning issue for the next attempt,
     with what this experiment taught, and link it.
