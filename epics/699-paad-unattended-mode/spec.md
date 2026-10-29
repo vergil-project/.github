@@ -49,8 +49,8 @@ Nearly everything the workflow needs is a skip.
 
 This epic changes paad from the inside instead. It adds an **unattended mode**
 that a caller turns on, builds it as a tested patch on a fork that follows
-paad's own conventions, and offers it to the paad author. The vergil workflow
-then uses it, and the doctrine sheds the interface work.
+paad's own conventions, and, if it proves out, offers it to the paad author.
+The vergil workflow then uses it, and the doctrine sheds the interface work.
 
 ## 2. Goals, non-goals and anti-goals
 
@@ -531,15 +531,20 @@ fallback path until a released paad carries the mode.
 
 ### 4.9 Upstream
 
-The human discusses the direction with the paad author, Curtis Poe, before much
-is built, using the analysis and this design. The author's review of the
-published spec is a task of this epic, signed off by the human. The author's
-feedback is summarised and recorded on that task, and folded into the spec and
-plan through a follow-up docs PR before the fork work starts.
+This epic is an experiment: a working proof of concept, built and tried in the
+vergil fleet before anything is proposed. The design is expected to change as
+it is used, so the paad author, Curtis Poe, sees a validated, working change
+rather than an untested spec. The human shares progress with him informally
+as the work goes, when useful, but nothing in the epic waits on his feedback.
 
-The change is built and demonstrated as one change. It then goes to the author
-as pull requests from fork branches, with the validation evidence, split the
-way the author prefers. The author decides what upstream takes, and how.
+The epic ends with a decision, made by the human once the mode has been
+validated and used:
+
+- **Offer it upstream.** The change goes to the author as pull requests from
+  fork branches, with the validation evidence and the §4.10 conflicts list,
+  split the way he prefers. The author decides what upstream takes, and how.
+- **Try a different idea.** If the experiment fails, or teaches us the shape
+  is wrong, a follow-on epic takes the next attempt.
 
 Two proposals go alongside it. Neither is part of the patch, and neither is
 imposed on interactive users without the author's agreement:
@@ -724,8 +729,9 @@ vergil hook guard allows git in it.
 ## 8. Risks and open points
 
 - **The author may want a different shape.** The upstream conversation (4.9)
-  comes early for that reason. Building only the first skill end to end before
-  the other two limits the rework.
+  comes at the end, after the proof of concept, so some rework is possible and
+  accepted. Building only the first skill end to end before the other two
+  limits it.
 - **Bash can still write.** This is the one remaining way to write, and the
   design accepts it as a residual risk:
   - there are no write tools;

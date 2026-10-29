@@ -60,75 +60,76 @@ vergil-claude-plugin's doctrine gains the delegate path beside today's path.
 1. **The delegate dispatched on a skill with no unattended section** (for
    example `agentic-owasp`): it must return `blocked: skill does not support
    unattended mode` without running the skill, rather than half-following
-   prose that defers to a missing section. Pinned in Task 4
-   (`unsupported-skill` smoke) and Task 10 (validation).
+   prose that defers to a missing section. Pinned in Task 3
+   (`unsupported-skill` smoke) and Task 9 (validation).
 2. **agentic-review with no arguments under the delegate**: it must review
    against the resolved default branch and list that under `Defaults
-   applied:`, not block. Pinned in Task 7 (`no-args` smoke).
+   applied:`, not block. Pinned in Task 6 (`no-args` smoke).
 3. **A `paad/config/<skill>.md` present on the branch under review**: it must
-   be reported as `Config not followed:` and change nothing. Pinned in Task 5
-   (`config-present` smoke) and Task 10.
+   be reported as `Config not followed:` and change nothing. Pinned in Task 4
+   (`config-present` smoke) and Task 9.
 4. **An override entry that is relative, or a directory missing in the
    guest**: the launch must fail loudly, never start `claude` without the
-   tree. Pinned in Task 8 (`test_load_plugin_dirs_rejects_relative`,
+   tree. Pinned in Task 7 (`test_load_plugin_dirs_rejects_relative`,
    `test_session_inner_checks_plugin_dirs_in_guest`).
 5. **A cloud target while the override is configured**: the session must
    launch without `--plugin-dir` and print the Lima-only notice. Pinned in
-   Task 8 (`test_cloud_session_skips_plugin_dirs_with_notice`).
+   Task 7 (`test_cloud_session_skips_plugin_dirs_with_notice`).
 
 ---
 
 ## Delivery
 
-Each task below is one issue under the epic. Tasks 1–7 and 11 are fork or
-human tasks filed in `vergil-project/.github` and closed by comment (spec 7);
-the rest close by a same-repo PR or as operational tasks.
+Each task below is one issue under the epic. Tasks 1–6, 11 and 12 are fork,
+brainstorm or human tasks filed in `vergil-project/.github` and closed by
+comment (spec 7); the rest close by a same-repo PR or as operational tasks.
 
 | Task | Issue (repo, kind) | Blocked by |
 |---|---|---|
-| 1 | Author review of the spec (`.github`, human sign-off) | the docs PR (#700) |
-| 2 | Fork, clone and fleet checkout setup (`.github`, closed by comment) | 1 |
-| 3 | Spike: delegate on the fork's preview tree (`.github`, closed by comment) | 2 |
-| 4 | The `paad-delegate` agent and the unattended lint (`.github`, fork) | 3 |
-| 5 | pushback unattended mode, and the shared paragraphs (`.github`, fork) | 4 |
-| 6 | alignment unattended mode (`.github`, fork) | 5 |
-| 7 | agentic-review unattended mode (`.github`, fork) | 5 |
-| 8 | `--plugin-dir` override in `vrg-vm session` (vergil-tooling) | 1 |
-| 9 | Deploy the override and the fleet checkout (`.github`, deployment) | 6, 7, 8 |
-| 10 | Validate the mode and the drafted vergil prompts (`.github`, validation) | 9 |
-| 11 | Offer the change upstream (`.github`, human, closed by comment) | 10 |
-| 12 | Doctrine and policy: the delegate path with fallback (vergil-claude-plugin) | 10 |
-| 13 | Follow-on brainstorm: other harnesses (`.github`) | 11, 12 |
+| 1 | Fork, clone and fleet checkout setup (`.github`, closed by comment) | — |
+| 2 | Spike: delegate on the fork's preview tree (`.github`, closed by comment) | 1 |
+| 3 | The `paad-delegate` agent and the unattended lint (`.github`, fork) | 2 |
+| 4 | pushback unattended mode, and the shared paragraphs (`.github`, fork) | 3 |
+| 5 | alignment unattended mode (`.github`, fork) | 4 |
+| 6 | agentic-review unattended mode (`.github`, fork) | 4 |
+| 7 | `--plugin-dir` override in `vrg-vm session` (vergil-tooling) | — |
+| 8 | Deploy the override and the fleet checkout (`.github`, deployment) | 5, 6, 7 |
+| 9 | Validate the mode and the drafted vergil prompts (`.github`, validation) | 8 |
+| 10 | Doctrine and policy: the delegate path with fallback (vergil-claude-plugin) | 9 |
+| 11 | Follow-on brainstorm: other harnesses (`.github`) | 9 |
+| 12 | Decide: offer the change upstream, or try a different idea (`.github`, human) | 10, 11 |
 
-Task 8 depends only on the author review, so it runs in parallel with the fork
-work. The bookends already exist: the docs task vergil-project/.github#700,
-the documentation review vergil-project/vergil-claude-plugin#820 and the
-retrospective vergil-project/.github#701.
+Task 7 runs in parallel with the fork work. Nothing waits on the paad author:
+the human shares progress with him informally, and the upstream conversation
+is Task 12, the last task before the retrospective (spec 4.9). The bookends
+already exist: the docs task vergil-project/.github#700, the documentation
+review vergil-project/vergil-claude-plugin#820 and the retrospective
+vergil-project/.github#701.
 
 ## File map
 
 | Repo | File | Responsibility |
 | --- | --- | --- |
-| paad fork | `preview/paad/agents/paad-delegate.md` | The contract (Task 4) |
-| paad fork | `scripts/check_unattended.py` | The new lint, with `--self-test` (Tasks 4, 5) |
-| paad fork | `Makefile` | `check-unattended` in `tree-checks`; its self-test in `self-tests` (Task 4) |
-| paad fork | `preview/paad/skills/*/SKILL.md` | Conditional configuration paragraph in every skill (Task 5) |
-| paad fork | `scripts/check_security.py` | The conditional shared security paragraph (Task 5) |
-| paad fork | `preview/paad/skills/pushback/SKILL.md` | Unattended paragraph and section (Task 5) |
-| paad fork | `preview/paad/skills/alignment/SKILL.md` | Unattended paragraph and section (Task 6) |
-| paad fork | `preview/paad/skills/agentic-review/SKILL.md` | Unattended paragraph and section, `Intent:` input (Task 7) |
-| paad fork | `preview/paad/skills/paad-help/SKILL.md` | The mode documented, Claude Code only (Tasks 4–7) |
-| paad fork | `scripts/convert_skills.py` | Exports stay correct with the new agent and paragraph (Task 4) |
-| paad fork | `CHANGELOG.md` | `[Unreleased]` entry (Task 4, extended by 5–7) |
-| vergil-tooling | `src/vergil_tooling/lib/plugin_dirs.py` | Load the override config (Task 8) |
-| vergil-tooling | `src/vergil_tooling/bin/vrg_vm.py` | Pass `--plugin-dir` on Lima; notice on cloud (Task 8) |
-| vergil-tooling | `tests/vergil_tooling/test_plugin_dirs.py`, `tests/vergil_tooling/test_vrg_vm.py` | Tests (Task 8) |
-| vergil-tooling | `docs/site/docs/reference/cli-tools-overview.md` | The override documented (Task 8) |
-| vergil-claude-plugin | `docs/paad-review-doctrine.md` | Delegate path, fallback, common core (Task 12) |
-| vergil-claude-plugin | `docs/paad-policy.md` | Fork, override, deviations retired (Task 12) |
-| vergil-claude-plugin | `skills/epic-create/SKILL.md`, `skills/issue-implement/SKILL.md` | Dispatch per the doctrine (Task 12) |
+| paad fork | `preview/paad/agents/paad-delegate.md` | The contract (Task 3) |
+| paad fork | `scripts/check_unattended.py` | The new lint, with `--self-test` (Tasks 3, 4) |
+| paad fork | `Makefile` | `check-unattended` in `tree-checks`; its self-test in `self-tests` (Task 3) |
+| paad fork | `preview/paad/skills/*/SKILL.md` | Conditional configuration paragraph in every skill (Task 4) |
+| paad fork | `scripts/check_security.py` | The conditional shared security paragraph (Task 4) |
+| paad fork | `preview/paad/skills/pushback/SKILL.md` | Unattended paragraph and section (Task 4) |
+| paad fork | `preview/paad/skills/alignment/SKILL.md` | Unattended paragraph and section (Task 5) |
+| paad fork | `preview/paad/skills/agentic-review/SKILL.md` | Unattended paragraph and section, `Intent:` input (Task 6) |
+| paad fork | `preview/paad/skills/paad-help/SKILL.md` | The mode documented, Claude Code only (Tasks 3–6) |
+| paad fork | `scripts/convert_skills.py` | Exports stay correct with the new agent and paragraph (Task 3) |
+| paad fork | `CHANGELOG.md` | `[Unreleased]` entry (Task 3, extended by 4–6) |
+| vergil-tooling | `src/vergil_tooling/lib/plugin_dirs.py` | Load the override config (Task 7) |
+| vergil-tooling | `src/vergil_tooling/bin/vrg_vm.py` | Pass `--plugin-dir` on Lima; notice on cloud (Task 7) |
+| vergil-tooling | `tests/vergil_tooling/test_plugin_dirs.py`, `tests/vergil_tooling/test_vrg_vm.py` | Tests (Task 7) |
+| vergil-tooling | `docs/site/docs/reference/cli-tools-overview.md` | The override documented (Task 7) |
+| vergil-claude-plugin | `docs/paad-review-doctrine.md` | Delegate path, fallback, common core (Task 10) |
+| vergil-claude-plugin | `docs/paad-policy.md` | Fork, override, deviations retired (Task 10) |
+| vergil-claude-plugin | `skills/epic-create/SKILL.md`, `skills/issue-implement/SKILL.md` | Dispatch per the doctrine (Task 10) |
 
-## The structured result (fixed here, used by Tasks 4–7, 10 and 12)
+## The structured result (fixed here, used by Tasks 3–6, 9 and 10)
 
 Spec 9 leaves the syntax to the builder. Later tasks parse it, so this plan
 fixes it. Lines in order; `<…>` are values:
@@ -165,24 +166,7 @@ and ends with `Files written: none`.
 
 ---
 
-### Task 1: Author review of the spec (human sign-off)
-
-**Files:** none (issue comments; a follow-up docs PR in `.github` if the
-feedback changes the spec or plan).
-
-- [ ] **Step 1:** The human sends Curtis Poe the published spec and the
-  analysis (planning issue vergil-project/.github#698), with the §4.10
-  conflicts list and the §4.9 proposals as the agenda.
-- [ ] **Step 2:** Record a paraphrased summary of the author's feedback on
-  this issue: what he accepts, what he wants changed, and the PR split he
-  prefers.
-- [ ] **Step 3:** If the feedback changes the design, open a follow-up docs
-  task under the epic and fold the changes into `spec.md` and `plan.md` in
-  its PR. Tasks 2–7 wait for that PR to merge.
-- [ ] **Step 4:** The human signs off in a comment (`Author review: signed
-  off`), and closes the issue.
-
-### Task 2: Fork, clone and fleet checkout setup
+### Task 1: Fork, clone and fleet checkout setup
 
 **Files:** none in any repo. Records go on the issue.
 
@@ -209,7 +193,7 @@ feedback changes the spec or plan).
   `main` (paad's own baseline). Record the output's last line (`All checks
   passed.`). Close the issue with the comment.
 
-### Task 3: Spike: the delegate on the fork's preview tree
+### Task 2: Spike: the delegate on the fork's preview tree
 
 Settles the facts later tasks rely on before any skill text is written.
 
@@ -229,17 +213,17 @@ Settles the facts later tasks rely on before any skill text is written.
   body and reloading.
 - [ ] **Step 4:** Record whether `make check-export-dryrun
   TREE=preview/paad` passes with the new agent file present, and if not, the
-  exact error. Task 4 handles it.
+  exact error. Task 3 handles it.
 - [ ] **Step 5:** Delete the branch. Close the issue with the recorded facts.
 
-### Task 4: The `paad-delegate` agent and the unattended lint
+### Task 3: The `paad-delegate` agent and the unattended lint
 
 **Files:**
 - Create: `preview/paad/agents/paad-delegate.md`
 - Create: `scripts/check_unattended.py`
 - Modify: `Makefile` (`self-tests`, `tree-checks`, new `check-unattended`
   target)
-- Modify: `scripts/convert_skills.py` (only if Task 3 step 4 failed)
+- Modify: `scripts/convert_skills.py` (only if Task 2 step 4 failed)
 - Modify: `preview/paad/skills/paad-help/SKILL.md`, `CHANGELOG.md`
 
 **Interfaces:**
@@ -247,7 +231,7 @@ Settles the facts later tasks rely on before any skill text is written.
   `check_unattended.py <skills_dir>` exits 1 with one `FAIL:` line per
   problem; constants `UNATTENDED_MARKER = "**Unattended mode:**"` (the
   paragraph's opening) and `UNATTENDED_SECTION = "## Unattended mode"` (the
-  section heading). Tasks 5–7 add the paragraph and section; Task 5 adds the
+  section heading). Tasks 4–6 add the paragraph and section; Task 4 adds the
   configuration-condition check.
 
 - [ ] **Step 1: Write the lint's self-tests first.** In
@@ -282,7 +266,7 @@ Settles the facts later tasks rely on before any skill text is written.
   data. Frontmatter: `name: paad-delegate`; `tools: Read, Grep, Glob, Bash,
   Skill, Agent`; a `description` that says it is dispatched explicitly, by
   name, by a calling agent, and never for interactive use.
-- [ ] **Step 6:** If Task 3 recorded an export failure, make
+- [ ] **Step 6:** If Task 2 recorded an export failure, make
   `convert_skills.py` skip `paad-delegate.md` for Kiro, Antigravity and Pi,
   with a comment naming the reason (the mode is Claude Code only).
 - [ ] **Step 7:** Document the mode in `paad-help` (what it is, how a caller
@@ -299,7 +283,7 @@ Settles the facts later tasks rely on before any skill text is written.
   the fork. Close the issue with the branch, commit and the `make test` last
   line.
 
-### Task 5: pushback unattended mode, and the shared paragraphs
+### Task 4: pushback unattended mode, and the shared paragraphs
 
 The first skill end to end (spec 8). It also makes the shared paragraphs
 conditional, which touches every skill.
@@ -314,10 +298,10 @@ conditional, which touches every skill.
   `CHANGELOG.md`
 
 **Interfaces:**
-- Consumes: Task 4's constants and result format.
+- Consumes: Task 3's constants and result format.
 - Produces: `CONFIG_DELEGATE_CONDITION`, the exact sentence every
   configuration paragraph carries (below); the pattern of an unattended
-  section that Tasks 6 and 7 copy.
+  section that Tasks 5 and 6 copy.
 
 - [ ] **Step 1: Extend the self-test first.** Assert that a skill whose
   configuration paragraph lacks `CONFIG_DELEGATE_CONDITION` fails with
@@ -364,12 +348,12 @@ conditional, which touches every skill.
   make test`. Expected: `All checks passed.` Commit, push, close with branch,
   commit and `make test` last line.
 
-### Task 6: alignment unattended mode
+### Task 5: alignment unattended mode
 
 **Files:** Modify `preview/paad/skills/alignment/SKILL.md`, `paad-help`,
 `CHANGELOG.md`.
 
-**Interfaces:** Consumes Task 5's section pattern and constants.
+**Interfaces:** Consumes Task 4's section pattern and constants.
 
 - [ ] **Step 1:** Add alignment's unattended paragraph and section, as in Task
   5 step 4, from spec 4.3's alignment, "pushback, alignment" and "all three"
@@ -383,16 +367,16 @@ conditional, which touches every skill.
   be named`; with a spec and a plan whose one code task is not
   red/green/refactor, expected a `Minor` finding for that task and the plan
   file unchanged.
-- [ ] **Step 4:** Interactive smoke as in Task 5 step 7. `make export && make
-  test`. Commit, push, close as in Task 5.
+- [ ] **Step 4:** Interactive smoke as in Task 4 step 7. `make export && make
+  test`. Commit, push, close as in Task 4.
 
-### Task 7: agentic-review unattended mode
+### Task 6: agentic-review unattended mode
 
 **Files:** Modify `preview/paad/skills/agentic-review/SKILL.md` (and its
 `references/` only if a dispatch prompt there must name the delegate rule),
 `paad-help`, `CHANGELOG.md`.
 
-**Interfaces:** Consumes Task 5's pattern. Produces the `Intent:` input: a
+**Interfaces:** Consumes Task 4's pattern. Produces the `Intent:` input: a
 line `Intent: <path>[, <path>…]` in the dispatch prompt; Spec Compliance reads
 those files as explicit spec files ahead of its other sources.
 
@@ -418,9 +402,9 @@ those files as explicit spec files ahead of its other sources.
   changes`. In every run `paad/code-reviews/` and `paad/security/` are not
   created.
 - [ ] **Step 6:** Interactive smoke. `make export && make test`. Commit, push,
-  close as in Task 5.
+  close as in Task 4.
 
-### Task 8: `--plugin-dir` override in `vrg-vm session`
+### Task 7: `--plugin-dir` override in `vrg-vm session`
 
 **Files:**
 - Create: `src/vergil_tooling/lib/plugin_dirs.py`
@@ -471,10 +455,10 @@ those files as explicit spec files ahead of its other sources.
 - [ ] **Step 7:** Commit with `vrg-commit`, hand off with `vrg-pr-workflow
   report-ready`.
 
-### Task 9: Deploy the override and the fleet checkout (deployment)
+### Task 8: Deploy the override and the fleet checkout (deployment)
 
-**Preconditions:** Tasks 6, 7 and 8 closed; a vergil-tooling release
-carrying Task 8 is installed on the host (human-attested).
+**Preconditions:** Tasks 5, 6 and 7 closed; a vergil-tooling release
+carrying Task 7 is installed on the host (human-attested).
 
 - [ ] **Step 1:** In the fleet worktree, move `fleet` to the
   `unattended-mode` branch's head; record the commit.
@@ -488,9 +472,9 @@ carrying Task 8 is installed on the host (human-attested).
   the launch fails with the guest error; restore it.
 - [ ] **Step 5:** Record `Outcome: SUCCESS` with the evidence and close.
 
-### Task 10: Validate the mode and the drafted vergil prompts (validation)
+### Task 9: Validate the mode and the drafted vergil prompts (validation)
 
-**Preconditions:** Task 9 closed.
+**Preconditions:** Task 8 closed.
 
 - [ ] **Step 1: Draft the prompts** for both modes per spec 4.8: the skill and
   arguments; document roles (mode 1) or `Intent:` (mode 2); the working
@@ -512,14 +496,7 @@ carrying Task 8 is installed on the host (human-attested).
 - [ ] **Step 4:** Record `Outcome: SUCCESS` or `Outcome: FAILURE`. On failure,
   file fix tasks on the fork under the epic and leave this open.
 
-### Task 11: Offer the change upstream (human)
-
-- [ ] **Step 1:** Open the PR(s) from fork branches to `Ovid/paad`, split as
-  Task 1 recorded, with Task 10's evidence and the two spec 4.9 proposals.
-- [ ] **Step 2:** Record the PR links on the issue and close it. Upstream's
-  decision is the author's; no later task waits on it.
-
-### Task 12: Doctrine and policy: the delegate path with fallback
+### Task 10: Doctrine and policy: the delegate path with fallback
 
 **Files:** Modify `docs/paad-review-doctrine.md`, `docs/paad-policy.md`,
 `skills/epic-create/SKILL.md`, `skills/issue-implement/SKILL.md` in
@@ -528,7 +505,7 @@ vergil-claude-plugin.
 - [ ] **Step 1:** Restructure the doctrine per spec 4.8: the shared procedure
   (output checks, screening, security handling, the no-anchoring rule) moves
   into the common core (§1); each mode's section keeps only what differs.
-- [ ] **Step 2:** Add the delegate path with Task 10's validated prompts, and
+- [ ] **Step 2:** Add the delegate path with Task 9's validated prompts, and
   the selection rule: use it when `paad:paad-delegate` is loaded, otherwise
   run today's path and record the deviation in the round comment or task
   record. The output checks for the delegate path are spec 4.8's list,
@@ -546,9 +523,27 @@ vergil-claude-plugin.
   selection rule. Run `vrg-container-run -- vrg-validate`. Commit and hand
   off with `report-ready`.
 
-### Task 13: Follow-on brainstorm: other harnesses
+### Task 11: Follow-on brainstorm: other harnesses
 
 - [ ] **Step 1:** Run `superpowers:brainstorming` on whether unattended mode
   applies to Kiro, Antigravity or Pi, given each harness's subagent support.
 - [ ] **Step 2:** Record the outcome on the issue (a new planning issue, or
   "not worth doing" with the reason) for the retrospective's §5. Close it.
+
+### Task 12: Decide: offer the change upstream, or try a different idea (human)
+
+The epic's last task before the retrospective (spec 4.9). It closes only on a
+recorded decision.
+
+- [ ] **Step 1:** The human reviews Task 9's evidence and how the mode behaved
+  in fleet use since Task 10 landed.
+- [ ] **Step 2:** The human decides, and the decision is recorded on the issue
+  with its reason:
+  - **offer it upstream:** open the PR(s) from fork branches to `Ovid/paad`,
+    split the way the author prefers, with Task 9's evidence, the spec §4.10
+    conflicts list and the two spec §4.9 proposals; record the PR links.
+    Upstream's decision is the author's, and nothing in the epic waits on it;
+  - **try a different idea:** file a planning issue for the next attempt,
+    with what this experiment taught, and link it.
+- [ ] **Step 3:** Close the issue. The retrospective's §5 records the
+  decision.
