@@ -83,10 +83,10 @@ vergil-claude-plugin's doctrine gains the delegate path beside today's path.
 
 ## Review Focus
 
-1. **The delegate dispatched on a skill with no unattended section** (for
+1. **The delegate dispatched on a skill not on its supported list** (for
    example `agentic-owasp`): it must return `blocked: skill does not support
-   unattended mode` without running the skill, rather than half-following
-   prose that defers to a missing section. Pinned in Task 3
+   unattended mode` before invoking anything, rather than loading the skill,
+   whose own text says to proceed at once. Pinned in Task 3
    (`unsupported-skill` smoke) and Task 9 (validation).
 2. **agentic-review with no arguments under the delegate**: it must review
    against the resolved default branch and list that under `Defaults
