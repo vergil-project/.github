@@ -16,3 +16,10 @@ own planning issue and the current code.
   - its repeated pushback rounds built on each earlier round's decisions
     without re-examining them, which compounded into a design too complex to
     implement.
+- `683-unreleased-report/`: the first attempt at `vrg-unreleased`. It was
+  abandoned on 2026-10-29. Its spec assumed the tool's GitHub App identity
+  could see more than the human running it, when the agent identity holds a
+  subset of the human's rights. It also assumed an agent would relay the
+  output. The review rounds then compounded these assumptions into a growing
+  set of security findings. The parts worth keeping are restated on planning
+  issue #468.
