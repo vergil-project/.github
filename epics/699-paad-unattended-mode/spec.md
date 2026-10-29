@@ -759,6 +759,7 @@ The proposed answer, which design review should test:
 **Working in the fork follows paad's workflow, not vergil's.** For the first
 time, vergil tooling is used on code that vergil does not own, so vergil's
 conventions and configuration cannot be imposed on it:
+
 - Changes go through paad's own process: `preview/paad/`, `make export && make
   test`, and its changelog rules. Releases are the author's.
 - Nothing vergil-specific goes into the paad repo: no vergil configuration, no

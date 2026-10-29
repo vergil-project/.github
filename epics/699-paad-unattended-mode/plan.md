@@ -220,6 +220,7 @@ so the fork starts equal to upstream.
 **Files:** none in any repo. Records go on the issue.
 
 **Interfaces:**
+
 - Produces: the fork `wphillipmoore/paad`; the clone
   `/Users/pmoore/dev/projects/wphillipmoore/paad` (`origin` the fork,
   `upstream` `Ovid/paad`, pull only); the fleet worktree
@@ -268,6 +269,7 @@ Settles the facts later tasks rely on before any skill text is written.
 ### Task 3: The `paad-delegate` agent and the unattended lint
 
 **Files:**
+
 - Create: `preview/paad/agents/paad-delegate.md`
 - Create: `scripts/check_unattended.py`
 - Modify: `Makefile` (`self-tests`, `tree-checks`, new `check-unattended`
@@ -276,6 +278,7 @@ Settles the facts later tasks rely on before any skill text is written.
 - Modify: `preview/paad/skills/paad-help/SKILL.md`, `CHANGELOG.md`
 
 **Interfaces:**
+
 - Produces: the agent `paad:paad-delegate`; the result format above;
   `check_unattended.py <skills_dir>` exits 1 with one `FAIL:` line per
   problem; constants `UNATTENDED_MARKER = "**Unattended mode:**"` (the
@@ -353,11 +356,13 @@ security paragraphs are not touched (Global Constraints): the override lives
 in pushback's own unattended paragraph, next to them.
 
 **Files:**
+
 - Modify: `scripts/check_unattended.py` (override check)
 - Modify: `preview/paad/skills/pushback/SKILL.md`, `paad-help`,
   `CHANGELOG.md`
 
 **Interfaces:**
+
 - Consumes: Task 3's constants and result format.
 - Produces: `UNATTENDED_OVERRIDE`, the exact sentence every unattended
   paragraph carries (below); the pattern of an unattended paragraph and
@@ -497,6 +502,7 @@ those files as explicit spec files ahead of its other sources.
 ### Task 7: `--plugin-dir` override in `vrg-vm session`
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/plugin_dirs.py`
 - Modify: `src/vergil_tooling/bin/vrg_vm.py` (`_session_inner`,
   `_cmd_session`, `_cloud_session`)
@@ -505,6 +511,7 @@ those files as explicit spec files ahead of its other sources.
 - Modify: `docs/site/docs/reference/cli-tools-overview.md`
 
 **Interfaces:**
+
 - Produces: `default_plugin_dirs_path() -> Path` (`~/.config/vergil/plugin-dirs.toml`);
   `load_plugin_dirs(path: Path | None = None) -> tuple[str, ...]`;
   `class PluginDirsError(ValueError)`; `_session_inner(args, identity_name,
