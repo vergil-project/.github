@@ -64,8 +64,7 @@ then uses it, and the doctrine sheds the interface work.
 - The mode is general: any Claude Code caller can use it, not only vergil. It
   is Claude Code only because it depends on a subagent that can itself run a
   skill and dispatch agents (4.6).
-- It is backward compatible: interactive use of every skill is unchanged,
-  except for the one deliberate change below.
+- It is backward compatible: interactive use of every skill is unchanged.
 - The patch follows paad's development conventions, so it can be offered
   upstream.
 - The vergil doctrine shrinks to match: the stray-write machinery and most
@@ -78,9 +77,9 @@ later (4.9).
 **Non-goals:**
 
 - Changing how any paad skill analyses anything (its phases, lenses, verifier
-  or severity scales), with one exception. alignment becomes a security
-  producer, and pushback routes security findings whether or not it writes a
-  report (4.2).
+  or severity scales). Under the delegate, pushback and alignment classify
+  security findings for the result's security section (4.2); a matching
+  change for interactive use is offered separately, as a proposal (4.9).
 - Unattended mode for the other paad skills in the first version. The design
   lets them adopt it later.
 - paad's config mechanism.
@@ -91,9 +90,7 @@ later (4.9).
 
 - A vergil-only change that paad's author could not accept, such as one that
   hard-codes vergil tooling, names, or vergil's own review rules into paad.
-- A change that alters what an interactive user sees. The one exception is
-  the security routing above, which interactive pushback and alignment users
-  also get.
+- A change that alters what an interactive user sees.
 - A mode that still needs vergil's output checks to catch writes or questions
   as a matter of routine.
 
@@ -128,21 +125,31 @@ paad gets a second agent definition, `agents/paad-delegate.md`, beside
 paad skill. The dispatch prompt names the skill, its arguments, and any inputs
 the contract defines (4.4).
 
-- **Its tools are `Read, Grep, Glob, Bash, Skill` and `Agent`, restricted to
-  `paad-analyst`.** It has no Write, Edit or NotebookEdit.
+- **Its tools are `Read, Grep, Glob, Bash, Skill` and `Agent`.** It has no
+  Write, Edit or NotebookEdit.
   - The spike on the planning issue showed that a plugin agent with this tool
     list:
     - can invoke a paad skill;
     - can dispatch its own `paad:paad-analyst` subagents from inside that
       skill;
     - has no write tools.
-  - The Agent tool is limited to `paad-analyst` with Claude Code's
-    allowed-agent-types syntax. A short spike confirms that the syntax works
-    for a plugin agent. If it does not, the result lists the agent types the
-    run dispatched (4.4), and the caller fails the round on any other type.
+  - **The Agent tool cannot be limited by the harness.** Claude Code's
+    allowed-agent-types syntax, `Agent(paad-analyst)`, "applies only to an
+    agent running as the main thread with `claude --agent`. In a subagent
+    definition … any type list inside the parentheses is ignored"
+    (<https://code.claude.com/docs/en/sub-agents>, "Restrict which subagents
+    can be spawned"). The delegate is always a subagent, so the contract
+    allows only `paad-analyst`, in prose, and the result always lists the
+    agent types the run dispatched (4.4). The caller fails the round on any
+    other type.
+  - **A missing analyst is a blocked result.** paad's dispatching skills say
+    to fall back to a general-purpose subagent when the analyst agent is not
+    available. Under the delegate the analyst always ships beside it, so a
+    missing analyst means something went wrong: the run returns `blocked:
+    analyst agent not available` and never changes agent type (4.10).
   - The contract allows the Skill tool to invoke only the one skill the
-    dispatch prompt names. This is prose only: Claude Code has no allowlist
-    for the Skill tool (6, 8).
+    dispatch prompt names. This is prose only too: Claude Code has no
+    allowlist for the Skill tool (6, 8).
 - **Its description rules out automatic selection.** Claude Code chooses
   subagents by their `description`. The delegate's description says it is
   dispatched explicitly, by name, by a calling agent, and never for
@@ -213,19 +220,17 @@ section lists:
 Interactive behaviour does not change. The new text applies only under
 `paad-delegate`, and interactive runs never dispatch it.
 
-**Security routing in pushback and alignment.** This is the one change that
-interactive users also see.
-- **alignment becomes a security producer.** In paad 2.0.2 it has no security
-  routing at all: no shared security paragraph, and `scripts/check_security.py`
-  does not list it in `PRODUCERS`. The patch adds the shared paragraph,
-  registers alignment as a producer, and keeps `check-security` passing.
-- **pushback routes whether or not it writes a report.** Today it routes only
-  while writing the report.
+**Security classification under the delegate.** In paad 2.0.2, alignment has
+no security routing at all (no shared security paragraph, and
+`scripts/check_security.py` does not list it in `PRODUCERS`), and pushback
+routes only while writing the report the mode skips. So the unattended
+sections of pushback and alignment carry paad's shared security definition
+and send matching findings to the result's security section (4.4). This
+changes nothing for interactive users.
 
-An interactive run of either skill then writes its security findings to
-`paad/security/`, as paad's other producers do. An unattended run puts them in
-the result's security section (4.4). Without this, an unattended result would
-have nothing to put in its security section for these two skills.
+The same change for interactive use (alignment as a producer, and pushback
+routing whether or not it writes a report) is not part of the patch. It is a
+separate proposal to the author (4.9).
 
 ### 4.3 Unattended defaults for the first three skills
 
@@ -237,7 +242,9 @@ the exact wording into each skill.
 | Skill | Interaction point | Unattended default |
 |---|---|---|
 | any other skill | The named skill has no unattended section | Blocked: skill does not support unattended mode (4.1) |
-| all three | Input resolution with no argument (conversation, common locations) | Blocked: the inputs must be named |
+| pushback, alignment | Input resolution with no argument (conversation, common locations) | Blocked: the inputs must be named |
+| agentic-review | No arguments | Review against the resolved default branch, as today (the skill's common form), and list it under "Defaults applied" |
+| all three | The analyst agent is not available (the skills' general-purpose fallback) | Blocked: analyst agent not available (4.1) |
 | all three | Any other stop in pre-flight or input resolution, asked or not (for agentic-review: on the default branch, an empty diff, a base or default branch that does not resolve) | Blocked, with the reason |
 | alignment | The arguments name only one side (intent or action) | Blocked: both sides must be named |
 | alignment | A task that may address an implied but unstated requirement ("may be legitimate — ask") | Report it as a finding |
@@ -266,9 +273,9 @@ carry these fields, in this order:
    one the caller named, 4.1), and one line for each config file found and not
    followed.
 3. **Status:** `complete` or `blocked: <reason>`. A blocked result carries no
-   findings. If the Agent tool cannot be limited to `paad-analyst` (4.1), an
-   `Agent types dispatched:` line follows the status, listing the agent types
-   the run dispatched. It is a different field from agentic-review's existing
+   findings. An `Agent types dispatched:` line always follows the status,
+   listing the agent types the run dispatched, because the harness cannot
+   limit them (4.1). It is a different field from agentic-review's existing
    `Agents dispatched:` field, which lists its lenses (item 7).
 4. **Defaults applied:** one line for each interaction point at which an
    unattended default changed what the skill did, or `none`.
@@ -323,13 +330,15 @@ follows them:
   the checks that unattended mode affects:
   - `check-dispatch-sites` (every dispatch names the read-only analyst);
   - `check-announce` (a skill that writes files announces what it wrote);
-  - `check-security` (the shared security paragraph, with alignment added to
-    `PRODUCERS`, 4.2);
-  - a new check, in the style of `check-config`: every skill that carries the
-    unattended paragraph also has its unattended section. The shared
-    configuration and security paragraphs stay identical across skills, as
-    `check-config` and `check-security` require, so their conditional wording
-    (4.10) must also read correctly in a skill with no unattended section.
+  - `check-security` (the shared security paragraph, which `check-security`
+    holds verbatim across its `PRODUCERS`);
+  - a new check, in the style of `check_security.py`: every skill that carries
+    the unattended paragraph also has its unattended section, and every
+    skill's configuration paragraph contains the delegate condition (4.10)
+    verbatim. `check-config` today checks only that each skill has the
+    paragraph and names its own config file, not its wording. The shared
+    paragraphs reach skills with no unattended section too, so their
+    conditional wording must also read correctly there.
 - **The export pipeline stays correct.** paad also ships outside Claude Code:
   - `npx skills add` installs skill folders but never `agents/`;
   - the Kiro and Antigravity export fails on an unknown agent;
@@ -369,32 +378,43 @@ follows them:
   `claude --plugin-dir ./preview/paad`, and `/reload-plugins` picks up edits
   without a restart. The spike showed that `--plugin-dir` replaces the
   installed paad for that session alone, and that the delegate and its
-  `paad-analyst` subagents run from it. So a vergil session that needs the
-  change loads `~/dev/projects/wphillipmoore/paad/preview/paad` from whichever
-  branch the clone has checked out. A commit there, then `/reload-plugins` or a
-  new session, makes the change live.
+  `paad-analyst` subagents run from it.
+- **The fleet runs a dedicated checkout, never the development tree.** The
+  clone is where development happens, so the fleet loads a separate
+  `git worktree` of it, on a named branch. That checkout moves only on
+  purpose, after the gate below passes; moving it is the one deliberate step
+  that puts a change in front of the fleet. Development in the clone never
+  disturbs it.
 - **A standing override in vergil.** Running the development tree across the
   fleet is a deliberate, relatively permanent setup, so it must be easy:
   - a host config file under `~/.config/vergil/` lists the plugin directories
-    every session loads by default. It is personal, outside every repo, and
-    off when absent;
+    every session loads by default (the fleet checkout's `preview/paad`). It
+    is personal, outside every repo, and off when absent;
   - `vrg-vm session` adds `--plugin-dir <path>` for each entry to every
-    `claude` command it launches (`_session_inner` in `vrg_vm.py`, beside the
-    `--model` it already adds). Removing the entry returns the fleet to the
-    installed paad;
-  - a listed directory that does not exist fails the launch, loudly;
-  - the plan settles the file's name and format, and verifies that the path
-    resolves the same inside the agent VMs, which already see the Mac's
-    `~/dev/projects` at the same path.
-- **The tree is live.** An edit to the checked-out branch during a review round
-  can give that round half a change. Each round that runs from the preview
-  tree records the clone's branch and commit, and fails if the clone has
-  uncommitted changes. Review sessions run from a branch nobody is editing.
+    `claude` command it launches on a Lima VM (`_session_inner` in
+    `vrg_vm.py`, beside the `--model` it already adds). Removing the entry
+    returns the fleet to the installed paad;
+  - the path is checked inside the guest, and a missing directory fails the
+    launch, loudly. Lima VMs already see the Mac's `~/dev/projects` at the
+    same path;
+  - **Lima only.** The paad development environment is supported only on
+    macOS with Lima VMs. A cloud box has no host mount (`_cloud_session` in
+    `vrg_vm.py`), so on a cloud target `vrg-vm session` does not apply the
+    override and says plainly that the paad development tree is Lima only.
+    Cloud sessions launch normally and use the fallback path (4.8). Cloud
+    support is not planned;
+  - the plan settles the file's name and format.
+- **Some volatility is accepted.** Each round logs the fleet checkout's branch
+  and commit as a convenience, and notes it if the commit changed between
+  rounds. The log is not evidence of what a session loaded: a session reads
+  the plugin at launch and on `/reload-plugins`. A tester who wants a set of
+  results to stand for one commit does not move the checkout while the test
+  runs, which is the human's call.
 - **After upstream releases the change,** the installed paad carries it, the
   override is removed, and `--plugin-dir` is needed again only for the next
   unreleased change.
 - **Every change the fleet depends on is gated.** Before vergil's doctrine
-  relies on a paad change, whether a new commit on the loaded branch or an
+  relies on a paad change, whether a new commit for the fleet checkout or an
   upstream release, the validation sets (5) pass against that same tree. If
   an upstream release changes the unattended contract (agent name, result
   syntax, status values or input fields), the doctrine is updated to match
@@ -403,6 +423,15 @@ follows them:
 ### 4.8 The vergil side
 
 Once the fleet runs a paad with unattended mode:
+
+- **The current path stays as a fallback until a released paad has the mode.**
+  The doctrine gains the new path and uses it when `paad:paad-delegate` is
+  loaded. When it is not (a session started without the override, a cloud
+  box, or anyone else using vergil-claude-plugin), it runs today's prompt and
+  checks, and the round records the deviation. The old machinery listed
+  under "These go away" below is retired only once a released paad carries
+  the mode, because the author may take it in a different shape, later, or
+  not at all.
 
 - **The two modes differ in one essential variable: who decides at the end of
   each round.** In mode 1, one unattended reviewer runs per round and the
@@ -419,16 +448,24 @@ Once the fleet runs a paad with unattended mode:
   - the skill and its arguments;
   - the document roles (mode 1) or the `Intent:` input (mode 2);
   - the working directory;
-  - vergil's own rules: the review-the-whole-artifact sentence, and the
-    no-anchoring rule. In mode 1 the reviewer does not read the planning
-    issue or the history of the epic's directory. In mode 2 it does not read
-    the task issue, its comments or any pull request.
+  - vergil's own rules: the review-the-whole-artifact sentence, the
+    no-anchoring rule, and the security self-test. In mode 1 the reviewer
+    does not read the planning issue or the history of the epic's directory.
+    In mode 2 it does not read the task issue, its comments or any pull
+    request. The self-test is the one the doctrine added after its spikes:
+    test every finding against the security definition before reporting it
+    as ordinary, and treat a gap, contradiction, missing task or drift as a
+    security finding if it concerns who can read private data, or who can
+    trigger an action or a state change. paad's shared definition has
+    neither part, so the widened definition is also offered to the author
+    (4.9).
 
   Directives that restate the contract go. The prompt names vergil's things
   only by concrete identifier, such as an issue ref or a path (4.1), and is
   reviewed for vergil vocabulary before the validation runs.
 - **The output checks become a parse of the result.** The workflow checks:
-  - the announce line;
+  - the announce line. Under the override it reads `v<X.Y.Z>-preview`, which
+    is expected, not a version warning;
   - no `Config:` line saying a config file was followed (mode 2, and mode 1
     until a config file is adopted);
   - the status line. A `blocked` status pauses for the human, with its reason,
@@ -440,13 +477,14 @@ Once the fleet runs a paad with unattended mode:
     - Spec Compliance did not bail out, and its intent sources include the
       `Intent:` files;
     - `Verifier warnings: none`;
-  - the `Agent types dispatched:` line, if the result has one (4.4);
+  - the `Agent types dispatched:` line (4.4): `paad-analyst` only;
   - `Files written: none`;
-  - that the worktree's branch, HEAD SHA and clean status are unchanged;
-  - while the fleet runs paad from the preview tree (4.7), that the clone has
-    no uncommitted changes. The clone's branch and commit are recorded with
-    the round.
-- **These go away:**
+  - that the worktree's branch, HEAD SHA and clean status are unchanged.
+
+  While the fleet runs the preview tree, the round also logs the fleet
+  checkout's branch and commit (4.7).
+- **These go away** once a released paad carries the mode (the fallback
+  above keeps them until then):
   - in both modes, the stray-write check, the round's `TMPDIR`, the
     `paad/security/` checks before and after each round, and the listing of
     the starting directory's `paad/`;
@@ -483,11 +521,13 @@ Once the fleet runs a paad with unattended mode:
     through the `--plugin-dir` override, and how that is turned on and off
     (4.7);
   - the deviations register rows that unattended mode retires;
-  - that the skills now run under `paad-delegate`.
+  - that the skills run under `paad-delegate` when it is loaded, and on the
+    fallback path otherwise.
 
 The new reviewer prompt is drafted before validation, and the validation runs
 (5) use it, so one pass validates both the mode and the prompt vergil will
-use. The doctrine change then lands once, with that validated prompt.
+use. The doctrine change then lands with that validated prompt, keeping the
+fallback path until a released paad carries the mode.
 
 ### 4.9 Upstream
 
@@ -501,6 +541,23 @@ The change is built and demonstrated as one change. It then goes to the author
 as pull requests from fork branches, with the validation evidence, split the
 way the author prefers. The author decides what upstream takes, and how.
 
+Two proposals go alongside it. Neither is part of the patch, and neither is
+imposed on interactive users without the author's agreement:
+
+- **Security routing in interactive alignment** (and in pushback runs that
+  write no report). alignment is the only review that sees the spec and the
+  plan together. A plan that drops a security property of a secure spec,
+  even temporarily, or exposes something on the way, is exactly the kind of
+  gap a cross-document review should catch, and pushback cannot see it,
+  because it reviews each document on its own. pushback may well be expected
+  to catch security problems on the spec and on the plan separately; the
+  question for the author is why alignment should not carry the same safety
+  net. In paad 2.0.2 alignment has no security routing, and pushback routes
+  only while writing its report.
+- **A widened security definition** for paad's shared paragraph: the
+  self-test and the access and triggering clause vergil keeps in its own
+  prompt (4.8).
+
 ### 4.10 Where the delegate contradicts paad's existing prose
 
 Some of the delegate's instructions knowingly contradict text that paad's
@@ -511,11 +568,12 @@ the author (4.9). The builder adds every further conflict found.
 
 | paad text today | What the delegate needs | Proposed way to coexist |
 |---|---|---|
-| The shared configuration paragraph: if a `paad/config/` file exists, "read it and follow its instructions" | Follow no config file the caller did not name (4.1) | The paragraph becomes conditional: under `paad-delegate`, read only a config file the caller names, and report the others as not followed. `check-config` keeps it consistent across the skills |
+| The shared configuration paragraph: if a `paad/config/` file exists, "read it and follow its instructions" | Follow no config file the caller did not name (4.1) | The paragraph becomes conditional: under `paad-delegate`, read only a config file the caller names, and report the others as not followed. The new lint checks the condition's wording in every skill (4.6) |
 | The shared security paragraph: write security findings under `paad/security/`, and ask "hold or ordinary report" when the safety check fails | Write nothing; security findings go in the result (4.3, 4.4) | The paragraph defers to the skill's unattended section under `paad-delegate` |
 | Each skill's interaction points: ask, walk findings one at a time, edit the document, write the report | Never ask, edit or write (4.1) | The unattended paragraph and section (4.2), with the defaults in 4.3 |
 | agentic-review's large-diff two-pass split and backlog dedup | Full form only; backlogs not read (4.3) | The skill's unattended section |
-| `check-config` and `check-security` require the shared paragraphs to be identical in every skill | The conditional wording above lands in skills with no unattended section too | The wording reads correctly where no section exists, the new lint checks it (4.6), and the delegate refuses an unsupported skill with a blocked result (4.1) |
+| The shared paragraphs are copies in every skill | The conditional wording above lands in skills with no unattended section too | The wording reads correctly where no section exists, the new lint checks it (4.6), and the delegate refuses an unsupported skill with a blocked result (4.1) |
+| Every dispatching skill (added in paad commit `da436bf`): "If the analyst agent is not available … dispatch a general-purpose subagent instead" | Dispatch only `paad-analyst` (4.1) | Under `paad-delegate` the fallback does not apply: a missing analyst is `blocked: analyst agent not available` (4.3) |
 
 ## 5. Validation
 
@@ -532,8 +590,12 @@ fleet then runs (4.7). The runs use the drafted vergil reviewer prompt (4.8).
   target commits, each twice.
 - **A planted dispatch instruction.** One mode 2 run on a branch whose content
   asks the reviewer to dispatch a general-purpose helper. It tests the
-  delegate's Agent limit (4.1), and passes when no agent type other than
-  `paad-analyst` is dispatched.
+  delegate's prose-only Agent rule (4.1), and passes when no agent type other
+  than `paad-analyst` is dispatched, judged from the harness's own session
+  transcripts, not from the result's self-reported line.
+- **A seeded access-control gap.** One mode 1 run on a seeded spec with an
+  access-control gap framed as an omission. It passes when the finding comes
+  back in the security section.
 - **An unsupported skill.** One dispatch of the delegate on a skill with no
   unattended section. It passes when the result is `blocked: skill does not
   support unattended mode` and the skill did not run.
@@ -542,10 +604,8 @@ fleet then runs (4.7). The runs use the drafted vergil reviewer prompt (4.8).
   as not followed and the review is unchanged by it.
 - **Interactive runs.** One interactive run of each changed skill, from the
   fork's preview tree. Each passes when:
-  - the skill behaves as in 2.0.2: it asks, walks its findings, and offers the
-    update or the report;
-  - pushback and alignment also route security findings to `paad/security/`
-    (4.2);
+  - the skill behaves as in 2.0.2: it asks, walks its findings, offers the
+    update or the report, and routes security findings as it does today;
   - the run shows no unattended field;
   - `paad-delegate` is not chosen automatically.
 
@@ -566,8 +626,8 @@ fleet then runs (4.7). The runs use the drafted vergil reviewer prompt (4.8).
   else in the result.
 
 After that, heavy use across the fleet is the ongoing test. Bugs found in use
-are fixed on a fork branch, and the fleet picks them up from the preview tree
-(4.7).
+are fixed on a fork branch, and the fleet picks them up when the fleet
+checkout moves (4.7).
 
 ## 6. Security considerations (for design review)
 
@@ -599,7 +659,8 @@ the delegate or its analysts are an existing risk, out of scope here.
 paad from the clone across the fleet (4.7) means whatever is in that tree runs
 in every review. That is the point: the fleet is the development environment
 for the change, and testing it there is how it is proven before it goes
-upstream. The risk is accepted. Each round records the clone's commit (4.8).
+upstream. The risk is accepted. The fleet runs a dedicated checkout that
+moves only on purpose (4.7).
 
 - **Where the details go.** The result goes into the calling agent's context.
   It does not go to disk unless the harness puts it there (Claude Code keeps
@@ -616,18 +677,18 @@ upstream. The risk is accepted. Each round records the clone's commit (4.8).
 - **Routing reliability.** If paad files a security finding as an ordinary one,
   the detail lands outside the security section. The caller's screening (4.8)
   stays for that reason.
-- **Interactive users.** `paad/security/` stays their channel. Interactive
-  pushback and alignment now use it too (4.2).
+- **Interactive users.** `paad/security/` stays their channel, unchanged.
+  Extending it to interactive alignment is a proposal to the author (4.9).
 - **A branch under review cannot steer its own review.** Under `paad-delegate`
   a `paad/config/` file in the working directory is not followed unless the
   caller names it (4.1), and the caller still fails a round whose result says a
   config file was followed.
 - **Handing work to a write-capable agent is discouraged, not prevented.**
-  Only the Agent tool's limit to `paad-analyst` is enforced by the harness, and
-  only once the spike confirms that the syntax works for a plugin agent (4.1).
-  The Skill limit is prose, an `Agent types dispatched:` line is
-  self-reported, and Bash can start a headless `claude -p` session. Today's
-  reviewer can do all of this and more, so these routes are inherited (8).
+  The harness enforces neither limit: Claude Code ignores an Agent type list
+  in a subagent definition (4.1), and has no Skill allowlist. Both limits are
+  prose, the `Agent types dispatched:` line is self-reported, and Bash can
+  start a headless `claude -p` session. Today's reviewer can do all of this
+  and more, so these routes are inherited (8).
 
 ## 7. Tracking the fork work
 
@@ -668,7 +729,7 @@ vergil hook guard allows git in it.
 - **Bash can still write.** This is the one remaining way to write, and the
   design accepts it as a residual risk:
   - there are no write tools;
-  - the Agent tool is limited to `paad-analyst`;
+  - the contract allows only `paad-analyst` subagents, in prose;
   - nothing is read from paad's own directories;
   - the contract forbids writing, in prose.
 
@@ -702,7 +763,9 @@ vergil hook guard allows git in it.
     delimiter design is raised with the author.
 - **The override's mechanics** (4.7) are unverified until the plan's
   deployment task: the config file, the launch failing on a missing
-  directory, and the path resolving inside the agent VMs.
+  directory, and the path resolving inside the Lima VMs.
+- **The fallback path lives on** until a released paad carries the mode
+  (4.8), so the doctrine carries both paths for a while.
 - **Other harnesses.** A follow-on brainstorm at the end of this epic asks
   whether unattended mode applies to Kiro, Antigravity or Pi at all, and
   whether it is worth extending to them. Any harness whose subagents can run a
