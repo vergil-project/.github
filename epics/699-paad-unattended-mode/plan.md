@@ -126,7 +126,7 @@ comment (spec 7); the rest close by a same-repo PR or as operational tasks.
 | 3 | The `paad-delegate` agent and the unattended lint (`.github`, fork) | 2 |
 | 4 | pushback unattended mode (`.github`, fork) | 3 |
 | 5 | alignment unattended mode (`.github`, fork) | 4 |
-| 6 | agentic-review unattended mode (`.github`, fork) | 4 |
+| 6 | agentic-review unattended mode (`.github`, fork) | 5 |
 | 7 | `--plugin-dir` override in `vrg-vm session` (vergil-tooling) | — |
 | 8 | Deploy the override and the fleet checkout (`.github`, deployment) | 5, 6, 7 |
 | 9 | Validate the mode and the drafted vergil prompts (`.github`, validation) | 8 |
@@ -370,8 +370,8 @@ in pushback's own unattended paragraph, next to them.
 - [ ] **Step 2: Add pushback's unattended paragraph** (opening with
   `UNATTENDED_MARKER`, directly after the configuration and security
   paragraphs). It carries, verbatim, the sentence below, and
-  `UNATTENDED_OVERRIDE` is set to it: `When this skill runs under
-  paad-delegate, the Configuration paragraph above applies only to a config
+  `UNATTENDED_OVERRIDE` is set to it: `When this skill runs under the
+  delegate, the Configuration paragraph above applies only to a config
   file the dispatch prompt names, each other config file found is listed as
   not followed, any Security findings paragraph above writes no security file
   and asks nothing, the result format's line order governs, and the
@@ -389,9 +389,10 @@ in pushback's own unattended paragraph, next to them.
     definition, matches going to the security section (spec 4.2).
 
   The paragraph and section never name the `paad/security/` path ("writes no
-  security file"), and read correctly where no delegate exists (an `npx
-  skills`, Kiro, Antigravity or Pi install), since they apply only "when this
-  skill runs under paad-delegate".
+  security file") or the delegate's literal agent name ("the delegate", per
+  the one-phrasing rule), and read correctly where no delegate exists (an
+  `npx skills`, Kiro, Antigravity or Pi install), since they apply only "when
+  this skill runs under the delegate".
 - [ ] **Step 4:** Show the unattended branch in pushback's digraph where it
   changes the flow. `make check-digraphs` and `make check-export-dryrun
   TREE=preview/paad` pass.
@@ -594,19 +595,30 @@ otherwise. The gate applies to every later move.
   bug in scope and one out of scope; planted dispatch (judged from the
   session transcripts' subagent spawns, not the result line); unsupported
   skill; seeded access-control gap; planted config; one interactive run of
-  each changed skill (human).
+  each changed skill (human); and one interactive session given a plain
+  "review my spec" request (human), for the auto-selection check.
+- [ ] **Step 2a: Handle every run's security section by hand.** The runs use
+  real material, so a result can carry real security findings before Task
+  10 writes the procedure down. For every unattended run: cut the security
+  section out first, under spec 4.8's well-formedness rule; keep it in the
+  mode's private location (the §2.7 scratch copy for mode 1, the §3.6
+  directory for mode 2); screen the ordinary findings and discards; and
+  record each real finding with `vrg-security-record` (seeded findings are
+  not recorded). Everything recorded on this public issue is counts only.
 - [ ] **Step 3:** Judge each unattended run against spec 5's "cleanly", and
   each interactive run against spec 5's interactive criteria: it behaves as
   in 2.0.2 (asks, walks findings, offers the update or the report, routes
   security as today), shows no unattended field, and `paad-delegate` is not
-  chosen automatically. Record per unattended run: the
-  status, the field parse, `Agent types dispatched:` against the per-skill
-  expectation (the result format above), the fleet checkout commit, `Files
-  written:`, and the before and after state of the worktree, its ignored
-  `paad/` directories, the starting directory's `paad/` and the temporary
-  directories. For the seeded runs, also confirm that no seeded security
-  detail appears in any comment the run would post, only in the security
-  section.
+  chosen automatically, judged from the auto-selection session's transcript
+  (no delegate started). Record per unattended run: the status; that the
+  reviewer asked nothing, judged from the session transcript (no question
+  turns from the delegate); the field parse; `Agent types dispatched:`
+  against the per-skill expectation (the result format above); the fleet
+  commit recorded at the last move; `Files written:`; and the before and
+  after state of the worktree, its ignored `paad/` directories, the starting
+  directory's `paad/` and the temporary directories. For the seeded runs,
+  also confirm that no seeded security detail appears in any comment the run
+  would post, only in the security section.
 - [ ] **Step 4:** Record `Outcome: SUCCESS` or `Outcome: FAILURE`. On failure,
   file fix tasks on the fork under the epic and leave this open.
 - [ ] **Step 5: Retry after a fix.** When a fix lands on the fork, the human
@@ -630,11 +642,8 @@ vergil-claude-plugin.
   including `-preview` as an expected announce and the per-skill `Agent
   types dispatched:` expectation (the result format above). Every
   `blocked:` result pauses for the human and is never re-run automatically.
-  Each round logs the fleet checkout's branch and commit, as a convenience,
-  and notes it if the commit changed since the last round. It reads them
-  from files, never with git: the worktree's `.git` file names its gitdir,
-  whose `HEAD` names the branch, whose ref file (or `packed-refs`) holds the
-  commit.
+  Rounds log nothing about the fleet checkout: the human records its commit
+  on the issue at each move (Task 8 step 1, Task 9 step 5).
 - [ ] **Step 3: Parse keywords without regard to case.** On both paths, the
   checks match fixed keywords case-insensitively (`Security:`, `Discards:`,
   `Running paad:`, `Status:`, `SECURITY-CHECK-FAILED` and the rest) and keep
@@ -662,7 +671,11 @@ vergil-claude-plugin.
   three malformed ones break the round with nothing posted, and the two
   well-formed ones proceed. Then tidy the wording (refactor).
 - [ ] **Step 6:** Add mode 2 screening of every ordinary finding and discard
-  before the findings comment is posted, on both paths.
+  before the findings comment is posted, on both paths. A finding that
+  qualifies moves into the cut-out security material (the §3.6 directory)
+  before the comment is built, and from then on is handled like any
+  security finding: fixed on the branch or recorded, and shown only in the
+  counts.
 - [ ] **Step 7:** Keep every item under spec 4.8's "These go away" in the
   fallback path, marked for retirement once a released paad carries the
   mode. Retire §2.10 ("Fallback", the never-adopted paad-config idea), which
@@ -678,7 +691,9 @@ vergil-claude-plugin.
   status values or input fields), the doctrine is updated before the switch.
   It also records, as an accepted risk, that an uncommitted edit in the
   fleet checkout changes what every later session runs and is not checked
-  (spec 6).
+  (spec 6). paad-policy §1 (config files added by a child epic) and §4 (the
+  "may add config files as its fallback" bullet, linking §2.10) are updated
+  to match §2.10's retirement.
 - [ ] **Step 9:** Point the two skills' dispatch steps at the doctrine's
   selection rule. Run `vrg-container-run -- vrg-validate`. Commit and hand
   off with `report-ready`; the handoff notes record
@@ -708,5 +723,11 @@ recorded decision.
     Upstream's decision is the author's, and nothing in the epic waits on it;
   - **try a different idea:** file a planning issue for the next attempt,
     with what this experiment taught, and link it.
-- [ ] **Step 3:** Close the issue. The retrospective's §5 records the
-  decision.
+- [ ] **Step 3: File the cleanup as a deferred issue,** with `vrg-intake-route
+  … defer --reason … --revisit-when "a paad release carries unattended
+  mode"` (or the next attempt replaces it). It covers retiring the fallback
+  path's machinery (spec 4.8 "These go away"), removing the `plugin-dirs.toml`
+  entry, and updating paad-policy. This is how spec 2's goal that the
+  doctrine shrinks is met. Link it on the issue.
+- [ ] **Step 4:** Close the issue. The retrospective's §5 records the
+  decision and the deferred cleanup.

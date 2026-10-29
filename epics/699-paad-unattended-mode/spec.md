@@ -68,7 +68,9 @@ The vergil workflow then uses it, and the doctrine sheds the interface work.
 - The patch follows paad's development conventions, so it can be offered
   upstream.
 - The vergil doctrine shrinks to match: the stray-write machinery and most
-  prompt directives go.
+  prompt directives go. They stay as the fallback until a released paad
+  carries the mode (4.8), so the epic gains the delegate path and files the
+  retirement as a tracked, deferred follow-up that revisits on that release.
 
 **Packaging.** The paad change is built and demonstrated as one change. How it
 is split into pull requests for the paad author is settled with the author
@@ -417,12 +419,11 @@ follows them:
     Cloud sessions launch normally and use the fallback path (4.8). Cloud
     support is not planned;
   - the plan settles the file's name and format.
-- **Some volatility is accepted.** Each round logs the fleet checkout's branch
-  and commit as a convenience, and notes it if the commit changed between
-  rounds. The log is not evidence of what a session loaded: a session reads
-  the plugin at launch and on `/reload-plugins`. A tester who wants a set of
-  results to stand for one commit does not move the checkout while the test
-  runs, which is the human's call.
+- **Some volatility is accepted.** The human records the fleet checkout's
+  commit on the issue each time they move it; rounds log nothing about it. A
+  session reads the plugin at launch and on `/reload-plugins`, so a tester
+  who wants a set of results to stand for one commit does not move the
+  checkout while the test runs, which is the human's call.
 - **After upstream releases the change,** the installed paad carries it, the
   override is removed, and `--plugin-dir` is needed again only for the next
   unreleased change.
@@ -482,8 +483,7 @@ Once the fleet runs a paad with unattended mode:
 - **The output checks become a parse of the result.** The workflow checks:
   - the announce line. Under the override it reads `v<X.Y.Z>-preview`, which
     is expected, not a version warning;
-  - no `Config:` line saying a config file was followed (mode 2, and mode 1
-    until a config file is adopted);
+  - no `Config:` line saying a config file was followed, in either mode;
   - the status line. A `blocked` status pauses for the human, with its reason,
     and is never re-run automatically;
   - the presence of the fields;
@@ -496,9 +496,6 @@ Once the fleet runs a paad with unattended mode:
   - the `Agent types dispatched:` line (4.4): `paad-analyst` only;
   - `Files written: none`;
   - that the worktree's branch, HEAD SHA and clean status are unchanged.
-
-  While the fleet runs the preview tree, the round also logs the fleet
-  checkout's branch and commit (4.7).
 - **These go away** once a released paad carries the mode (the fallback
   above keeps them until then):
   - in both modes, the stray-write check, the round's `TMPDIR`, the
@@ -532,8 +529,9 @@ Once the fleet runs a paad with unattended mode:
   and it is the backstop for forged delimiters (8). Mode 2 has no screening
   today, and it posts its ordinary findings to the task issue, so it gains the
   step: before the findings comment is posted, every ordinary finding and
-  discard is screened, and any that qualify go through
-  `vrg-security-record`.
+  discard is screened. Any that qualify move into the cut-out security
+  material and are handled as security findings from then on: in mode 1
+  walked and recorded, in mode 2 fixed on the branch or recorded (§3.6).
 - **Keywords match without regard to case.** On both paths, the output checks
   match fixed keywords (`Security:`, `Discards:`, `Running paad:`, `Status:`
   and the rest) case-insensitively and keep everything else exact, so an
