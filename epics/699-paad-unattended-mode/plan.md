@@ -41,13 +41,30 @@ vergil-claude-plugin's doctrine gains the delegate path beside today's path.
   as concrete identifiers (an issue ref, a path).
 - **Interactive behaviour is unchanged.** Every new instruction applies only
   under `paad-delegate`.
+- **paad's shared paragraphs and checks are not changed.** The configuration
+  and security paragraphs stay as they are in every skill, and so do
+  `check-config` and `scripts/check_security.py`. The delegate's overrides
+  live in each supported skill's own unattended paragraph. `make test` checks
+  both trees, and `plugins/paad` can change only at a release, so a change to
+  a shared paragraph could never pass on the shipped tree.
+- **No skill outside `PRODUCERS` and `READERS` names `paad/security/`.** New
+  text says "writes no security file", not the path.
+- **Paths are absolute:** `/Users/pmoore/dev/projects/wphillipmoore/paad` (the
+  clone) and `/Users/pmoore/dev/projects/wphillipmoore/paad-fleet` (the fleet
+  worktree). They are the same on the Mac and in the Lima VMs; `~` is not.
+- **Sessions are the human's.** Starting a `claude --plugin-dir` session,
+  `/reload-plugins` and answering interactive runs are human steps. The agent
+  prepares the fixtures and the exact prompt, and checks the pasted results
+  against the expected values. Steps marked **(human)** below.
 - **Claude Code only.** Every export (`kiro_and_antigravity/`, `pi/`) stays
   correct, and no Pi, Kiro or Antigravity delegate is added.
-- Blocked reasons, verbatim: `blocked: skill does not support unattended
-  mode`, `blocked: analyst agent not available`, `blocked: the inputs must be
-  named`, `blocked: both sides must be named`, `blocked: the working tree has
-  uncommitted changes`, `blocked: ambiguous argument`, `blocked: the
-  classification is unverified`.
+- Fixed blocked reasons, verbatim: `blocked: skill does not support
+  unattended mode`, `blocked: analyst agent not available`, `blocked: the
+  inputs must be named`, `blocked: both sides must be named`, `blocked: the
+  working tree has uncommitted changes`, `blocked: ambiguous argument`,
+  `blocked: the classification is unverified`. Any other stop at which a
+  skill cannot proceed safely returns `blocked: <reason>` in its own words,
+  never a guess (spec 4.1). Callers treat every `blocked:` alike.
 - **vergil-tooling and vergil-claude-plugin work** uses `vrg-container-run --
   vrg-validate` as its only validation, `vrg-commit`, and `vrg-pr-workflow
   report-ready`; agents never run `vrg-submit-pr`.
@@ -67,7 +84,7 @@ vergil-claude-plugin's doctrine gains the delegate path beside today's path.
    applied:`, not block. Pinned in Task 6 (`no-args` smoke).
 3. **A `paad/config/<skill>.md` present on the branch under review**: it must
    be reported as `Config not followed:` and change nothing. Pinned in Task 4
-   (`config-present` smoke) and Task 9.
+   (`config-present` smoke, step 5) and Task 9.
 4. **An override entry that is relative, or a directory missing in the
    guest**: the launch must fail loudly, never start `claude` without the
    tree. Pinned in Task 7 (`test_load_plugin_dirs_rejects_relative`,
@@ -86,10 +103,10 @@ comment (spec 7); the rest close by a same-repo PR or as operational tasks.
 
 | Task | Issue (repo, kind) | Blocked by |
 |---|---|---|
-| 1 | Fork, clone and fleet checkout setup (`.github`, closed by comment) | — |
+| 1 | Recreate the fork, the clone and the fleet checkout (`.github`, closed by comment) | — |
 | 2 | Spike: delegate on the fork's preview tree (`.github`, closed by comment) | 1 |
 | 3 | The `paad-delegate` agent and the unattended lint (`.github`, fork) | 2 |
-| 4 | pushback unattended mode, and the shared paragraphs (`.github`, fork) | 3 |
+| 4 | pushback unattended mode (`.github`, fork) | 3 |
 | 5 | alignment unattended mode (`.github`, fork) | 4 |
 | 6 | agentic-review unattended mode (`.github`, fork) | 4 |
 | 7 | `--plugin-dir` override in `vrg-vm session` (vergil-tooling) | — |
@@ -113,13 +130,11 @@ vergil-project/.github#701.
 | paad fork | `preview/paad/agents/paad-delegate.md` | The contract (Task 3) |
 | paad fork | `scripts/check_unattended.py` | The new lint, with `--self-test` (Tasks 3, 4) |
 | paad fork | `Makefile` | `check-unattended` in `tree-checks`; its self-test in `self-tests` (Task 3) |
-| paad fork | `preview/paad/skills/*/SKILL.md` | Conditional configuration paragraph in every skill (Task 4) |
-| paad fork | `scripts/check_security.py` | The conditional shared security paragraph (Task 4) |
 | paad fork | `preview/paad/skills/pushback/SKILL.md` | Unattended paragraph and section (Task 4) |
 | paad fork | `preview/paad/skills/alignment/SKILL.md` | Unattended paragraph and section (Task 5) |
 | paad fork | `preview/paad/skills/agentic-review/SKILL.md` | Unattended paragraph and section, `Intent:` input (Task 6) |
 | paad fork | `preview/paad/skills/paad-help/SKILL.md` | The mode documented, Claude Code only (Tasks 3–6) |
-| paad fork | `scripts/convert_skills.py` | Exports stay correct with the new agent and paragraph (Task 3) |
+| paad fork | `scripts/convert_skills.py` | Exports stay correct with the new agent and sections (Tasks 3–6, only if a dry run fails) |
 | paad fork | `CHANGELOG.md` | `[Unreleased]` entry (Task 3, extended by 4–6) |
 | vergil-tooling | `src/vergil_tooling/lib/plugin_dirs.py` | Load the override config (Task 7) |
 | vergil-tooling | `src/vergil_tooling/bin/vrg_vm.py` | Pass `--plugin-dir` on Lima; notice on cloud (Task 7) |
@@ -160,36 +175,49 @@ Native finding fields: pushback and alignment `Claim:`, `Options:` (ranked
 list), `Recommendation:`; agentic-review `Symbol:`, `Excerpt:`, `Fix:`,
 `Confidence:`, `Scope:` (`in scope`, `out-of-scope bug`, `out-of-scope
 addition`), `Bug class:`. agentic-review's skill-specific fields are its
-existing counts line, `Agents dispatched:` (lenses), `Intent sources:` and
-`Verifier warnings:`. A blocked result stops after `Agent types dispatched:`
-and ends with `Files written: none`.
+existing counts line, `Agents dispatched:` (lenses), `Intent sources
+consulted:` and `Verifier warnings:`, under paad's own names. A blocked result
+stops after `Agent types dispatched:` and ends with `Files written: none`.
+
+`Agent types dispatched:` per skill: pushback and alignment dispatch no
+subagents, so `none` is expected and any listed type must be
+`paad:paad-analyst`; agentic-review must list `paad:paad-analyst`, because
+its six lenses dispatch, and nothing else.
 
 ---
 
-### Task 1: Fork, clone and fleet checkout setup
+### Task 1: Recreate the fork, the clone and the fleet checkout
+
+An earlier fork and clone exist from April 2026: a stale `main` with no
+`preview/` tree, carrying two non-upstream commits (`2781839`, a vergil
+`st-config.toml`, and its revert `5a9b72d`). They are deleted and recreated
+so the fork starts equal to upstream.
 
 **Files:** none in any repo. Records go on the issue.
 
 **Interfaces:**
 - Produces: the fork `wphillipmoore/paad`; the clone
-  `~/dev/projects/wphillipmoore/paad` (`origin` the fork, `upstream`
-  `Ovid/paad`, pull only); the fleet worktree
-  `~/dev/projects/wphillipmoore/paad-fleet` on local branch `fleet`, created
-  with `git worktree add` from the clone. Later tasks use these paths.
+  `/Users/pmoore/dev/projects/wphillipmoore/paad` (`origin` the fork,
+  `upstream` `Ovid/paad`, pull only); the fleet worktree
+  `/Users/pmoore/dev/projects/wphillipmoore/paad-fleet` on local branch
+  `fleet`, created with `git worktree add` from the clone.
 
-- [ ] **Step 1 (human):** Fork `Ovid/paad` to `wphillipmoore/paad` on GitHub.
-- [ ] **Step 2:** Clone it to `~/dev/projects/wphillipmoore/paad`, add
-  `upstream` (`https://github.com/Ovid/paad.git`), and set `upstream`'s push
-  URL to `DISABLED` so nothing can be pushed there.
-- [ ] **Step 3:** Settle how agents run git in the clone (spec 7). From
-  inside the clone, run `vrg-git status`, `vrg-git fetch upstream` and
-  `vrg-git log -1`. Record which work. If the hook
-  guard or `vrg-git` refuses a non-vergil repo, record the refusal verbatim
-  and the rule the fork tasks follow instead (the human runs those commands
-  with `!`).
-- [ ] **Step 4:** Create the fleet worktree on branch `fleet` at `main`, and
+- [ ] **Step 1 (human):** Delete the GitHub repo `wphillipmoore/paad` and the
+  folder `/Users/pmoore/dev/projects/wphillipmoore/paad`. Deleting a repo
+  cannot be undone.
+- [ ] **Step 2 (human):** Fork `Ovid/paad` to `wphillipmoore/paad` on GitHub.
+- [ ] **Step 3:** Clone the fork to
+  `/Users/pmoore/dev/projects/wphillipmoore/paad`. **(human)** Add `upstream`
+  (`https://github.com/Ovid/paad.git`) and set its push URL to `DISABLED`
+  with `!`, since `vrg-git remote` is denied.
+- [ ] **Step 4:** Settle how agents run git in the clone (spec 7). From
+  inside it, run `vrg-git status`, `vrg-git fetch upstream` and `vrg-git log
+  -1`. Record which work. Record any refusal verbatim, and the rule the fork
+  tasks follow instead (the human runs those commands with `!`).
+- [ ] **Step 5:** Record that `main` equals `upstream/main` (same commit).
+- [ ] **Step 6:** Create the fleet worktree on branch `fleet` at `main`, and
   record its path and commit.
-- [ ] **Step 5:** Verify: `make export && make test` passes in the clone on
+- [ ] **Step 7:** Verify: `make export && make test` passes in the clone on
   `main` (paad's own baseline). Record the output's last line (`All checks
   passed.`). Close the issue with the comment.
 
@@ -203,18 +231,16 @@ Settles the facts later tasks rely on before any skill text is written.
   `preview/paad/agents/paad-delegate.md` (tools `Read, Grep, Glob, Bash,
   Skill, Agent`; body: run the named skill, return its final answer
   unchanged).
-- [ ] **Step 2:** From a logged-in session started with `claude --plugin-dir
-  ~/dev/projects/wphillipmoore/paad/preview/paad`, dispatch
-  `paad:paad-delegate` to run `paad:rethink` on a one-line question. Record:
-  the delegate loads; it invokes the skill; the skill's `paad-analyst`
-  dispatches work; the announce line reads `v<X.Y.Z>-preview`.
-- [ ] **Step 3:** Record which parts of the plugin a running session re-reads
-  on `/reload-plugins` (agent definitions, skills) by editing the delegate's
-  body and reloading.
-- [ ] **Step 4:** Record whether `make check-export-dryrun
-  TREE=preview/paad` passes with the new agent file present, and if not, the
-  exact error. Task 3 handles it.
-- [ ] **Step 5:** Delete the branch. Close the issue with the recorded facts.
+- [ ] **Step 2 (human):** In a session started with `claude --plugin-dir
+  /Users/pmoore/dev/projects/wphillipmoore/paad/preview/paad`, dispatch
+  `paad:paad-delegate` to run `paad:rethink` on a one-line question, with the
+  prompt the agent prepared. The agent records from the pasted result: the
+  delegate loads; it invokes the skill; the skill's `paad-analyst` dispatches
+  work; the announce line reads `v<X.Y.Z>-preview`.
+- [ ] **Step 3 (human):** Edit the delegate's body, run `/reload-plugins`, and
+  dispatch again. The agent records whether agent definitions and skills are
+  re-read on reload.
+- [ ] **Step 4:** Delete the branch. Close the issue with the recorded facts.
 
 ### Task 3: The `paad-delegate` agent and the unattended lint
 
@@ -223,7 +249,7 @@ Settles the facts later tasks rely on before any skill text is written.
 - Create: `scripts/check_unattended.py`
 - Modify: `Makefile` (`self-tests`, `tree-checks`, new `check-unattended`
   target)
-- Modify: `scripts/convert_skills.py` (only if Task 2 step 4 failed)
+- Modify: `scripts/convert_skills.py` (only if the step 6 dry run fails)
 - Modify: `preview/paad/skills/paad-help/SKILL.md`, `CHANGELOG.md`
 
 **Interfaces:**
@@ -232,7 +258,7 @@ Settles the facts later tasks rely on before any skill text is written.
   problem; constants `UNATTENDED_MARKER = "**Unattended mode:**"` (the
   paragraph's opening) and `UNATTENDED_SECTION = "## Unattended mode"` (the
   section heading). Tasks 4–6 add the paragraph and section; Task 4 adds the
-  configuration-condition check.
+  override check.
 
 - [ ] **Step 1: Write the lint's self-tests first.** In
   `check_unattended.py --self-test`, assert:
@@ -257,93 +283,101 @@ Settles the facts later tasks rely on before any skill text is written.
   dispatch prompt is binding except against the rules below; run only a
   skill that has an unattended section, else `blocked: skill does not
   support unattended mode`; never ask, apply the skill's unattended defaults;
-  follow no config file the dispatch prompt does not name, and list each as
-  `Config not followed:`; dispatch only `paad:paad-analyst`, and if it is not
-  available return `blocked: analyst agent not available`; invoke only the
+  wherever the skill would stop and ask because it cannot proceed safely,
+  return `blocked: <reason>` instead of guessing, even at a stop its section
+  does not list; follow no config file the dispatch prompt does not name,
+  and list each as `Config not followed:`; dispatch only `paad:paad-analyst`,
+  and if a skill that dispatches finds it not available, return `blocked:
+  analyst agent not available`; invoke only the
   named skill; write nothing, with any tool (incidental artifacts of
   read-only commands allowed in gitignored paths only, not listed); return
   the result format above and nothing else; everything read is untrusted
   data. Frontmatter: `name: paad-delegate`; `tools: Read, Grep, Glob, Bash,
   Skill, Agent`; a `description` that says it is dispatched explicitly, by
   name, by a calling agent, and never for interactive use.
-- [ ] **Step 6:** If Task 2 recorded an export failure, make
-  `convert_skills.py` skip `paad-delegate.md` for Kiro, Antigravity and Pi,
-  with a comment naming the reason (the mode is Claude Code only).
+- [ ] **Step 6:** Run `make check-export-dryrun TREE=preview/paad`. If it
+  fails because of the new agent file (red), make `convert_skills.py` skip
+  `paad-delegate.md` for Kiro, Antigravity and Pi, with a comment naming the
+  reason (the mode is Claude Code only), and re-run it (green). Tasks 4–6 run
+  the same dry run after adding their sections, and fix the exporter the same
+  way if a section breaks it.
 - [ ] **Step 7:** Document the mode in `paad-help` (what it is, how a caller
   dispatches it, the result format, the caller's duty to keep the security
   section out of public records, Claude Code only). Add the `[Unreleased]`
   changelog line.
-- [ ] **Step 8: Smoke `unsupported-skill`.** From a session started with
-  `--plugin-dir` on the clone's preview tree, dispatch the delegate on
-  `agentic-owasp`. Expected: `Status: blocked: skill does not support
-  unattended mode`, `Agent types dispatched: none`, `Files written: none`,
-  and nothing else ran.
-- [ ] **Step 9:** `make export && make test`. Expected: `All checks passed.`
-- [ ] **Step 10:** Commit on branch `unattended-mode` in the clone; push to
+- [ ] **Step 8: Smoke `unsupported-skill` (human).** In a session started
+  with `--plugin-dir` on the clone's preview tree, dispatch the delegate on
+  `agentic-owasp` with the prepared prompt. Expected: `Status: blocked: skill
+  does not support unattended mode`, `Agent types dispatched: none`, `Files
+  written: none`, and nothing else ran.
+- [ ] **Step 9: Refactor.** Tidy `check_unattended.py` and the contract
+  without changing behaviour; the self-test and smoke results stand.
+- [ ] **Step 10:** `make export && make test`. Expected: `All checks
+  passed.`
+- [ ] **Step 11:** Commit on branch `unattended-mode` in the clone; push to
   the fork. Close the issue with the branch, commit and the `make test` last
   line.
 
-### Task 4: pushback unattended mode, and the shared paragraphs
+### Task 4: pushback unattended mode
 
-The first skill end to end (spec 8). It also makes the shared paragraphs
-conditional, which touches every skill.
+The first skill end to end (spec 8). paad's shared configuration and
+security paragraphs are not touched (Global Constraints): the override lives
+in pushback's own unattended paragraph, next to them.
 
 **Files:**
-- Modify: `preview/paad/skills/*/SKILL.md` (configuration paragraph, every
-  skill)
-- Modify: `scripts/check_security.py` (`PARAGRAPH`), and every producer's
-  copy of it
-- Modify: `scripts/check_unattended.py` (configuration-condition check)
+- Modify: `scripts/check_unattended.py` (override check)
 - Modify: `preview/paad/skills/pushback/SKILL.md`, `paad-help`,
   `CHANGELOG.md`
 
 **Interfaces:**
 - Consumes: Task 3's constants and result format.
-- Produces: `CONFIG_DELEGATE_CONDITION`, the exact sentence every
-  configuration paragraph carries (below); the pattern of an unattended
+- Produces: `UNATTENDED_OVERRIDE`, the exact sentence every unattended
+  paragraph carries (below); the pattern of an unattended paragraph and
   section that Tasks 5 and 6 copy.
 
 - [ ] **Step 1: Extend the self-test first.** Assert that a skill whose
-  configuration paragraph lacks `CONFIG_DELEGATE_CONDITION` fails with
-  `FAIL: <skill>'s configuration paragraph lacks the delegate condition`.
-  Run it. Expected: FAIL.
-- [ ] **Step 2:** Add to the configuration paragraph of every skill, after
-  its first sentence, this sentence verbatim, and set
-  `CONFIG_DELEGATE_CONDITION` to it: `When this skill runs under
-  paad-delegate, read only a config file the dispatch prompt names, and list
-  each other config file found as not followed.` Implement the check. Run
-  the self-test and `make tree-checks TREE=preview/paad`. Expected: PASS.
-- [ ] **Step 3:** Make the shared security paragraph conditional: under
-  `paad-delegate`, it defers to the skill's unattended section, and writes
-  nothing under `paad/security/`. Update `PARAGRAPH` in `check_security.py`
-  and every producer's copy together. `make check-security` must pass.
-  Interactive text and behaviour are otherwise unchanged.
-- [ ] **Step 4: Add pushback's unattended paragraph** (opening with
-  `UNATTENDED_MARKER`, next to the announce, configuration and security
-  paragraphs) **and its `## Unattended mode` section**, listing:
+  unattended paragraph lacks `UNATTENDED_OVERRIDE` fails with `FAIL:
+  <skill>'s unattended paragraph lacks the override sentence`, and that a
+  skill with no unattended paragraph is not checked. Run it. Expected: FAIL.
+- [ ] **Step 2: Add pushback's unattended paragraph** (opening with
+  `UNATTENDED_MARKER`, directly after the configuration and security
+  paragraphs). It carries, verbatim, the sentence below, and
+  `UNATTENDED_OVERRIDE` is set to it: `When this skill runs under
+  paad-delegate, the Configuration paragraph above applies only to a config
+  file the dispatch prompt names, each other config file found is listed as
+  not followed, the Security findings paragraph writes no security file and
+  asks nothing, and the "Unattended mode" section below governs the run.`
+  Implement the check. Run the self-test and `make tree-checks
+  TREE=preview/paad`. Expected: PASS.
+- [ ] **Step 3: Add pushback's `## Unattended mode` section**, listing:
   - every interaction point with its default, from spec 4.3's pushback,
     "pushback, alignment" and "all three" rows;
   - the native finding fields (`Claim:`, `Options:`, `Recommendation:`);
-  - the steps skipped: every edit, the report file, and every
-    `paad/security/` write;
+  - the steps skipped: every edit, the report file, and every security file;
   - security classification under the delegate with paad's shared
     definition, matches going to the security section (spec 4.2).
 
-  The paragraph is worded so it still reads correctly where no delegate
-  exists (an `npx skills`, Kiro, Antigravity or Pi install): it applies only
-  "when this skill runs under paad-delegate".
-- [ ] **Step 5:** Show the unattended branch in pushback's digraph where it
-  changes the flow. `make check-digraphs` must pass.
-- [ ] **Step 6: Smoke `pushback-plain` and `config-present`.** Under the
-  delegate, run pushback on a small fixture spec in a scratch git repo, once
-  plain and once with `paad/config/pushback.md` present. Expected: every
-  result line in order; `Status: complete`; findings carry `Claim:`,
+  The paragraph and section never name the `paad/security/` path ("writes no
+  security file"), and read correctly where no delegate exists (an `npx
+  skills`, Kiro, Antigravity or Pi install), since they apply only "when this
+  skill runs under paad-delegate".
+- [ ] **Step 4:** Show the unattended branch in pushback's digraph where it
+  changes the flow. `make check-digraphs` and `make check-export-dryrun
+  TREE=preview/paad` pass.
+- [ ] **Step 5: Smoke `pushback-plain` and `config-present` (human).** The
+  agent prepares a scratch git repo with a small fixture spec, and the
+  prompt. In a `--plugin-dir` session, the human runs pushback under the
+  delegate, once plain and once with `paad/config/pushback.md` present, and
+  pastes the results. Expected: every result line in order; `Status:
+  complete`; `Agent types dispatched: none`; findings carry `Claim:`,
   `Options:`, `Recommendation:`; the second run lists `Config not followed:
-  paad/config/pushback.md` and the same findings; `Files written: none`;
-  `git status --porcelain` empty in the scratch repo.
-- [ ] **Step 7: Smoke `pushback-interactive`.** Run pushback interactively
-  from the preview tree. Expected: it asks, walks findings, and offers the
-  update or the report, as in 2.0.2.
+  paad/config/pushback.md` and the same findings; `Files written: none`; `git
+  status --porcelain` empty in the scratch repo.
+- [ ] **Step 6: Smoke `pushback-interactive` (human).** Run pushback
+  interactively from the preview tree. Expected: it asks, walks findings, and
+  offers the update or the report, as in 2.0.2.
+- [ ] **Step 7: Refactor.** Tidy the section's wording and the lint without
+  changing behaviour; the checks and smokes stand.
 - [ ] **Step 8:** Update `paad-help` and the changelog line. `make export &&
   make test`. Expected: `All checks passed.` Commit, push, close with branch,
   commit and `make test` last line.
@@ -355,19 +389,22 @@ conditional, which touches every skill.
 
 **Interfaces:** Consumes Task 4's section pattern and constants.
 
-- [ ] **Step 1:** Add alignment's unattended paragraph and section, as in Task
-  5 step 4, from spec 4.3's alignment, "pushback, alignment" and "all three"
-  rows. alignment's section carries paad's shared security definition and
-  routes matches to the security section. Interactive alignment keeps no
-  security routing (that is a proposal, spec 4.9). Do not register alignment
-  in `PRODUCERS`.
-- [ ] **Step 2:** Update the digraph. `make check-digraphs` passes.
-- [ ] **Step 3: Smoke `alignment-one-side` and `alignment-tdd`.** Under the
-  delegate: with only a spec named, expected `Status: blocked: both sides must
-  be named`; with a spec and a plan whose one code task is not
-  red/green/refactor, expected a `Minor` finding for that task and the plan
-  file unchanged.
-- [ ] **Step 4:** Interactive smoke as in Task 4 step 7. `make export && make
+- [ ] **Step 1:** Add alignment's unattended paragraph (with
+  `UNATTENDED_OVERRIDE`) and section, as in Task 4 steps 2–3, from spec
+  4.3's alignment, "pushback, alignment" and "all three" rows. alignment's
+  section carries paad's shared security definition and routes matches to
+  the security section. Interactive alignment keeps no security routing
+  (that is a proposal, spec 4.9). alignment stays out of `PRODUCERS` and
+  `READERS`, so its text never names the `paad/security/` path.
+- [ ] **Step 2:** Update the digraph. `make check-digraphs`, `make
+  check-security` and `make check-export-dryrun TREE=preview/paad` pass.
+- [ ] **Step 3: Smoke `alignment-one-side` and `alignment-tdd` (human, with
+  agent-prepared fixtures).** Under the delegate: with only a spec named,
+  expected `Status: blocked: both sides must be named`; with a spec and a
+  plan whose one code task is not red/green/refactor, expected a `Minor`
+  finding for that task, `Agent types dispatched: none`, and the plan file
+  unchanged.
+- [ ] **Step 4:** Interactive smoke as in Task 4 step 6. `make export && make
   test`. Commit, push, close as in Task 4.
 
 ### Task 6: agentic-review unattended mode
@@ -380,8 +417,8 @@ conditional, which touches every skill.
 line `Intent: <path>[, <path>…]` in the dispatch prompt; Spec Compliance reads
 those files as explicit spec files ahead of its other sources.
 
-- [ ] **Step 1:** Add the unattended paragraph and section from spec 4.3's
-  agentic-review and "all three" rows: no arguments reviews against the
+- [ ] **Step 1:** Add the unattended paragraph (with `UNATTENDED_OVERRIDE`)
+  and section from spec 4.3's agentic-review and "all three" rows: no arguments reviews against the
   default branch and is listed under `Defaults applied:`; uncommitted changes
   and an ambiguous argument block; no report file, backlog read or backlog
   write; large diffs use the full 12-dispatch form, and only an actual
@@ -392,17 +429,19 @@ those files as explicit spec files ahead of its other sources.
   apply (spec 4.10): the section says so.
 - [ ] **Step 3:** Document the `Intent:` input in the section and in
   `paad-help`. Interactive arguments are unchanged.
-- [ ] **Step 4:** Update the digraph. `make check-digraphs` and `make
-  check-dispatch-sites` pass.
-- [ ] **Step 5: Smoke `no-args`, `intent` and `dirty`.** In a scratch repo with
-  a branch carrying one known bug: no arguments gives `Status: complete`, the
-  bug found, and `- no arguments: reviewed against the default branch` under
-  `Defaults applied:`; `Intent: spec.md` appears in `Intent sources:`; with an
-  uncommitted change, `Status: blocked: the working tree has uncommitted
-  changes`. In every run `paad/code-reviews/` and `paad/security/` are not
-  created.
-- [ ] **Step 6:** Interactive smoke. `make export && make test`. Commit, push,
-  close as in Task 4.
+- [ ] **Step 4:** Update the digraph. `make check-digraphs`, `make
+  check-dispatch-sites` and `make check-export-dryrun TREE=preview/paad`
+  pass.
+- [ ] **Step 5: Smoke `no-args`, `intent` and `dirty` (human, with
+  agent-prepared fixtures).** In a scratch repo with a branch carrying one
+  known bug: no arguments gives `Status: complete`, the bug found, `Agent
+  types dispatched: paad:paad-analyst`, and `- no arguments: reviewed against
+  the default branch` under `Defaults applied:`; `Intent: spec.md` appears in
+  `Intent sources consulted:`; with an uncommitted change, `Status: blocked:
+  the working tree has uncommitted changes`. In every run
+  `paad/code-reviews/` and `paad/security/` are not created.
+- [ ] **Step 6:** Interactive smoke (human). `make export && make test`.
+  Commit, push, close as in Task 4.
 
 ### Task 7: `--plugin-dir` override in `vrg-vm session`
 
@@ -447,12 +486,18 @@ those files as explicit spec files ahead of its other sources.
   - `test_cloud_session_skips_plugin_dirs_with_notice`: with entries
     configured, the cloud path passes `()` and prints, verbatim, `NOTE: the
     --plugin-dir override is supported only on macOS with Lima VMs; this
-    cloud session runs the installed plugins.`
+    cloud session runs the installed plugins.`;
+  - `test_cloud_session_rejects_malformed_plugin_dirs`: a malformed file
+    fails the cloud launch with the `PluginDirsError` message and returns 1,
+    as on Lima.
 - [ ] **Step 5:** Implement. Run `vrg-container-run -- vrg-validate
   --all-versions`. Expected: PASS, with 100% branch coverage.
-- [ ] **Step 6:** Document the file, its format, the Lima-only rule and how to
+- [ ] **Step 6: Refactor.** Remove duplication between the Lima and cloud
+  paths' loading, without changing behaviour. Re-run the step 5 command.
+  Expected: PASS.
+- [ ] **Step 7:** Document the file, its format, the Lima-only rule and how to
   turn it off in `cli-tools-overview.md` under `vrg-vm session`.
-- [ ] **Step 7:** Commit with `vrg-commit`, hand off with `vrg-pr-workflow
+- [ ] **Step 8:** Commit with `vrg-commit`, hand off with `vrg-pr-workflow
   report-ready`.
 
 ### Task 8: Deploy the override and the fleet checkout (deployment)
@@ -460,16 +505,17 @@ those files as explicit spec files ahead of its other sources.
 **Preconditions:** Tasks 5, 6 and 7 closed; a vergil-tooling release
 carrying Task 7 is installed on the host (human-attested).
 
-- [ ] **Step 1:** In the fleet worktree, move `fleet` to the
-  `unattended-mode` branch's head; record the commit.
-- [ ] **Step 2:** Write `~/.config/vergil/plugin-dirs.toml` with
+- [ ] **Step 1 (human):** In the fleet worktree, move `fleet` to the
+  `unattended-mode` branch's head; record the commit. Only the human moves
+  `fleet`; agents never run git in the fleet worktree.
+- [ ] **Step 2:** Write `~/.config/vergil/plugin-dirs.toml` (on the Mac) with
   `plugin_dirs =
   ["/Users/pmoore/dev/projects/wphillipmoore/paad-fleet/preview/paad"]`.
-- [ ] **Step 3:** Start a Lima session with `vrg-vm session`. In it, confirm
-  `paad:paad-delegate` is listed as an agent type and `paad:paad-help`
-  announces `-preview`.
-- [ ] **Step 4:** Temporarily point the file at a missing directory; confirm
-  the launch fails with the guest error; restore it.
+- [ ] **Step 3 (human):** Start a Lima session with `vrg-vm session`. In it,
+  confirm `paad:paad-delegate` is listed as an agent type and
+  `paad:paad-help` announces `-preview`.
+- [ ] **Step 4 (human):** Temporarily point the file at a missing directory;
+  confirm the launch fails with the guest error; restore it.
 - [ ] **Step 5:** Record `Outcome: SUCCESS` with the evidence and close.
 
 ### Task 9: Validate the mode and the drafted vergil prompts (validation)
@@ -487,14 +533,20 @@ carrying Task 7 is installed on the host (human-attested).
   commits, each twice; planted dispatch (judged from the session
   transcripts' subagent spawns, not the result line); unsupported skill;
   seeded access-control gap; planted config; one interactive run of each
-  changed skill.
+  changed skill (human).
 - [ ] **Step 3:** Judge each against spec 5's "cleanly". Record per run: the
-  status, the field parse, the fleet checkout commit, `Files written:`, and
-  the before and after state of the worktree, its ignored `paad/`
-  directories, the starting directory's `paad/` and the temporary
-  directories.
+  status, the field parse, `Agent types dispatched:` against the per-skill
+  expectation (the result format above), the fleet checkout commit, `Files
+  written:`, and the before and after state of the worktree, its ignored
+  `paad/` directories, the starting directory's `paad/` and the temporary
+  directories. For the seeded runs, also confirm that no seeded security
+  detail appears in any comment the run would post, only in the security
+  section.
 - [ ] **Step 4:** Record `Outcome: SUCCESS` or `Outcome: FAILURE`. On failure,
   file fix tasks on the fork under the epic and leave this open.
+- [ ] **Step 5: Retry after a fix.** When a fix lands on the fork, the human
+  moves `fleet` to it (Task 8 step 1), the agent records the new commit, and
+  every set in step 2 runs again. Only a full pass closes the task.
 
 ### Task 10: Doctrine and policy: the delegate path with fallback
 
@@ -509,17 +561,37 @@ vergil-claude-plugin.
   the selection rule: use it when `paad:paad-delegate` is loaded, otherwise
   run today's path and record the deviation in the round comment or task
   record. The output checks for the delegate path are spec 4.8's list,
-  including `-preview` as an expected announce and `Agent types dispatched:
-  paad:paad-analyst`.
-- [ ] **Step 3:** Add mode 2 screening of every ordinary finding and discard
+  including `-preview` as an expected announce and the per-skill `Agent
+  types dispatched:` expectation (the result format above). Every
+  `blocked:` result pauses for the human and is never re-run automatically.
+  Each round logs the fleet checkout's branch and commit, as a convenience,
+  and notes it if the commit changed since the last round.
+- [ ] **Step 3: Parse keywords without regard to case.** On both paths, the
+  checks match fixed keywords case-insensitively (`Security:`, `Discards:`,
+  `Running paad:`, `Status:`, `SECURITY-CHECK-FAILED` and the rest) and keep
+  everything else exact, so an annotation still fails and a case difference
+  does not (vergil-project/.github#706).
+- [ ] **Step 4: Cut the security section out first.** On the delegate path,
+  the orchestrator removes the section between `=== paad security section
+  ===` and `=== end paad security section ===` before any other processing.
+  Mode 1 writes it to the §2.7 scratch copy (mode 700, outside every repo),
+  then runs the walk-through and `vrg-security-record`. Mode 2 fixes each
+  finding on the branch or runs `vrg-security-record`. Round comments and
+  findings comments are built only from the result with the section
+  removed.
+- [ ] **Step 5:** Add mode 2 screening of every ordinary finding and discard
   before the findings comment is posted, on both paths.
-- [ ] **Step 4:** Keep every item under spec 4.8's "These go away" in the
+- [ ] **Step 6:** Keep every item under spec 4.8's "These go away" in the
   fallback path, marked for retirement once a released paad carries the
-  mode.
-- [ ] **Step 5:** paad-policy records the override, how it is turned on and
-  off, the Lima-only rule, the fallback, and the deviations register rows the
-  delegate path retires.
-- [ ] **Step 6:** Point the two skills' dispatch steps at the doctrine's
+  mode. Retire §2.10 ("Fallback", the never-adopted paad-config idea), which
+  this epic replaces, so "fallback" means only today's path.
+- [ ] **Step 7:** paad-policy records the override, how it is turned on and
+  off, the Lima-only rule, the fallback, the deviations register rows the
+  delegate path retires, and the standing rule for the fleet checkout: only
+  the human moves `fleet`, agents never run git in the fleet worktree, and
+  after a move the validation sets (Task 9) pass on the new commit before
+  vergil relies on it.
+- [ ] **Step 8:** Point the two skills' dispatch steps at the doctrine's
   selection rule. Run `vrg-container-run -- vrg-validate`. Commit and hand
   off with `report-ready`.
 

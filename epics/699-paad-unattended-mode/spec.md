@@ -326,19 +326,22 @@ follows them:
   `make promote` at a release, never by hand.
 - **Drive it with `claude --plugin-dir ./preview/paad`.** Preview skills
   announce `v<X.Y.Z>-preview`.
-- **`make export && make test` passes before each commit.** The patch updates
-  the checks that unattended mode affects:
-  - `check-dispatch-sites` (every dispatch names the read-only analyst);
-  - `check-announce` (a skill that writes files announces what it wrote);
-  - `check-security` (the shared security paragraph, which `check-security`
-    holds verbatim across its `PRODUCERS`);
-  - a new check, in the style of `check_security.py`: every skill that carries
-    the unattended paragraph also has its unattended section, and every
-    skill's configuration paragraph contains the delegate condition (4.10)
-    verbatim. `check-config` today checks only that each skill has the
-    paragraph and names its own config file, not its wording. The shared
-    paragraphs reach skills with no unattended section too, so their
-    conditional wording must also read correctly there.
+- **`make export && make test` passes before each commit.** It checks both
+  trees, `preview/paad` and the shipped `plugins/paad`, which changes only at
+  a release. So the patch leaves paad's shared configuration and security
+  paragraphs, `check-config` and `check_security.py` exactly as they are: a
+  changed shared paragraph could never pass on the shipped tree. The
+  delegate's overrides live in each supported skill's own unattended
+  paragraph instead (4.10). The delegate refuses every other skill, so only
+  the supported skills ever need them.
+- **One new check,** `check-unattended`, in the style of
+  `check_security.py`: every skill that carries the unattended paragraph also
+  has its unattended section, and each unattended paragraph contains the
+  override sentence verbatim. A skill without the paragraph is not checked,
+  so the shipped tree passes.
+- **No new text names `paad/security/`** in a skill outside
+  `check_security.py`'s allowlist (alignment): it says "writes no security
+  file" instead.
 - **The export pipeline stays correct.** paad also ships outside Claude Code:
   - `npx skills add` installs skill folders but never `agents/`;
   - the Kiro and Antigravity export fails on an unknown agent;
@@ -361,7 +364,8 @@ follows them:
   account. It is a personal contribution to paad, outside the vergil project.
   It holds the change branches and is where PRs to `Ovid/paad` come from.
 - **The local clone** is a clone of the fork at
-  `~/dev/projects/wphillipmoore/paad`. Its `origin` is the fork, and `Ovid/paad`
+  `/Users/pmoore/dev/projects/wphillipmoore/paad`, a path that is the same on
+  the Mac and in the Lima VMs. Its `origin` is the fork, and `Ovid/paad`
   is added as the `upstream` remote, used only to pull. Nothing is ever pushed
   to `upstream`. The fork and the clone are the standing workspace for
   contributions to paad, during this epic and after it.
@@ -381,10 +385,11 @@ follows them:
   `paad-analyst` subagents run from it.
 - **The fleet runs a dedicated checkout, never the development tree.** The
   clone is where development happens, so the fleet loads a separate
-  `git worktree` of it, on a named branch. That checkout moves only on
-  purpose, after the gate below passes; moving it is the one deliberate step
-  that puts a change in front of the fleet. Development in the clone never
-  disturbs it.
+  `git worktree` of it, `/Users/pmoore/dev/projects/wphillipmoore/paad-fleet`
+  on branch `fleet`. That checkout moves only on purpose, by the human,
+  after the gate below passes; moving it is the one deliberate step that puts
+  a change in front of the fleet. Agents never run git in it. Development in
+  the clone never disturbs it.
 - **A standing override in vergil.** Running the development tree across the
   fleet is a deliberate, relatively permanent setup, so it must be easy:
   - a host config file under `~/.config/vergil/` lists the plugin directories
@@ -395,8 +400,8 @@ follows them:
     `vrg_vm.py`, beside the `--model` it already adds). Removing the entry
     returns the fleet to the installed paad;
   - the path is checked inside the guest, and a missing directory fails the
-    launch, loudly. Lima VMs already see the Mac's `~/dev/projects` at the
-    same path;
+    launch, loudly. Lima VMs already see the Mac's
+    `/Users/pmoore/dev/projects` at the same path;
   - **Lima only.** The paad development environment is supported only on
     macOS with Lima VMs. A cloud box has no host mount (`_cloud_session` in
     `vrg_vm.py`), so on a cloud target `vrg-vm session` does not apply the
@@ -573,11 +578,11 @@ the author (4.9). The builder adds every further conflict found.
 
 | paad text today | What the delegate needs | Proposed way to coexist |
 |---|---|---|
-| The shared configuration paragraph: if a `paad/config/` file exists, "read it and follow its instructions" | Follow no config file the caller did not name (4.1) | The paragraph becomes conditional: under `paad-delegate`, read only a config file the caller names, and report the others as not followed. The new lint checks the condition's wording in every skill (4.6) |
-| The shared security paragraph: write security findings under `paad/security/`, and ask "hold or ordinary report" when the safety check fails | Write nothing; security findings go in the result (4.3, 4.4) | The paragraph defers to the skill's unattended section under `paad-delegate` |
+| The shared configuration paragraph: if a `paad/config/` file exists, "read it and follow its instructions" | Follow no config file the caller did not name (4.1) | Unchanged. The skill's unattended paragraph, directly after it, overrides it under `paad-delegate`: only a caller-named config file applies, and the others are reported as not followed. The new lint checks that sentence (4.6) |
+| The shared security paragraph: write security findings under `paad/security/`, and ask "hold or ordinary report" when the safety check fails | Write nothing; security findings go in the result (4.3, 4.4) | Unchanged. The unattended paragraph overrides it under `paad-delegate`: no security file and no question |
 | Each skill's interaction points: ask, walk findings one at a time, edit the document, write the report | Never ask, edit or write (4.1) | The unattended paragraph and section (4.2), with the defaults in 4.3 |
 | agentic-review's large-diff two-pass split and backlog dedup | Full form only; backlogs not read (4.3) | The skill's unattended section |
-| The shared paragraphs are copies in every skill | The conditional wording above lands in skills with no unattended section too | The wording reads correctly where no section exists, the new lint checks it (4.6), and the delegate refuses an unsupported skill with a blocked result (4.1) |
+| The shared paragraphs are copies in every skill, and `make test` checks them on the shipped tree too | Overrides only where the delegate runs | The overrides live in the supported skills' unattended paragraphs, so no shared paragraph changes, and the delegate refuses an unsupported skill with a blocked result (4.1) |
 | Every dispatching skill (added in paad commit `da436bf`): "If the analyst agent is not available … dispatch a general-purpose subagent instead" | Dispatch only `paad-analyst` (4.1) | Under `paad-delegate` the fallback does not apply: a missing analyst is `blocked: analyst agent not available` (4.3) |
 
 ## 5. Validation
