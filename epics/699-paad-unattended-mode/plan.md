@@ -14,9 +14,10 @@ across the vergil fleet from a dedicated preview checkout, and switch vergil's
 review doctrine to it, keeping today's path as a fallback.
 
 **Architecture:** The paad change is prose plus one lint: a new agent
-definition (the contract), one standard paragraph and one unattended section
-per supported skill, conditional wording in the shared configuration and
-security paragraphs, and a `check_unattended.py` lint. vergil-tooling gains a
+definition (the contract), one unattended paragraph (carrying the overrides
+of paad's shared configuration and security paragraphs, which stay
+unchanged) and one unattended section per supported skill, and a
+`check_unattended.py` lint. vergil-tooling gains a
 `--plugin-dir` override in `vrg-vm session`, read from a host config file.
 vergil-claude-plugin's doctrine gains the delegate path beside today's path.
 
