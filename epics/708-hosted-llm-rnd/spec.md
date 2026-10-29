@@ -238,9 +238,8 @@ action and a precondition, not an agent step.
 - **Accounts.** Experiments use pay-as-you-go access on both providers. No
   subscription is bought during the epic; choosing a plan is a finding.
 - **Budget.** The fleet's running budget for automated work is about
-  $400–500 a month. The epic's total experiment budget and each rung's cap
-  are set by the human before the first run. Recommended default: $100 for
-  the whole epic.
+  $400–500 a month. The epic's total experiment budget is $100. Each rung's
+  cap comes out of that total and is set before the rung's first run.
 - **Data.** Only public fleet repositories and issues go into prompts.
 - **Engineering principles.** The fleet's rules apply in full: no silent
   failures, `vrg-git`/`vrg-gh` only, and validation through
@@ -263,8 +262,7 @@ The plan turns this into tasks. In outline:
    the follow-on brainstorm (vergil-project/.github#710) and the
    retrospective (vergil-project/.github#711).
 
-The terms confirmation (section 5.6) blocks the first Ollama Cloud run. The
-budget decision (section 6) blocks the first run of any kind.
+The terms confirmation (section 5.6) blocks the first Ollama Cloud run.
 
 ## 8. Left to the builder
 
