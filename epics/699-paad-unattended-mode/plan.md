@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#699
 - **Planning issue:** vergil-project/.github#698 (review history is in its
   comments)
-- **Status:** approved
+- **Status:** approved (amended by vergil-project/.github#764)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -67,7 +67,9 @@ vergil-claude-plugin's doctrine gains the delegate path beside today's path.
   `vrg-commit` writes vergil's conventional style, not paad's
   `<skill>: <message>`. So cloning, creating the fleet worktree, committing
   and pushing are human steps run with `!`. Agents edit files, run `make
-  export && make test`, and prepare the commit message in paad's style. They
+  export && make test` once Task 14 has given the agent VM `make` (until
+  then the human runs it on the Mac), and prepare the commit message in
+  paad's style. They
   use `vrg-git` only for read-only commands Task 1 shows to work. "Commit and
   push" below means this rule.
 - **Sessions are the human's.** Starting a `claude --plugin-dir` session,
@@ -115,9 +117,12 @@ vergil-claude-plugin's doctrine gains the delegate path beside today's path.
 
 ## Delivery
 
-Each task below is one issue under the epic. Tasks 1–6, 11 and 12 are fork,
-brainstorm or human tasks filed in `vergil-project/.github` and closed by
-comment (spec 7); the rest close by a same-repo PR or as operational tasks.
+Each task below is one issue under the epic. Tasks 1–6, 11, 12 and 15 are
+fork, brainstorm or human tasks filed in `vergil-project/.github` and closed
+by comment (spec 7); the rest close by a same-repo PR or as operational
+tasks. Tasks 1–7 are delivered: Tasks 1–6 by comment, with the fork commits
+`7f4eb0b`, `8bd2bf2`, `353f66c` and `abf879f` on `unattended-mode`, and Task
+7 by vergil-project/vergil-tooling#3843, released in vergil-tooling 2.1.279.
 
 | Task | Issue (repo, kind) | Blocked by |
 |---|---|---|
@@ -129,13 +134,43 @@ comment (spec 7); the rest close by a same-repo PR or as operational tasks.
 | 6 | agentic-review unattended mode (`.github`, fork) | 5 |
 | 7 | `--plugin-dir` override in `vrg-vm session` (vergil-tooling) | — |
 | 8 | Deploy the override and the fleet checkout (`.github`, deployment) | 5, 6, 7 |
-| 9 | Validate the mode and the drafted vergil prompts (`.github`, validation) | 8 |
-| 10 | Doctrine and policy: the delegate path with fallback (vergil-claude-plugin) | 9 |
+| 9 | Validate the mode and the drafted vergil prompts (`.github`, validation) | 8, 13a |
+| 10 | Doctrine and policy: the delegate path with fallback (vergil-claude-plugin) | 9, 13a, 13b, 13c |
 | 11 | Follow-on brainstorm: other harnesses (`.github`) | 9 |
 | 12 | Decide: offer the change upstream, or try a different idea (`.github`, human) | 10, 11 |
+| 13a | The state directory and its guards (vergil-claude-plugin#829) | 16, and a vergil-tooling release carrying it, synced to the consumer repos |
+| 13b | The mode 2 loop (vergil-claude-plugin#849, also delivering #848 and #838) | 13a |
+| 13c | Creating an issue needs approval (vergil-claude-plugin, issue filed with this amendment) | 13b |
+| 14 | `make` on the agent VM (vergil-vm#376) | — |
+| 15 | Report paad-side findings to the paad author privately (`.github`#768, human) | — |
+| 16 | The `build/` exception in the worktree convention and the consumer `CLAUDE.md` (vergil-tooling, issue filed with this amendment) | — |
 
-Task 7 runs in parallel with the fork work. Nothing waits on the paad author:
-the human shares progress with him informally, and the upstream conversation
+Task 7 runs in parallel with the fork work. Tasks 14, 15 and 16 can start at
+once, and 13a follows 16, so the convention states the exception before the
+hook and doctrine use it. Task 13 works on today's path and does not wait for
+the delegate. Task 10 then restructures the doctrine on top of 13a and 13b.
+13a also carries vergil-project/vergil-claude-plugin#829, a security finding
+in the gate's own rules that is tracked privately. Task 15 is not blocked:
+the human sends the private report to the paad author at once, because a bug
+in paad is worth reporting whatever Task 12 decides. When the spec and plan
+merge, the agent:
+
+- updates the bodies of vergil-claude-plugin#849 and #848 to state the rules
+  as spec 4.11 settles them, and removes #848's `Blocked-by` on #827, so the
+  gate's requirements match what 13b builds;
+- removes #768's `Blocked-by` on #735;
+- closes vergil-project/vergil-claude-plugin#846 as not planned: the
+  proposed exclusion is declined, because the approval gate makes it
+  unnecessary (spec 4.8);
+- files the issues for 13c and 16.
+
+The documentation review (vergil-project/vergil-claude-plugin#820) has one
+specific requirement from this epic. It hunts across every repo for wording
+that calls the main worktree strictly read-only, and states the real rule:
+the main clone's `build/` is a valid place for ignored scratch, as the MQ
+lab's shared live-lab state already uses it, and `build/.vergil-state/` is
+the namespace for agent state. Nothing waits on the paad author: the
+human shares progress with the author informally, and the upstream conversation
 is Task 12, the last task before the retrospective (spec 4.9). The bookends
 already exist: the docs task vergil-project/.github#700, the documentation
 review vergil-project/vergil-claude-plugin#820 and the retrospective
@@ -161,6 +196,11 @@ vergil-project/.github#701.
 | vergil-claude-plugin | `docs/paad-review-doctrine.md` | Delegate path, fallback, common core (Task 10) |
 | vergil-claude-plugin | `docs/paad-policy.md` | Fork, override, deviations retired (Task 10) |
 | vergil-claude-plugin | `skills/epic-create/SKILL.md`, `skills/issue-implement/SKILL.md` | Dispatch per the doctrine (Task 10) |
+| vergil-claude-plugin | `docs/paad-review-doctrine.md` §2.3 and §2.4 (mode 1 check fixes), §2.7 (scratch-copy location), §3.1 and §3.6 (the private directory and its deletion), §3.4 (hash, seal, pre-dispatch checks, sweep); `hooks/scripts/block-worktree-bypass-write.sh` and its test in `hooks/tests/` | The state directory, its guards, mode 1 check fixes and the write exception (Task 13a) |
+| vergil-claude-plugin | `docs/paad-review-doctrine.md` §1 (the security definition), §2.3 (the widened self-test removed), §2.7 (screening pointed at §1), §3.1, §3.3, §3.5–§3.8; `skills/issue-implement/SKILL.md`; `skills/epic-implement/SKILL.md` | The mode 2 loop (Task 13b) |
+| vergil-claude-plugin | `docs/paad-review-doctrine.md` (the approval default); `skills/issue-implement/SKILL.md`; `skills/epic-implement/SKILL.md`; `skills/issue-deploy/SKILL.md`; `skills/issue-validate/SKILL.md` and its lifecycle reference; `skills/epic-retrospective/SKILL.md` | Creating an issue needs approval (Task 13c) |
+| vergil-tooling | `docs/specs/worktree-convention.md`; `src/vergil_tooling/data/claude_md_consumer.md` | The `build/` exception to the read-only main worktree (Task 16) |
+| vergil-vm | `templates/provision/10-base.sh`, `tests/test_tools.sh` | `make` provisioned and checked (Task 14) |
 
 ## The structured result (fixed here, used by Tasks 3–6, 9 and 10)
 
@@ -593,7 +633,8 @@ otherwise. The gate applies to every later move.
 - [ ] **Step 1: Draft the prompts** for both modes per spec 4.8: the skill and
   arguments; document roles (mode 1) or `Intent:` (mode 2); the working
   directory; the review-the-whole-artifact sentence; the no-anchoring rule by
-  concrete identifier; the security self-test and widened definition. Review
+  concrete identifier. Security uses paad's own definition only, with no
+  vergil self-test and no exclusion (spec 4.8). Review
   the drafts for vergil vocabulary (none may remain except as identifiers).
   Record both drafts on the issue.
 - [ ] **Step 2:** Run every set in spec 5 with the drafts, from Lima sessions
@@ -601,17 +642,25 @@ otherwise. The gate applies to every later move.
   commits, each twice; mode 2 seeded, on a branch with a planted security
   bug in scope and one out of scope; planted dispatch (judged from the
   session transcripts' subagent spawns, not the result line); unsupported
-  skill; seeded access-control gap; planted config; one interactive run of
+  skill; seeded access-control gap; a non-security finding on the same
+  symbol as a planted security bug (it must arrive inside the security
+  section); `intent-bad-path` (an `Intent:` path with a disallowed character,
+  and one that does not exist, each expected to give `Status: blocked: …`);
+  planted config; one interactive run of
   each changed skill (human); and one interactive session given a plain
   "review my spec" request (human), for the auto-selection check.
 - [ ] **Step 2a: Handle every run's security section by hand.** The runs use
   real material, so a result can carry real security findings before Task
   10 writes the procedure down. For every unattended run: cut the security
   section out first, under spec 4.8's well-formedness rule; keep it in the
-  mode's private location (the §2.7 scratch copy for mode 1, the §3.6
-  directory for mode 2); screen the ordinary findings and discards; and
-  record each real finding with `vrg-security-record` (seeded findings are
-  not recorded). Everything recorded on this public issue is counts only.
+  mode's private location under the main clone's `build/.vergil-state/`
+  (`design-review/` for mode 1, `agentic-review/` for mode 2, as Task 13a
+  defines them); screen the ordinary findings and discards. Present each
+  real finding to the human in the terminal, as spec 4.11 does. On an
+  approving ruling it is fixed or recorded with `vrg-security-record`, as
+  the human directs; a rejected one is dropped with no record. Seeded
+  findings are never recorded. Everything recorded on this public issue is
+  counts only.
 - [ ] **Step 3:** Judge each unattended run against spec 5's "cleanly", and
   each interactive run against spec 5's interactive criteria: it behaves as
   in 2.0.2 (asks, walks findings, offers the update or the report, routes
@@ -627,9 +676,10 @@ otherwise. The gate applies to every later move.
   also confirm that no seeded security detail appears in any comment the run
   would post, only in the security section.
 - [ ] **Step 4:** Record `Outcome: SUCCESS` or `Outcome: FAILURE`. On failure,
-  file fix tasks on the fork under the epic and leave this open.
+  file fix tasks for the fork in `vergil-project/.github` under the epic
+  (spec 7), and leave this open.
 - [ ] **Step 5: Retry after a fix.** When a fix lands on the fork, the human
-  moves `fleet` to it (Task 8 step 1), the agent records the new commit, and
+  moves `fleet` to it (Task 8 step 1) and records the new commit, and
   every set in step 2 runs again, in newly started `vrg-vm session`s. Only a
   full pass closes the task.
 
@@ -655,7 +705,7 @@ vergil-claude-plugin.
   checks match fixed keywords case-insensitively (`Security:`, `Discards:`,
   `Running paad:`, `Status:`, `SECURITY-CHECK-FAILED` and the rest) and keep
   everything else exact, so an annotation still fails and a case difference
-  does not (vergil-project/.github#706).
+  does not (vergil-project/vergil-claude-plugin#841).
 - [ ] **Step 4: Write the cut's test cases first.** Draft results with a
   missing end marker, a duplicated start marker, a `### S<i>` line outside
   the section, a well-formed blocked result, and a well-formed complete
@@ -663,26 +713,36 @@ vergil-claude-plugin.
 - [ ] **Step 5: Cut the security section out first, and fail closed.** On
   the delegate path, the orchestrator removes the section between `=== paad
   security section ===` and `=== end paad security section ===` before any
-  other processing. Mode 1 writes it to the §2.7 scratch copy (mode 700,
-  outside every repo), then runs the walk-through and `vrg-security-record`.
-  Mode 2 writes it to the §3.6 security directory (mode 700, outside every
-  repo, with §3.6's keep-until-recorded and cleanup rules), then fixes each
-  finding on the branch or runs `vrg-security-record`. Round comments and
-  findings comments are built only from the result with the section
+  other processing. Mode 1 writes it to the §2.7 scratch copy, at the
+  location Task 13a set (`build/.vergil-state/design-review/<N>/<round>/` in
+  the docs repo's main clone), then runs the walk-through and
+  `vrg-security-record`. Mode 2 writes it to the round's subdirectory of the
+  task's private directory (Task 13a, spec 4.11), with its keep and cleanup
+  rules. Round comments and findings comments are built only from the result
+  with the section
   removed. The cut proceeds only when the result has exactly one start
   marker and one end marker, in that order, matched case-insensitively, and
   no `### S<i>` or `Security discards:` line outside the section. Any other
   shape is a broken round: nothing is posted, the whole result is kept as
   security material in that mode's private location, and the human is asked
-  (mode 2 pauses as in §3.8). Walk the step 4 cases through it (green): the
+  (mode 2 pauses as in §3.8). In mode 2, the cut-out findings then go to
+  Task 13's handling: the round pauses and nothing is fixed or recorded
+  until the human rules (spec 4.11). Walk the step 4 cases through it (green): the
   three malformed ones break the round with nothing posted, and the two
   well-formed ones proceed. Then tidy the wording (refactor).
-- [ ] **Step 6:** Add mode 2 screening of every ordinary finding and discard
-  before the findings comment is posted, on both paths. A finding that
-  qualifies moves into the cut-out security material (the §3.6 directory)
-  before the comment is built, and from then on is handled like any
-  security finding: fixed on the branch or recorded, and shown only in the
-  counts.
+- [ ] **Step 6:** Extend Task 13b's mode 2 screening to the delegate path,
+  with paad's own definition (spec 4.8). A finding that qualifies moves into
+  the cut-out security material, in the task's private directory, before the
+  comment is built. From then on it is handled like any security finding:
+  held for the human's ruling (spec 4.11), and shown only in the counts.
+- [ ] **Step 6a: Carry 13a's guards to the delegate path.** Move the hash
+  check around each review, the seal between rounds, and the pre-dispatch
+  checks that #829 requires into the doctrine's common core, so they apply
+  on both paths (spec 4.11 "Writes are checked", spec 4.8). Write the cases
+  first, on the delegate path: a reviewer writes into the task's state
+  directory, and each #829 condition from the private advisory. Confirm
+  they are not caught on the delegate path today (red), then that they are
+  (green).
 - [ ] **Step 7:** Keep every item under spec 4.8's "These go away" in the
   fallback path, marked for retirement once a released paad carries the
   mode. Retire §2.10 ("Fallback", the never-adopted paad-config idea), which
@@ -704,7 +764,7 @@ vergil-claude-plugin.
 - [ ] **Step 9:** Point the two skills' dispatch steps at the doctrine's
   selection rule. Run `vrg-container-run -- vrg-validate`. Commit and hand
   off with `report-ready`; the handoff notes record
-  vergil-project/.github#706 as delivered, so the human closes it on merge.
+  vergil-project/vergil-claude-plugin#841 as delivered, so the human closes it on merge.
 
 ### Task 11: Follow-on brainstorm: other harnesses
 
@@ -724,17 +784,429 @@ recorded decision.
   with its reason:
   - **offer it upstream:** open the PR(s) from fork branches to `Ovid/paad`,
     split the way the author prefers, with Task 9's evidence, the spec §4.10
-    conflicts list together with the running list from the build, the two
-    spec §4.9 proposals and its severity-scale observation; record the PR
-    links.
+    conflicts list together with the running list from the build, the
+    spec §4.9 proposal and its severity-scale observation, and two design
+    requests from spec 8: a way for a caller to confine where paad writes,
+    and a per-run nonce in the security section's delimiters. Anything
+    that describes a weakness goes to the author privately, through Task
+    15, not in a PR. Record the PR links.
     Upstream's decision is the author's, and nothing in the epic waits on it;
   - **try a different idea:** file a planning issue for the next attempt,
-    with what this experiment taught, and link it.
+    with what this experiment taught, and link it. The two design requests
+    above still go to the author, on their own.
 - [ ] **Step 3: File the cleanup as a deferred issue,** with `vrg-intake-route
   … defer --reason … --revisit-when "a paad release carries unattended
   mode"` (or the next attempt replaces it). It covers retiring the fallback
   path's machinery (spec 4.8 "These go away"), removing the `plugin-dirs.toml`
-  entry, and updating paad-policy. This is how spec 2's goal that the
+  entry, updating paad-policy, and revisiting the state-directory guards
+  (the hash checks, the seal, the sweep exclusion and the hook exception)
+  once paad lets a caller confine its writes (spec 8). This is how spec 2's
+  goal that the
   doctrine shrinks is met. Link it on the issue.
 - [ ] **Step 4:** Close the issue. The retrospective's §5 records the
   decision and the deferred cleanup.
+
+### Task 13: Mode 2 finding handling (13a, 13b, 13c)
+
+Implements spec 4.11 on today's path. It does not depend on the delegate. It
+is too big for one PR, so it lands as three tasks, each with its own PR, its
+own slice of the cases in step 1, and its own walk in step 7. Each bullet
+below is tagged with the task that owns it.
+
+- **13a: the state directory and its guards.** Issue:
+  vergil-project/vergil-claude-plugin#829. It covers:
+  - `build/.vergil-state/` and its levels, created mode 700;
+  - the mode check, the hash check around each review, and the seal
+    between rounds;
+  - the hook exception, with path normalisation;
+  - the pre-dispatch checks that #829 requires;
+  - mode 1's scratch-copy move;
+  - the two fixes to mode 1's checks (#839, #840; spec 4.8);
+  - the sweep exclusion;
+  - the upstream-report directory.
+
+  Cases 18–20, 22–25, 28, 38. Blocked by 16, and by a vergil-tooling
+  release carrying Task 16, installed and synced to the consumer repos, so
+  no repo's `CLAUDE.md` still calls the main worktree strictly read-only.
+- **13b: the mode 2 loop.** Issue: vergil-project/vergil-claude-plugin#849,
+  also delivering #848 and #838. It covers:
+  - sorting, the whole-round pause, acting and passing;
+  - records and pauses;
+  - the new-session confirmation;
+  - one security definition (paad's) for every path, and screening with it;
+  - the security-fix hold-back.
+
+  Cases 1–14, 16, 17, 21, 26, 29–32, 39. Blocked by 13a.
+- **13c: creating an issue needs approval.** It covers the default and its
+  exemptions across `issue-implement`, `epic-implement`, `issue-deploy`,
+  `issue-validate` (with its lifecycle reference) and `epic-retrospective`,
+  the retrospective sweep's reading of the new records, and the operational
+  directory those skills use for security items. Its issue is filed with
+  the epic's other new tasks. Cases 15, 27, 33–37. Blocked by 13b,
+  because both edit the doctrine, `issue-implement` and `epic-implement`.
+
+**Files:** Modify `docs/paad-review-doctrine.md` (§2.4 and §2.7 for mode 1's
+state check and scratch copy, and §3.1, §3.3, §3.4, §3.5, §3.6, §3.7 and
+§3.8), `skills/issue-implement/SKILL.md`, `skills/epic-implement/SKILL.md`,
+`skills/issue-deploy/SKILL.md`, `skills/issue-validate/SKILL.md`,
+`skills/issue-validate/references/operational-task-lifecycle.md`,
+`skills/epic-retrospective/SKILL.md` and
+`hooks/scripts/block-worktree-bypass-write.sh` (with its test) in
+vergil-claude-plugin.
+
+- [ ] **Step 1: Write the cases first.** In the issue, write invented rounds,
+  each with its expected outcome under spec 4.11:
+  1. three in-scope Important findings and one security finding: the round
+     pauses, nothing is committed, and the terminal shows the security
+     finding while the issue shows only its count;
+  2. two in-scope findings the agent can fix, such as a missing bound and a
+     name that doesn't match the code around it: the agent fixes both, and
+     round 2 runs;
+  3. a single in-scope Suggestion the agent would decline: the round pauses;
+  4. an out-of-scope bug and an out-of-scope addition: the round pauses, and
+     no issue or task is filed before the ruling;
+  5. a fix that would change behavior the plan describes: the round pauses;
+  6. round 3 returns one in-scope Suggestion the agent can fix: the run
+     pauses, and nothing is committed after the reviewed HEAD;
+  7. a round with no findings: a pass, and the handoff lists no unreviewed
+     commit;
+  8. a failed output check: the response comment is posted with the
+     `Paused:` line and its timestamp;
+  9. the human approves a security finding to be fixed on the branch: it is
+     fixed, round 2 runs, and it is never recorded. The human rejects one
+     instead: no fix, no record, and no reason in any comment;
+  10. a run under `epic-implement` pauses on a security finding, and a new
+      run resumes it with the human's ruling. The new run reads the finding
+      from the private directory, the main session's conversation is the only
+      place the details appeared, and the round count continues;
+  11. at round 3 the human approves one fix and accepts the rest: round 4
+      reviews the fix, and every other item from round 3 is ruled on before
+      the summary;
+  12. a finding the human ruled `fix` in this conversation comes back in the
+      next round: the agent fixes it again without asking, and the branch
+      does not pass on that round. In a new session, the same recorded
+      ruling is shown to the human for confirmation first, and the
+      confirmation goes into the requirements file;
+  13. a fix breaks `vrg-validate`: it is repaired before the next review is
+      dispatched;
+  14. the human approves a security fix on the branch. The next round's
+      requirements file does not mention it, and a later session reads the
+      ruling from the task's private directory and does not ask again;
+  15. under `issue-validate`, a failed check finds a bug: the fix task is
+      filed (the failure exemption) and listed at the next gate as filed
+      without a ruling. A different follow-up the agent notices during the
+      run is listed under "Awaiting a ruling", not filed. During
+      `issue-implement`, an operational need the agent discovers is also
+      listed, not filed;
+  16. an out-of-scope bug the human ruled `file` comes back every round:
+      the branch still passes, because `file` ended it;
+  17. after an approved security fix, Spec Compliance reports the fixed
+      code as an unplanned addition: the finding matches the private record
+      by file and symbol, and is held back from the findings comment;
+  18. two tasks run in parallel: task A's reviewer writes into task B's
+      state directory between B's rounds, and B's seal check at the start
+      of its next round breaks that round. Where a main clone is under
+      `$HOME`, neither round fails the stray-write sweep because of the
+      other's legitimate writes;
+  19. each condition the pre-dispatch checks for #829 refuse (listed in its
+      private advisory, which the implementer reads) is refused before
+      dispatch, and the run pauses;
+  20. the reviewer writes a file into the task's state directory: the
+      before-and-after hash differs and the round is broken;
+  21. an ordinary finding qualifies as security under paad's definition in
+      screening: it is held back from the findings comment and sorted under
+      reason 1;
+  22. the orchestrator writes the round's result to
+      `<main clone>/build/.vergil-state/agentic-review/<N>/<round>/` with
+      Write: the hook allows it. A Write elsewhere in the main worktree is
+      still denied;
+  23. `build/.vergil-state/` already exists with mode 755: the run tightens
+      it to 700 or pauses, and writes nothing until the mode is 700;
+  24. the hook's path-normalisation cases recorded in the private record
+      for this task are denied;
+  25. a fresh worktree has no `paad/security/`: the orchestrator creates it
+      as a real directory with its `.gitignore` holding `*`, the checks
+      pass, and round 1 runs;
+  26. a round on today's path pauses, the session ends, and a new session
+      resumes it: the findings come from the round's private directory, and
+      the worktree's `paad/` was emptied cleanly;
+  27. `issue-validate` meets a security item: its details go to
+      `build/.vergil-state/operational/<N>/`, mode 700, and are deleted once
+      ruled and recorded;
+  28. a mode 1 round's scratch copy lands in the docs repo's main clone
+      under `build/.vergil-state/design-review/<N>/<round>/`, and §2.7's
+      location check passes;
+  29. the mode 1 reviewer prompt (§2.3) and every screening step carry only
+      paad's definition from §1, with no widened self-test;
+  30. a finding ended by a ruling read from the issue is listed in the
+      summary comment and the `report-ready` notes;
+  31. the review's completion notice carries no token figures: the findings
+      comment says `not reported`;
+  32. the result's security section holds a non-security finding moved there
+      because it shows a security finding's code: it is sorted under reason
+      1 and counted as security, not as ordinary;
+  33. `issue-implement` discovers an operational need before its first
+      review round: it posts an "Awaiting a ruling" comment on its task
+      issue at once, lists the need there and in its final report, and does
+      not mint the task;
+  34. `issue-deploy` fails and needs a code change: the fix task is filed
+      and listed at the next gate as filed without a ruling;
+  35. the documentation-review sweep spawns a per-repo doc task: it is filed
+      under the exemption;
+  36. `epic-retrospective` finds an untracked problem and a security-class
+      one: both are listed in the draft, the first filed on approval, the
+      second presented in the terminal and recorded only on an approving
+      ruling;
+  37. `epic-retrospective`'s sweep meets `decline`, `dismiss` and `reject`
+      rulings, a "Not fixed" entry the human dropped, an "Awaiting a ruling"
+      list and the "filed without a ruling" list: none is reported as
+      untracked;
+  38. a mode 1 reviewer puts `SECURITY-CHECK-FAILED` in backticks or after
+      a list marker: the round fails, as mode 2's check already does
+      (#839);
+  39. a new session touches a task whose private directory remains from
+      abandoned work, with no open round: it tells the human the directory
+      exists, before it does anything else.
+
+  Walk each through today's text and confirm it comes out wrong (red). Cases
+  1, 2, 7 and 16 are the exceptions: 2, 7 and 16 come out right today
+  (today an out-of-scope bug never blocks), and 1 is partly right.
+- [ ] **Step 1a (13a): The hook's test first.** Add the test rows in
+  `hooks/tests/` for writes under `build/.vergil-state/` (allowed), writes
+  elsewhere in the main worktree (denied), and the normalisation cases (24).
+  Run `vrg-container-run -- vrg-validate` and confirm that the "allowed" row
+  and the normalisation rows fail (red).
+- [ ] **Step 2: Rewrite §3.1 steps 1 and 4–7** as spec 4.11's procedure:
+  - [13b] step 1 keeps the requirements file in a `mktemp -d` directory, as
+    today. It is rebuilt each round, needs no persistence, and its path is
+    given to the reviewer, so it must not point into the private directory;
+  - [13b] step 4 moves paad's report and every other paad output into the
+    round's private directory before it empties the worktree's `paad/`, so
+    a paused round keeps its material (case 26);
+  - [13b] sort every finding, with reasons 1–5;
+  - [13b] pause the whole round if any finding needs the human, and act on
+    nothing before the ruling;
+  - [13b] act on the whole round;
+  - [13b] always run another round after acting;
+  - [13b] pass only on a round with nothing left to act on, or on the human's
+    ruling. A known finding counts only when its ruling needs no further
+    change on the branch (`decline`, `dismiss`, `file`, `record`,
+    `reject`);
+  - [13b] run `vrg-container-run -- vrg-validate` after acting, before the
+    next dispatch;
+  - [13a] keep each task's material in its fixed private directory,
+    `<main clone>/build/.vergil-state/agentic-review/<N>/<round>/`, in place
+    of §3.6's per-file `mktemp -d`. Create every level (`.vergil-state`, the
+    kind, `<N>`, `<round>`) with `install -d -m 700` before any Write, check
+    the mode with `stat` before each write, and pause if it is wider than
+    700 (case 23). State the read-only exception for ignored scratch under
+    the main clone's `build/.vergil-state/`;
+  - [13b] record each security ruling in the task's directory, with the file
+    and symbol of each approved fix;
+  - [13a] delete a round's subdirectory once it is acted on and its rulings
+    are recorded, and the task's directory once the summary comment is
+    posted;
+  - [13b] in §3.3, never restate a security ruling into the requirements
+    file. In a new session, put the human's confirmations of recorded `fix`
+    rulings into it;
+  - [13b] before the findings comment is posted, hold back any ordinary
+    finding whose file and symbol match an approved security fix on the
+    branch;
+  - [13a] in §3.4, exclude the other tasks' directories under
+    `build/.vergil-state/` from the stray-write sweep, each by its path;
+  - [13a] in §2.7, move mode 1's scratch copy to the docs repo's main clone,
+    `build/.vergil-state/design-review/<N>/<round>/`, so it survives a VM
+    rebuild. Replace §2.7's "outside every repo" check with one that the
+    resolved path is under the main clone's `build/.vergil-state/`. Nothing
+    checks that `build/` is ignored: the vergil architecture guarantees it;
+  - [13a] in §2.4 and §3.4, take one hash over the task's state directory
+    before dispatch, keep it in the orchestrator's context, and compare
+    after the review. A difference is a broken round. Also seal the
+    directory between rounds: keep the hash taken at the end of each round,
+    and check it at the start of the next. State that on the VMs the
+    stray-write sweep does not reach the main clones, so these hashes are
+    what cover them;
+  - [13a] in §3.4, before dispatch, first create `paad/security/` as a real
+    directory, with its `.gitignore` holding `*`, when they are absent (as
+    mode 1 does for #840, case 25). Then run the pre-dispatch checks that
+    #829 requires. Their exact form is in #829's private advisory, which the
+    implementer reads, and it is never written into public text. On any
+    failure, pause;
+  - [13b] write paad's shared security definition once in the doctrine's
+    common core (§1). Remove vergil's widened self-test sentence from §2.3's
+    reviewer prompt template, and point §2.7's screening at §1 (case 29);
+  - [13b] add mode 2 screening on this path (spec 4.8), with that
+    definition: before the findings comment is posted, every ordinary
+    finding and discard is screened, and one that qualifies moves to the
+    security material under reason 1. A non-security finding that the
+    result's security section carries is sorted and counted the same way
+    (case 32). Task 10 later extends screening to the delegate path;
+  - [13c] define `build/.vergil-state/operational/<N>/` for security items
+    in `issue-validate` and `issue-deploy`, in those skills and the
+    lifecycle reference, under the same deletion rules (case 27);
+  - [13a] define `build/.vergil-state/upstream-report/<N>/` in the `.github`
+    main clone for private reports to the paad author;
+  - [13a] fix mode 1's two checks (spec 4.8): `SECURITY-CHECK-FAILED` fails
+    a round on any line that contains it, and the §2.3 prompt asks for the
+    bare line on failure and no mention otherwise (#839, case 38); §2.4's
+    pre-dispatch steps create `paad/security/.gitignore`, holding `*`, when
+    it is absent (#840). 13a's handoff notes record #839 and #840 as
+    delivered;
+  - [13a] in `block-worktree-bypass-write.sh`, normalise every target path
+    before it is matched, for both the existing `.worktrees/` arm and the
+    new one, as this task's private record describes. Then add the arm that
+    allows Write and Edit under `<main_root>/build/.vergil-state/`. Step 1a's
+    rows now pass (green); then tidy;
+  - [13b] pause at round 3, or the last round the human allowed.
+
+  Waiting on the human does not use up a round. Keep the repair pause and
+  the classification (known, repair, new).
+- [ ] **Step 3 (13b): §3.6 and §3.7.**
+  - Security findings, intake issues, removed-addition tasks and security
+    records are created only on the human's approving ruling, in the form
+    they approved.
+  - Remove "a late Suggestion fix" and every other post-review commit from
+    §3.7's handoff. Nothing is committed after the last reviewed HEAD.
+  - §3.7's step-6 filing becomes "file what the human approved".
+- [ ] **Step 4 (13b): §3.5 records.**
+  - The findings comment gives each finding's sorting and reason, the
+    dispatch and return timestamps, and the review's `totalTokens`,
+    `toolUses` and `durationMs` from its completion notice, or
+    `not reported`.
+  - The response comment is posted every round, including after a failed
+    output check (#838), and ends with the agent's finish timestamp.
+  - `Paused:` and `Human ruling:` lines carry their timestamps.
+  - Rulings are recorded per finding ID and reason, with security rulings
+    as counts.
+  - The summary adds rounds, pauses, agent time with the human's waits left
+    out, and review tokens.
+  - Update the §3.5 examples to match.
+- [ ] **Step 5 (13b): §3.8 pauses.** Add the new pause reasons and spec 4.11's
+  "Pausing, resuming and closing" rules:
+  - the round's material is kept privately until it is ruled on;
+  - under `epic-implement`, the conversation counts as the terminal;
+  - an approved fix at the cap grants a round;
+  - recorded rulings count as known, and a new session confirms recorded
+    `fix` rulings before its next round (§3.8's "restate" becomes
+    "confirm");
+  - nothing is left unruled at the end;
+  - a new session that touches a task whose private directory remains from
+    abandoned work, with no open round, tells the human it exists before
+    anything else (case 39);
+  - the summary and the `report-ready` notes list every finding ended by a
+    ruling read from the issue.
+
+  The terminal presentation for each item gives:
+  - the finding;
+  - the reason (1–5);
+  - the agent's recommendation and the alternatives, best first.
+
+  Security items appear in the terminal only.
+- [ ] **Step 6: The skills.**
+  - [13b] `issue-implement`'s gate steps follow the new §3.1 and add no rule of
+    their own.
+  - [13b] `epic-implement` lists each paused task with its reason and the number
+    of items waiting on the human. Its "needs scheduling" list holds only
+    tasks the human approved. Its main session only presents a paused run's
+    items, and files or posts none of them.
+  - [13c] In `issue-implement`, `epic-implement`, `issue-deploy`, `issue-validate`
+    and the lifecycle reference, "file follow-ups at once" becomes "list it
+    under 'Awaiting a ruling' in the comment you already post, and in your
+    final report; file it only as approved". An item that arises before any
+    such comment exists, such as an operational need found before the first
+    review round, gets its own "Awaiting a ruling" comment on the task issue
+    at once (case 33). In the posted comment,
+    security items are counts only, with details in the task's private
+    directory. The final message to `epic-implement`'s main session carries
+    the details and is never posted (spec 4.11). `epic-implement`
+    presents every sub-agent's awaiting items at the gate.
+  - [13c] State spec 4.11's default ("creating an issue needs the human's
+    approval") once in the doctrine, with its three exemptions, and point
+    each skill at it. `issue-implement`'s "Discovering an operational need"
+    lists the need instead of minting the task. `epic-retrospective` step 4
+    lists untracked problems in its draft and files those the human
+    approves. The FAILURE branches of `issue-validate`, `issue-deploy` and
+    the lifecycle reference keep filing their fix task, and add it to the
+    gate's "filed without a ruling" list.
+  - [13c] `epic-retrospective` step 4 presents a security-class problem in
+    the terminal and records it only on an approving ruling. Its sweep
+    (steps 1–2) learns the new records: the closed ruling words, "Not
+    fixed" entries the human dropped, "Awaiting a ruling" lists and the
+    "filed without a ruling" list (cases 36, 37).
+  - [13b] The `Human ruling:` line takes spec 4.11's fixed form and closed word
+    set.
+- [ ] **Step 7: Walk each sub-task's cases through its new text (green).**
+  Record the walk on that sub-task's issue, then tidy the wording.
+- [ ] **Step 8:** For each sub-task, run `vrg-container-run -- vrg-validate`,
+  commit and hand off with `report-ready`. 13b's handoff notes record #848
+  and #838 as delivered, so the human closes them on merge.
+
+### Task 14: `make` on the agent VM
+
+Issue: vergil-project/vergil-vm#376.
+
+**Files:** Modify `templates/provision/10-base.sh` and `tests/test_tools.sh`
+in vergil-vm, then regenerate `opentofu/modules/*/vm/cloud-init.yaml` with
+`scripts/build-cloud-init.sh` and commit the result. The generated files are
+never edited by hand.
+
+- [ ] **Step 1:** Add `check_command make` to `tests/test_tools.sh`. Run the
+  test on a VM provisioned from today's templates, and confirm that it fails
+  (red).
+- [ ] **Step 2:** Add `make` to the base `apt-get install` list in
+  `10-base.sh`, and regenerate the cloud-init files.
+- [ ] **Step 3: Green before the handoff.** Show `tests/test_tools.sh`
+  passing against a VM provisioned from the branch, or, if that cannot run
+  in the agent's environment, the validator's provisioning check passing.
+  Record which one on the issue.
+- [ ] **Step 4:** Tidy the change, run `vrg-container-run -- vrg-validate`,
+  commit and hand off with `report-ready`.
+- [ ] **Step 5 (human):** After merge, cut the vergil-vm release and
+  reprovision the agent VM. In the new VM, confirm that `make --version` runs
+  and that `make export && make test` passes in
+  `/Users/pmoore/dev/projects/wphillipmoore/paad`. Record both outputs on
+  the issue.
+
+### Task 15: Report paad-side findings to the paad author privately (human)
+
+Issue: vergil-project/.github#768. Not blocked: each report goes out as soon
+as the finding is known, because a bug in paad is worth reporting whatever
+Task 12 decides, and other paad users stay exposed until then.
+
+- [ ] **Step 1:** Draft each report privately in
+  `build/.vergil-state/upstream-report/<N>/` in the `.github` main clone,
+  creating each level with `install -d -m 700` and the file mode 600, never
+  in public text. Until 13a's hook exception lands, write the draft in the
+  session's scratch directory first, then put it in place with Bash
+  `install` (the hook guards only Write and Edit), and delete the scratch
+  copy. The first is the one behind vergil-project/vergil-claude-plugin#829.
+- [ ] **Step 2 (human):** Send each one to the paad author through a private
+  channel: GitHub private vulnerability reporting on `Ovid/paad` if it is
+  enabled, otherwise direct contact. Never in a public issue, PR or the
+  public conflicts list. Then delete the draft.
+- [ ] **Step 3:** Record on the issue the GHSA ID, channel and date of each
+  report, with no details. Any paad-side finding recorded later in the epic
+  goes through steps 1–3 the same way. Close the issue at Task 12.
+
+### Task 16: The `build/` exception in the worktree convention
+
+Issue: filed in vergil-tooling when the spec and plan merge.
+
+**Files:** Modify `docs/specs/worktree-convention.md` and
+`src/vergil_tooling/data/claude_md_consumer.md` in vergil-tooling.
+
+- [ ] **Step 1:** Write the convention's new rule first, as the test the
+  template must meet. The main worktree stays read-only for source.
+  Ignored scratch in the main clone's `build/` is allowed, and
+  `build/.vergil-state/` is the namespace for agent state that must
+  survive a session or a VM rebuild. Show that today's convention and
+  today's consumer template both contradict it (red).
+- [ ] **Step 2:** Add the rule to `worktree-convention.md`, beside the
+  read-only rule it qualifies. Cite the MQ lab's shared live-lab state as an
+  existing use of `build/`.
+- [ ] **Step 3:** Add the shortest clause that carries the exception to the
+  consumer `CLAUDE.md` template's read-only line. Stay within the template's
+  line budget (vergil-project/vergil-tooling#3797). The regenerated
+  `CLAUDE.md` then agrees with the convention (green).
+- [ ] **Step 4:** Tidy, run `vrg-container-run -- vrg-validate`, commit and
+  hand off with `report-ready`.

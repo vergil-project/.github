@@ -3,11 +3,12 @@
 - **Epic:** vergil-project/.github#699
 - **Planning issue:** vergil-project/.github#698 (review history is in its
   comments)
-- **Status:** approved
+- **Status:** approved (amended by vergil-project/.github#764)
 - **Repos:** the paad fork `wphillipmoore/paad` (the paad change),
   vergil-claude-plugin (the doctrine, the policy and the skills that dispatch
-  paad), vergil-tooling (the `--plugin-dir` override in `vrg-vm session`),
-  `.github` (this spec and plan)
+  paad), vergil-tooling (the `--plugin-dir` override in `vrg-vm session`,
+  and the worktree convention's `build/` exception),
+  vergil-vm (`make` on the agent VM), `.github` (this spec and plan)
 - **Origin:** the doctrine review vergil-project/vergil-claude-plugin#811 (epic
   vergil-project/.github#553), closed into the planning issue
 
@@ -71,6 +72,11 @@ The vergil workflow then uses it, and the doctrine sheds the interface work.
   prompt directives go. They stay as the fallback until a released paad
   carries the mode (4.8), so the epic gains the delegate path and files the
   retirement as a tracked, deferred follow-up that revisits on that release.
+- In mode 2, the implementing agent acts alone only on findings about the
+  branch's own code that need no human judgment. Security findings,
+  expansions of work, behavior changes outside the plan and findings it would
+  not act on wait for the human. Every change is reviewed, and every round is
+  recorded (4.11).
 
 **Packaging.** The paad change is built and demonstrated as one change. How it
 is split into pull requests for the paad author is settled with the author
@@ -265,6 +271,8 @@ the exact wording into each skill.
 | agentic-review | Backlog dedup (reading `paad/code-reviews/backlog.md` and `paad/security/backlog.md`) | Skipped: the backlogs are not read. The backlog serves a person tracking pre-existing bugs across sessions, and an unattended caller handles out-of-scope bugs itself. Reading it would also let an earlier run's leftover files mark this run's findings as known |
 | agentic-review | Large diff (500+ lines) | The full form only: two instances of each specialist (12 dispatches). If a dispatch actually fails (an error, or a missing `[ref-loaded]` token after one retry), blocked. A cost or size estimate is never a reason to block. The two-pass split over disjoint subsets is not used, so a result never covers only part of a diff |
 | agentic-review | The verifier's `[ref-loaded:verifier]` token is missing after its re-dispatch | Blocked: the classification is unverified |
+| agentic-review | An `Intent:` path that fails the charset rule or does not exist | Blocked, with the reason |
+| agentic-review | An out-of-scope addition's severity | `Suggestion` |
 | all three | The `paad/security/` safety check and its "hold or ordinary report" question | Do not apply: nothing is written. Security findings go in the result's security section |
 
 ### 4.4 The structured result
@@ -305,7 +313,11 @@ carry these fields, in this order:
    count, then each security finding in the same shape as an ordinary one, with
    the security discards counted separately. No security finding, and no
    security detail in a discard, appears anywhere else in the result. The
-   security definition is paad's existing shared one.
+   security definition is paad's existing shared one. For agentic-review, any
+   other finding whose symbol, excerpt or fix shows the code a security
+   finding is about also moves into this section, keeping its own bug class,
+   so nothing outside the section points at that code. The caller sorts such
+   a finding as a security finding and counts it in the security section.
 9. **Files written:** `none`. Incidental artifacts in gitignored paths are
    not listed (4.1). If the line ever reads otherwise, the contract was
    broken.
@@ -465,17 +477,26 @@ Once the fleet runs a paad with unattended mode:
   - the skill and its arguments;
   - the document roles (mode 1) or the `Intent:` input (mode 2);
   - the working directory;
-  - vergil's own rules: the review-the-whole-artifact sentence, the
-    no-anchoring rule, and the security self-test. In mode 1 the reviewer
-    does not read the planning issue or the history of the epic's directory.
-    In mode 2 it does not read the task issue, its comments or any pull
-    request. The self-test is the one the doctrine added after its spikes:
-    test every finding against the security definition before reporting it
-    as ordinary, and treat a gap, contradiction, missing task or drift as a
-    security finding if it concerns who can read private data, or who can
-    trigger an action or a state change. paad's shared definition has
-    neither part, so the widened definition is also offered to the author
-    (4.9).
+  - vergil's own rules: the review-the-whole-artifact sentence and the
+    no-anchoring rule. In mode 1 the reviewer does not read the planning
+    issue or the history of the epic's directory. In mode 2 it does not read
+    the task issue, its comments or any pull request.
+
+  **One security definition: paad's own.** What counts as a security
+  finding is paad's shared definition, unchanged: "reading it would help an
+  attacker", any OWASP Top 10:2025 category, payment, tenant-isolation or
+  secret-handling paths, and "on the edge, treat it as security". It is
+  written once in the doctrine's common core (§1) and used everywhere: by
+  the reviewer, and by the orchestrator's screening in both modes. vergil's
+  widening goes: the self-test that extended the definition to design gaps
+  about access and triggering. The proposed exclusion of findings about how
+  security is handled (vergil-project/vergil-claude-plugin#846), never
+  adopted, is declined. Both existed to cut noise or catch mislabelled gaps
+  when security findings were recorded with no person involved. Under 4.11 every security finding waits
+  for the human's ruling, and in mode 1 the human walks every finding
+  before anything is posted, so paad may err toward reporting more. The
+  human's rejections, recorded in the counts and the private ruling record,
+  show where to tune.
 
   Directives that restate the contract go. The prompt names vergil's things
   only by concrete identifier, such as an issue ref or a path (4.1), and is
@@ -502,22 +523,27 @@ Once the fleet runs a paad with unattended mode:
     `paad/security/` checks before and after each round, and the listing of
     the starting directory's `paad/`;
   - in mode 1, `SECURITY-CHECK-FAILED` and the step that moves files out of
-    `paad/security/`, and §2.10 ("Fallback", the never-adopted paad-config
-    idea), which this epic replaces, so "fallback" means only today's path;
+    `paad/security/`;
   - in mode 2, reading the report back from `paad/code-reviews/` and emptying
     `paad/code-reviews/` and `paad/security/` after each round, and the `find`
     sweep with its exclusions.
+
+  §2.10 ("Fallback", the never-adopted paad-config idea) is retired by this
+  epic now, not at the release, because this epic replaces it. "Fallback"
+  then means only today's path.
 - **Security findings** go from the result's security section to the existing
   handling:
   - **mode 1:** the orchestrator writes the security section to the scratch
-    copy (§2.7), at the same mode-700 path outside every repo. That copy is
+    copy (§2.7), now under the docs repo's main clone,
+    `build/.vergil-state/design-review/` (4.11), mode 700. That copy is
     vergil's own bookkeeping, and it keeps unrecorded findings safe if a
     session is interrupted. The keep-until-recorded and cleanup rules stay.
     Then come the walk-through in the terminal and `vrg-security-record`;
-  - **mode 2:** the orchestrator writes the section to mode 2's security
-    directory (§3.6, mode 700, outside every repo, with its keep and cleanup
-    rules), then fixes each finding on the branch or runs
-    `vrg-security-record`.
+  - **mode 2:** the orchestrator writes the section to the round's
+    subdirectory of the task's private directory (4.11: in the main clone's
+    `build/.vergil-state/agentic-review/`, mode 700, with its keep and
+    cleanup rules). Then the round pauses, and nothing is fixed or recorded
+    until the human has ruled on each finding (4.11).
 
   In both modes the security section is cut out before anything else, and
   only from a well-formed result: exactly one start and one end marker, in
@@ -531,19 +557,37 @@ Once the fleet runs a paad with unattended mode:
   step: before the findings comment is posted, every ordinary finding and
   discard is screened. Any that qualify move into the cut-out security
   material and are handled as security findings from then on: in mode 1
-  walked and recorded, in mode 2 fixed on the branch or recorded (§3.6).
+  walked and recorded, in mode 2 held for the human's ruling (4.11).
 - **Keywords match without regard to case.** On both paths, the output checks
   match fixed keywords (`Security:`, `Discards:`, `Running paad:`, `Status:`
   and the rest) case-insensitively and keep everything else exact, so an
   annotation still fails a check and a case difference does not
-  (vergil-project/.github#706).
+  (vergil-project/vergil-claude-plugin#841).
+- **Two fixes to today's mode 1 checks**, which stay as the fallback until a
+  released paad carries the mode:
+  - `SECURITY-CHECK-FAILED` fails a round on any line that contains it, as
+    mode 2's check does. The prompt asks for the bare line when a check
+    fails, and for no mention of the token at all otherwise
+    (vergil-project/vergil-claude-plugin#839);
+  - the orchestrator creates `paad/security/.gitignore`, holding `*`, in its
+    pre-dispatch steps, so the reviewer never finds it missing and never
+    reports a check failure for creating it
+    (vergil-project/vergil-claude-plugin#840). The repo's managed root
+    `.gitignore` already ignores the directory. The file only satisfies
+    paad's own guard, which is raised with the author (4.9).
+- **One security finding in the gate's own rules** is tracked privately
+  (vergil-project/vergil-claude-plugin#829). It concerns today's path in
+  mode 2, so the work on that path (4.11) fixes it, with checks before
+  dispatch. paad itself shares the weakness, so it is also reported to the
+  author through a private channel, never the public conflicts list.
 - **What stays unchanged:**
   - one fresh reviewer per round;
   - classification, using trusted authors only;
   - the severity mapping;
-  - the stop and continue signals, and mode 2's loop;
-  - the round comments and task-issue records;
-  - the human gates.
+  - mode 1's stop and continue signals;
+  - mode 1's round comments;
+  - the human gates. Mode 2 gains more of them: its loop, its task-issue
+    records and its pauses change as 4.11 sets out, on both paths.
 - **`paad-policy`** records:
   - that the fleet may run unreleased paad work from the fork's preview tree
     through the `--plugin-dir` override, and how that is turned on and off
@@ -574,7 +618,7 @@ validated and used:
 - **Try a different idea.** If the experiment fails, or teaches us the shape
   is wrong, a follow-on epic takes the next attempt.
 
-Two proposals go alongside it. Neither is part of the patch, and neither is
+One proposal goes alongside it. It is not part of the patch, and it is not
 imposed on interactive users without the author's agreement:
 
 - **Security routing in interactive alignment** (and in pushback runs that
@@ -587,9 +631,6 @@ imposed on interactive users without the author's agreement:
   question for the author is why alignment should not carry the same safety
   net. In paad 2.0.2 alignment has no security routing, and pushback routes
   only while writing its report.
-- **A widened security definition** for paad's shared paragraph: the
-  self-test and the access and triggering clause vergil keeps in its own
-  prompt (4.8).
 
 One observation goes with them, not as a proposal: the skills use different
 severity scales (pushback `critical`/`serious`/`moderate`/`minor`, alignment
@@ -617,6 +658,383 @@ the author (4.9). The builder adds every further conflict found.
 | agentic-review's `references/spec-compliance.md`: the first intent source is a spec file passed in the arguments | The `Intent:` input (4.5) | Under the delegate, the `Intent:` files come first, passed into the Spec Compliance dispatch |
 | The shared paragraphs are copies in every skill, and `make test` checks them on the shipped tree too | Overrides only where the delegate runs | The overrides live in the supported skills' unattended paragraphs, so no shared paragraph changes, and the delegate refuses an unsupported skill with a blocked result (4.1) |
 | Every dispatching skill (added in paad commit `da436bf`): "If the analyst agent is not available … dispatch a general-purpose subagent instead" | Dispatch only `paad-analyst` (4.1) | Under `paad-delegate` the fallback does not apply: a missing analyst is `blocked: analyst agent not available` (4.3) |
+
+### 4.11 How mode 2 handles a review's findings
+
+**Why.** Mode 2 lets the implementing agent and the agentic review agree,
+round by round, that a branch is done, with no person present. What that
+agent did with the findings was too loose:
+
+- **Suggestions.** In one ad hoc batch of ten branches, four ended in a
+  commit no review saw. The agent made it on the strength of a Suggestion.
+  Two of those commits changed behavior and design, not polish
+  (vergil-project/vergil-claude-plugin#849).
+- **Security findings.** On the abandoned epic 683, the gate fixed security
+  findings and recorded advisories with no person involved. Most rested on a
+  premise only the human could see was wrong. The noise they left still
+  needs cleaning up (vergil-project/vergil-claude-plugin#848).
+
+Mode 1 works because the human steers each round and stops the review from
+digging forever. In mode 2 the work is already fixed by mode 1's planning. The
+review's job is to confirm that the branch does what was planned, and to
+improve it within that, not to reopen the design. The review may report more
+than is wanted. The fault was in how the agent handled what it reported.
+
+**Goals:**
+
+- No change is made that the human has not approved, beyond the agent's own
+  narrow judgment defined here.
+- Nothing the review reports is lost.
+- Every run leaves a record good enough to analyse later: what the review
+  found, what was done with it, and what it cost in time and tokens.
+
+The bar for involving the human starts very low on purpose. Nobody yet knows
+how low it can safely go. The recorded rulings are the evidence for lowering it
+later. Until then, the agent errs toward asking.
+
+**This applies on both paths:** the delegate path and today's fallback path
+(4.8). It changes the doctrine's mode 2 (§3), five skills
+(`issue-implement`, `epic-implement`, `issue-deploy`, `issue-validate` and
+`epic-retrospective`) and one hook. Mode 1 changes in three ways only: where
+its scratch copy lives, the hash check around each review, and the single
+security definition (4.8).
+
+**Creating an issue needs the human's approval by default.** Four skills
+today say "file follow-ups at once … do not ask whether to", covering anything
+a sub-agent reports, any gap the agent hits, and any "we should also…". The
+rule becomes: present the item to the human, and file it only on an approving
+ruling, in the form approved. The same applies to the other places an agent
+decides on its own that new work exists: an operational need `issue-implement`
+discovers (a new deployment or validation task changes the plan), and the
+untracked problems `epic-retrospective` finds (listed in its draft, which the
+human already reviews; a security-class problem is presented in the terminal
+and recorded only on an approving ruling). The retrospective's sweep also
+learns the new records: the closed ruling words, "Not fixed" entries the
+human dropped, "Awaiting a ruling" lists and the "filed without a ruling"
+list, so a finding the human closed is not reported as untracked. The exemptions are only these:
+
+- issues the human asked for or approved directly: through planning
+  (`epic-create`), capture (`intake-capture`), queue reviews
+  (`intake-review`, `deferred-review`), or a ruling, including a mode 1
+  design-review ruling and the neutral issue `vrg-security-record` pairs with
+  an advisory;
+- the per-repo doc tasks that the documentation-review sweep spawns, which
+  the bookend convention prescribes;
+- fix tasks that `issue-validate` and `issue-deploy` file on a recorded
+  `Outcome: FAILURE`, part of the operational lifecycle. Each one is listed
+  at the next gate as filed without a ruling, so the human sees it.
+
+This touches `epic-retrospective` as well as the four skills above. The main session of `epic-implement` only presents a paused run's
+items. It files nothing from them, and never files or posts a security item.
+Its "needs scheduling" list holds only additions the human approved as tasks.
+
+**Items awaiting a ruling are written down at once, best effort.** An item
+held only in a session's context is lost when the session compacts or ends,
+which is why the old rule filed at once. Instead:
+
+- Each item awaiting a ruling goes under an "Awaiting a ruling" heading in a
+  comment the skill already posts on its issue. That is the round's response
+  comment in mode 2, and the result comment in `issue-deploy` and
+  `issue-validate`. Nothing new is filed, so no issues are opened only to be
+  closed.
+- A security item appears there only as a count. Its details go to the
+  task's private directory (below).
+- Every sub-agent's final report lists its items awaiting a ruling, whether
+  the run paused or not. `epic-implement` presents them at the gate, beside
+  the PRs ready to submit.
+
+This is best effort, not a guarantee. A review finding comes from the code,
+so a finding whose record is lost is likely to be found again by a later
+review.
+
+#### Each finding needs the human or not
+
+The agent sorts each finding of a round, security findings included, into one
+of two groups.
+
+**It needs the human** if any of these apply:
+
+1. **Security.** It is a security finding: in the result's security section,
+   or moved there by screening (4.8). The bar is zero: even a one-line fix to
+   the branch's own code waits. The human seeing every security finding is
+   also how they learn where these come from. A design gap from planning is
+   structural; a mistake in the agent's code is mechanical.
+2. **Expansion of work.** Acting on it would change code the task does not
+   cover, or create anything new: an intake issue, a task, a follow-up or a
+   security record. This covers:
+   - out-of-scope bugs;
+   - out-of-scope additions (whether to remove each one, and whether to file
+     it as a task);
+   - a fix to neighbouring code, however small, such as a typo in the next
+     function.
+3. **A behavior change outside the plan.** Acting on it would make the branch
+   behave differently from what the task and the plan describe, even though
+   the finding is about the branch's own code. Fixing the branch so it does
+   what the plan says is not this.
+4. **Not acted on.** The agent would decline it, dismiss it as wrong or defer
+   it, whatever its severity. Declining a Suggestion drops an idea, and the
+   human wants to see each one while the gray area is being mapped.
+5. **Unsure.** The agent cannot tell whether one of 1–4 applies.
+
+**Otherwise it is the agent's:** a finding about the code this branch adds or
+changes, whose fix makes the branch do what the plan says, or improves it
+without changing behavior. A clearer name, a name matching the surrounding
+code, or a missing check the task implies are examples. The agent acts on these
+without asking.
+
+A **known** finding that the human ruled on earlier is not asked about again.
+What happens to it depends on the ruling (step 5 below).
+
+#### A round is handled as a whole
+
+1. The review returns. The agent sorts every finding first, and acts on none
+   until all are sorted.
+2. **If any finding needs the human, nothing in the round is acted on yet.**
+   The ruling on one item can change what the others need, so even the
+   agent's own items wait. The round pauses (§3.8), and the agent presents
+   every item that needs the human, in the terminal:
+   - what the finding is and where;
+   - which of 1–5 sent it to the human;
+   - the agent's recommendation and the alternatives, best first.
+
+   Security findings are presented in the terminal only. The human rules on
+   each item. Then the agent acts on the whole round, the agent's own items
+   and the rulings together.
+3. **If none needs the human,** the agent acts on the whole round.
+4. **Every change goes back to review.** After acting on a round,
+   `vrg-container-run -- vrg-validate` must pass. Then the agent runs another
+   round. Nothing is committed after the last reviewed HEAD, ever. That
+   includes the late Suggestion fix that doctrine §3.7 allows today, which
+   goes away.
+5. **Done means the review says so.** The branch passes only when a round
+   returns nothing left to act on. That means no findings, or only known
+   findings whose ruling ended them. A ruling ends a finding when it needs no
+   further change on the branch: `decline`, `dismiss`, `file`, `record` and
+   `reject` do; `fix` does not. A known finding ruled `fix` that comes back
+   means the fix failed. If that ruling was given in the current
+   conversation, the agent acts on it again without asking. If it was read
+   from the issue, the agent asks the human to confirm it first (below). The
+   human can also rule the branch done. The agent never decides on its own
+   that it is done.
+6. **Three rounds without agreement, and the human decides.** If round 3, or
+   the last round the human allowed, still returns something to act on, the
+   run pauses. The human rules: allow another round, accept the branch as it
+   stands, or drop it. A pause waiting on the human does not use up a round.
+   Only review passes count.
+
+**What the human's rulings do.**
+
+- **A security finding:**
+  - **approved:** the human also says whether it is fixed on the branch or
+    recorded with `vrg-security-record`. A fix on the branch is not
+    recorded, as today (§3.6);
+  - **rejected:** dropped, with no fix and no record. No public record gives
+    a reason. The round's counts show it as rejected, and the private ruling
+    record keeps it from being asked about again (below).
+
+  A ruling on a security finding is never restated into the requirements
+  file (§3.3). It is kept only in the per-task directory and the
+  conversation, because Spec Compliance reads the requirements as intent and
+  could quote them in an ordinary, public finding. The known-finding rules
+  carry it: a working fix stops the finding coming back, and a failed one
+  brings it back as in step 5.
+
+  Because the requirements do not mention it, Spec Compliance may report an
+  approved security fix as an unplanned addition or a behavior change. So,
+  before the findings comment is posted, every ordinary finding is compared
+  with the task's private record of security fixes on the branch, by file and
+  symbol. A match is held back from the comment and handled as security
+  material, whatever screening (4.8) concluded. On a branch with no approved
+  security fix, the step does nothing.
+- **Anything that would create an issue or a task:** it is filed only if the
+  human approves it, and only in the form they approved.
+- **A declined or dismissed finding:** declined only if the human agrees.
+
+The repair pause (most of a round's findings are repairs) and the other
+pauses in §3.8 stay.
+
+#### Pausing, resuming and closing
+
+- **Each task has one fixed private directory,** in the `build/` of the
+  task repo's main clone:
+  `<main clone>/build/.vergil-state/agentic-review/<N>/`, with one
+  subdirectory per round, each mode 700. The path follows from the task and
+  the round, so a resumed run, and any later session on the task, finds it.
+  Mode 2's security handling (§3.6, 4.8) uses it too, in place of today's
+  per-file `mktemp -d`.
+  - **Why there.** Every repo with a `vergil.toml` ignores `build/` through
+    the managed, synced `.gitignore`. That is a permanent architectural
+    decision, made by the human, so nothing there is ever committed and
+    nothing checks it. The main clones sit on the
+    persistent projects volume: the Mac's disk, mounted into the local VMs,
+    or the cloud VMs' persistent disk. So the state survives a VM rebuild,
+    as the worktrees do. A VM's home directory, where the XDG convention
+    would put it, does not.
+  - **Not in the reviewer's working tree.** The reviewer works inside the
+    task's worktree, under `<main clone>/.worktrees/`. The main clone's
+    `build/` is outside that tree, so the reviewer does not come across
+    earlier rounds, rulings or security details in the course of its work.
+    It could still read them, as it could any path the user can read.
+  - **Writes are checked.** Before each review, the orchestrator takes one
+    hash over every file in the task's state directory and keeps it in its
+    own context, not on disk. After the review it hashes again. Any
+    difference is a broken round, like any failed output check. The
+    orchestrator also seals the directory between rounds: it keeps the hash
+    taken at the end of each round, and checks it at the start of the next,
+    so a write by another task's reviewer in the meantime is caught. Across
+    a session boundary the kept hash is gone, so a change made while no
+    session was running is not detected, which is accepted. This applies in
+    both modes and on both paths.
+  - **The read-only exception.** The main worktree stays read-only for
+    source. Ignored scratch under its `build/.vergil-state/` is not a source
+    edit. The doctrine says so, and the worktree-write hook
+    (`block-worktree-bypass-write.sh`) allows writes under
+    `<main clone>/build/.vergil-state/` and nowhere else in the main
+    worktree. The worktree convention in vergil-tooling and the consumer
+    `CLAUDE.md` template state the same exception, so no steering file
+    contradicts it: the main clone's `build/` is a valid place for ignored
+    scratch, as the MQ lab's shared live-lab state already uses it. That
+    change is released and synced to the consumer repos before the doctrine
+    and the hook rely on it.
+  - **Operational tasks** (`issue-validate`, `issue-deploy`) keep any
+    security item's details in `build/.vergil-state/operational/<N>/` in
+    the main clone of the repo the task is filed in. The same deletion rules
+    apply.
+  - **Private reports to the paad author** are drafted in
+    `build/.vergil-state/upstream-report/<N>/` in the `.github` main clone,
+    and deleted once sent.
+  - **The fallback path's stray-write sweep** (§3.4) searches `/tmp`,
+    `/var/tmp` and `$HOME`. On the VMs the main clones are not under
+    `$HOME`, so the sweep does not reach `build/.vergil-state/` there; the
+    hash checks above are what cover it. Where a main clone is under
+    `$HOME`, the sweep excludes the other tasks' directories under
+    `build/.vergil-state/`, each by its path, so a parallel task's writes do
+    not break this round, and this task's own directory stays inside it.
+  - **Mode 1's scratch copy** (§2.7) moves to the same root, in the docs
+    repo's main clone: `build/.vergil-state/design-review/<N>/<round>/`.
+- **The paused round's material survives the pause.** The round's full
+  result is kept in the round's subdirectory until the round has been acted
+  on:
+  - on the delegate path, the result itself;
+  - on the fallback path, paad's report and its `paad/security/` files,
+    moved there before the worktree is emptied.
+
+  §3.6's keep-until-recorded rule extends to keep-until-ruled. The resumed
+  run takes the findings from that directory, and the rulings from the human
+  in the conversation, as §3.8 says today.
+- **The directory is deleted at points the loop already reaches,** as §3.6
+  deletes details once they are recorded today:
+  - once a round has been acted on and its rulings recorded, its
+    subdirectory is deleted, with the full result and any security details;
+  - the task's ruling record (finding ID, ruling and, for an approved
+    security fix, its file and symbol, with no other detail) stays until the
+    summary comment is posted at pass, accept or drop. Then the task's
+    directory is deleted.
+
+  If the work is abandoned, the directory stays until the human deletes it,
+  and the next session that touches the task says it exists. Clearing
+  abandoned state belongs to the fleet's wider hygiene work.
+- **Security rulings are kept privately.** Each ruling on a security
+  finding, by finding, is written to the task's directory. Later rounds and
+  later sessions on the task read it to know which security findings are
+  already ruled on, since the public record shows only counts. A finding is
+  asked about again only when that record is missing.
+- **Under `epic-implement`, the conversation is the terminal.** The paused
+  `issue-implement` run returns the items that need the human, security
+  details included, in its final message to the main session. That message
+  is never posted anywhere. Only the comments it posts carry security items
+  as counts. The main session presents them to the human,
+  then passes every ruling to the resumed run, as §3.8 does today. The main
+  session's conversation is as private as the terminal is in a direct run.
+- **Approving a fix at the round cap grants the round that reviews it.**
+  Every change goes back to review, so a ruling to fix something at round 3
+  (or the last round allowed) also allows one more round. Accepting the
+  branch as it stands means making no further change.
+- **Recorded rulings count as known.** A `Human ruling:` line in a trusted
+  comment (§3.3's trusted authors) makes its findings known in later rounds,
+  in this session or a new one, the same way §3.1 already reads earlier
+  trusted comments for classification. A recorded ruling that ended a
+  finding stops it being asked about again. A recorded ruling never
+  authorizes a change: what the run does comes only from the human in the
+  conversation (§3.8).
+- **A new session confirms recorded `fix` rulings.** A new session is any
+  fresh conversation that resumes a task partway through its loop: after a
+  reboot, `/clear`, a crash or a VM rebuild. The worktree and the task's
+  private directory survive all of these. Before its next round, the resumed
+  run shows the human each recorded `fix` ruling ("Recorded earlier: R2.1,
+  fix: cap retries at 3. Still stands?"). The human's answer is a ruling
+  given in this conversation, so it goes into the requirements file (§3.3),
+  and the reviewer sees that fix as required. §3.8's "the human restates any
+  earlier rulings" becomes "the human confirms the recorded ones". Security
+  rulings are read from the private record instead, and are never restated
+  as requirements.
+- **The agent records rulings on the human's behalf.** The `Human ruling:`
+  line is posted by the agent, as a faithful account of what the human said
+  in the session. It has a fixed form: one line per ruling, giving the
+  finding ID, one word from a closed set, and a short direction. The words
+  for a finding are:
+  - `fix`: change the branch;
+  - `decline`: no change, and the idea is dropped;
+  - `dismiss`: the finding is wrong;
+  - `file`: file it as an issue;
+  - `record`: record it as a security advisory;
+  - `reject`: a security finding, dropped with no record.
+
+  The branch's outcome uses its own words: `accept-branch`, `drop-branch`
+  and `another-round`. A later change can then require rulings to be posted
+  from the human's own account and checked by their author
+  (vergil-project/.github#767).
+- **Findings ended by a recorded ruling are listed at the handoff.** The
+  summary comment and the `report-ready` notes list every finding that was
+  ended by a ruling read from the issue rather than given in the
+  conversation. The human sees each one when submitting the PR.
+- **Nothing is left unruled at the end.** When the human accepts or drops
+  the branch, or rules it done, any item in the last round that has no
+  ruling yet is presented in the same pause and ruled on. That includes the
+  agent's own unfixed items and out-of-scope bugs. Each is filed, recorded
+  or dropped as the ruling says. The summary's "Not fixed" list gives each
+  one with its issue, or says the human dropped it.
+- **What the agent notices outside the review's findings** follows the same
+  rule as an expansion of work. Today §3.7 has the agent file anything else
+  it noticed. Now it presents those items for a ruling, and files nothing on
+  its own, as in every skill (above).
+
+#### The record
+
+Each round leaves its trail on the task issue, whether or not a person was
+involved. These comments are the data for a later review of how well the gate
+works.
+
+- **The findings comment** gives, for each finding, its sorting: the agent's,
+  or needs the human, with the reason (1–5). Security findings are counts
+  only, as today.
+- **The response comment is posted in every round.** That includes a round
+  whose output check failed: today that round has no response comment for its
+  pause line to go on (vergil-project/vergil-claude-plugin#838). It says what
+  was done with each finding, and what was paused for the human.
+- **Timestamps** (UTC, ISO 8601) mark each handoff, so that the human's
+  waits, which can last minutes or weeks, can be left out of the agents' time:
+  - when the review was dispatched, and when its result came back;
+  - when the round was handed to the human (`Paused:`), and when the human
+    answered (`Human ruling:`);
+  - when the agent finished acting on the round.
+- **The review's cost:** the review subagent's completion notice reports its
+  tokens, tool uses and duration (seen in this epic's own sessions as
+  `totalTokens`, `toolUses` and `durationMs`). The findings comment records
+  them, or says `not reported` when they are missing. The implementing
+  session's own token use is not visible to it and is not recorded.
+- **Each ruling** is recorded per finding, by its ID and its reason (1–5), in
+  clear prose. That is the evidence for tuning the bar. A ruling on a security
+  finding appears only in the counts.
+- **The summary comment** adds the totals: rounds, pauses, agent time with the
+  human's waits left out, and the reviews' tokens.
+
+#### Out of scope here
+
+- Lowering the bar. That is a later decision, made from the recorded rulings.
+- How agentic-review itself works. Reporting more than is wanted is fine.
+- Mode 1, which already gates every round on the human. Only its scratch
+  copy's location changes (above).
 
 ## 5. Validation
 
@@ -775,6 +1193,12 @@ worktree, commits and pushes, with `!`. Agents edit files, run paad's checks
 and prepare commit messages in paad's style, and use `vrg-git` only for
 read-only commands shown to work there.
 
+**paad's checks need `make`,** and neither the agent VM nor the `prod-base`
+container has it, so the human ran every `make test` of Tasks 1–6 on the
+Mac (vergil-project/vergil-vm#376). The agent VM gains `make` in its
+provisioned packages, and that change is released, so agents can run paad's
+checks themselves from then on.
+
 ## 8. Risks and open points
 
 - **The author may want a different shape.** The upstream conversation (4.9)
@@ -799,6 +1223,13 @@ read-only commands shown to work there.
   that run code later, the delegate reaching other agents through the Skill
   tool or `claude -p`, and outbound network requests. Today's reviewer can do
   all of these, and the design does not make any of them worse.
+- **The state-directory guards are workarounds** (4.11). The hash checks,
+  the seal between rounds, the sweep and the hook exception exist because a
+  caller cannot yet tell paad where it may write: the delegate removes
+  paad's own writes, but a reviewer can still write through Bash. A way for
+  a caller to confine paad's writes is raised with the author (Task 12).
+  Once paad offers one, these guards are revisited and, where they can, they
+  go.
 - **Deferred to the next iteration.** These risks are acknowledged and left
   out of the first version on purpose. They are revisited once the delegate
   works:
@@ -823,6 +1254,21 @@ read-only commands shown to work there.
 - **The override's mechanics** (4.7) are unverified until the plan's
   deployment task: the config file, the launch failing on a missing
   directory, and the path resolving inside the Lima VMs.
+- **More pauses** (4.11). Mode 2 will stop for the human far more often
+  than it does today, which costs autonomy on purpose. A run that ends at
+  the round 3 pause may well be the normal outcome while the rules are
+  learned. Each pause needs a judgment call from the human, and that is how
+  the gate is learned. The recorded rulings show which kinds of pause the
+  human always approves. Those are the candidates for the agent's own
+  judgment in a later change.
+- **Rulings are relayed, not authenticated** (4.11). The agent records the
+  human's rulings on the human's behalf, and later sessions trust those
+  records, so the record is only as reliable as the agent that wrote it. A
+  recorded ruling never authorizes a change on its own: a recorded `fix` is
+  confirmed by the human in a new session, and every finding ended by a
+  recorded ruling is listed at the handoff. Rulings posted from the human's
+  own account, checked by author, are planned as a separate change
+  (vergil-project/.github#767).
 - **The fallback path lives on** until a released paad carries the mode
   (4.8), so the doctrine carries both paths for a while.
 - **Other harnesses.** A follow-on brainstorm at the end of this epic asks
