@@ -82,10 +82,15 @@ def test_rolling_tag_branch_ruleset() -> None:
     assert r.bypass_actors == []
     assert [rule["type"] for rule in r.rules] == ["creation"]
 
-def test_compute_desired_state_includes_rolling_tag_branch_ruleset() -> None:
-    # build state as the neighbouring compute_desired_state tests do
-    assert "Rolling tag branch names" in [rs.name for rs in state.rulesets]
+def test_compute_desired_state_has_four_rulesets() -> None:  # replaces ..._has_three_rulesets
+    state = compute_desired_state(_vergil_config(), visibility="public", is_org=True)
+    assert len(state.rulesets) == 4
+    assert [r.name for r in state.rulesets][:3] == [
+        "Branch protection", "Tag protection", "Rolling tag branch names",
+    ]
 ```
+
+The existing `test_compute_desired_state_has_three_rulesets` (`test_github_config_lib.py`, about line 1098) is renamed and rewritten as above. No other existing test changes.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -96,16 +101,22 @@ Expected: FAIL in the three tests above (wrong `ref_include`, undefined function
 
 Add `"refs/tags/v*.*"` to `desired_tag_protection_ruleset().ref_include`. Add `desired_rolling_tag_branch_ruleset()` next to it, shaped like `desired_branch_protection_ruleset()`, with the values in the test. Append it in `compute_desired_state` right after the tag ruleset; app mode nulls its bypass actors like the others.
 
-- [ ] **Step 4: Run validation to verify it passes**
+The classic-branch-protection helpers derive branch names from a branch ruleset's includes (`_ruleset_branches` via `_branch_from_ref`), and would query `branches/v*/protection`. Make `_branch_from_ref` return nothing for an include containing a glob character (`*`, `?`, `[`), with the test `test_branch_from_ref_skips_glob_includes` (`"refs/heads/v*"` gives no branch, `"refs/heads/main"` gives `"main"`).
+
+- [ ] **Step 4: Refactor**
+
+With the tests green, check that the new ruleset reuses the shared `DesiredRuleset` construction rather than duplicating it, and tidy without changing behaviour.
+
+- [ ] **Step 5: Run validation to verify it passes**
 
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS.
 
-- [ ] **Step 5: Update the config-audit reference doc**
+- [ ] **Step 6: Update the config-audit reference doc**
 
 In `docs/site/docs/reference/config-audit.md`, list the new ruleset and the widened tag pattern next to the existing rulesets, and note that the App-token audit does not compare bypass actors.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 `vrg-commit --type feat --scope repo-config --message "protect rolling vX.Y tags and forbid branches named like them"`
 
@@ -118,9 +129,9 @@ In `docs/site/docs/reference/config-audit.md`, list the new ruleset and the wide
 
 **Interfaces:**
 - Produces, in `lib/promote.py`:
-  - `class PromoteError(Exception)`
+  - `class PromoteError(ValueError)`
   - `@dataclass(frozen=True) class Promotion: origin_repo: str; rolling_tag: str; release_tag: str; old_commit: str; new_commit: str`. `old_commit` is `""` when the rolling tag does not exist yet.
-  - `plan_promotion(version: str) -> Promotion`: validates the version, resolves both tags on origin, and raises `PromoteError` when the release tag is absent on origin or its commit is not an ancestor of `origin/main`.
+  - `plan_promotion(version: str) -> Promotion`: first refuses with `PromoteError` when `identity_mode.is_agent() or identity_mode.any_agent_signal()`, before any git call, so every caller (the CLI and `vrg-release`'s promote stage) fails closed. It then validates the version, resolves both tags on origin, and raises `PromoteError` when the release tag is absent on origin or its commit is not an ancestor of `origin/main`.
   - `describe(p: Promotion) -> str`: the lines the CLI prints for the dry run and before confirmation: `origin: <repo>`, `<rolling> <old[:12] or (new)> -> <release> <new[:12]>`.
   - `promote(version: str, *, dry_run: bool = False) -> None`: unchanged signature (the `vrg-release` orchestrator calls it). It calls `plan_promotion`, so the target check applies to releases too, and it never prompts.
 - The CLI (`bin/vrg_promote.py`) owns the identity refusal, the dry-run print and the confirmation prompt.
@@ -142,11 +153,37 @@ def test_plan_promotion_reports_repo_and_commits() -> None:
     p = plan_promotion("2.1.50")
     assert p == Promotion("vergil-project/vergil-claude-plugin", "v2.1", "v2.1.50", OLD, NEW)
 
-def test_promote_already_promoted_pushes_nothing() -> None:  # Review Focus 2
-    # old_commit == new_commit; assert no `git push` call was made
+def test_promote_already_promoted_pushes_nothing(capsys) -> None:  # Review Focus 2
+    with patch("vergil_tooling.lib.promote.subprocess.run",
+               side_effect=_git_responses(rolling=NEW, release=NEW)) as mock_run:
+        promote("2.1.50")
+    argvs = [c.args[0] for c in mock_run.call_args_list]
+    assert not any(a[:2] in (["git", "tag"], ["git", "push"]) for a in argvs)
+    assert "already promoted" in capsys.readouterr().out
+
+def test_plan_promotion_refuses_agent_signal() -> None:
+    # patch vergil_tooling.lib.promote.identity_mode.any_agent_signal -> True
+    with pytest.raises(PromoteError, match="human maintainer action"):
+        plan_promotion("2.1.50")
+    # no git call was made
 ```
 
 The origin repo comes from `git remote get-url origin`, normalized to `owner/repo` (strip `https://github.com/`, `git@github.com:` and `.git`).
+
+**Existing `test_promote.py` tests.** `_already_promoted` is removed, because `plan_promotion` replaces it. The existing tests change as follows. Each patches `subprocess.run` with a side-effect helper, `_git_responses(...)`, that answers `remote get-url`, `fetch`, `ls-remote` and `merge-base` by argv. Each asserts on the `tag` and `push` calls, never on a total call count.
+
+| Test | Change |
+|---|---|
+| `test_promote_runs_tag_and_push` | Assert exactly one `git tag -f v2.1 v2.1.50` and one `git push origin v2.1 --force`, after the planning calls |
+| `test_promote_dry_run_does_not_execute` | Assert no `tag` or `push` call (planning calls are now expected) |
+| `test_promote_strips_v_prefix` | Unchanged intent; uses `_git_responses` |
+| `test_promote_raises_on_tag_failure`, `test_promote_prints_stderr_on_failure`, `test_promote_prints_stderr_on_push_failure`, `test_promote_push_failure_no_stderr` | Unchanged intent; the failure is injected on the `tag` or `push` call only |
+| `test_promote_invalid_version_raises` | Expects `PromoteError` instead of `ValueError` |
+| `test_promote_skips_when_already_promoted` | Drives the no-op through `plan_promotion` (equal commits) instead of patching `_already_promoted` |
+| `test_already_promoted_true_when_commits_match`, `..._false_when_release_tag_missing`, `..._false_when_rolling_differs` | Deleted with `_already_promoted`; their cases move to `plan_promotion` tests (`test_plan_promotion_reports_repo_and_commits` with equal and differing commits, `test_plan_promotion_refuses_missing_release_tag`) |
+| `test_peeled_commit_*` | Unchanged |
+
+`PromoteError` subclasses `ValueError`, so callers that catch `ValueError` today keep working.
 
 - [ ] **Step 2: Write the failing CLI tests** (`test_vrg_promote.py`)
 
@@ -174,6 +211,11 @@ def test_declined_confirmation_pushes_nothing() -> None:
 
 def test_confirmed_run_promotes() -> None:
     # isatty -> True, input -> "y"; assert `git push origin v2.1 --force` was called
+
+def test_already_promoted_exits_without_prompt(capsys) -> None:
+    # plan_promotion returns old_commit == new_commit; input is patched to fail if called
+    assert main() == 0
+    assert "already promoted" in capsys.readouterr().out
 ```
 
 Update the existing CLI tests (`test_promote_explicit_version`, `test_promote_from_version_file`) to answer the prompt with `"y"` and patch `isatty`.
@@ -181,7 +223,7 @@ Update the existing CLI tests (`test_promote_explicit_version`, `test_promote_fr
 - [ ] **Step 3: Run to verify the tests fail**
 
 Run: `vrg-container-run -- vrg-validate`
-Expected: FAIL in the new tests.
+Expected: FAIL in the new tests and in the rewritten existing tests above.
 
 - [ ] **Step 4: Implement the library**
 
@@ -198,18 +240,22 @@ if identity_mode.is_agent() or identity_mode.any_agent_signal():
     return 1
 ```
 
-Then `p = plan_promotion(version)` (a `PromoteError` prints `Error: …` and returns 1). Print `describe(p)`. With `--dry-run`, return 0. Without a TTY (`not sys.stdin.isatty()`), print `vrg-promote: refusing to move <rolling> without a terminal to confirm on.` and return 1. Otherwise ask `Move <rolling> on <repo>? [y/N] `, and on anything but `y`/`yes` return 1. Then call `promote(version)`.
+Then `p = plan_promotion(version)` (a `PromoteError` prints `Error: …` and returns 1). If `p.old_commit == p.new_commit`, print `<rolling> already points at <release> — already promoted.` and return 0, before the dry-run, TTY and prompt branches. Otherwise print `describe(p)`. With `--dry-run`, return 0. Without a TTY (`not sys.stdin.isatty()`), print `vrg-promote: refusing to move <rolling> without a terminal to confirm on.` and return 1. Otherwise ask `Move <rolling> on <repo>? [y/N] `, and on anything but `y`/`yes` return 1. Then call `promote(version)`.
 
-- [ ] **Step 6: Run validation to verify it passes**
+- [ ] **Step 6: Refactor**
+
+With the tests green, fold the duplicated git-call plumbing in `lib/promote.py` (the tag and push `subprocess.run` blocks) into one helper, without changing behaviour.
+
+- [ ] **Step 7: Run validation to verify it passes**
 
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS, including the `vrg-release` orchestrator tests that call `promote()`.
 
-- [ ] **Step 7: Update the CLI reference**
+- [ ] **Step 8: Update the CLI reference**
 
 In `docs/site/docs/reference/cli-tools-overview.md` (`### vrg-promote`), state that it is human-only, the target rule, the dry-run output and the confirmation.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 `vrg-commit --type feat --scope promote --message "refuse agents, check the target and confirm before moving a rolling tag"`
 
@@ -226,7 +272,7 @@ Operational: no PR. Run with `issue-validate`.
 3. **Only if step 2 fails, remove rung (spec §6, rung 2):** from the same starting state, run `claude plugin marketplace remove vergil-marketplace`, `claude plugin marketplace add vergil-project/vergil-claude-plugin@v2.1` and `claude plugin install vergil@vergil-marketplace`, and record the same three facts. Also record what `remove` deleted under `plugins/data/`.
 4. **VM-shaped case:** repeat from step 1 with the new `settings.json` copied in first (as `vrg-vm` does), then run only what `vm_guest.update_plugins` runs today. Record that it does not switch, so that Task 3 is needed.
 
-**Acceptance:** a recorded rung that ends with `list --json` showing `v2.1`, the checkout on the `v2.1` commit and the installed version matching; the Claude Code version; and the exact commands. The result comment is the input to Task 3.
+**Acceptance:** a recorded rung that ends with `list --json` showing `v2.1`, the checkout on the `v2.1` commit and the installed version matching; the Claude Code version; the exact commands; and, verbatim, the raw `claude plugin marketplace list --json` output and the `vergil-marketplace` entry of `plugins/known_marketplaces.json`, both before and after the switch. The result comment is the input to Task 3, whose fixtures are these raw outputs.
 
 ### Task 3: Marketplace reconcile for VMs and host
 
@@ -234,7 +280,8 @@ Operational: no PR. Run with `issue-validate`.
 - Create: `src/vergil_tooling/lib/claude_marketplace.py`
 - Modify: `src/vergil_tooling/lib/vm_guest.py` (`update_plugins`)
 - Modify: `src/vergil_tooling/bin/vrg_host.py` (new `plugins` subcommand)
-- Test: `tests/vergil_tooling/test_claude_marketplace.py`, `tests/vergil_tooling/test_vm_guest.py`, `tests/vergil_tooling/test_vrg_host.py`
+- Modify: `src/vergil_tooling/bin/vrg_vm.py` (`_update_over_transport`)
+- Test: `tests/vergil_tooling/test_claude_marketplace.py`, `tests/vergil_tooling/test_vm_guest.py`, `tests/vergil_tooling/test_vrg_host.py`, `tests/vergil_tooling/test_vrg_vm.py`
 
 **Interfaces:**
 - Consumes: the rung and the exact commands recorded by V1.
@@ -245,8 +292,12 @@ Operational: no PR. Run with `issue-validate`.
   - `registered_marketplaces(run: Run, prefix: str) -> dict[str, str | None]`: name to ref, from `claude plugin marketplace list --json`. It raises `MarketplaceError` on output that is not a JSON list of objects with a `name` (Review Focus 5).
   - `reconcile(run: Run, settings: dict[str, Any], prefix: str) -> list[str]`: for each declared marketplace, adds it when it is not registered (Review Focus 4), does nothing when the registered ref equals the declared ref, and otherwise applies V1's proven rung. A missing registered ref counts as different (Review Focus 3). Returns the names it switched. `prefix` is the shell prefix each command runs under (`_PLUGIN_PATH_EXPORT` in a VM, `""` on the host).
   - `class MarketplaceError(RuntimeError)`
+  - `shell(prefix: str, command: str) -> list[str]`: returns `["bash", "-c", f"{prefix} && {command}"]` when `prefix` is non-empty and `["bash", "-c", command]` when it is empty. Every Claude CLI call in this module goes through it.
+  - `update_installed_plugins(run: Run, settings: dict[str, Any], prefix: str) -> list[str]`: the per-install `claude plugin update` (each entry at its own scope, project entries from their `projectPath`) and the install of enabled-but-missing ids, moved here from `vm_guest` (`_update_plugin_entry` and its caller). Returns failure labels. `vm_guest.update_plugins` and `vrg-host plugins` both call it.
+  - `local_run(*argv: str) -> subprocess.CompletedProcess[str]`: the host's `Run`, `subprocess.run(argv, check=True, capture_output=True, text=True)`.
 - `vm_guest.update_plugins` replaces its add-only loop for github sources with `reconcile(transport.run, settings, _PLUGIN_PATH_EXPORT)`, keeps the official-marketplace derivation and `marketplace update`, and adds a failure for any `MarketplaceError`.
-- `vrg-host plugins` reads `~/.claude/settings.json`, runs `reconcile` with a local `subprocess.run` wrapper, then the same `marketplace update` and per-install `plugin update` as the VM path. It refuses under an agent identity, and exits 1 and names each failure if any step fails.
+- `_update_over_transport` (`bin/vrg_vm.py`) calls `copy_claude_config(transport, Path.home() / ".claude")` before `update_plugins`, so `vrg-vm update` delivers the host's current `settings.json` to a running VM before reconciling. Today only start, rebuild and cloud sessions copy it. Stopped VMs are skipped by `vrg-vm update --all` and switch on their next start, which copies the config.
+- `vrg-host plugins` reads `~/.claude/settings.json` and runs `reconcile(local_run, settings, "")`, then `claude plugin marketplace update` and `update_installed_plugins(local_run, settings, "")`. It refuses under an agent identity, and exits 1 and names each failure if any step fails.
 
 - [ ] **Step 1: Write the failing tests** (`test_claude_marketplace.py`, a fake `run` that records argv and returns canned `list --json` output)
 
@@ -268,9 +319,17 @@ def test_reconcile_adds_unregistered_marketplace() -> None:  # RF4
 def test_registered_marketplaces_rejects_malformed_json() -> None:  # RF5
     with pytest.raises(MarketplaceError):
         registered_marketplaces(fake_returning('{"not": "a list"}'), "")
+
+def test_shell_without_prefix_has_no_leading_and() -> None:
+    assert shell("", "claude plugin marketplace update") == [
+        "bash", "-c", "claude plugin marketplace update"]
+    assert shell("export PATH=x", "claude plugin list --json") == [
+        "bash", "-c", "export PATH=x && claude plugin list --json"]
 ```
 
-In `test_vm_guest.py`, add `test_update_plugins_switches_marketplace_ref`: the guest settings declare `v2.1`, the fake transport's `list --json` reports `main`, and the recorded calls include the switch before `marketplace update`. In `test_vrg_host.py`, add `test_plugins_refuses_agent` and `test_plugins_runs_reconcile_then_update`.
+The `list --json` and `known_marketplaces.json` fixtures are V1's recorded raw outputs, copied verbatim into the test module.
+
+In `test_vrg_vm.py`, add `test_update_over_transport_copies_config_before_plugins`: the recorded calls show `copy_claude_config` before `update_plugins`. In `test_vm_guest.py`, add `test_update_plugins_switches_marketplace_ref`: the guest settings declare `v2.1`, the fake transport's `list --json` reports `main`, and the recorded calls include the switch before `marketplace update`. In `test_vrg_host.py`, add `test_plugins_refuses_agent` and `test_plugins_runs_reconcile_then_update`.
 
 - [ ] **Step 2: Run to verify the tests fail**
 
@@ -279,14 +338,22 @@ Expected: FAIL (the module does not exist).
 
 - [ ] **Step 3: Implement `lib/claude_marketplace.py`** with the interfaces above and V1's commands. If V1 proved the rewrite rung, the rewrite edits `known_marketplaces.json` through `run` (`python3 -c` or `jq` in the guest), and checks that the entry has the shape V1 recorded (`source.source == "github"`, `source.repo`, optional `source.ref`). It raises `MarketplaceError` on any other shape, so that a Claude Code format change fails loudly.
 
-- [ ] **Step 4: Wire it into `vm_guest.update_plugins` and add `vrg-host plugins`.**
+- [ ] **Step 4: Wire it into `vm_guest.update_plugins` and `_update_over_transport`, and add `vrg-host plugins`.** The existing `test_vm_guest.py` tests of `_update_plugin_entry` move to `test_claude_marketplace.py` with the function, unchanged in intent.
 
-- [ ] **Step 5: Run validation to verify it passes**
+- [ ] **Step 5: Refactor**
+
+With the tests green, remove what is left of the old add-only loop and any now-unused helper in `vm_guest.py`, without changing behaviour.
+
+- [ ] **Step 6: Run validation to verify it passes**
 
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Document `vrg-host plugins`**
+
+Add it to `docs/site/docs/reference/cli-tools-overview.md` (`### vrg-host`), and update the `vrg-host` module docstring and the subcommand metavar (`{status,upgrade,pin,unpin}` gains `plugins`).
+
+- [ ] **Step 8: Commit**
 
 `vrg-commit --type feat --scope plugins --message "reconcile the registered marketplace source with the declared one on host and VMs"`
 
@@ -296,9 +363,16 @@ Operational: no PR. Run with `issue-deploy`.
 
 **Precondition (human-attested):** a vergil-tooling release that contains Task 1 is cut and installed on the host. The agent never cuts it.
 
+**Timing:** run D1 right after that release. From the release on, the nightly `ops.yml` audit expects the new rulesets, so it reports drift on every repo until D1 applies them. Those drift issues are expected, and D1 closes each one once its repo is applied.
+
 **Procedure:** the human runs `vrg-github-repo-config apply --repo <owner/repo>` for each repo in the fleet (the rulesets are org-wide desired state, so every repo with rolling tags gets them). Then `vrg-github-repo-config audit --repo vergil-project/vergil-claude-plugin` is run, and `vrg-git ls-remote --heads https://github.com/vergil-project/vergil-claude-plugin 'v*'` confirms that no branch matches.
 
-**Acceptance:** the audit on vergil-claude-plugin reports no drift, including both rulesets, and no `refs/heads/v*` branch exists. This is the spec §2 order condition; D2 may not start before it holds.
+**Verification of the access rules:**
+1. The human runs `vrg-github-repo-config audit` with their own (non-App) credentials on vergil-claude-plugin, vergil-tooling and vergil-actions, so that bypass actors are compared too.
+2. The agent, under its App identity, force-pushes `v2.1` to the commit it already points at in vergil-claude-plugin, and records that GitHub refuses the push.
+3. The human force-pushes `v2.1` to the commit it already points at, from their own shell (`git push --force origin v2.1` after `git fetch --tags --force origin`), and records that GitHub accepts it. `vrg-promote` is not used here, because a same-target run pushes nothing.
+
+**Acceptance:** all three audits report no drift, including both rulesets and their bypass actors; the agent's push is refused and the human's is accepted; and no `refs/heads/v*` branch exists. This is the spec §2 order condition; D2 may not start before it holds.
 
 ### Task 4: Plugin distribution docs (vergil-claude-plugin)
 
@@ -334,7 +408,7 @@ Operational: no PR. Run with `issue-deploy`.
 3. Run `vrg-vm update --all`. Expected: each VM reports the marketplace switched, with no failure.
 4. Sweep the local repos: `grep -l extraKnownMarketplaces /Users/pmoore/dev/projects/vergil-project/*/.claude/settings.json`. Expected: no output. Any hit is removed through that repo's normal worktree and PR flow, in favour of the template.
 
-**Acceptance:** the host and every VM show `ref: v2.1` in `claude plugin marketplace list --json` and the installed version equals the release `v2.1` points at; the sweep is clean.
+**Acceptance:** the host and every running VM show `ref: v2.1` in `claude plugin marketplace list --json` and the installed version equals the release `v2.1` points at; the sweep is clean. A VM that was stopped is listed in the result comment and switches on its next `vrg-vm start`.
 
 ### Task V2: Rollback round trip (validation)
 
