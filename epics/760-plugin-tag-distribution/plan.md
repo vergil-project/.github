@@ -60,10 +60,12 @@ The `.github` change (the one-line note in epic #45's spec) ships in the documen
 ### Task 1: Rolling-tag rulesets
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/github_config.py` (`desired_tag_protection_ruleset`, `compute_desired_state`)
 - Test: `tests/vergil_tooling/test_github_config_lib.py`
 
 **Interfaces:**
+
 - Produces: `desired_tag_protection_ruleset() -> DesiredRuleset` with `ref_include == ["refs/tags/v*.*.*", "refs/tags/v*.*"]`; `desired_rolling_tag_branch_ruleset() -> DesiredRuleset`; `compute_desired_state` appends the new ruleset after the tag ruleset.
 
 - [ ] **Step 1: Write the failing tests**
@@ -130,12 +132,14 @@ In `docs/site/docs/reference/config-audit.md`, list the new ruleset and the wide
 ### Task 2: Harden `vrg-promote`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/promote.py`
 - Modify: `src/vergil_tooling/bin/vrg_promote.py`
 - Modify: `src/vergil_tooling/bin/vrg_release.py` (the first-stage identity guard)
 - Test: `tests/vergil_tooling/test_promote.py`, `tests/vergil_tooling/test_vrg_promote.py`, `tests/vergil_tooling/test_vrg_release.py` (new `test_release_refuses_mixed_signals`: `VRG_IDENTITY_MODE=human` with `any_agent_signal()` patched to `True` exits 1 before any git call)
 
 **Interfaces:**
+
 - Produces, in `lib/promote.py`:
   - `class PromoteError(ValueError)`
   - `@dataclass(frozen=True) class Promotion: origin_repo: str; rolling_tag: str; release_tag: str; old_ref: str; old_commit: str; new_commit: str`. `old_ref` is the rolling tag's **raw** value on origin, the `ls-remote` line for `refs/tags/<rolling>` without `^{}`: for an annotated tag that is the tag object's id, not the commit. `old_commit` is its **peeled** commit (the `^{}` line, or `old_ref` itself for a lightweight tag). Both are `""` when the rolling tag does not exist yet. `old_ref` is used only for the lease; the no-op check, the confirmation comparison and `describe` use the peeled commits.
@@ -274,6 +278,7 @@ Expected: FAIL in the new tests and in the rewritten existing tests above.
 - [ ] **Step 4: Implement the library**
 
 `plan_promotion` uses `_peeled_commit` for both tags and `git merge-base --is-ancestor <new> origin/main`, after `git fetch --tags --force origin main`, so that `origin/main` and the tags are current. A non-zero fetch raises `PromoteError`. `promote` becomes: `p = plan_promotion(version)`; if `p.old_commit == p.new_commit`, print the existing "already promoted" line and return; if `dry_run`, print `describe(p)` and return; otherwise call `promote_confirmed(p)`.
+
 - [ ] **Step 5: Implement the CLI**
 
 In `main()`, before anything else:
@@ -285,7 +290,7 @@ if identity_mode.is_agent() or identity_mode.any_agent_signal():
     return 1
 ```
 
-Then `p = plan_promotion(version)` (a `PromoteError` prints `Error: …` and returns 1). If `p.old_commit == p.new_commit`, print `<rolling> already points at <release> — already promoted.` and return 0, before the dry-run, TTY and prompt branches. Otherwise print `describe(p)`. With `--dry-run`, return 0. Without a TTY (`not sys.stdin.isatty()`), print `vrg-promote: refusing to move <rolling> without a terminal to confirm on.` and return 1. Otherwise ask `Move <rolling> on <repo>? [y/N] `, and on anything but `y`/`yes` return 1. Then call `promote_confirmed(p)` with the `Promotion` the human confirmed, never `promote(version)`, so what runs is what was shown.
+Then `p = plan_promotion(version)` (a `PromoteError` prints `Error: …` and returns 1). If `p.old_commit == p.new_commit`, print `<rolling> already points at <release> — already promoted.` and return 0, before the dry-run, TTY and prompt branches. Otherwise print `describe(p)`. With `--dry-run`, return 0. Without a TTY (`not sys.stdin.isatty()`), print `vrg-promote: refusing to move <rolling> without a terminal to confirm on.` and return 1. Otherwise ask `Move <rolling> on <repo>? [y/N]`, and on anything but `y`/`yes` return 1. Then call `promote_confirmed(p)` with the `Promotion` the human confirmed, never `promote(version)`, so what runs is what was shown.
 
 - [ ] **Step 6: Refactor**
 
@@ -322,6 +327,7 @@ Operational: no PR. Run with `issue-validate`.
 ### Task 3: Marketplace reconcile for VMs and host
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/claude_marketplace.py`
 - Modify: `src/vergil_tooling/lib/vm_guest.py` (`update_plugins`)
 - Modify: `src/vergil_tooling/bin/vrg_host.py` (new `plugins` subcommand)
@@ -330,6 +336,7 @@ Operational: no PR. Run with `issue-validate`.
 - Test: `tests/vergil_tooling/test_claude_marketplace.py`, `tests/vergil_tooling/test_vm_guest.py`, `tests/vergil_tooling/test_vrg_host.py`, `tests/vergil_tooling/test_vrg_vm.py`, `tests/vergil_tooling/test_vm_memory.py`
 
 **Interfaces:**
+
 - Consumes: the rung and the exact commands recorded by V1.
 - Produces, in `lib/claude_marketplace.py`:
   - `class Exec(Protocol)`: `run(*argv: str) -> subprocess.CompletedProcess[str]`; `pipe(command: str, data: str) -> None` (runs `command` through `bash -c` with `data` on stdin); and `python: str` (the interpreter the fixed rewrite program runs under). Every function below takes an `Exec`, never a bare callable, so a data channel separate from command text always exists.
@@ -419,6 +426,7 @@ Before implementing, confirm by grep that nothing inside a guest writes `~/.clau
 
 Run: `vrg-container-run -- vrg-validate`
 Expected, per file:
+
 - `test_claude_marketplace.py`: every test errors on `ImportError` (`lib/claude_marketplace.py` does not exist).
 - `test_vm_guest.py`: the marketplace-switch test fails because `update_plugins` only re-adds, which is a no-op; the guest-settings test fails because `_read_guest_settings` returns `{}`; the `CLAUDE.md` lock test fails because no `chmod a-w` is piped.
 - `test_vm_memory.py`: the updated tests fail because `project_memory` still writes and locks `CLAUDE.md`.
@@ -457,6 +465,7 @@ Operational: no PR. Run with `issue-deploy`.
 **Procedure:** the human runs `vrg-github-repo-config apply --repo <owner/repo>` for each repo in the fleet (the rulesets are org-wide desired state, so every repo with rolling tags gets them). Then `vrg-github-repo-config audit --repo vergil-project/vergil-claude-plugin` is run, and `vrg-git ls-remote --heads https://github.com/vergil-project/vergil-claude-plugin 'v*'` confirms that no branch matches.
 
 **Verification of the access rules:**
+
 1. The human runs `vrg-github-repo-config audit` with their own (non-App) credentials on vergil-claude-plugin, vergil-tooling and vergil-actions, so that bypass actors are compared too.
 2. The live `v2.1` is never touched. A same-commit push of it sends no ref update, so GitHub would evaluate no rule. The test uses a throwaway rolling-style tag that the widened `refs/tags/v*.*` include covers: the human creates `v0.0` in vergil-claude-plugin at an old release commit `<A>` (creating a tag is not blocked).
 3. **Non-Admin refused.** The human, holding an agent App installation token, runs `GH_TOKEN=<installation token> gh api -X PATCH repos/vergil-project/vergil-claude-plugin/git/refs/tags/v0.0 -f sha=<B> -F force=true`, with `<B>` another release commit. GitHub must refuse it with a repository rule violation. The human runs this step because the agent's own wrappers deny both `push --force` and `gh api`, so an agent attempt would be refused by the wrapper, not by GitHub.
@@ -469,6 +478,7 @@ Operational: no PR. Run with `issue-deploy`.
 ### Task 4: Plugin distribution docs (vergil-claude-plugin)
 
 **Files:**
+
 - Modify: `README.md` ("Distribution model", "Install"), `CLAUDE.md` (the distribution paragraph near line 120), `docs/site/docs/index.md` (the settings example)
 
 - [ ] **Step 1:** Change each `"ref": "main"` example to `"ref": "v2.1"` and `vergil-marketplace@main` to `vergil-marketplace@v2.1`.
@@ -484,6 +494,7 @@ Operational: no PR. Run with `issue-deploy`.
 ### Task 5: Consumer setup and rollback runbook (vergil-tooling docs)
 
 **Files:**
+
 - Modify: `docs/site/docs/guides/consuming-repo-setup.md` (the `enabledPlugins` row and the marketplace definition)
 - Modify: `docs/site/docs/guides/releasing.md` (new "Rolling back a release" section)
 
@@ -501,6 +512,7 @@ Operational: no PR. Run with `issue-deploy`.
 **Who runs what:** steps 1 to 3 act on the host, which the agent cannot reach and `vrg-host plugins` refuses an agent, so **the human runs them** and pastes their output into the task. The agent runs `issue-deploy`, records that output, and runs the checks it can make itself inside its own VM.
 
 **Procedure:**
+
 1. The human edits the host `~/.claude/settings.json`: `extraKnownMarketplaces.vergil-marketplace.source.ref` from `"main"` to `"v2.1"`.
 2. The human runs `vrg-host plugins`. Expected: it reports `vergil-marketplace` switched, and `claude plugin marketplace list --json` shows `ref: v2.1`.
 3. The human runs `vrg-vm update --all`. Expected: each VM reports the marketplace switched, with no failure. The agent then confirms in its own VM that `claude plugin marketplace list --json` shows `ref: v2.1`.
@@ -515,6 +527,7 @@ Operational: no PR. Run with `issue-validate`. The tag moves, the release and th
 **Precondition self-check:** D2 accepted; Task 5's runbook is published.
 
 **Procedure:**
+
 1. The human picks an earlier release `v2.1.<B>` and runs the runbook's four steps against vergil-claude-plugin.
 2. Update the host (`vrg-host plugins`) and the VMs (`vrg-vm update --all`). On the host and every VM, record the installed version (`claude plugin list --json`), and in a freshly started session, the version the session loaded. The human confirms that the host's `~/.config/vergil/plugin-dirs.toml` (host-local; `vrg-vm session` reads it and adds `--plugin-dir` for Lima sessions) lists no vergil plugin tree, and that the host session itself was not started with `--plugin-dir`, so that every session loads the installed plugin.
 3. The human runs `vrg-promote <latest v2.1.Z>` by the same steps.
