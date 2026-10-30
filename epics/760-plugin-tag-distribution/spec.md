@@ -58,11 +58,24 @@ a human can move back.
 **The rolling tag is the deploy ref, so it is protected like one.**
 
 - Every `vX.Y` rolling tag, in every repo whose consumers follow one, is
-  covered by a tag ruleset that blocks update and deletion except by the named
-  release bypass actor. The org's tag-protection ruleset in vergil-tooling
-  (`lib/github_config.py`) declares it, and the daily config audit enforces it.
+  covered by a tag ruleset that blocks update and deletion except by the
+  repository Admin role, the human release identity. The org's tag-protection
+  ruleset in vergil-tooling (`lib/github_config.py`) declares it, and the daily
+  config audit checks it. The audit runs on a GitHub App token, which cannot
+  read a ruleset's bypass list, so it checks the protected refs and rules but
+  not the bypass actors. This holds for every existing ruleset too.
+- No branch may carry a rolling-tag name. A branch ruleset, declared in the
+  same module and checked by the same audit, blocks creating any branch
+  matching `refs/heads/v*`, with no bypass or only the repository Admin role.
+  Claude Code resolves a ref as a branch before a tag (§3), so the tag's
+  protection holds only while no branch of that name can exist.
 - `vrg-promote` moves a rolling tag only to an existing `vX.Y.Z` release tag
   whose commit is on `origin/main`, and refuses any other target.
+- `vrg-promote` refuses an agent identity, with the same check `vrg-release`
+  uses (`identity_mode.is_agent()`, failing closed on any agent signal).
+  Moving a rolling tag is a human act.
+- **Order:** both rulesets are live on vergil-claude-plugin, and the audit
+  reports them clean, before any machine switches to `v2.1`.
 
 This reverses the part of epic #45 that ruled out `vX.Y` tags. #45's arguments
 were against multiple channels and SemVer pinning (consumers holding different
@@ -123,14 +136,19 @@ real install was untouched:
    on the repo of the current directory and the fleet's repos share tag names
    (`v2.1.50` exists in vergil-tooling and vergil-actions too):
    1. `cd` into a vergil-claude-plugin checkout;
-   2. `vrg-git fetch --tags origin`;
+   2. `vrg-git fetch --tags --force origin` (the rolling tag moves every
+      release, and without `--force` the fetch refuses to update a local tag
+      that has moved, as the release code already allows for);
    3. `vrg-promote --dry-run <X.Y.Z>`, and check the tag move it prints;
    4. `vrg-promote <X.Y.Z>`.
 
    Before it force-pushes, `vrg-promote` run directly prints the origin repo,
-   the rolling tag and the old and new commits, and asks for confirmation. The
-   promote stage of `vrg-release` keeps its own confirmation flow and is not
-   prompted twice.
+   the rolling tag and the old and new commits, and asks for confirmation.
+   The prompt lives only in the `vrg-promote` command (`bin/vrg_promote.py`);
+   the promote stage of `vrg-release` calls the library and is not prompted.
+   With no terminal to ask on, `vrg-promote` refuses rather than proceeds.
+   `--dry-run` prints the same origin repo, rolling tag and commits, and
+   applies the §2 target check, so step 3 shows exactly what step 4 would do.
 2. Each machine picks the move up the next time its marketplace and plugin
    update: `claude plugin marketplace update vergil-marketplace`, then `claude
    plugin update vergil@vergil-marketplace` (background auto-update does the
@@ -143,8 +161,9 @@ real install was untouched:
    issue that blocks promotion until it is closed is a separate idea
    (vergil-project/.github#763).
 
-The procedure is documented in vergil-tooling's site docs next to the release
-guide, and the plugin README points to it.
+The procedure is documented in a rollback section of vergil-tooling's release
+guide, `docs/site/docs/guides/releasing.md`, and the plugin README points to
+it.
 
 ## 6. Switching existing machines
 
@@ -156,13 +175,12 @@ plugin marketplace update vergil-marketplace` reported `Marketplace
 over the existing registration printed `already on disk` and changed nothing.
 
 The switch is **fully mechanized**: no machine, host or VM, is switched by
-hand. The mechanism is the lightest one that is proven to work, tried in this
+hand. Re-adding over the existing registration is already shown not to work.
+The mechanism is the lightest one that is proven to work, tried in this
 order:
 
-1. re-registering the marketplace at the new ref in place, keeping the
-   installed plugin;
-2. rewriting the registered source to match the declared one, then updating;
-3. `claude plugin marketplace remove vergil-marketplace`, then `add` at
+1. rewriting the registered source to match the declared one, then updating;
+2. `claude plugin marketplace remove vergil-marketplace`, then `add` at
    `v2.1` and reinstalling `vergil@vergil-marketplace`. `remove` also
    uninstalls the marketplace's plugins and deletes their data, options and
    secrets, so this step is taken only if the lighter ones fail, and the data
@@ -185,16 +203,17 @@ the consumer setup guide.
   `CLAUDE.md` goes, since there are none.
 - **vergil-tooling:** `docs/site/docs/guides/consuming-repo-setup.md` (the
   marketplace definition and the switch procedure from §6) and a rollback
-  section in the release guide (§5). Test fixtures that use `"ref": "main"` are
+  section in the release guide, `docs/site/docs/guides/releasing.md` (§5). Test fixtures that use `"ref": "main"` are
   sample data for a ref-agnostic function and are left alone.
 - **`.github`:** this spec and plan. Epic #45's spec gets one line under its
   header pointing to this spec as superseding its tag decision. Its text is not
   otherwise rewritten.
-- **vergil-tooling:** the rolling-tag ruleset and the `vrg-promote` target
-  check (§2), and the `vrg-promote` confirmation (§5).
+- **vergil-tooling:** the rolling-tag ruleset, the rolling-tag branch-name
+  ruleset, and the `vrg-promote` target check and agent refusal (§2), and the `vrg-promote` confirmation (§5).
 - **vergil-tooling, if the §6 proof needs it:** `vm_guest.update_plugins`
   learns the proven switch mechanism.
-- **Deployment:** a sweep of the whole fleet. The host `~/.claude/settings.json`
+- **Deployment:** a sweep of the whole fleet, started only once the §2 order
+  condition holds (the rulesets live and audited clean). The host `~/.claude/settings.json`
   and every VM move to `v2.1` by the mechanism §6 proves. Every repo in the
   local working tree is checked for a project-level `extraKnownMarketplaces`
   entry for `vergil-marketplace`. Such an entry replaces the user entry as a
