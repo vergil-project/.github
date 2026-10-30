@@ -9,7 +9,7 @@
 
 **Goal:** Move the `vergil-marketplace` ref from `main` to the floating `v2.1` tag, with the tag protected as the deploy ref, a hardened `vrg-promote` as the rollback tool, and a fully mechanized switch of the whole fleet.
 
-**Architecture:** The vergil-tooling changes come first: the rolling-tag rulesets, the `vrg-promote` hardening and a shared marketplace-reconcile module used by the VM refresh and a new host command. A deployment applies the rulesets, a second deployment switches the fleet, and a validation runs a real rollback round trip. The docs change in the plugin repo and vergil-tooling.
+**Architecture:** The vergil-tooling changes come first: the rolling-tag rulesets, the `vrg-promote` hardening and a shared, verified marketplace refresh used by the VM refresh and a new host command. A deployment applies the rulesets, a second deployment switches the fleet, and a validation runs a real rollback round trip. The docs change in the plugin repo and vergil-tooling.
 
 **Tech Stack:** Python 3.14 (vergil-tooling, pytest), the GitHub rulesets API through `vrg-github-repo-config`, the Claude Code plugin CLI (`claude plugin marketplace …`), Markdown docs.
 
@@ -25,7 +25,7 @@
 - Every human-only command this epic touches (`vrg-promote`, `vrg-release`, `vrg-host plugins`) refuses with the fail-closed check, `identity_mode.is_agent() or identity_mode.any_agent_signal()` (spec §2, §6).
 - Both rulesets are live on vergil-claude-plugin, and its audit reports them clean, before any machine switches (spec §2, "Order").
 - No machine, host or VM, is switched by hand (spec §6).
-- `claude plugin marketplace remove` is the last rung of the switch, used only if the rewrite rung fails (spec §6).
+- The switch is "declare it in `settings.json`, then re-add", proven by V1 (vergil-project/vergil-tooling#3850), and every refresh verifies the registered repo and ref afterwards (spec §6). Nothing edits Claude Code's internal registration files.
 - Moving a rolling tag is a human act; agents never run `vrg-promote`, `vrg-release`, `vrg-github-repo-config apply` or `vrg-submit-pr`.
 - vergil-tooling validation is `vrg-container-run -- vrg-validate` only.
 
@@ -33,9 +33,9 @@
 
 1. **`vrg-promote` with no terminal** (run from a script, CI or a pipe): it must refuse, not proceed. Pinned in Task 2.
 2. **`vrg-promote` given the rolling tag's current target:** it must report "already promoted" and push nothing, as today. Pinned in Task 2.
-3. **A registered marketplace with no `ref`** (registered from the default branch): the reconcile treats a missing ref as different from `v2.1` and switches it. Pinned in Task 3.
-4. **A marketplace declared in settings but not registered at all** (a fresh box): the reconcile adds it and does not try to rewrite or remove anything. Pinned in Task 3.
-5. **A malformed `claude plugin marketplace list --json`** (not a list, or an entry without `name`): the reconcile raises; it never skips silently. Pinned in Task 3.
+3. **A registered marketplace with no `ref` after the refresh:** the verification treats a missing ref as different from `v2.1` and reports a failure. Pinned in Task 3.
+4. **A marketplace declared in settings but not registered after the refresh** (for example, the add failed silently): the verification reports a failure. Pinned in Task 3.
+5. **A malformed `claude plugin marketplace list --json`** (not a list, or an entry without `name`): the refresh raises; it never skips silently. Pinned in Task 3.
 
 ---
 
@@ -46,7 +46,7 @@
 | 1 | Rolling-tag rulesets | vergil-tooling | task | — |
 | 2 | Harden `vrg-promote` | vergil-tooling | task | — |
 | V1 | Prove the switch mechanism | vergil-tooling | validation | — |
-| 3 | Marketplace reconcile for VMs and host | vergil-tooling | task | V1 |
+| 3 | Marketplace refresh for VMs and host | vergil-tooling | task | V1 |
 | D1 | Apply the rolling-tag rulesets fleet-wide | vergil-tooling | deployment | 1 |
 | 4 | Plugin distribution docs | vergil-claude-plugin | task | 5, D1 |
 | 5 | Consumer setup and rollback runbook | vergil-tooling | task | 2, 3, D1 |
@@ -324,82 +324,76 @@ Operational: no PR. Run with `issue-validate`.
 
 **Acceptance:** a recorded rung that ends with `list --json` showing `v2.1`, the checkout on the `v2.1` commit and the installed version matching; the Claude Code version; the exact commands; and, verbatim, the raw `claude plugin marketplace list --json` output and the `vergil-marketplace` entry of `plugins/known_marketplaces.json`, both before and after the switch. The post-switch `list --json` output must carry the registered ref, as a `ref` field equal to the declared ref; if it does not, V1 records where the registered ref can be read instead, and Task 3 reads it from there. The result comment is the input to Task 3, whose fixtures are these raw outputs.
 
-### Task 3: Marketplace reconcile for VMs and host
+### Task 3: Marketplace refresh for VMs and host
 
 **Files:**
 
 - Create: `src/vergil_tooling/lib/claude_marketplace.py`
-- Modify: `src/vergil_tooling/lib/vm_guest.py` (`update_plugins`)
+- Modify: `src/vergil_tooling/lib/vm_guest.py` (`update_plugins`, `_read_guest_settings`, `copy_claude_config`)
 - Modify: `src/vergil_tooling/bin/vrg_host.py` (new `plugins` subcommand)
-- Modify: `src/vergil_tooling/bin/vrg_vm.py` (`_update_over_transport`)
+- Modify: `src/vergil_tooling/bin/vrg_vm.py` (`_update_over_transport`, `_cmd_update_all`)
 - Modify: `src/vergil_tooling/lib/vm_memory.py` (`project_memory`, `lock_projection` locked set)
 - Test: `tests/vergil_tooling/test_claude_marketplace.py`, `tests/vergil_tooling/test_vm_guest.py`, `tests/vergil_tooling/test_vrg_host.py`, `tests/vergil_tooling/test_vrg_vm.py`, `tests/vergil_tooling/test_vm_memory.py`
 
 **Interfaces:**
 
-- Consumes: the rung and the exact commands recorded by V1.
-- Produces, in `lib/claude_marketplace.py`:
-  - `class Exec(Protocol)`: `run(*argv: str) -> subprocess.CompletedProcess[str]`; `pipe(command: str, data: str) -> None` (runs `command` through `bash -c` with `data` on stdin); and `python: str` (the interpreter the fixed rewrite program runs under). Every function below takes an `Exec`, never a bare callable, so a data channel separate from command text always exists.
-  - `TransportExec(transport: Transport)`: the guest `Exec`. `run` and `pipe` delegate to `transport.run` and `transport.pipe`, and `python` is `"python3"`.
-  - `LocalExec()`: the host `Exec`. `run` is `subprocess.run(argv, check=True, capture_output=True, text=True)`, `pipe` is `subprocess.run(["bash", "-c", command], input=data, check=True, text=True)`, and `python` is `sys.executable`, never a bare `python3`, which on macOS may be the Command Line Tools stub.
-  - `REWRITE_PROGRAM: str`: one fixed Python program, a module constant with no interpolation. It reads `{"path", "name", "repo", "ref"}` as JSON from stdin, checks the registration entry's shape, rewrites its `source`, and exits non-zero with a message on an unrecognized shape. It is run as `ex.pipe(f"{shlex.quote(ex.python)} -c {shlex.quote(REWRITE_PROGRAM)}", json.dumps(values))`, so that declared values travel only on stdin.
+- Consumes: V1's result (vergil-project/vergil-tooling#3850). The switch mechanism is "declare it in `settings.json`, then re-add" (spec §6), and V1's recorded raw `claude plugin marketplace list --json` outputs are the test fixtures. The registered ref is read from each entry's `ref` field.
+- Produces, in `lib/claude_marketplace.py` (the refresh sequence `vm_guest.update_plugins` runs today, moved here so that host and VM share it, plus a verification step):
+  - `Run = Callable[..., subprocess.CompletedProcess[str]]`, the shape of `Transport.run(*argv)`.
+  - `local_run(*argv: str) -> subprocess.CompletedProcess[str]`: the host's `Run`, `subprocess.run(argv, check=True, capture_output=True, text=True)`.
+  - `shell(prefix: str, command: str) -> list[str]`: `["bash", "-c", f"{prefix} && {command}"]` when `prefix` is non-empty, `["bash", "-c", command]` when it is empty. Every Claude CLI call in this module goes through it, with every declared value (marketplace name, repo, ref) passed through `shlex.quote`, as `vm_guest` already does.
   - `@dataclass(frozen=True) class Declared: name: str; repo: str; ref: str | None`
   - `declared_marketplaces(settings: dict[str, Any]) -> list[Declared]`, from `extraKnownMarketplaces` github sources.
-  - `registered_marketplaces(ex: Exec, prefix: str) -> dict[str, tuple[str | None, str | None]]`: name to `(repo, ref)`, from `claude plugin marketplace list --json`. `reconcile` switches a marketplace when either its repo or its ref differs from the declared one. It raises `MarketplaceError` on output that is not a JSON list of objects with a `name` (Review Focus 5).
-  - `reconcile(ex: Exec, settings: dict[str, Any], prefix: str) -> list[str]`: for each declared marketplace, adds it when it is not registered (Review Focus 4), does nothing when the registered ref equals the declared ref, and otherwise applies V1's proven rung. A missing registered ref counts as different (Review Focus 3). Returns the names it switched. `prefix` is the shell prefix each command runs under (`_PLUGIN_PATH_EXPORT` in a VM, `""` on the host).
+  - `registered_marketplaces(run: Run, prefix: str) -> dict[str, tuple[str | None, str | None]]`: name to `(repo, ref)`, from `claude plugin marketplace list --json`. Raises `MarketplaceError` on output that is not a JSON list of objects with a `name` (Review Focus 5).
+  - `refresh(run: Run, settings: dict[str, Any], prefix: str) -> list[str]`: for each declared marketplace, runs `claude plugin marketplace add <repo>@<ref>` (today's `_marketplace_sources` behaviour, including the official-marketplace derivation), then `claude plugin marketplace update`, then `update_installed_plugins`, then `verify`. Returns failure labels, never swallows one.
+  - `verify(run: Run, settings: dict[str, Any], prefix: str) -> list[str]`: compares each declared marketplace's repo and ref with `registered_marketplaces`. Returns one failure label per marketplace that is unregistered or whose repo or ref differs; a missing registered ref counts as different (Review Focus 3, 4).
+  - `update_installed_plugins(run: Run, settings: dict[str, Any], prefix: str) -> list[str]`: the per-install `claude plugin update` (each entry at its own scope, project entries from their `projectPath`) and the install of enabled-but-missing ids, moved here from `vm_guest` (`_update_plugin_entry` and its caller). Returns failure labels.
   - `class MarketplaceError(RuntimeError)`
-  - `shell(prefix: str, command: str) -> list[str]`: returns `["bash", "-c", f"{prefix} && {command}"]` when `prefix` is non-empty and `["bash", "-c", command]` when it is empty. Every Claude CLI call in this module goes through it.
-  - `update_installed_plugins(ex: Exec, settings: dict[str, Any], prefix: str) -> list[str]`: the per-install `claude plugin update` (each entry at its own scope, project entries from their `projectPath`) and the install of enabled-but-missing ids, moved here from `vm_guest` (`_update_plugin_entry` and its caller). Returns failure labels. `vm_guest.update_plugins` and `vrg-host plugins` both call it.
-- `vm_guest.update_plugins` replaces its add-only loop for github sources with `reconcile(TransportExec(transport), settings, _PLUGIN_PATH_EXPORT)`, keeps the official-marketplace derivation and `marketplace update`, and adds a failure for any `MarketplaceError`.
-- `copy_claude_config` (`lib/vm_guest.py`) becomes the sole owner of the guest `~/.claude/CLAUDE.md` file mode. The guest copy is a read-only copy of the host's on every transport. After writing `CLAUDE.md` it runs `chmod a-w ~/.claude/CLAUDE.md`, on Lima as well as cloud, so every path that copies it leaves it read-only: Lima start, rebuild and session; cloud create and session, including the session-listing path that skips memory projection; and update. `settings.json` stays writable. `vm_memory.project_memory` keeps locking only the memory subtree it owns, and stops writing and locking `CLAUDE.md`, because `copy_claude_config` now does both on every path that reaches it.
-- `_update_over_transport` (`bin/vrg_vm.py`) calls `copy_claude_config(transport, Path.home() / ".claude")` before `update_plugins`, so `vrg-vm update` delivers the host's current `settings.json` to a running VM before reconciling. Today only start, rebuild and cloud sessions copy it. Stopped VMs are skipped by `vrg-vm update --all` and switch on their next start, which copies the config.
-- `_cmd_update_all` (`bin/vrg_vm.py`): the Lima loop defers a `RuntimeError` from one VM the way the off-platform loop already does, so one VM's plugin failure (including `MarketplaceError`) never stops the rest from updating. The run still exits non-zero and names each failed VM. Test in `test_vrg_vm.py`, `test_update_all_continues_after_lima_plugin_failure`: two Lima VMs, the first one's `update_plugins` raises `RuntimeError`, the second is still updated, and the exit code is non-zero with the first VM named.
-- `_read_guest_settings` no longer returns `{}`. A missing, unreadable or invalid guest `settings.json` raises `RuntimeError` naming the file, instead of reconciling nothing and succeeding. A missing file is not "nothing declared": the host file is required, and `vrg-vm` copies it in before reconciling, so its absence means something is broken.
-- **Only if V1 proved the remove rung:** before `remove`, `reconcile` records every install of the marketplace's plugins from `claude plugin list --json` (id, scope, `projectPath`). After the re-add, `update_installed_plugins` reinstalls each at its own scope, from its `projectPath` for project scope, with a test that a project-scope install comes back at project scope.
-- `vrg-host plugins` reads `~/.claude/settings.json` and runs `reconcile(LocalExec(), settings, "")`, then `claude plugin marketplace update` and `update_installed_plugins(LocalExec(), settings, "")`. It refuses under an agent identity with the fail-closed check (`identity_mode.is_agent() or identity_mode.any_agent_signal()`), exiting 1 before any `claude` call. If any step fails, it names each failure and exits 2, following `vrg-host`'s convention (0 OK, 1 refusal or warning, 2 failure).
+- `vm_guest.update_plugins` becomes `refresh(transport.run, settings, _PLUGIN_PATH_EXPORT)`, and raises `RuntimeError` naming every failure label it returns.
+- `_read_guest_settings` no longer returns `{}`. A missing, unreadable or invalid guest `settings.json` raises `RuntimeError` naming the file. A missing file is not "nothing declared": the host file is required, and `vrg-vm` copies it in before refreshing (spec §6).
+- `copy_claude_config` (`lib/vm_guest.py`) becomes the sole owner of the guest `~/.claude/CLAUDE.md` file mode. The guest copy is a read-only copy of the host's on every transport. After writing `CLAUDE.md` it runs `chmod a-w ~/.claude/CLAUDE.md`, on Lima as well as cloud, so every path that copies it leaves it read-only: Lima start, rebuild and session; cloud create and session, including the session-listing path that skips memory projection; and update. `settings.json` stays writable. `vm_memory.project_memory` keeps locking only the memory subtree it owns, and stops writing and locking `CLAUDE.md`.
+- `_update_over_transport` (`bin/vrg_vm.py`) calls `copy_claude_config(transport, Path.home() / ".claude")` before `update_plugins`, so `vrg-vm update` delivers the host's current `settings.json` to a running VM before refreshing. Today only start, rebuild and cloud sessions copy it. Stopped VMs are skipped by `vrg-vm update --all` and switch on their next start, which copies the config.
+- `_cmd_update_all` (`bin/vrg_vm.py`): the Lima loop defers a `RuntimeError` from one VM the way the off-platform loop already does, so one VM's plugin failure never stops the rest from updating. The run still exits non-zero and names each failed VM.
+- `vrg-host plugins` reads `~/.claude/settings.json` and runs `refresh(local_run, settings, "")`. It refuses under an agent identity with the fail-closed check (`identity_mode.is_agent() or identity_mode.any_agent_signal()`), exiting 1 before any `claude` call. If any step or the verification fails, it names each failure and exits 2, following `vrg-host`'s convention (0 OK, 1 refusal or warning, 2 failure).
 
-- [ ] **Step 1: Write the failing tests** (`test_claude_marketplace.py`, a fake `run` that records argv and returns canned `list --json` output)
+- [ ] **Step 1: Write the failing tests**
+
+In `test_claude_marketplace.py`, use a fake `run` that records argv and returns canned `list --json` output, built from V1's raw outputs, copied verbatim:
 
 ```python
-def test_reconcile_switches_mismatched_ref() -> None:
-    # registered {"vergil-marketplace": "main"}, declared ref "v2.1"
-    assert reconcile(fake, SETTINGS_V21, "") == ["vergil-marketplace"]
-    # fake.calls contains V1's proven commands, in V1's order
+def test_refresh_re_adds_at_declared_ref_then_updates() -> None:
+    refresh(fake_switched, SETTINGS_V21, "")
+    # recorded order: marketplace add vergil-project/vergil-claude-plugin@v2.1,
+    # marketplace update, per-install plugin update(s), marketplace list --json
 
-def test_reconcile_switches_mismatched_repo() -> None:
-    # registered {"vergil-marketplace": ("other/repo", "v2.1")}, declared repo
-    # "vergil-project/vergil-claude-plugin" -> switched
+def test_verify_passes_on_switched_state() -> None:
+    # fake returns V1's post-switch `list --json` output verbatim
+    assert verify(fake_post_switch, SETTINGS_V21, "") == []
 
+def test_verify_fails_when_ref_did_not_move() -> None:
+    # `list --json` still reports ref "main" after the refresh
+    assert verify(fake_stale, SETTINGS_V21, "") == ["marketplace:vergil-marketplace"]
 
-def test_reconcile_is_idempotent_on_switched_state() -> None:
-    # fake returns V1's recorded post-switch `list --json` output verbatim
-    assert reconcile(fake_post_switch, SETTINGS_V21, "") == []
-    # no add, remove or rewrite call was recorded
+def test_verify_fails_on_mismatched_repo() -> None:
+    # registered ("other/repo", "v2.1"), declared "vergil-project/vergil-claude-plugin"
+    assert verify(fake_other_repo, SETTINGS_V21, "") == ["marketplace:vergil-marketplace"]
 
-def test_reconcile_leaves_matching_ref_alone() -> None:
-    # registered "v2.1" -> returns [], and no add, remove or rewrite call
+def test_verify_treats_missing_registered_ref_as_mismatch() -> None:  # RF3
+    # registered entry has no `ref` field
+    assert verify(fake_no_ref, SETTINGS_V21, "") == ["marketplace:vergil-marketplace"]
 
-def test_reconcile_treats_missing_registered_ref_as_mismatch() -> None:  # RF3
-    # registered {"vergil-marketplace": None} -> switched
-
-def test_reconcile_adds_unregistered_marketplace() -> None:  # RF4
-    # registered {} -> one `marketplace add vergil-project/vergil-claude-plugin@v2.1`, no remove
+def test_verify_fails_on_unregistered_marketplace() -> None:  # RF4
+    # `list --json` returns []
+    assert verify(fake_empty, SETTINGS_V21, "") == ["marketplace:vergil-marketplace"]
 
 def test_registered_marketplaces_rejects_malformed_json() -> None:  # RF5
     with pytest.raises(MarketplaceError):
         registered_marketplaces(fake_returning('{"not": "a list"}'), "")
 
-def test_reconcile_quotes_declared_values() -> None:
-    # declared ref is "v2.1'; touch x"
-    reconcile(fake, settings_with_ref("v2.1'; touch x"), "")
-    # every recorded bash -c string contains shlex.quote("v2.1'; touch x"),
-    # never the raw value; the known_marketplaces.json rewrite received the
-    # value on stdin (fake.piped), not in its program text
-
-def test_rewrite_rejects_unknown_registration_shape() -> None:
-    # known_marketplaces.json entry has source.source == "git"
-    with pytest.raises(MarketplaceError, match="unrecognized"):
-        reconcile(fake_with_entry({"source": {"source": "git", "url": "x"}}), SETTINGS_V21, "")
+def test_refresh_quotes_declared_values() -> None:
+    refresh(fake, settings_with_ref("v2.1'; touch x"), "")
+    # every recorded bash -c string contains shlex.quote(...) of the ref,
+    # never the raw value
 
 def test_declared_marketplaces_skips_non_github_sources() -> None:
     settings = {"extraKnownMarketplaces": {
@@ -414,13 +408,27 @@ def test_shell_without_prefix_has_no_leading_and() -> None:
         "bash", "-c", "export PATH=x && claude plugin list --json"]
 ```
 
-The `list --json` and `known_marketplaces.json` fixtures are V1's recorded raw outputs, copied verbatim into the test module.
+In `test_vm_guest.py`:
 
-In `test_vrg_vm.py`, add `test_update_over_transport_copies_config_before_plugins`: the recorded calls show `copy_claude_config` before `update_plugins`. In `test_vm_guest.py`, add `test_update_plugins_fails_on_missing_unreadable_or_invalid_guest_settings`, parametrized over the three cases: the guest `cat ~/.claude/settings.json` exits non-zero because the file is missing, exits non-zero because it cannot be read, or prints invalid JSON. Each raises `RuntimeError` matching `~/.claude/settings.json`, before any reconcile call. In `test_vm_guest.py`, also add `test_copy_claude_config_locks_claude_md` (the piped commands write `CLAUDE.md` and then run `chmod a-w ~/.claude/CLAUDE.md`, and never `chmod a-w` `settings.json`). In `test_vm_memory.py`, update the `project_memory` tests: it no longer writes `CLAUDE.md`, and the `lock_projection` locked set no longer names it.
+- `test_update_plugins_fails_when_verification_fails`: the fake transport's post-refresh `list --json` reports `main` while the settings declare `v2.1`; `update_plugins` raises `RuntimeError` naming the marketplace.
+- `test_update_plugins_fails_on_missing_unreadable_or_invalid_guest_settings`, parametrized over the three cases (the guest `cat ~/.claude/settings.json` exits non-zero because the file is missing, exits non-zero because it cannot be read, or prints invalid JSON). Each raises `RuntimeError` matching `~/.claude/settings.json`, before any `claude` call.
+- `test_copy_claude_config_locks_claude_md`: the piped commands write `CLAUDE.md` and then run `chmod a-w ~/.claude/CLAUDE.md`, and never `chmod a-w` `settings.json`.
 
-Before implementing, confirm by grep that nothing inside a guest writes `~/.claude/CLAUDE.md` (`grep -rn 'CLAUDE.md' src/vergil_tooling` and the plugin's hooks). If something does, stop and record it in the task issue instead of locking. In `test_vm_guest.py`, add `test_update_plugins_switches_marketplace_ref`: the guest settings declare `v2.1`, the fake transport's `list --json` reports `main`, and the recorded calls include the switch before `marketplace update`. In `test_vrg_host.py`, add `test_plugins_refuses_agent` (agent identity, exit 1, no `claude` call), `test_plugins_refuses_mixed_signals` (`VRG_IDENTITY_MODE=human` with `any_agent_signal()` patched to `True`, exit 1, no `claude` call), `test_plugins_runs_reconcile_then_update` (calls in the order reconcile, `marketplace update`, per-install update) and `test_plugins_exits_2_naming_each_failure` (two failing installs, exit 2, stderr names both).
+In `test_vm_memory.py`, update the `project_memory` tests: it no longer writes `CLAUDE.md`, and the `lock_projection` locked set no longer names it.
 
-**Quoting rule:** every declared value (marketplace name, repo, ref) reaches a `bash -c` string only through `shlex.quote`, as `vm_guest` already does. The `known_marketplaces.json` rewrite is `REWRITE_PROGRAM`, run through `Exec.pipe` with its values as JSON on stdin, never spliced into program text. The test fake implements `Exec` (recording `run` argv and `pipe` command and data separately), so that `test_reconcile_quotes_declared_values` can assert the value appears in the piped data and never in a command string.
+In `test_vrg_vm.py`:
+
+- `test_update_over_transport_copies_config_before_plugins`: the recorded calls show `copy_claude_config` before `update_plugins`.
+- `test_update_all_continues_after_lima_plugin_failure`: two Lima VMs; the first one's `update_plugins` raises `RuntimeError`; the second is still updated; the exit code is non-zero with the first VM named.
+
+In `test_vrg_host.py`:
+
+- `test_plugins_refuses_agent`: agent identity, exit 1, no `claude` call.
+- `test_plugins_refuses_mixed_signals`: `VRG_IDENTITY_MODE=human` with `any_agent_signal()` patched to `True`, exit 1, no `claude` call.
+- `test_plugins_runs_refresh`: calls in the order add, `marketplace update`, per-install update, `list --json`.
+- `test_plugins_exits_2_naming_each_failure`: two failing installs; exit 2; stderr names both.
+
+Before implementing, confirm by grep that nothing inside a guest writes `~/.claude/CLAUDE.md` (`grep -rn 'CLAUDE.md' src/vergil_tooling` and the plugin's hooks). If something does, stop and record it in the task issue instead of locking.
 
 - [ ] **Step 2: Run to verify the tests fail**
 
@@ -428,18 +436,18 @@ Run: `vrg-container-run -- vrg-validate`
 Expected, per file:
 
 - `test_claude_marketplace.py`: every test errors on `ImportError` (`lib/claude_marketplace.py` does not exist).
-- `test_vm_guest.py`: the marketplace-switch test fails because `update_plugins` only re-adds, which is a no-op; the guest-settings test fails because `_read_guest_settings` returns `{}`; the `CLAUDE.md` lock test fails because no `chmod a-w` is piped.
+- `test_vm_guest.py`: the verification test fails because `update_plugins` does not verify; the guest-settings test fails because `_read_guest_settings` returns `{}`; the `CLAUDE.md` lock test fails because no `chmod a-w` is piped.
 - `test_vm_memory.py`: the updated tests fail because `project_memory` still writes and locks `CLAUDE.md`.
 - `test_vrg_vm.py`: the update-ordering test fails because `_update_over_transport` never calls `copy_claude_config`; the update-all test fails because the Lima loop lets `RuntimeError` escape.
 - `test_vrg_host.py`: every test fails, because `vrg-host` has no `plugins` subcommand.
 
-- [ ] **Step 3: Implement `lib/claude_marketplace.py`** with the interfaces above and V1's commands. If V1 proved the rewrite rung, the rewrite edits `known_marketplaces.json` with `REWRITE_PROGRAM` through `Exec.pipe`, and checks that the entry has the shape V1 recorded (`source.source == "github"`, `source.repo`, optional `source.ref`). It raises `MarketplaceError` on any other shape, so that a Claude Code format change fails loudly.
+- [ ] **Step 3: Implement `lib/claude_marketplace.py`** with the interfaces above, moving today's add-then-update sequence out of `vm_guest` unchanged in behaviour, and adding `verify`.
 
-- [ ] **Step 4: Wire it into `vm_guest.update_plugins` and `_update_over_transport`, and add `vrg-host plugins`.** The existing `test_vm_guest.py` tests of `_update_plugin_entry` move to `test_claude_marketplace.py` with the function, unchanged in intent.
+- [ ] **Step 4: Wire it into `vm_guest.update_plugins`, `_update_over_transport` and `_cmd_update_all`, fix `_read_guest_settings` and `copy_claude_config`, and add `vrg-host plugins`.** The existing `test_vm_guest.py` tests of `_update_plugin_entry` and `_marketplace_sources` move to `test_claude_marketplace.py` with the functions, unchanged in intent.
 
 - [ ] **Step 5: Refactor**
 
-With the tests green, remove what is left of the old add-only loop and any now-unused helper in `vm_guest.py`, without changing behaviour.
+With the tests green, remove any now-unused helper in `vm_guest.py`, without changing behaviour.
 
 - [ ] **Step 6: Run validation to verify it passes**
 
@@ -448,11 +456,11 @@ Expected: PASS.
 
 - [ ] **Step 7: Document `vrg-host plugins`**
 
-Add it to `docs/site/docs/reference/cli-tools-overview.md` (`### vrg-host`), and update the `vrg-host` module docstring and the subcommand metavar (`{status,upgrade,pin,unpin}` gains `plugins`). In `docs/site/docs/guides/agent-vm-claude-share-set.md` (the `plugins/` and `update_plugins` description, about lines 54–66), replace the add-only registration with the reconcile, the update-time `settings.json` copy and the read-only guest `CLAUDE.md`.
+Add it to `docs/site/docs/reference/cli-tools-overview.md` (`### vrg-host`), and update the `vrg-host` module docstring and the subcommand metavar (`{status,upgrade,pin,unpin}` gains `plugins`). In `docs/site/docs/guides/agent-vm-claude-share-set.md` (the `plugins/` and `update_plugins` description, about lines 54–66), describe the refresh with its verification, the update-time `settings.json` copy and the read-only guest `CLAUDE.md`.
 
 - [ ] **Step 8: Commit**
 
-`vrg-commit --type feat --scope plugins --message "reconcile the registered marketplace source with the declared one on host and VMs"`
+`vrg-commit --type feat --scope plugins --message "share and verify the marketplace refresh on host and VMs"`
 
 ### Task D1: Apply the rolling-tag rulesets fleet-wide (deployment)
 
@@ -498,7 +506,7 @@ Operational: no PR. Run with `issue-deploy`.
 - Modify: `docs/site/docs/guides/consuming-repo-setup.md` (the `enabledPlugins` row and the marketplace definition)
 - Modify: `docs/site/docs/guides/releasing.md` (new "Rolling back a release" section)
 
-- [ ] **Step 1:** In `consuming-repo-setup.md`, change the marketplace definition to `ref: "v2.1"`, and add a "Switching an existing machine" paragraph: `vrg-host plugins` on the host and `vrg-vm update --all` for the VMs, which reconcile the registered source (Task 3). If V1 proved the remove rung, list what it deletes. Add a "Moving to a new minor line" paragraph: when the plugin's first `X.Y+1.0` release creates a new rolling tag, `v2.1` stops moving, and the fleet stays on the last `v2.1.Z` until the human changes the host `ref` to the new tag and runs the same two commands. Moving is a deliberate act, never automatic (spec §8).
+- [ ] **Step 1:** In `consuming-repo-setup.md`, change the marketplace definition to `ref: "v2.1"`, and add a "Switching an existing machine" paragraph: after editing the `ref` in the host `~/.claude/settings.json`, run `vrg-host plugins` on the host and `vrg-vm update --all` for the VMs, which re-add the marketplace at the declared ref and verify the switch (Task 3). Add a "Moving to a new minor line" paragraph: when the plugin's first `X.Y+1.0` release creates a new rolling tag, `v2.1` stops moving, and the fleet stays on the last `v2.1.Z` until the human changes the host `ref` to the new tag and runs the same two commands. Moving is a deliberate act, never automatic (spec §8).
 - [ ] **Step 2:** In `releasing.md`, add "Rolling back a release" with spec §5 verbatim in substance: the four exact steps (`cd` into the repo's checkout, `vrg-git fetch --tags --force origin`, `vrg-promote --dry-run <X.Y.Z>`, `vrg-promote <X.Y.Z>`); picking up the move on each machine (`vrg-host plugins`, `vrg-vm update --all`, then a restart of Claude Code); and that the rollback lasts until the next release, held by hand with `vrg-release --no-promote`, linking vergil-project/.github#763.
 - [ ] **Step 3:** `vrg-container-run -- vrg-validate`. Expected: PASS.
 - [ ] **Step 4:** `vrg-commit --type docs --scope release --message "document rolling back a release and switching the marketplace ref"`
@@ -514,8 +522,8 @@ Operational: no PR. Run with `issue-deploy`.
 **Procedure:**
 
 1. The human edits the host `~/.claude/settings.json`: `extraKnownMarketplaces.vergil-marketplace.source.ref` from `"main"` to `"v2.1"`.
-2. The human runs `vrg-host plugins`. Expected: it reports `vergil-marketplace` switched, and `claude plugin marketplace list --json` shows `ref: v2.1`.
-3. The human runs `vrg-vm update --all`. Expected: each VM reports the marketplace switched, with no failure. The agent then confirms in its own VM that `claude plugin marketplace list --json` shows `ref: v2.1`.
+2. The human runs `vrg-host plugins`. Expected: exit 0 (the verification passed), and `claude plugin marketplace list --json` shows `ref: v2.1`.
+3. The human runs `vrg-vm update --all`. Expected: every running VM refreshes with no failure (each one's verification passed). The agent then confirms in its own VM that `claude plugin marketplace list --json` shows `ref: v2.1`.
 4. The agent sweeps every fleet repo's `develop`, `.github` included, by listing the repos explicitly (a glob skips dot-directories) and reading each one's `origin/develop` rather than its working copy: `cd <repo> && vrg-git fetch -q origin develop && vrg-git show origin/develop:.claude/settings.json | grep -c extraKnownMarketplaces`. Expected: `0` for every repo. Any hit is removed through that repo's normal worktree and PR flow, in favour of the template.
 
 **Acceptance:** the host and every running VM show `ref: v2.1` in `claude plugin marketplace list --json` and the installed version equals the release `v2.1` points at; the sweep is clean. A VM that was stopped is listed in the result comment and switches on its next `vrg-vm start`.
