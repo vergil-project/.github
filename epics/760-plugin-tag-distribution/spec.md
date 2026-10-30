@@ -65,14 +65,18 @@ a human can move back.
   read a ruleset's bypass list, so it checks the protected refs and rules but
   not the bypass actors. This holds for every existing ruleset too.
 - No branch may carry a rolling-tag name. A branch ruleset, declared in the
-  same module and checked by the same audit, blocks creating any branch
-  matching `refs/heads/v*`, with no bypass or only the repository Admin role.
+  same module and checked by the same audit, blocks creating any branch with
+  a rolling-tag-shaped name (`refs/heads/v[0-9]*` where GitHub's pattern
+  matching allows it, otherwise `refs/heads/v*`), with no bypass.
   Claude Code resolves a ref as a branch before a tag (§3), so the tag's
   protection holds only while no branch of that name can exist.
 - `vrg-promote` moves a rolling tag only to an existing `vX.Y.Z` release tag
-  whose commit is on `origin/main`, and refuses any other target.
-- `vrg-promote` refuses an agent identity, with the same check `vrg-release`
-  uses (`identity_mode.is_agent()`, failing closed on any agent signal).
+  whose commit is on `origin/main` and that has a published GitHub Release,
+  and refuses any other target.
+- `vrg-promote` refuses an agent identity with the fail-closed check
+  (`identity_mode.is_agent() or identity_mode.any_agent_signal()`: any agent
+  signal refuses, whatever else is set), in its library and its CLI.
+  `vrg-release` uses the same check for its first-stage guard.
   Moving a rolling tag is a human act.
 - **Order:** both rulesets are live on vergil-claude-plugin, and the audit
   reports them clean, before any machine switches to `v2.1`.
@@ -126,8 +130,14 @@ real install was untouched:
   owner/repo@ref` for each declared marketplace, which is a no-op when the
   marketplace is already registered. So once the host declares `v2.1`, an
   existing VM declares `v2.1` while still registered at `main`, which is the
-  mismatch §6 describes. Whether the VM refresh needs a code change depends on
-  the switch mechanism §6 proves.
+  mismatch §6 describes. The VM refresh therefore needs the reconcile §6
+  describes.
+- **The guest `CLAUDE.md`.** It is a read-only copy of the host's. `vrg-vm`
+  copies it on several paths (Lima start, rebuild and session; cloud create
+  and session), and `vrg-vm update` joins them (§6). `copy_claude_config` is
+  the single owner of its file mode, so every path that copies it, the update
+  included, leaves it read-only. The cloud memory projection keeps locking only
+  the memory files it owns.
 
 ## 5. Rollback procedure
 
@@ -149,11 +159,10 @@ real install was untouched:
    With no terminal to ask on, `vrg-promote` refuses rather than proceeds.
    `--dry-run` prints the same origin repo, rolling tag and commits, and
    applies the §2 target check, so step 3 shows exactly what step 4 would do.
-2. Each machine picks the move up the next time its marketplace and plugin
-   update: `claude plugin marketplace update vergil-marketplace`, then `claude
-   plugin update vergil@vergil-marketplace` (background auto-update does the
-   same where it is on), then a restart of Claude Code. VMs pick it up with
-   `vrg-vm update`.
+2. Each machine picks the move up when its plugins are next updated: the human
+   runs `vrg-host plugins` on the host and `vrg-vm update --all` for the VMs,
+   then restarts Claude Code. Background auto-update, where it is on, does the
+   marketplace and plugin update on its own.
 3. The rollback lasts until the next release, which moves `v2.1` forward again.
    Keeping it in place until the fix ships is managed by hand: the human who
    rolled back makes sure the next release carries the fix, or cuts it with
@@ -189,10 +198,14 @@ order:
 The proof runs in an isolated `CLAUDE_CONFIG_DIR` and covers two cases: a host
 (the user settings edited, then the mechanism run) and a VM (an existing
 `main` registration, the new `settings.json` copied in as `vrg-vm` does, then
-`vm_guest.update_plugins`). If the VM case does not switch the source, a
-vergil-tooling task teaches `update_plugins` the proven mechanism, so that
-`vrg-vm update` switches every VM with no manual step. The proven steps go into
-the consumer setup guide.
+`vm_guest.update_plugins`). Re-adding is a no-op, so today's VM refresh cannot
+switch a registered source, and the host has no tool that does. The proven
+mechanism is therefore built once, as a shared reconcile in vergil-tooling that
+compares each declared marketplace with its registration and switches any that
+differ. Two entry points run it: `vrg-host plugins` on the host, and
+`vrg-vm update`, which also copies the host's current `settings.json` into a
+running VM first. Both are run by the human. The consumer setup guide
+documents these two commands.
 
 ## 7. Changes
 
@@ -210,8 +223,10 @@ the consumer setup guide.
   otherwise rewritten.
 - **vergil-tooling:** the rolling-tag ruleset, the rolling-tag branch-name
   ruleset, and the `vrg-promote` target check and agent refusal (§2), and the `vrg-promote` confirmation (§5).
-- **vergil-tooling, if the §6 proof needs it:** `vm_guest.update_plugins`
-  learns the proven switch mechanism.
+- **vergil-tooling:** the shared marketplace reconcile, the new `vrg-host
+  plugins` command, and `vrg-vm update` copying the host `settings.json` before
+  `vm_guest.update_plugins` runs the reconcile (§6); `copy_claude_config` as
+  the single owner of the guest `CLAUDE.md` file mode (§4).
 - **Deployment:** a sweep of the whole fleet, started only once the §2 order
   condition holds (the rulesets live and audited clean). The host `~/.claude/settings.json`
   and every VM move to `v2.1` by the mechanism §6 proves. Every repo in the
@@ -223,8 +238,10 @@ the consumer setup guide.
   rolled back by §5 to an earlier release chosen when the validation runs, the
   rolled-back version is observed on the host and on every VM, then `v2.1` is
   moved forward again to the latest release and the forward version is
-  observed in the same places. Where the fleet is left afterwards is a separate
-  decision.
+  observed in the same places. Then a trivial test change goes through the
+  normal plugin development flow and release, and its version must reach the
+  same places, which proves the everyday deploy path end to end. Where the
+  fleet is left afterwards is a separate decision.
 
 ## 8. Out of scope
 
