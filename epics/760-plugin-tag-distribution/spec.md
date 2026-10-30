@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#760
 - **Planning issue:** vergil-project/.github#759 (review history is in its
   comments)
-- **Status:** draft
+- **Status:** in design review
 - **Repos:** vergil-claude-plugin (its distribution docs), vergil-tooling (the
   consumer setup guide and a rollback runbook), `.github` (this spec and plan)
 - **Supersedes:** the `main`-only decision of epic vergil-project/.github#45

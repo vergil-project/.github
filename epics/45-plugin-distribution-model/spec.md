@@ -3,6 +3,9 @@
 - **Epic:** vergil-project/.github#45
 - **Originating bug:** vergil-project/vergil-claude-plugin#540
 - **Status:** Approved design (2026-06-30)
+- **Superseded in part by:** [epic 760](../760-plugin-tag-distribution/spec.md),
+  which moves consumers from `main` to the floating `v2.1` tag. The rest of this
+  decision stands.
 
 ## 1. Decision
 
