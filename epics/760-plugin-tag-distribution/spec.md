@@ -127,11 +127,9 @@ real install was untouched:
 - **VMs.** `vrg-vm` copies the host `~/.claude/settings.json` into the guest on
   every start and every cloud session (`_st_copy_config`). Its plugin refresh
   (`vm_guest.update_plugins`) re-runs `claude plugin marketplace add
-  owner/repo@ref` for each declared marketplace, which is a no-op when the
-  marketplace is already registered. So once the host declares `v2.1`, an
-  existing VM declares `v2.1` while still registered at `main`, which is the
-  mismatch §6 describes. The VM refresh therefore needs the reconcile §6
-  describes.
+  owner/repo@ref` for each declared marketplace, which is the switch mechanism
+  §6 describes. What it lacks is the host's current `settings.json` on a
+  running VM, which only start, rebuild and cloud sessions copy today.
 - **The guest `CLAUDE.md`.** `vrg-vm` copies the host's `CLAUDE.md` on several
   paths: Lima start, rebuild and session, and cloud create and session. Only the
   cloud memory projection locks it read-only, and only on the paths that run
@@ -178,37 +176,35 @@ Changing the `ref` string of a marketplace that is already registered is a
 source change, not an update. In the isolated test, editing only the `ref` in
 `settings.json` left `known_marketplaces.json` on the old source, and `claude
 plugin marketplace update vergil-marketplace` reported `Marketplace
-'vergil-marketplace' not found`. Re-running `claude plugin marketplace add`
-over the existing registration printed `already on disk` and changed nothing.
+'vergil-marketplace' not found`, and a re-add whose source does not match the
+declared entry is refused.
+
+**The proven mechanism: declare it, then re-add.** The validation
+vergil-project/vergil-tooling#3850 (Claude Code 2.1.312) showed that once
+`settings.json` declares the new ref, `claude plugin marketplace add
+vergil-project/vergil-claude-plugin@<ref>` re-clones at that ref and rewrites
+the registration, and the `claude plugin update` that follows moves the
+installed version. It moved a `main` registration to `v2.1.50` and back to
+`v2.1`, with the ref, the checkout and the installed version all following.
+Today's `vm_guest.update_plugins` already runs exactly that sequence. The
+mechanism needs no edit to Claude Code's internal registration files.
 
 The switch is **fully mechanized**: no machine, host or VM, is switched by
-hand. Re-adding over the existing registration is already shown not to work.
-The mechanism is the lightest one that is proven to work, tried in this
-order:
-
-1. rewriting the registered source to match the declared one, then updating;
-2. `claude plugin marketplace remove vergil-marketplace`, then `add` at
-   `v2.1` and reinstalling `vergil@vergil-marketplace`. `remove` also
-   uninstalls the marketplace's plugins and deletes their data, options and
-   secrets, so this step is taken only if the lighter ones fail, and the data
-   it deletes is listed in the setup guide.
-
-The proof runs in an isolated `CLAUDE_CONFIG_DIR` and covers two cases: a host
-(the user settings edited, then the mechanism run) and a VM (an existing
-`main` registration, the new `settings.json` copied in as `vrg-vm` does, then
-`vm_guest.update_plugins`). Re-adding is a no-op, so today's VM refresh cannot
-switch a registered source, and the host has no tool that does. The proven
-mechanism is therefore built once, as a shared reconcile in vergil-tooling that
-compares each declared marketplace with its registration and switches any that
-differ. Two entry points run it: `vrg-host plugins` on the host, and
-`vrg-vm update`, which also copies the host's current `settings.json` into a
-running VM first. Both are run by the human, and both refuse an agent with the
+hand. Every refresh, on host or VM, runs one shared sequence: for each declared
+marketplace, `marketplace add <repo>@<ref>`, then `marketplace update`, then
+the per-install `plugin update`. Then it **verifies** that each registration's
+repo and ref, read from `claude plugin marketplace list --json`, equal the
+declared ones. A mismatch is a reported failure. If a later Claude Code release
+stops re-adding at a new ref, the refresh fails loudly instead of leaving a
+machine on the old ref. Two entry points run the sequence: `vrg-host plugins`
+on the host, and `vrg-vm update`, which also copies the host's current
+`settings.json` into a running VM first. Both are run by the human, and both refuse an agent with the
 fail-closed identity check (§2). The consumer setup guide documents these two
 commands.
 
 A missing, unreadable or invalid guest `settings.json` is a failure that the
 VM refresh reports, never "nothing declared". The host file is required, and
-`vrg-vm` copies it in before reconciling, so its absence means something is
+`vrg-vm` copies it in before refreshing, so its absence means something is
 broken.
 
 Copying `settings.json` on `vrg-vm update` also copies `CLAUDE.md`, which
@@ -234,9 +230,10 @@ memory projection keeps locking only the memory files it owns.
   otherwise rewritten.
 - **vergil-tooling:** the rolling-tag ruleset, the rolling-tag branch-name
   ruleset, and the `vrg-promote` target check and agent refusal (§2), and the `vrg-promote` confirmation (§5).
-- **vergil-tooling:** the shared marketplace reconcile, the new `vrg-host
-  plugins` command, and `vrg-vm update` copying the host `settings.json` before
-  `vm_guest.update_plugins` runs the reconcile (§6); `copy_claude_config` as
+- **vergil-tooling:** the shared marketplace refresh with its post-switch
+  verification, the new `vrg-host plugins` command, and `vrg-vm update` copying
+  the host `settings.json` before `vm_guest.update_plugins` runs the refresh
+  (§6); `copy_claude_config` as
   the single owner of the guest `CLAUDE.md` file mode (§6).
 - **Deployment:** a sweep of the whole fleet, started only once the §2 order
   condition holds (the rulesets live and audited clean). The host `~/.claude/settings.json`
