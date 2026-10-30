@@ -132,12 +132,10 @@ real install was untouched:
   existing VM declares `v2.1` while still registered at `main`, which is the
   mismatch §6 describes. The VM refresh therefore needs the reconcile §6
   describes.
-- **The guest `CLAUDE.md`.** It is a read-only copy of the host's. `vrg-vm`
-  copies it on several paths (Lima start, rebuild and session; cloud create
-  and session), and `vrg-vm update` joins them (§6). `copy_claude_config` is
-  the single owner of its file mode, so every path that copies it, the update
-  included, leaves it read-only. The cloud memory projection keeps locking only
-  the memory files it owns.
+- **The guest `CLAUDE.md`.** `vrg-vm` copies the host's `CLAUDE.md` on several
+  paths: Lima start, rebuild and session, and cloud create and session. Only the
+  cloud memory projection locks it read-only, and only on the paths that run
+  that projection. On Lima it is writable.
 
 ## 5. Rollback procedure
 
@@ -204,8 +202,21 @@ mechanism is therefore built once, as a shared reconcile in vergil-tooling that
 compares each declared marketplace with its registration and switches any that
 differ. Two entry points run it: `vrg-host plugins` on the host, and
 `vrg-vm update`, which also copies the host's current `settings.json` into a
-running VM first. Both are run by the human. The consumer setup guide
-documents these two commands.
+running VM first. Both are run by the human, and both refuse an agent with the
+fail-closed identity check (§2). The consumer setup guide documents these two
+commands.
+
+A missing, unreadable or invalid guest `settings.json` is a failure that the
+VM refresh reports, never "nothing declared". The host file is required, and
+`vrg-vm` copies it in before reconciling, so its absence means something is
+broken.
+
+Copying `settings.json` on `vrg-vm update` also copies `CLAUDE.md`, which
+would leave a locked cloud copy unlocked (§4). So this epic makes the guest
+`CLAUDE.md` what it is meant to be, a read-only copy of the host's, on every
+transport. `copy_claude_config` becomes the single owner of its file mode, so
+every path that copies it, the update included, leaves it read-only. The cloud
+memory projection keeps locking only the memory files it owns.
 
 ## 7. Changes
 
@@ -226,14 +237,19 @@ documents these two commands.
 - **vergil-tooling:** the shared marketplace reconcile, the new `vrg-host
   plugins` command, and `vrg-vm update` copying the host `settings.json` before
   `vm_guest.update_plugins` runs the reconcile (§6); `copy_claude_config` as
-  the single owner of the guest `CLAUDE.md` file mode (§4).
+  the single owner of the guest `CLAUDE.md` file mode (§6).
 - **Deployment:** a sweep of the whole fleet, started only once the §2 order
   condition holds (the rulesets live and audited clean). The host `~/.claude/settings.json`
-  and every VM move to `v2.1` by the mechanism §6 proves. Every repo in the
-  local working tree is checked for a project-level `extraKnownMarketplaces`
-  entry for `vergil-marketplace`. Such an entry replaces the user entry as a
-  whole, so one left at `main` would undo the switch in that repo. Any that is
-  found is removed in favour of the template, which defines no marketplace.
+  and every VM move to `v2.1` by the mechanism §6 proves. Every fleet repo's
+  `develop` (`.github` included) is checked for a project-level
+  `extraKnownMarketplaces` entry for `vergil-marketplace`. Such an entry
+  replaces the user entry as a whole, so one left at `main` would undo the
+  switch in that repo. Any that is found is removed in favour of the template,
+  which defines no marketplace. Feature branches and worktrees are not swept:
+  sessions start at a repo root, never inside a worktree, and a stale branch
+  takes the template when it rebases. The config audit keeps `develop` on the
+  template, and the agent tools already require `settings.local.json` to be
+  absent or `{}`.
 - **Validation:** an experimental round trip on the real fleet. `v2.1` is
   rolled back by §5 to an earlier release chosen when the validation runs, the
   rolled-back version is observed on the host and on every VM, then `v2.1` is
