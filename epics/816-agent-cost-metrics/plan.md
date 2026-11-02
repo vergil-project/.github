@@ -99,8 +99,8 @@ retrospective vergil-project/.github#818.
 | 4 | `vrg-agent-cost`: `report` and the audit (vergil-tooling) | 3 |
 | 5 | `vrg-agent-cost lint` and its `vrg-validate` stage (vergil-tooling) | 2, 3 |
 | 6 | paad: the stanza convention, agentic-review and the lint (`.github`, fork) | 1 |
-| 7 | paad: the other dispatching skills (`.github`, fork) | 6 |
-| 8 | Logging on today's skills (vergil-claude-plugin) | 2, 3 |
+| 7 | paad: the other dispatching skills (`.github`, fork; one issue and one commit with Task 6) | 6 |
+| 8 | Logging and write-once on today's skills (vergil-claude-plugin) | 2, 3, 5 |
 | 9 | Doctrine: the result's `Agent costs:` field (vergil-claude-plugin) | 6 |
 | 10 | Deploy wave 1 (`.github`, deployment) | 2–9 |
 | 11 | Baseline sample on today's flow (`.github`, validation) | 10 |
@@ -114,16 +114,22 @@ retrospective vergil-project/.github#818.
 | 19 | Rename sweep: the `docs` repo | 14 |
 | 20 | Deploy wave 2 (`.github`, deployment) | 12–19 |
 | 21 | Validation sample (`.github`, validation) | 20 |
-| 22 | Offer the paad changes upstream (`.github`, human) | 7 |
+| 22 | Offer the paad changes upstream (`.github`, human) | 6, 7 |
 
 - **Two waves.** Tasks 1–11 put logging on today's flow and measure the
   baseline before the split (spec 12). Tasks 12–21 add the ruling protocol
-  and the split. Task 12 can start at once.
+  and the split. Task 12 can start once Task 3 has merged.
+- **The checkpoint.** Task 11 ends wave 1: the human reviews the baseline
+  and confirms before Tasks 14–21 start.
+- **Tasks 6 and 7 are one fork issue and one commit**, so `preview/paad`
+  goes from no skill on the convention to every dispatching skill at once
+  (Task 6's lint fails only partial adoption).
 - **The doctrine's rewrite is two tasks.** Spec 8.3 names one dedicated
-  rewrite. Its result-field part (Task 9) must land before the baseline so
-  the baseline carries per-specialist cost (spec 12); its roles-and-records
-  part (Task 15) must land with the split. Both stay separate from the
-  rename sweep, as the spec requires.
+  rewrite. Its result-field part (Task 9) and its write-once part (in
+  Task 8) must land before the baseline, so the baseline carries
+  per-specialist cost (spec 12) and is recorded write-once; its roles part
+  (Task 15) must land with the split. All stay separate from the rename
+  sweep, as the spec requires.
 - **Merge together.** Tasks 14, 15 and 17 are merged in one sitting, and
   the plugin release that carries one carries all three, so no release has
   the new `issue-manager` with old-meaning references or an old mode 2.
@@ -194,7 +200,7 @@ suffixes):
 | `review-<n>`, `respond-<n>` | mode 2 rounds, `n` ≥ 1 |
 | `spec-pushback-<n>`, `plan-pushback-<n>`, `alignment-<n>` | mode 1 rounds |
 | `logic-correctness`, `error-handling`, `contract-integration`, `concurrency-state`, `security`, `spec-compliance`, `verifier` | agentic-review's lenses and Verifier |
-| `analyst` | any other paad skill's analysis dispatch |
+| `analyst` | any other paad skill's analysis dispatch, and a stray analyst dispatch in agentic-review (allowed, never required) |
 | `dispatch` | a vergil dispatch with no more specific name; the lint asks for a reason |
 
 Suffixes: `.a`, `.b` for partitions of one lens (every instance
@@ -246,13 +252,24 @@ line for every item answers each.
 
 `k` is one past the highest request on the issue. Item IDs are the
 finding IDs the item already has (`R2.3`, `R2.S1`), or `Q<k>.<i>` for any
-other question.
+other question. A security item carries `"security": true` in the items
+file **and** an ID matching `^R\d+\.S\d+$`, and its question is exactly
+`security item; details are held privately`. An item with only one of the
+two marks, or with any other question, is refused.
 
 **A ruling reply**, posted by the human login, after the request: the
 first non-empty line is `approve` or `deny` (case-insensitive); every
 other non-empty line is `<ID>: <answer>`, with `<answer>` one of that
-item's options. Anything else, an answer to an unknown ID, a `deny` that
-leaves an item unanswered, or an edited reply, is not a ruling.
+item's options. A human comment after the request is a **ruling
+attempt** when its first non-empty line is `approve` or `deny`, or when any
+line starts with one of the request's IDs and a colon; any other comment is
+ignored. The latest ruling attempt that parses is the ruling, and a later
+one supersedes an earlier one. A ruling attempt that does not parse (an
+answer to an unknown ID, an option not offered, a `deny` that leaves an
+item unanswered), or an edited ruling attempt, is not a ruling.
+
+**A pause** is a trusted agent comment carrying a `Paused:` line (wave 1),
+or a ruling request (wave 2). Each counts as one human interaction.
 
 ---
 
@@ -331,7 +348,10 @@ evidence quoted.
   codes (Formats); cost records and run records (spec 6, Formats);
   `## Records that imply a dispatch` (mode 1 round comments, mode 2
   findings comments, run records, the worker result comments of
-  Task 14), each by its fixed first line; where a skill with no issue
+  Task 14), each by its fixed first line, with the exceptions that a round
+  comment carrying `Deviation: run interactively` implies nothing, a
+  split comment's parts count once, and a superseded record implies
+  nothing; where a skill with no issue
   prints its stanzas (spec 4); the main session's own cost (Task 1); the
   time label; write-once (spec 7.1, pointing at Task 13's doc for
   rulings).
@@ -464,13 +484,18 @@ evidence quoted.
     error;
   - `test_superseded_record_implies_nothing`: a findings comment and its
     superseding comment give one implied dispatch;
+  - `test_interactive_round_implies_nothing`: a round comment carrying
+    `Deviation: run interactively` implies no dispatch;
+  - `test_split_comment_counts_once`: parts `(part 1/2)` and `(part 2/2)`
+    of one round comment imply one dispatch;
   - `test_audit_errors_on_orphan_parent`, `test_audit_errors_on_unknown_segment`,
     `test_audit_errors_on_duplicate_path`,
     `test_audit_errors_on_missing_predecessor` (`implement.2` without
     `implement`), `test_audit_errors_on_unmatched_manager` (`Run:
     issue-manager.2 / Dispatched by: epic-implement` with no
     `epic-implement/issue-manager.2` line),
-    `test_audit_errors_on_edited_agent_record`;
+    `test_audit_errors_on_edited_agent_record` (any record that implies a
+    dispatch, a cost record, a run record or a ruling request);
   - `test_gaps_counted`: `not-reported` values and a `lost` line are gaps,
     exit 0;
   - `test_pre_rule`: an issue with no cost records reports `pre_rule`, no
@@ -478,8 +503,9 @@ evidence quoted.
   - `test_next_run_index`: no `Run: issue-manager.<k>` records gives 1;
     records for 1 and 3 give 4; an `issue-implement` run does not count
     toward `issue-manager`;
-  - `test_human_interactions`: counts `Ruling request` records and pause
-    records on the issue;
+  - `test_human_interactions`: counts each `Ruling request` record and
+    each `Paused:` line in a trusted agent comment, per Formats, and the
+    same issue in either shape gives the same count;
   - `test_implies_dispatch_matches_rule_doc`: the patterns match the first
     lines listed in a fixture copy of Task 2's section (the fixture is
     updated whenever the doc's list changes).
@@ -522,8 +548,9 @@ evidence quoted.
 - [ ] **Step 4:** `vrg-container-run -- vrg-validate`. Expected: pass.
   (vergil-tooling holds no `skills/`, so the stage does not run here.)
 - [ ] **Step 5:** Commit (`feat(agent-cost): dispatch-site lint`) and
-  report-ready. Note in the PR that vergil-claude-plugin's validation
-  fails on the stage until Task 8 lands; Task 10 orders the releases.
+  report-ready. vergil-claude-plugin's validation would fail on the stage
+  without Task 8, so Task 10 releases this and merges Task 8 in one
+  sitting.
 
 ### Task 6: paad: the stanza convention, agentic-review and the lint
 
@@ -532,6 +559,9 @@ evidence quoted.
 - Create: `scripts/check_agent_cost.py`
 - Modify: `Makefile` (`check-agent-cost` in `tree-checks`; its self-test in
   `self-tests`), `preview/paad/skills/agentic-review/SKILL.md`,
+  `preview/paad/skills/pushback/SKILL.md` and
+  `preview/paad/skills/alignment/SKILL.md` (their unattended results),
+  `preview/paad/agents/paad-delegate.md` (the result format),
   `preview/paad/skills/paad-help/SKILL.md`, `CHANGELOG.md`
 
 **Interfaces:**
@@ -541,12 +571,16 @@ evidence quoted.
   Verifier dispatch; in its unattended result, the skill-specific field
   `Agent costs:` after `Verifier warnings:`, followed by the stanza lines
   (relative paths: `call=security`, `call=logic-correctness.b`,
-  `call=verifier.2`); `check_agent_cost.py <skills_dir>`.
+  `call=verifier.2`); in every delegate result, including pushback's and
+  alignment's, the field `Agent costs:` (`none` when nothing was
+  dispatched); `check_agent_cost.py <skills_dir>`.
 
-- [ ] **Step 1: Write the lint's self-tests first:** a skill with a
-  `subagent_type` line and no `agent-cost:` convention reference fails; a
-  skill with both passes; a skill with neither passes; an unreadable file
-  fails.
+- [ ] **Step 1: Write the lint's self-tests first**, using
+  `check-config`'s all-or-nothing pattern: a tree where no skill carries the
+  `agent-cost:` convention is skipped with a `SKIP` line; in a tree where
+  any skill carries it, a skill with a `subagent_type` line and no
+  convention reference fails; a skill with both passes; a skill with
+  neither passes; an unreadable file fails.
 - [ ] **Step 2:** `python3 scripts/check_agent_cost.py --self-test`.
   Expected: FAIL.
 - [ ] **Step 3:** Implement it in the style of `check_unattended.py`; wire
@@ -558,17 +592,24 @@ evidence quoted.
 - [ ] **Step 5:** In agentic-review: after each specialist and the Verifier
   return, write its stanza from the completion notice; record them in
   Review Metadata and in the result's `Agent costs:` field; a re-dispatch
-  takes `.2`; partitions `.a`/`.b`; bail codes from the `BAIL:` token.
-- [ ] **Step 6:** `make export && make test`. Expected: `All checks
+  takes `.2`; partitions `.a`/`.b`; a stray analyst dispatch is logged as
+  `analyst`; bail codes from the `BAIL:` token. In pushback, alignment and
+  the delegate's result format, add `Agent costs:` (`none`, or the lines
+  for any analyst dispatched).
+- [ ] **Step 6:** Do Task 7's steps in the same branch before going on;
+  `make test` passes only once every dispatching skill in `preview/paad`
+  carries the convention, and `plugins/paad` is skipped until paad promotes
+  it.
+- [ ] **Step 7:** `make export && make test`. Expected: `All checks
   passed.`
-- [ ] **Step 7 (human):** Smoke: run agentic-review interactively on a
+- [ ] **Step 8 (human):** Smoke: run agentic-review interactively on a
   small branch with the clone's preview tree; the agent checks the pasted
   Review Metadata has six specialist lines and one Verifier line, each
   parsing with the Formats grammar. Then dispatch it through the delegate;
   the result carries `Agent costs:` with the same lines.
-- [ ] **Step 8 (human):** Commit on `unattended-mode` in paad's style and
-  push. The agent closes the issue with the commit and the `make test` last
-  line.
+- [ ] **Step 9 (human):** Commit Tasks 6 and 7 together on
+  `unattended-mode` in paad's style and push. The agent closes the issue
+  with the commit and the `make test` last line.
 
 ### Task 7: paad: the other dispatching skills
 
@@ -576,26 +617,29 @@ evidence quoted.
 and any other skill `check_agent_cost.py` flags; `paad-help`,
 `CHANGELOG.md`.
 
+Done in Task 6's branch and commit, at its Step 6.
+
 - [ ] **Step 1:** Run `make tree-checks TREE=preview/paad`. Expected:
-  `check-agent-cost` FAIL listing each skill.
+  `check-agent-cost` FAIL listing each skill (partial adoption).
 - [ ] **Step 2:** For each, add the stanza lines to the report's metadata
   section and final output (segment `analyst`, suffixed `.2`, `.3` per
   dispatch), without moving or changing an existing field.
-- [ ] **Step 3:** `make export && make test`. Expected: `All checks
-  passed.`
+- [ ] **Step 3:** `make tree-checks TREE=preview/paad`. Expected:
+  `check-agent-cost` passes.
 - [ ] **Step 4 (human):** Smoke one skill (rethink, the cheapest) and
-  check its stanza lines parse. Commit and push; the agent closes the
-  issue.
+  check its stanza lines parse. Then return to Task 6 Step 7.
 
-### Task 8: Logging on today's skills
+### Task 8: Logging and write-once on today's skills
 
 **Files:** `skills/epic-create/SKILL.md`, `skills/epic-implement/SKILL.md`,
 `skills/issue-implement/SKILL.md`, `skills/issue-deploy/SKILL.md`,
 `skills/issue-validate/SKILL.md`, every other skill Task 5's lint flags;
-`docs/paad-review-doctrine.md` §2.6 (round comment: the cost record) and
-§3.5 (`Review cost:` replaced by a cost record).
+`docs/paad-review-doctrine.md` §1.7 and §3.5 (the unfinished-comment,
+`--edit-last` and delete-and-repost paths), §2.6 (round comment: the cost
+record) and §3.5 (`Review cost:` replaced by a cost record).
 
-- [ ] **Step 1:** Run Task 5's lint over `skills/`. Expected: FAIL, the
+- [ ] **Step 1:** Validate this branch with the vergil-tooling release that
+  carries Task 5 (Task 10 Step 1). Expected: `agent-cost-lint` FAIL, the
   sites listed.
 - [ ] **Step 2:** At each site, after the completion notice: write the
   stanza and post it with `vrg-agent-cost record`, linking
@@ -608,9 +652,18 @@ and any other skill `check_agent_cost.py` flags; `paad-help`,
   `issue-validate` runs posts its run record first and roots its own
   records at `<skill>.<k>`.
   `issue-implement`'s mode 2 records `Agent cost: review round <n>` in
-  place of `Review cost:`, and the gate's summary takes its review total
-  from `vrg-agent-cost report`.
-- [ ] **Step 3:** Run the lint again. Expected: pass.
+  place of `Review cost:`, posted straight after the completion notice and
+  before the findings comment, and the gate's summary takes its review
+  total from `vrg-agent-cost report`.
+- [ ] **Step 2a: Write-once.** Replace every edit and delete path in §1.7
+  and §3.5, and in `issue-implement`, with superseding records (Formats):
+  finishing a paused round posts a new comment that keeps the paused
+  comment's first line and adds `Supersedes: <url>`; the `dismiss` repost
+  does the same. No `--edit-last` or `--delete-last` remains in any skill
+  or doctrine text.
+- [ ] **Step 3:** Validate again against the same release. Expected:
+  `agent-cost-lint` passes, and `vrg-git grep -n -e '--edit-last' -e
+  '--delete-last' -- skills docs/paad-review-doctrine.md` prints nothing.
 - [ ] **Step 4:** `vrg-container-run -- vrg-validate`. Expected: pass.
 - [ ] **Step 5:** Commit (`feat(skills): log every dispatch's cost`) and
   report-ready.
@@ -623,14 +676,16 @@ output checks), §3.4 (mode 2's values), §2.4 (mode 1's values);
 contract).
 
 - [ ] **Step 1:** Add `Agent costs:` to the result format after the
-  skill-specific fields, required for agentic-review, `none` or absent for
-  pushback and alignment (they dispatch nothing).
+  skill-specific fields, required in every delegate result: `none` when
+  nothing was dispatched, otherwise the stanza lines.
 - [ ] **Step 2:** Add the output checks: each line matches the stanza
-  grammar exactly (Formats); for agentic-review, one line per lens in
-  `Agents dispatched:` and one for the Verifier; a malformed line or a lens
-  with no line is a failed check, handled as any other. The caller
-  prefixes each path with its own and records them in the round's cost
-  record.
+  grammar exactly (Formats); for agentic-review, at least one line for each
+  lens in `Agents dispatched:` and at least one for the Verifier, with
+  partition and `.<n>` suffixes and `analyst` lines allowed; for pushback
+  and alignment, `Agent costs: none` with `paad:paad-analyst` listed in
+  `Agent types dispatched:` fails. A malformed line or a lens with no line
+  is a failed check, handled as any other. The caller prefixes each path
+  with its own and records them in the round's cost record.
 - [ ] **Step 3:** `vrg-container-run -- vrg-validate`. Expected: pass.
 - [ ] **Step 4:** Commit (`docs(paad-doctrine): the result's agent costs`)
   and report-ready. Not merged until Task 10 says so.
@@ -641,10 +696,12 @@ Operational; the order matters, because the result's syntax changes
 (paad-policy §10).
 
 - [ ] **Step 1 (human):** Merge Tasks 3, 4 and 5; release vergil-tooling;
-  sync the consumer repos. The agent records the release.
-- [ ] **Step 2 (human):** Merge Tasks 2 and 8; release the plugin. The
-  agent records it and checks `vrg-container-run -- vrg-validate` passes in
-  vergil-claude-plugin on develop.
+  sync the consumer repos. The agent records the release. Steps 1 and 2
+  happen in one sitting.
+- [ ] **Step 2 (human):** The agent validates Task 8's branch against the
+  released tooling (Task 8 Steps 1 and 3). Then merge Tasks 2 and 8 and
+  release the plugin. The agent records it and checks `vrg-container-run --
+  vrg-validate` passes in vergil-claude-plugin on develop.
 - [ ] **Step 3 (human):** Hold reviews. Move `fleet` to the commit carrying
   Tasks 6 and 7, and record it. Update the #733 validation sets' expected
   results for the new field, then run the gate on the new commit.
@@ -661,8 +718,11 @@ Operational; the order matters, because the result's syntax changes
 - [ ] **Step 3:** For each, run `vrg-agent-cost report --issue <ref>` and
   record the output, the audit result, and per-specialist cost and bail.
 - [ ] **Step 4:** Post a summary on the issue: per task and per activity;
-  docs-only against code; the paad fleet commit used. Note on #812 that it
-  may be revived from these numbers. Close the issue.
+  docs-only against code; human interactions, counted per Formats; the
+  paad fleet commit used. Note on #812 that it may be revived from these
+  numbers.
+- [ ] **Step 5 (human):** Review the baseline and confirm on the issue that
+  wave 2 may start. Close the issue.
 
 ### Task 12: `vrg-ruling`
 
@@ -688,14 +748,15 @@ below; no detail goes in public records.
   - `render_request(k: int, items: list[Item]) -> str`;
   - `@dataclass class Ruling: request: int; answers: dict[str, str]`;
     `read_ruling(comments: list[Comment], human: str) -> Ruling | Pending
-    | NotARuling(reason: str)`;
+    | NotARuling(reason: str)` (Pending when no ruling attempt follows the
+    request);
   - `check_posting_identity() -> None` (raises `IdentityError` naming the
     fix);
   - `vrg-ruling request --issue <ref> --items-file <json>`: checks
     identity, posts the request, prints `k`;
   - `vrg-ruling read --issue <ref> --request <k>`: checks identity; exit 0
-    printing the answers as JSON; exit 3 when no reply yet; exit 4
-    printing the reason when the latest reply is not a ruling.
+    printing the answers as JSON; exit 3 when no ruling attempt yet; exit
+    4 printing the reason when the latest ruling attempt is not a ruling.
 
 - [ ] **Step 1: Write the failing tests** in `test_rulings.py`:
   - `test_render_request` gives the Formats text, with `k` and every item;
@@ -706,13 +767,19 @@ below; no detail goes in public records.
   - `test_read_deny_incomplete_not_a_ruling`;
   - `test_read_unknown_id_not_a_ruling`, `test_read_bad_option_not_a_ruling`;
   - `test_read_ignores_replies_before_request`;
+  - `test_read_ignores_non_ruling_comments`: a valid ruling followed by an
+    unrelated human comment still reads as that ruling;
+  - `test_read_later_ruling_supersedes`: two valid rulings give the later;
   - `test_read_rejects_reply_by_agent_login`: a reply from an agent login
     is ignored (pending if it is the only one);
   - `test_read_reports_edited_reply`: an edited human reply gives
     `NotARuling("edited")`;
   - `test_security_items_by_id_only`: `render_request` refuses an item
-    whose ID matches `S\d` and whose question is not the fixed `security
-    item; details are held privately`.
+    with `security: true` and an ID not matching `^R\d+\.S\d+$`; an item
+    with ID `R2.S1` and no flag; and a flagged `R2.S1` item whose question
+    is not exactly `security item; details are held privately`. A flagged
+    `R2.S1` with that question passes, and unflagged `R2.3` and `S2.3`
+    items pass.
 - [ ] **Step 2: Write the failing tests** for `check_posting_identity`:
   `test_identity_check_refuses_human_mode` (`identity_mode.resolve()`
   gives human); `test_identity_check_refuses_without_app_token`
@@ -803,17 +870,15 @@ contract below. Merged with Tasks 15 and 17.
 Merged with Tasks 14 and 17.
 
 **Files:** `docs/paad-review-doctrine.md` §3 (title, §3.1 steps 1–7,
-§3.5, §3.6–3.8), §1.7.
+§3.5, §3.6–3.8). Write-once (§1.7, §3.5's edit and delete paths) already
+landed in Task 8.
 
 - [ ] **Step 1:** Rewrite mode 2 so the manager orchestrates, the reviewer
   is fresh each round, the responder fixes, every pause and ruling goes
   through the ruling protocol, the hold-back judgement stays with the
   manager, and security fixes reach the responder only as hashed paths.
-- [ ] **Step 2:** Replace the delete-and-repost and unfinished-comment
-  paths (§3.5, §1.7) with superseding records; remove `--edit-last` and
-  `--delete-last`.
-- [ ] **Step 3:** `vrg-container-run -- vrg-validate`. Expected: pass.
-- [ ] **Step 4:** Commit (`docs(paad-doctrine): mode 2 under issue-manager`)
+- [ ] **Step 2:** `vrg-container-run -- vrg-validate`. Expected: pass.
+- [ ] **Step 3:** Commit (`docs(paad-doctrine): mode 2 under issue-manager`)
   and report-ready.
 
 ### Task 16: `epic-retrospective`: the epic cost summary
@@ -875,6 +940,6 @@ report-ready.
 
 ### Task 22: Offer the paad changes upstream (human)
 
-- [ ] **Step 1 (human):** Offer Tasks 6 and 7 to `Ovid/paad` as PRs from
+- [ ] **Step 1 (human):** Offer the Tasks 6 and 7 commit to `Ovid/paad` as PRs from
   the fork, in paad's terms. The agent records the PR refs on the issue
   without cross-org links. No task waits on them.
