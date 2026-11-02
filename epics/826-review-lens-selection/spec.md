@@ -97,11 +97,14 @@ vergil-claude-plugin's `develop`.
 - **paad 2.1.0 is released upstream.** The fork's `unattended-mode` branch is
   based on 2.0.2 and must be rebased onto 2.1.0 before any further significant
   paad change (4.6).
-- **vergil pins a paad version.** paad-policy §10 names a validated version,
-  and a fleet validation gate (#733) must pass before reviews resume after the
-  `fleet` branch moves. The design-review output checks warn when the delegate
-  reports another version. The fleet now runs the maintainer's development
-  paad permanently, so the pin no longer protects anything (4.6).
+- **vergil checks paad's announced version, and gates each move.** paad-policy
+  §10 has two separate mechanisms. The version check fails any delegate round
+  whose announced version is not the one §10 records as validated, today
+  `2.0.2-preview`; upstream 2.1.0 announces `2.1.0-preview`. The gate reruns
+  the #733 validation sets after every move of the `fleet` branch, with
+  reviews held until they pass. Only the gate shows that a moved paad still
+  routes security findings privately, ignores planted instructions, and finds
+  seeded defects (4.7).
 
 ## 4. Design
 
@@ -137,6 +140,11 @@ the same shape as the `Intent:` input.
 - **Invalid input blocks the run.** The result is `Status: blocked: <reason>`
   when the line names a lens that does not exist, names no lens, or appears
   more than once. A lens named twice in one line is dispatched once.
+- **The result names lenses by identifier.** `Agents dispatched:` and
+  `Lenses requested:` name each lens by its 4.1 identifier, never by its
+  display name, so the gate compares them with the tool's output exactly.
+  The fork's `check-unattended` is extended to check this if it parses the
+  field.
 - **The result says what happened.** `Agents dispatched:` lists the lenses
   dispatched, as it does today, and a new `Lenses requested:` skill-specific
   field gives the line's value, or `all (no Lenses: input)`. A lens left out on
@@ -267,7 +275,10 @@ extra-non-docs-paths = ["docs/specs/worktree-convention.md"]
 - Both keys follow `[actions].extra-allowed-patterns`: a list of strings,
   added to the built-in list. `review` is registered in `_KNOWN_SECTIONS` and
   both keys in `_KNOWN_KEYS`. A value that is not a list of strings, or a
-  pattern that is empty or absolute, is a config error. The tool also treats
+  pattern that is empty or absolute, is a config error. Every
+  `extra-docs-paths` pattern must also end in `.md`, as the base list matches
+  Markdown only; any other pattern, such as `docs/runbooks/**`, is a config
+  error, never a silent widening to non-Markdown files. The tool also treats
   any other key under `[review]` as a config error, rather than the warning
   `config.py` gives elsewhere, so a misspelt key cannot silently drop an
   exclusion.
@@ -277,8 +288,16 @@ extra-non-docs-paths = ["docs/specs/worktree-convention.md"]
 - This epic adds the known rule documents to the stanza in vergil-tooling
   (`docs/specs/worktree-convention.md`,
   `docs/site/docs/guides/claude-config-ownership.md`) and vergil-claude-plugin
-  (`docs/site/docs/skills/index.md`), after a sweep of both repos' `docs/site`
-  and `docs/specs` for any other file that skills or agents bind to.
+  (`docs/site/docs/skills/index.md`). First, a sweep covers every base-list
+  pattern in every fleet repo the gate runs in, for any other file that
+  skills, agents or a `CLAUDE.md` bind to, and each repo's stanza lists what
+  it finds.
+- **Accepted gap until #840.** A rule document created later in an allowed
+  path is docs-only, and so is every edit to it, until someone adds a repo
+  exclusion for it. Until vergil-project/.github#840 moves rule documents out
+  of `docs/`, such a file is covered only by the floor lenses and the
+  documentation-review sweeps. This is accepted; no per-file detection is
+  built.
 - A repo addition is for documentation only, never for a path holding skills,
   agent instructions, templates or other files that carry logic. The built-in
   exclusions enforce the clearest cases; the rest relies on the full review
@@ -346,25 +365,26 @@ The fleet runs the maintainer's development paad, from the fork, until further
 notice. vergil depends on no specific paad version. The work runs in this
 order:
 
-1. **Rebase the fork onto paad 2.1.0.** The fork's `unattended-mode` branch is
-   rebased onto upstream 2.1.0 and the `fleet` branch moved to it. This comes
-   first, before any further significant paad change. The fork's git writes
-   are the human's.
-2. **Remove vergil's paad version pinning and checks.** The rebase breaks the
-   pin in any case, so the pin is removed rather than updated: the validated
-   version and the fleet validation gate in paad-policy §10, the version
-   warning in the design-review output checks, and any other paad version
-   check the task's sweep finds in vergil-claude-plugin and vergil-tooling.
-   If the fleet ever stops running the development paad, pinning is
-   reconsidered then.
+1. **Remove vergil's paad version check** (4.7). It ships as a plugin release
+   (and a vergil-tooling release, if the sweep finds a check there), reviewed
+   on today's paad. It comes first because upstream 2.1.0 announces
+   `2.1.0-preview`, which today's check fails: rebasing first would fail every
+   delegate round in the fleet, including the gate's own runs, until the
+   removal shipped.
+2. **Rebase the fork onto paad 2.1.0.** The fork's `unattended-mode` branch is
+   rebased onto upstream 2.1.0, and the human moves `fleet` to it and runs
+   the gate (4.7) before reviews resume. This comes before any further
+   significant paad change. The fork's git writes are the human's.
 3. **The `Lenses:` input** is built on a `lenses-input` branch on top of the
-   rebased `unattended-mode`, and merged into `fleet`.
+   rebased `unattended-mode` and merged into `fleet`. The human moves `fleet`
+   and runs the gate again, with the `Lenses:` scenarios added (4.7).
 4. **The tool and the gate.** The vergil-tooling release with the tool, then
    the plugin release with the doctrine and `issue-implement` changes.
 
-One order matters for correctness: the fork's `Lenses:` change is installed
-before the plugin release whose gate sends `Lenses:`, so that no delegate gets
-a line it does not know. The tool and plugin releases are otherwise safe:
+Another order matters for correctness: the fork's `Lenses:` change is
+installed before the plugin release whose gate sends `Lenses:`, so that no
+delegate gets a line it does not know. The tool and plugin releases are
+otherwise safe:
 the gate does not run the tool until the plugin release that carries the
 doctrine change, and that release requires a vergil-tooling release with the
 tool.
@@ -375,13 +395,60 @@ plugin release. The plan carries a deployment task for that, in the order
 above, and a validation task that runs the gate once on a docs-only task and
 once on a code task and checks the lens sets, the dispatches and the records.
 
+### 4.7 paad validation policy
+
+The fleet runs the maintainer's development paad, from the fork, until
+further notice, and the maintainer will keep changing it, offering the
+changes upstream. Each such change runs in every fleet review before upstream
+sees it. The policy follows from that.
+
+- **No version check.** vergil depends on no specific paad version. The
+  validated-version line in paad-policy §10 is removed, as are the delegate
+  path's version check in doctrine §1.9 (both modes), the version warning on
+  mode 1's fallback path (§2.4), and any other paad version check the task's
+  sweep finds in vergil-claude-plugin and vergil-tooling. The check only
+  compared an announced string; it never showed that a moved paad still
+  reviews correctly. If the fleet ever stops running the development paad,
+  pinning is reconsidered then.
+- **The gate stays, and is a standard step.** After every move of `fleet`
+  (the maintainer's own paad changes, upstream syncs, and this epic's two
+  moves), the full automated scenario set of vergil-project/.github#733 runs
+  on the new commit, in newly started sessions, before reviews resume. That
+  is every delegate run: the plain, seeded, planted-config,
+  planted-dispatch, unsupported-skill and bad-`Intent:` sets. The set is not
+  trimmed. It is the only check that a moved paad still routes security
+  findings to the private section, ignores planted instructions (checked
+  against the session transcripts), and finds seeded defects; each round's
+  own output checks trust the delegate's report on those. Anything offered
+  upstream has passed it.
+- **Interactive runs leave the gate.** The human's interactive run of each
+  changed skill is no longer part of it.
+- **Every change that moves `fleet` carries a validation task** that runs the
+  gate and records the outcome and the fleet commit. A paad change's plan
+  files one beside its deployment task. For this epic, the gate's second run
+  adds `Lenses:` scenarios: a floor-only request, an invalid lens, and a
+  seeded security bug under a floor-only request.
+- **Held reviews stay the human's process.** Until the gate passes on a moved
+  commit, the human holds every review round that loads the fleet checkout,
+  as §10 says today.
+- **Accepted risk, unchanged.** An uncommitted edit in the fleet checkout is
+  not covered by the gate.
+
+paad-policy §10 is rewritten to match, and the doctrine's rules that mention
+the validated version follow. The scenario set is defined today only in epic
+vergil-project/.github#699's spec §5 and the closed #733. A standing gate needs
+a maintained list, so it moves into vergil-claude-plugin, linked from §10, with
+the `Lenses:` scenarios added; the plan settles the file.
+
 ## 5. Changes
 
 | Repo | What |
 |---|---|
-| paad fork | rebase onto 2.1.0; `Lenses:` input in agentic-review's unattended mode; `Lenses requested:` result field; fork checks extended as needed |
+| paad fork | rebase onto 2.1.0; `Lenses:` input in agentic-review's unattended mode; `Lenses requested:` result field; lens identifiers in `Agents dispatched:`; fork checks extended as needed |
 | vergil-tooling | the lens-selection command, its rule table, base allow-list and exclusions; the `[review]` stanza (`extra-docs-paths`, `extra-non-docs-paths`) in `config.py`; site docs for both; its own `[review].extra-non-docs-paths`; removal of any paad version check |
-| vergil-claude-plugin | doctrine §3.1, §3.2, §3.4 and §3.5; `issue-implement`'s gate steps; the paad policy register entry; its own `[review].extra-non-docs-paths`; removal of the paad version pin (policy §10) and the version warning in the output checks |
+| vergil-claude-plugin | doctrine §1.9, §2.4, §3.1, §3.2, §3.4 and §3.5; `issue-implement`'s gate steps; paad-policy §10 (no version check, the gate as a standard step) and the register entry for `Lenses:`; the gate's maintained scenario list; its own `[review].extra-non-docs-paths` |
+| fleet repos | `[review].extra-non-docs-paths` entries where the sweep finds rule documents |
+| `.github` | this spec and plan |
 | `.github` | this spec and plan |
 
 Offering the paad change upstream is a human decision, made after it has run
