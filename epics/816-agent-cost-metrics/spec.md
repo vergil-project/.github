@@ -4,11 +4,11 @@
 - **Planning issue:** vergil-project/.github#802 (review history is in its
   comments)
 - **Status:** draft
-- **Repos:** vergil-claude-plugin (the logging rule, the skills, the review
-  doctrine), vergil-tooling (the roll-up and audit tool, the static lint, the
-  site docs), the paad fork `wphillipmoore/paad` (paad's own logging, offered
-  upstream to `Ovid/paad`), `.github` (this spec, the plan and the
-  retrospective)
+- **Repos:** vergil-claude-plugin (the logging rule, the ruling protocol, the
+  skills, the review doctrine), vergil-tooling (the roll-up and audit tool,
+  the static lint, the comment tooling, the site docs), the paad fork
+  `wphillipmoore/paad` (paad's own logging, offered upstream to `Ovid/paad`),
+  `.github` (this spec, the plan and the retrospective)
 
 ## 1. Problem
 
@@ -36,6 +36,13 @@ the review tokens in the gate's summary. Everything else is unmeasured:
   its orchestrator receives each specialist's cost when the specialist
   returns.
 
+The records themselves are also weaker than the numbers need. Comments are
+edited after posting (`--edit-last`, the "unfinished comment" state), and a
+human's decision often reaches the agent that acts on it as text relayed
+through a prompt, so the issue does not show who decided what. Once issue
+comments carry measurements, they are data, and they need the same
+integrity as the numbers.
+
 ## 2. Goals, non-goals, anti-goals
 
 **Goals.**
@@ -46,16 +53,18 @@ the review tokens in the gate's summary. Everything else is unmeasured:
    nest down to agentic-review's specialists.
 3. The cost of each activity is measured separately: implementing, reviewing,
    responding to review, deploying and validating. This needs `issue-implement`
-   split into a manager and workers (§7).
+   split into a manager and workers (§8).
 4. Roll-ups per task and per epic, and an audit that shows where the rule was
    not followed.
-5. A real sample, measured end to end, at the close of the epic.
+5. Records that can be trusted as data: comments are written once, and every
+   human ruling is posted on the issue by the human (§7).
+6. A real sample, measured end to end, at the close of the epic.
 
 **Tokens are the primary metric.** Elapsed time is recorded, but it absorbs
-every wait on a human (an approval prompt, a question left while the human is
-away), so it is secondary. Each stanza carries a count of human interactions
-so a reader knows when to distrust the time: zero means the time is real; one
-or more means it includes waits.
+every wait on a human, so it is secondary. The task's roll-up counts the
+human interactions the root session had (ruling requests and pauses), so a
+reader knows how far to trust its time. A sub-agent's time is labelled as
+possibly including permission waits the caller cannot see.
 
 **Non-goals.**
 
@@ -73,64 +82,79 @@ or more means it includes waits.
 
 ## 3. The `agent-cost:` stanza
 
-One line per sub-agent call:
+One line per sub-agent call, or per turn of a continued call:
 
 ```text
-agent-cost: v1 call=<path> tokens=<n> tool_uses=<n> duration_ms=<n> human=<n> [bail=<reason>]
+agent-cost: v1 call=<path> [turn=<n>] tokens=<n> tool_uses=<n> duration_ms=<n> [bail=<code>]
 ```
 
 - **Prefix and version.** Each line starts with `agent-cost: v1`, at the
   start of a line, outside any code fence it is reported in. A later change
   to the fields bumps the version; readers accept every version they know.
 - **Fields** are `key=value`, separated by single spaces, in the order shown.
-  Values contain no spaces. `call`, `tokens`, `tool_uses`, `duration_ms` and
-  `human` are always present. `bail` appears only on a call that can bail
-  (paad's specialists), and is `none` when it did not.
+  Values contain no spaces. `call`, `tokens`, `tool_uses` and `duration_ms`
+  are always present. `turn` appears only on a continued call (below).
+  `bail` appears only on a call that can bail (paad's specialists), and is
+  `none` when it did not.
+- **`tokens`.** If the probe (§12) finds that a completion notice breaks
+  tokens down (input, output, cache reads and writes), the breakdown is
+  recorded as extra fields after `tokens`, named in the rule doc. If the
+  notice gives only a total, the rule doc and the roll-ups say exactly what
+  that total counts.
 - **`call` is a path** of slash-separated segments, one per **dispatch**,
   rooted at the session that writes the record: for example
-  `issue-manager/review-2/security`. A skill run inside a sub-agent's own
+  `issue-manager.1/review-2/security`. A skill run inside a sub-agent's own
   context (the reviewer running `paad:agentic-review` with the Skill tool) is
   not a dispatch and has no segment. The parent of a call is its path less
-  the last segment; nesting needs no other field. A segment matches
-  `[a-z0-9][a-z0-9.-]*`. A repeated dispatch (a re-dispatched Verifier, the
-  two instances of a specialist on a large diff, a paused task's
-  `issue-manager` dispatched again) takes a suffix: `verifier.2`,
-  `security.b`, `issue-manager.2`.
+  the last segment; nesting needs no other field.
+- **Segments come from a closed vocabulary**, defined in the rule doc (§4):
+  `issue-manager.<k>`, `implement`, `review-<n>`, `respond-<n>`, `deploy`,
+  `validate`, `<stage>-<n>` for design-review rounds, and a fixed slug for
+  each paad lens and the Verifier. A segment matches `[a-z0-9][a-z0-9.-]*`.
+  An unknown segment is an audit error.
+- **Numbering.** A fresh run of something known to iterate takes a plain
+  digit index: review rounds (`review-1`, `review-2`), responder rounds,
+  design-review rounds. A fresh agent taking over from one that can no
+  longer be continued takes a `.2` suffix (`implement.2`, `verifier.2`).
+  Partitions of one paad lens on a large diff take `.a`/`.b`
+  (`logic.a`, `logic.b`), every instance suffixed.
+- **Continued calls keep their path.** A sub-agent that ended its turn and
+  was continued with SendMessage is the same call. Each of its completion
+  notices gets its own line, with the same path and `turn=<n>` from 2 up.
+  Whether a later turn's tokens are cumulative or only the new part is
+  settled by the probe (§12); the roll-up never double counts.
+- **Every `issue-manager` run has a unique root**, `issue-manager.<k>`, with
+  `k` one past the highest root already on the issue, starting at 1. When
+  `epic-implement` dispatches a manager it passes `k` in the dispatch
+  prompt. A full path recorded twice on one issue (other than as later
+  turns) is an audit error.
 - **The root has no line of its own.** The first segment names the session
-  writing the record (`issue-manager`, `epic-create`, `epic-implement`). Its
-  own cost is recorded only if the session can read it (§4); a root without a
-  line is not a nesting error.
+  writing the record (`issue-manager.<k>`, `epic-create`, `epic-implement`).
+  Its own cost is recorded only if the session can read it (§4); a root
+  without a line is not a nesting error.
 - **Values come from the caller.** The caller writes the stanza from the
   sub-agent's completion notice. It never asks the sub-agent to report on
   itself. The notice's field names are not stable: the doctrine records
   `totalTokens`, `toolUses` and `durationMs`, and a current notice was seen
   giving `subagent_tokens`, `tool_uses` and `duration_ms`. The stanza's
-  names are fixed; the rule doc (§4) maps the notice's names onto them, from
-  the probe's findings (§11).
+  names are fixed; the rule doc maps the notice's names onto them, from the
+  probe's findings.
 - **A value the notice does not give is `not-reported`.** Never estimated,
   never left out, never copied from elsewhere.
-- **`human`** is the number of times the call itself stopped for a human: a
-  question asked, a ruling taken, a confirmation. A sub-agent cannot ask the
-  human anything, so a sub-agent's stanza is normally `human=0`. That is a
-  lower bound: the caller cannot see the permission prompts a sub-agent
-  raises. The rule doc says so plainly.
+- **`bail` is a code**, from a short vocabulary that follows paad's own
+  `BAIL:` conventions, so that prose reasons fit the no-spaces rule.
 - **Children are relative.** A sub-agent that dispatches its own sub-agents
-  and writes no records returns their stanzas in its answer with `call`
-  paths relative to itself (`call=security`). Its caller prefixes each with
-  the sub-agent's own path before recording it. paad uses only relative
-  paths, so it needs to know nothing about vergil.
+  and writes no records returns their stanzas with `call` paths relative to
+  itself (`call=security`). Its caller prefixes each with the sub-agent's
+  own path before recording it. paad uses only relative paths, so it needs
+  to know nothing about vergil.
 - **Each stanza is recorded once.** A sub-agent that writes its own records
-  (`issue-manager` dispatched by `epic-implement`) records its children's
+  (`issue-manager.<k>` dispatched by `epic-implement`) records its children's
   stanzas on the issue, rooted at itself, and returns none. Its caller
   records only the stanza for the dispatch itself, on the same issue:
-  `epic-implement/issue-manager`. The tool (§8) joins the two: on one
-  issue, a root `issue-manager` is the child of the line whose last segment
-  is `issue-manager`. The caller passes a repeated dispatch its suffixed
-  name (`issue-manager.2`) in the dispatch prompt, and the sub-agent uses it
-  as its root.
-- **What `tokens` covers.** Whether a sub-agent's `totalTokens` includes its
-  children's tokens is not known today. The measurement probe (§11)
-  settles it. The roll-up (§8) never double counts, whichever it is.
+  `epic-implement/issue-manager.<k>`. The manager's first record on the
+  issue says `dispatched as issue-manager.<k> by epic-implement`, and the
+  audit (§9) then expects a matching cost record from `epic-implement`.
 
 Mode 2's `Review cost:` line is replaced by the stanza.
 
@@ -143,21 +167,22 @@ already keeps its public records:
 | Caller | Call | Recorded on |
 | --- | --- | --- |
 | `epic-implement` | each `issue-manager` dispatch | the task issue |
-| `issue-manager` | each worker, each reviewer round, each responder (§7) | the task issue |
-| `epic-create` | each design-review round | the planning issue, in the round comment |
+| `issue-manager` | each worker, each reviewer round, each responder (§8) | the task issue |
+| `epic-create` | each design-review round | the planning issue |
 | any other vergil skill | each dispatch | the issue that skill records on |
 
 - **The rule lives in one place:** a new doc in vergil-claude-plugin
   (`docs/agent-cost-logging.md`; the name is the builder's call). It defines
-  the stanza, the rule and the recording places. Skills link to it, as they
-  link to the review doctrine, and do not restate it.
+  the stanza, the segment vocabulary, the bail codes, the mapping from the
+  notice's fields, the rule and the recording places. Skills link to it, as
+  they link to the review doctrine, and do not restate it.
 - **A skill with no public record** for a dispatch (no issue in play) prints
-  the stanzas in its final report to the human. The lint (§9) requires each
+  the stanzas in its final report to the human. The lint (§10) requires each
   dispatch site to say where its stanza goes.
 - **Records are read only from trusted authors** (`vrg-trusted-authors`), as
   every vergil record is.
 - **The main session's own cost.** A session can read its sub-agents' costs
-  but, as far as is known, not its own. The probe (§11) checks whether the
+  but, as far as is known, not its own. The probe (§12) checks whether the
   main session's cost can be read (for example from the session transcript).
   If it cannot, the roll-up shows the top level as `not-reported`.
 
@@ -172,9 +197,9 @@ workflow, preview tree and branch rules of epic #699
   its own convention for any skill that dispatches sub-agents, written so it
   stands alone without vergil.
 - **agentic-review** records one stanza per specialist and per Verifier
-  dispatch, including re-dispatches and large-diff instances, with each
-  specialist's `bail` reason (`none` when it did not bail). The stanzas go
-  in the report's Review Metadata and in the skill's result, including the
+  dispatch, including re-dispatches and large-diff partitions, with each
+  specialist's `bail` code (`none` when it did not bail). The stanzas go in
+  the report's Review Metadata and in the skill's result, including the
   unattended-mode result format.
 - **Every other paad skill that dispatches sub-agents** does the same in its
   own report and result: agentic-owasp, agentic-architecture, agentic-a11y,
@@ -182,28 +207,69 @@ workflow, preview tree and branch rules of epic #699
 - **Compatibility.** The stanza is extra lines in existing metadata sections.
   No existing output field changes or moves, and a reader that ignores the
   lines sees the report it saw before.
-- **Upstream timing.** vergil's own tasks do not wait on an upstream release.
-  Until the change is in the installed paad, it is tried out from the
-  preview tree, as in #699. The validation sample (§12) runs against
-  whatever paad is installed, and records its version.
+- **Deployment.** This environment always runs the fork's paad preview. A
+  paad change counts as deployed once the preview carries it; a deployment
+  task in this epic records that. The validation sample (§13) records which
+  preview commit it ran against. The upstream PRs are an offer, and no task
+  waits on them.
 
 ## 6. Where the stanzas appear
 
 - **In a sub-agent's answer:** the stanzas for its own children, at the end
   of the answer, one per line.
-- **In a task-issue record:** in the comment that already records the
-  activity (the mode 2 findings comment for a review round, the worker's
-  result comment for a worker), as a block of lines, each starting with the
-  prefix, so the extraction regex is `^agent-cost: v\d+ `.
-- **In the roll-ups:** §10.
+- **In a cost record on an issue:** a standalone, write-once comment, posted
+  after the step it measures. Its first line names the step
+  (`Agent cost: review round 2`, `Agent cost: implement`); the rest is the
+  stanza lines, each starting with the prefix, so the extraction regex is
+  `^agent-cost: v\d+` followed by a space. A cost record never shares a comment with another
+  record.
+- **In the roll-ups:** §11.
 
-## 7. The manager split
+## 7. Write-once records and the ruling protocol
+
+### 7.1 Write-once records
+
+Every comment a vergil skill or tool posts is written once and never edited.
+`--edit-last`, and the "unfinished comment" state it serves, are removed from
+the skills and the tooling. A record that needs correcting is followed by a
+new record that says what it corrects.
+
+### 7.2 The ruling protocol
+
+Every decision `issue-manager` takes from the human (rulings on findings,
+approving follow-up issues, attested preconditions, security holds, what to
+do after a pause) goes through the issue:
+
+- **The request.** The manager posts a ruling-request comment with a fixed
+  first line, one ID per item (`R2.3`) and the default answer for each.
+- **The reply.** The human replies on the issue, from their own account:
+  `approve` takes every default; `deny` comes with their answer; or they
+  answer per item (`R2.3: file`).
+- **Reading it.** The agent reads a ruling only from a comment by the human's
+  account, posted after the request. A reply that is ambiguous, partial or
+  out of order is never guessed at: the agent posts a fresh request.
+- **Rulings are never relayed through prompts.** When work resumes, the
+  agent that acts is told only that the human has responded on the issue,
+  and reads the ruling there itself.
+- **Security items** are ruled on by ID or count only (`R2.S1: fix`); the
+  ruling never carries their substance.
+- **`epic-implement` relays nothing.** It batches what needs the human,
+  points the human at each issue's ruling request, and continues each
+  manager once the human has replied there.
+- **The load-bearing assumption:** the agent's account cannot post as the
+  human. The rule doc states it. The tooling must tell the human's account
+  from the agent's; if it cannot, the protocol does not ship.
+
+A human interaction, for the roll-up's count (§2), is one ruling request or
+one pause.
+
+## 8. The manager split
 
 The boundary for a sub-agent is human interaction: **work we do not expect a
 human to step into runs as a sub-agent**, and sub-agents are used as much as
 possible. Applied to the issue skills:
 
-### 7.1 `issue-manager`, the entry point for every task
+### 8.1 `issue-manager`, the entry point for every task
 
 `issue-implement` is renamed `issue-manager`. It is the single entry point for
 any task, interactive or dispatched by `epic-implement`, and it takes over
@@ -216,33 +282,52 @@ this issue").
   `issue-manager`.
 - It owns **every human touchpoint**: preflight, the worktree, preconditions
   (including attested ones such as a human-gated release), approving
-  follow-up issues, rulings on findings, security holds, pauses, every
-  task-issue record (including closing an operational task on
-  `Outcome: SUCCESS`), and `report-ready`.
+  follow-up issues, rulings on findings, security holds and the judgement of
+  what to hold back, pauses, every task-issue record (including closing an
+  operational task on `Outcome: SUCCESS`), and `report-ready`. Each decision
+  it takes from the human goes through the ruling protocol (§7).
 - It runs the agentic-review loop of mode 2 for implementation tasks, with
   the reviewer and the responder as sub-agents.
-- It writes the stanza for every sub-agent it dispatches, and the task's
-  roll-up (§10).
+- It writes the cost record for every sub-agent it dispatches, and the
+  task's roll-up (§11).
 - Dispatched by `epic-implement`, it behaves as `issue-implement` does today:
   it never waits on the human itself but pauses and returns, and
   `epic-implement` batches what needs the human. Its own stanza is written
   by `epic-implement`.
 
-### 7.2 The workers
+### 8.2 The workers
 
-Each worker is a sub-agent running its own dedicated skill. It never asks the
-human anything: anything that needs a human (a proposed follow-up issue, an
-unmet precondition, a problem it cannot solve) goes in its result, and the
-manager takes it to the human.
+Each worker is a sub-agent running its own dedicated skill. Anything that
+needs a human (a proposed follow-up issue, an unmet precondition, a problem
+it cannot solve) makes the worker end its turn and return the question. The
+manager posts the ruling request (§7).
 
 | Worker | Skill | Does | Returns |
 | --- | --- | --- | --- |
 | implementer | `issue-implement` (the name now means only this) | writes the code in the given worktree, commits with `vrg-commit`, runs `vrg-container-run -- vrg-validate` until it passes | the commits, the validation result, proposed follow-ups, problems |
 | deployer | `issue-deploy` | runs the task's agent-safe deploy steps | SUCCESS or FAILURE with the evidence, proposed follow-ups, problems |
 | validator | `issue-validate` | runs the task's checklist | SUCCESS or FAILURE with the evidence, proposed follow-ups, problems |
-| reviewer | mode 2 reviewer prompt (unchanged) | runs `paad:agentic-review` | paad's result, with its stanzas |
+| reviewer | mode 2 reviewer prompt (unchanged, verbatim) | runs `paad:agentic-review`, fresh every round | paad's result |
 | responder | a new dedicated skill (name is the builder's call) | fresh each round: fixes the findings sorted `agent` and those the human ruled `fix`, commits, re-validates | what it did with each finding, the validation result, problems |
 
+- **Resuming after a ruling.** Once the human has replied, the manager
+  continues the same worker with SendMessage, telling it only that the human
+  has responded on the issue; the worker reads the ruling there (§7). A
+  fresh worker (`implement.2`) takes over only when the original can no
+  longer be continued, for example because the session that started it has
+  ended. It too reads the ruling from the issue. Reviewers are never
+  continued: the doctrine requires a fresh one every round.
+- **paad's stanzas come from its report.** The reviewer prompt stays
+  verbatim. The manager reads paad's stanzas from the collected `report.md`'s
+  Review Metadata, matching them with the strict stanza regex only. A
+  malformed line there is an audit error. The manager cross-checks them
+  against paad's `Agents dispatched:` list; a lens with no stanza is an
+  error.
+- **Security fixes.** Findings held back as security reach the responder
+  only as paths to their details files in the state directory, each with a
+  hash the responder checks before reading. The responder reports on them
+  by ID only. The manager records security items as counts only, and never
+  copies a worker's result into a record verbatim.
 - **Each worker's input and output are a written contract** in its skill:
   what the dispatch prompt gives it, and the fixed form of its result. This
   is the chance to define the three task kinds more tightly than today.
@@ -253,60 +338,72 @@ manager takes it to the human.
   bypass.
 - **Workers make no task-issue records** and close nothing. The manager
   records their results.
-- **The responder** replaces the implementer's in-context fixing in mode 2
-  step 7. The decisions about findings (sorting, classification, rulings)
-  stay with the manager.
-- **The split adds tokens.** Each worker starts cold and reads the issue and
-  code again. The numbers measured are for the split flow, not today's
-  single-context one; the retrospective says so.
+- **The split adds tokens.** Each fresh worker starts cold and reads the
+  issue and code again. The baseline (§12) measures today's flow, so the
+  retrospective can compare the two.
 
-### 7.3 The rename sweep
+### 8.3 The doctrine's mode 2 rewrite
 
-Every reference to the old meaning of `issue-implement` is updated: the
-skills (`epic-implement`, `epic-create`, `epic-retrospective`, `pr-watch`
-and others), the review doctrine (mode 2's title and text), the PR
-tooling's refusal and redirect messages in vergil-tooling, the hooks, the
-CLAUDE.md templates, the site docs and the `docs` repo. The plan finds
-them with a search, not from memory.
+Section 3 of the review doctrine has the implementer do everything: fix,
+re-validate, pause on repairs that need the human (step 7), judge what to
+hold back (§3.6), and pause in the cases of §3.8. After the split those jobs
+belong to the manager, the responder and the ruling protocol. A dedicated
+task rewrites steps 1–7 and §3.6–3.8 for the new roles. It is separate from
+the rename sweep.
 
-## 8. The roll-up and audit tool
+### 8.4 The rename sweep
+
+Every other reference to the old meaning of `issue-implement` is updated:
+the skills (`epic-implement`, `epic-create`, `epic-retrospective`,
+`pr-watch` and others), the doctrine's mode 2 title and remaining text, the
+PR tooling's refusal and redirect messages in vergil-tooling, the hooks, the
+CLAUDE.md templates, the site docs and the `docs` repo. The plan finds them
+with a search, not from memory.
+
+## 9. The roll-up and audit tool
 
 A `vrg-` tool in vergil-tooling (`vrg-agent-cost`; the name is the builder's
-call) reads the stanzas from an issue's trusted comments.
+call) reads the cost records from an issue's trusted comments.
 
 - **Inputs:** a task issue, or an epic. For an epic it reads every child task
   and the planning issue named in the epic's `Planning:` line, so the cost of
   planning is counted.
 - **Roll-up:** for each call path, the call's own numbers and the total under
-  it; per activity (implementing, reviewing, responding, deploying,
-  validating, design review); per task; for the epic. Counts of sub-agents
-  run. Time is summed only where every `human` in it is `0`; otherwise it is
-  shown as "includes waits on a human". `not-reported` values are counted
-  and shown, never treated as zero.
-- **No double counting.** If the probe (§11) finds that a sub-agent's tokens
-  include its children's, the tool derives each call's own share by
-  subtraction; otherwise it sums. Either way the total is counted once.
+  it, with continued turns combined; per activity (implementing, reviewing,
+  responding, deploying, validating, design review); per task; for the epic.
+  Counts of sub-agents run, and of human interactions (§7). Sub-agent time
+  is labelled as possibly including unseen permission waits. `not-reported`
+  values are counted and shown, never treated as zero.
+- **No double counting.** If the probe (§12) finds that a sub-agent's tokens
+  include its children's, or that a later turn's include earlier turns', the
+  tool derives each share by subtraction; otherwise it sums. Either way the
+  total is counted once.
 - **Audit, at two levels:**
   - **errors** (exit non-zero, one line each): a record that implies a
-    dispatch but carries no stanza; a call path whose parent is neither a
-    line nor the root (§3); a malformed stanza; an unknown version;
+    dispatch with no matching cost record; a call path whose parent is
+    neither a line nor the root (§3); an unknown segment; a full path
+    recorded twice; a dispatched manager with no matching `epic-implement`
+    line; a paad lens with no stanza; a malformed stanza; an unknown
+    version;
   - **gaps** (reported and counted, exit zero): each `not-reported` value.
     An honest gap is the anti-goal's alternative to a guessed number, not a
     failure.
 - **What implies a dispatch:** the records with fixed first lines that the
   skills already post (mode 1 round comments, mode 2 findings comments, the
-  worker result comments of §7). The rule doc lists them, and the tool reads
+  worker result comments of §8). The rule doc lists them, and the tool reads
   that list from one place.
-- **Cutover.** The rule applies to records made by the plugin release that
-  ships it, and later ones. The tool treats an issue as in scope when it has
-  any record made under that release. Records before the cutover are
-  reported as `pre-rule`, never as errors. An epic that straddles the
-  cutover, as this one does, gets a partial cost summary that says so.
-- **Output:** human-readable by default, `--json` for machines.
-- **No silent failures:** a comment it cannot parse as a stanza but that
-  starts with the prefix is an audit error, not skipped.
+- **Cutover.** An issue with no cost records is `pre-rule`: reported, never
+  an error. An issue with any cost record is in scope. An epic that
+  straddles the cutover, as this one does, gets a partial cost summary that
+  says so. The residual gap is that a run which logs nothing at all looks
+  pre-rule; the lint (§10) and the validation sample (§13) are what catch
+  it.
+- **Output:** human-readable by default, `--json` for machines. The tool's
+  output is the authoritative total.
+- **No silent failures:** a line that starts with `agent-cost: v` but does
+  not parse as a stanza is an audit error, not skipped.
 
-## 9. The static lint
+## 10. The static lint
 
 A check inside `vrg-validate` (vergil-tooling) for repos that hold skills
 (vergil-claude-plugin; paad gets the equivalent in its own test style if it
@@ -322,67 +419,84 @@ How dispatch sites are recognised is the builder's call. It must catch the
 forms used today (the Agent tool, "subagent", "sub-agent", "dispatch") and
 be tested against the current skills.
 
-## 10. Roll-ups in the records
+## 11. Roll-ups in the records
 
 - **Per task.** `issue-manager` posts the task's roll-up as the last record
   before `report-ready` (or before closing an operational task): every call,
-  with totals per activity. For an implementation task it extends mode 2's
-  `agentic-review summary` comment, whose `Review tokens` line becomes the
-  full roll-up. The tool (§8) produces it.
+  with totals per activity and the count of human interactions. For an
+  implementation task it extends mode 2's `agentic-review summary` comment,
+  whose `Review tokens` line becomes the full roll-up. The tool (§9)
+  produces it. A dispatched manager's own cost is recorded by
+  `epic-implement` after this roll-up, and the roll-up says so.
 - **Per epic.** `epic-retrospective` gains a step: run the tool over the
   epic and post the result as a final cost-summary comment on the epic
-  issue. The retrospective doc links to that comment and does not repeat the
-  numbers.
+  issue. The summary says it excludes the retrospective task itself, which
+  is still running when it is posted. The retrospective doc links to that
+  comment and does not repeat the numbers.
 
-## 11. The measurement probe
+## 12. The measurement probe and the baseline
 
 The first implementation task establishes, by experiment, what the design
 assumes. Each is recorded with evidence:
 
 1. the fields a completion notice gives, foreground and background, and
    their exact names, so the rule doc can map them onto the stanza (§3);
-2. whether a sub-agent's `totalTokens` includes its children's, checked
-   with a sub-agent that dispatches one of its own;
-3. what `totalTokens` counts (input, output, cache reads and writes);
-4. whether the main session can read its own cost;
-5. whether a sub-agent's dispatch can raise anything the human sees, and
+2. whether a sub-agent's tokens include its children's, checked with a
+   sub-agent that dispatches one of its own;
+3. what the token count covers (input, output, cache reads and writes), and
+   whether the notice breaks it down;
+4. whether a call continued with SendMessage produces its own completion
+   notice, and whether its tokens are cumulative or only the new turn's;
+5. whether the main session can read its own cost;
+6. whether a sub-agent's dispatch can raise anything the human sees, and
    whether the caller can count it.
 
 If a finding contradicts this spec, the spec is amended before the tasks that
 depend on it start.
 
-## 12. The validation sample
+**The baseline.** Once the rule doc and the stanza logging have landed on
+today's skills, and before the manager split, a small baseline sample of
+real tasks is run on today's flow and its roll-ups recorded. The validation
+sample (§13) is compared against it, so the epic can show what the split
+cost or saved.
+
+## 13. The validation sample
 
 A closing `validation` task, blocked by every implementation task:
 
 - run a real sample through the new flow: at least three docs-only tasks and
-  three code tasks (the count is my call, inside "a few"), drawn from real
-  queued work;
-- check that every dispatch left a stanza, that the paths nest, and that the
-  audit (§8) is clean;
-- record each task's roll-up and a comparison of docs-only against code,
-  including per-specialist cost and bail, so #812 can be revived against
-  its `Revisit when:` conditions.
+  three code tasks, drawn from real queued work;
+- check that every dispatch left a stanza, that the paths nest, that the
+  rulings went through the protocol (§7), and that the audit (§9) is clean;
+- record each task's roll-up, the paad preview commit it ran against, a
+  comparison of docs-only against code, including per-specialist cost and
+  bail, and a comparison against the baseline (§12), so #812 can be revived
+  against its `Revisit when:` conditions.
 
 It passes only when the audit reports no errors. Gaps (`not-reported`) are
 allowed only where the probe showed the value cannot be read (the root
 session's own cost, for example); any other gap is a failure, fixed before
 the epic closes.
 
-## 13. Placement
+## 14. Placement
 
-Each task is filed in the repo where its PR lands: the rule doc, skills and
-doctrine in vergil-claude-plugin; the tool, the lint, the PR-tooling
-messages and the site docs in vergil-tooling. The paad changes are made in
-the fork, which is outside the org. As in #699 (its spec §7), the fork tasks
-are filed in `vergil-project/.github` under this epic and closed by a comment
-naming the fork commits and their test result; they refer to the upstream
-PRs and never link across orgs.
+Each task is filed in the repo where its PR lands: the rule doc, the ruling
+protocol, skills and doctrine in vergil-claude-plugin; the tool, the lint,
+the comment tooling, the PR-tooling messages and the site docs in
+vergil-tooling. The paad changes are made in the fork, which is outside the
+org. As in #699 (its spec §7), the fork tasks are filed in
+`vergil-project/.github` under this epic and closed by a comment naming the
+fork commits and their test result; they refer to the upstream PRs and never
+link across orgs.
 
-## 14. Left to the builder
+## 15. Left to the builder
 
 - the names of the rule doc, the responder skill and the tool;
+- the slugs, the bail codes and the ruling-request wording, within §3 and
+  §7;
 - how the lint recognises a dispatch site;
-- the exact wording of each worker's contract, within §7.2;
-- the order of the tasks, except that the probe comes first and the
-  validation sample last.
+- how the tooling tells the human's account from the agent's (§7);
+- the exact wording of each worker's contract, within §8.2;
+- the order of the tasks, except that the probe comes first, the logging and
+  the baseline come before the manager split, and the validation sample
+  comes last.
