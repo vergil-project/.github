@@ -8,7 +8,9 @@
   `vrg-epic-audit` check), vergil-claude-plugin (`epic-create` and
   `epic-retrospective`), `.github` (this spec and plan, and the fleet
   backfill)
-- **Supersedes:** vergil-project/vergil-claude-plugin#837
+- **Absorbs:** vergil-project/vergil-claude-plugin#837, which becomes this
+  epic's skills task; its body is rewritten to this design when it is
+  relinked
 
 ## 1. Problem
 
@@ -142,24 +144,32 @@ keeps its own epics.
 - **Finding the documents,** for each epic `N`:
   1. the directory `epics/<N>-*/` in the home repo's default branch;
   2. otherwise, an `epics/<dir>/` path the body mentions that exists;
-  3. otherwise, `docs/specs/…` or `docs/plans/…` paths the body mentions,
-     in the home repo or another repo of the same org (written
-     `<repo>/docs/specs/…`), that exist. A file under `specs/` is the spec,
-     under `plans/` the plan. This covers epics such as
-     vergil-project/.github#51–53, whose specs live in member repos.
+  3. otherwise, `docs/specs/…`, `docs/superpowers/specs/…` or `docs/plans/…`
+     paths the body mentions, in the home repo or another repo of the same
+     org (written `<repo>/docs/…` or `<owner>/<repo>/docs/…`), that exist. A
+     file under `specs/` is the spec, under `plans/` the plan. This covers
+     epics reconstructed during the original migration into the framework,
+     such as vergil-project/.github#51–53, whose specs live in member repos.
 
   In a found directory, `spec.md`, `plan.md` and `retrospective.md` are the
   three documents. Other files in it (`audit-findings.md`, …) are ignored.
 - **Ambiguity is not guessed.** Two candidate directories, or two candidate
   specs, for one epic: the epic is reported as needing a decision and left
   unchanged. The human settles it with `vrg-epic-docs set`.
+- **Existing links are kept.** A link already in an epic's section, whether
+  written by `set` or by an earlier backfill, is never replaced or
+  downgraded. Discovery and the §3 rules decide only the entries that are
+  still notes, so an epic settled with `set` is not reported again, and a
+  link written at handoff is not reset to `pending` before its PR merges.
 - **Legacy document lines.** Hand-written document references outside the
   markers are removed when the section is written:
   - a `Documents:` line followed by Spec, Plan and Retrospective bullets (as
     in vergil-project/.github#558 and #819);
   - a standalone line starting `Spec:`, `Plan:` or `Retrospective:`, with
     or without a trailing "(published by …)" note (as in
-    vergil-project/.github#51, #500 and #550).
+    vergil-project/.github#51, #500 and #550). A following line that is
+    only a bracketed note, such as "(not moved — reference-only)." on
+    #51–53, is removed with it.
 
   The dry run shows every line it would remove. No other body text changes.
 - **Dry run by default.** Without `--apply` it prints, per epic, the section
@@ -168,9 +178,11 @@ keeps its own epics.
 - **Exit status:** 0 when every epic is correct or was corrected; 1 when any
   epic needs a decision or an edit failed. Each failure is named; a failed
   edit never stops the run silently.
-- **Identity:** it edits issue bodies through the existing `lib/github.py`
-  write path, inside `github.target_org(<org>)`, so the agent can run it for
-  any org the App is installed in.
+- **Identity:** both `set` and `backfill` run entirely, reads and writes,
+  inside `github.target_org(<epic owner>)`, through the existing
+  `lib/github.py` paths. The agent can then run them for any org the App is
+  installed in, and a contents-API 404 always comes from a token that can
+  see that org's repos.
 
 ## 6. `vrg-epic-audit` check (vergil-tooling)
 
@@ -184,9 +196,10 @@ A new **Epic documents** finding section in `vrg-epic-audit`, over every
   (contents API; a 404 is a finding), and no entry is `pending`.
 - **Open epics:** links are not checked for resolution.
 
-The audit has no per-epic body check today. It already lists closed epics
-for `closed_epic_open_child`; the new check shares that listing, with the
-§5.2 skips, rather than adding a second one. Findings are reported like the existing
+The audit has no per-epic body check today. The check uses the backfill's
+epic listing (open and closed, with bodies), and `closed_epic_open_child`
+moves onto that same listing, filtered to closed epics and keeping its own
+skips, so the audit lists epics once. Findings are reported like the existing
 sections and do not change the exit status. Pointing it at another org uses
 the existing `--repo <org>/.github`.
 
@@ -200,8 +213,6 @@ the existing `--repo <org>/.github`.
 - **`epic-retrospective`:** at the close-out handoff, run `vrg-epic-docs set
   --epic <ref> --retrospective epics/<N>-<slug>/retrospective.md`. The skill
   finds `<slug>` from the epic's existing `epics/<N>-*/` directory.
-- **`migrate-repo`:** an epic it reconstructs gets its section from
-  `vrg-epic-docs set` like any other.
 
 These steps run as the user agent; editing an issue body is an ordinary
 agent action, unlike PR submission.
@@ -222,8 +233,10 @@ not PR-workable. Each:
 4. settles every epic reported as needing a decision with
    `vrg-epic-docs set`, after the human decides it;
 5. runs it with `--apply`;
-6. runs `vrg-epic-audit --repo <org>/.github` and records a clean Epic
-   documents section as its `Outcome: SUCCESS`.
+6. runs `vrg-epic-audit --repo <org>/.github`, and `vrg-epic-audit --repo
+   <owner>/<private-repo>` for each self-homing private repo from step 2,
+   and records a clean Epic documents section from each as its
+   `Outcome: SUCCESS`.
 
 Order: **vergil-project first**, where the format is proven on its 77
 epics.
@@ -233,7 +246,9 @@ diogenes-project and vergils-nemesis**. The personal `wphillipmoore`
 account has no `.github` and therefore no epic home; its task checks that
 none of its repos carries an `epic`-labelled issue and records the result.
 Nothing in another org is linked to this epic; the sweeps only edit issue
-bodies there.
+bodies there. Last, once the released skills are installed, a final
+vergil-project sweep covers epics created since the first one and confirms
+a clean audit, before the documentation review and the retrospective.
 
 The expected vergil-project result, computed on 2026-11-02 under §3 and the
 §5.2 skips, is 77 epics. The vergil-project task checks its dry run against
@@ -259,14 +274,16 @@ this, allowing for epics created or closed since:
   invariant in §Compliance invariants.
 - vergil-tooling `docs/site/docs/reference/cli-tools-overview.md`:
   `vrg-epic-docs`, and the new `vrg-epic-audit` section.
-- vergil-claude-plugin `skills/epic-create/SKILL.md`,
-  `skills/epic-retrospective/SKILL.md` and `skills/migrate-repo/SKILL.md`.
+- vergil-claude-plugin `skills/epic-create/SKILL.md` and
+  `skills/epic-retrospective/SKILL.md`.
 
 The documentation-review task (vergil-project/vergil-tooling#3895) sweeps
 for anything else.
 
 ## 10. Out of scope
 
+- The `migrate-repo` skill, which is being deprecated and removed under
+  planning issue vergil-project/.github#831.
 - Writing a missing spec, plan or retrospective for any epic.
 - Closing the 404 window before a PR merges.
 - Linking anything across orgs.

@@ -40,11 +40,12 @@
 |---|---|---|---|---|
 | 1 | `epic_docs` library and `vrg-epic-docs set` | vergil-tooling | task | — |
 | 2 | `vrg-epic-docs backfill` | vergil-tooling | task | 1 |
-| 3 | `vrg-epic-audit` Epic documents check, and the site docs | vergil-tooling | task | 1 |
+| 3 | `vrg-epic-audit` Epic documents check, and the site docs | vergil-tooling | task | 2 |
 | D1 | Backfill vergil-project | vergil-project/.github | deployment | 2, 3 |
 | 4 | Skills write the section (vergil-project/vergil-claude-plugin#837) | vergil-claude-plugin | task | D1 |
 | D2–D6 | Backfill logical-minds-foundry, mq-rest-admin-project, mnemosys-project, diogenes-project, vergils-nemesis (one task each) | vergil-project/.github | deployment | D1 |
 | D7 | Confirm no epics under the `wphillipmoore` account | vergil-project/.github | deployment | D1 |
+| D8 | Final vergil-project sweep with the released skills | vergil-project/.github | deployment | 4, D2–D7 |
 
 Task 4 waits for D1 so that the skills never call a `vrg-epic-docs` that is not installed yet. The existing bookends follow: the documentation review (vergil-project/vergil-tooling#3895), then the retrospective (vergil-project/.github#821).
 
@@ -84,6 +85,7 @@ Task 4 waits for D1 so that the skills never call a `vrg-epic-docs` that is not 
   - `test_upsert_half_section_raises` (Review Focus 1): only `BEGIN`, only `END`, or `END` before `BEGIN` all raise `EpicDocsFormatError`.
   - `test_strip_legacy_documents_list`: the #558 form (a `Documents:` line plus three bullets) is removed and reported.
   - `test_strip_legacy_standalone_lines`: `` Spec: `epics/550-x/spec.md` (published by the documentation task) ``, and `Plan:` / `Retrospective:` lines, are removed.
+  - `test_strip_legacy_continuation_line`: the #51 form, a `Spec:` line followed by "(not moved — reference-only).", loses both lines.
   - `test_strip_legacy_keeps_code_fence_lines` (Review Focus 3).
   - `test_crlf_body_preserved` (Review Focus 2): a `\r\n` body round-trips through `upsert`, with only the section region and legacy lines changed.
   - `test_upsert_empty_body` (Review Focus 4): `upsert("", block)[0] == block`.
@@ -95,9 +97,11 @@ Task 4 waits for D1 so that the skills never call a `vrg-epic-docs` that is not 
   - `test_set_other_repo_path`: `--spec vergil-vm:docs/specs/a.md` gives a `DocLink` with `repo="vergil-vm"`, and the default branch is queried for `vergil-vm`.
   - `test_set_idempotent_no_write`: when the body is already correct, `write_body` is not called.
   - `test_set_does_not_check_existence`: no contents-API call is made.
+  - `test_set_runs_in_target_org`: for `--epic other-org/.github#5`, the read and the write both happen inside `github.target_org("other-org")`.
 - [ ] **Step 5:** Implement `bin/vrg_epic_docs.py` with an argparse `set` subcommand (Task 2 adds `backfill`). Its `--help` follows the other `vrg-*` tools.
 - [ ] **Step 6:** Run `vrg-container-run -- vrg-validate`. Expected: PASS.
-- [ ] **Step 7:** `vrg-commit --type feat --scope epic-docs --message "epic Documents section library and vrg-epic-docs set"`
+- [ ] **Step 7: Refactor** with the tests green, then re-run `vrg-container-run -- vrg-validate`. Expected: PASS.
+- [ ] **Step 8:** `vrg-commit --type feat --scope epic-docs --message "epic Documents section library and vrg-epic-docs set"`
 
 ### Task 2: `vrg-epic-docs backfill`
 
@@ -116,36 +120,41 @@ Task 4 waits for D1 so that the skills never call a `vrg-epic-docs` that is not 
   - `class Ambiguous(Exception)`, carrying the candidates
   - `discover(owner: str, home_repo: str, number: int, body: str, branch: str) -> dict[str, DocLink | None]`: raises `Ambiguous`
   - `file_exists(owner: str, repo: str, path: str, branch: str) -> bool`: contents API; a 404 is `False`, any other error propagates
-  - `list_epics(home: str) -> list[dict]`: every `epic`-labelled issue, open and closed, with number, title, state, stateReason, createdAt, labels and body, minus `is_skipped`
+  - `list_epics(home: str, *, apply_skips: bool = True) -> list[dict]`: every `epic`-labelled issue, open and closed, with number, title, state, stateReason, createdAt, labels and body; minus `is_skipped` when `apply_skips`; read through the paginated issues API, never a default-limited `gh issue list`
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_is_skipped`: true for labels `{"epic","ad-hoc"}`, `{"epic","standing"}` and titles `Epic (standing): Ad-hoc maintenance` and `[archived] Epic: x`; false for `{"epic"}` with `Epic: x` or `Sync .gitignore to baseline`.
   - `test_entry_for_table`, parametrized, one row each: link → the `DocLink`; open → `PENDING`; closed `NOT_PLANNED` with a missing retro → `NOT_PLANNED` (this beats the date rows); closed, created `2026-07-01`, spec missing → `PREDATES_SPEC_PLAN`; closed, created `2026-07-16`, retro missing → `PREDATES_RETRO` (the #156 case); closed, created `2026-08-25`, all missing → `NOT_WRITTEN` (the #322 case).
   - `test_discover_epic_dir`: `epics/819-x/` holding `spec.md`, `plan.md` and `audit-findings.md` gives spec and plan links, retro `None`.
   - `test_discover_body_mentioned_dir`: no `epics/<N>-*/`, but the body mentions an existing `epics/553-x/` → that directory is used.
-  - `test_discover_member_repo_spec`: a body mentioning `vergil-vm/docs/specs/a.md`, which exists → spec `DocLink(repo="vergil-vm", …)`.
+  - `test_discover_member_repo_spec`: a body mentioning `vergil-vm/docs/specs/a.md`, which exists → spec `DocLink(repo="vergil-vm", …)`; the same for `vergil-project/vergil-vm/docs/specs/a.md` and for `vergil-vm/docs/superpowers/specs/a.md`.
   - `test_discover_two_dirs_ambiguous`: raises `Ambiguous`.
+  - `test_discover_two_specs_ambiguous`: a body naming two different spec paths raises `Ambiguous`.
+  - `test_list_epics_paginates`: with a mocked second page, a home with more than 100 epics returns them all.
   - `test_backfill_dry_run_no_writes`: prints each epic's block with `add`, `change` or `no change`, each removed legacy line, and a summary; no `write_body` call; exit 0.
   - `test_backfill_apply_writes_changed_only`.
   - `test_backfill_ambiguous_exit_1`: that epic is named and left unchanged, the others are applied, exit 1.
   - `test_backfill_api_error_continues` (Review Focus 5): a non-404 error on one epic is named, the next epic is still processed, exit 1.
   - `test_backfill_repo_flag`: `--repo o/private` reads epics from `o/private`.
+  - `test_backfill_keeps_existing_link`: a section whose Spec is a link to a file discovery cannot find keeps that link, and only its note entries are recomputed.
+  - `test_backfill_set_decided_not_reflagged`: an epic with two candidate directories whose three entries are already links is not reported as ambiguous; exit 0.
 - [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`. Expected: the new tests fail.
-- [ ] **Step 3:** Implement the functions, then the `backfill (--org ORG | --repo OWNER/REPO) [--apply]` subcommand. `--org` resolves to `<org>/.github`. Writes go inside `github.target_org(owner)`. Discovery runs on the original body, before legacy lines are stripped.
+- [ ] **Step 3:** Implement the functions, then the `backfill (--org ORG | --repo OWNER/REPO) [--apply]` subcommand. `--org` resolves to `<org>/.github`. The whole run, reads and writes, goes inside `github.target_org(owner)`; add `test_backfill_reads_in_target_org`, asserting that `list_epics`, `default_branch` and `file_exists` are called inside the context. Discovery runs on the original body, before legacy lines are stripped.
 - [ ] **Step 4:** Run `vrg-container-run -- vrg-validate`. Expected: PASS.
-- [ ] **Step 5:** `vrg-commit --type feat --scope epic-docs --message "vrg-epic-docs backfill"`
+- [ ] **Step 5: Refactor** discovery and the run loop with the tests green, then re-run `vrg-container-run -- vrg-validate`. Expected: PASS.
+- [ ] **Step 6:** `vrg-commit --type feat --scope epic-docs --message "vrg-epic-docs backfill"`
 
 ### Task 3: `vrg-epic-audit` Epic documents check, and the site docs
 
 **Files:**
 
-- Modify: `src/vergil_tooling/lib/epic_audit.py` (factor the closed-epic listing out of `closed_epic_open_child` into `_closed_epics(home: str) -> list[dict]`; add the check and its render section), `src/vergil_tooling/bin/vrg_epic_audit.py` (wire it in)
+- Modify: `src/vergil_tooling/lib/epic_audit.py` (move `closed_epic_open_child` onto `epic_docs.list_epics(home, apply_skips=False)` filtered to closed epics, keeping its own perpetual-epic skip; add the check, which uses `list_epics(home)`, and its render section), `src/vergil_tooling/bin/vrg_epic_audit.py` (wire it in)
 - Modify: `docs/site/docs/standards/github-issues.md` (§Epics, §Creating an epic, §Compliance invariants), `docs/site/docs/reference/cli-tools-overview.md` (`vrg-epic-docs`, and the new audit section)
 - Test: `tests/vergil_tooling/test_epic_audit.py`, `tests/vergil_tooling/test_vrg_epic_audit.py`
 
 **Interfaces:**
 
-- Consumes: `epic_docs.parse`, `epic_docs.is_skipped`, `epic_docs.file_exists`.
+- Consumes: `epic_docs.list_epics`, `epic_docs.parse`, `epic_docs.file_exists`.
 - Produces: `epic_documents(org: str, *, home: str | None = None) -> list[EpicDocsFinding]`, where `EpicDocsFinding(number: int, state: str, problem: str)`, rendered under `## Epic documents`. Report-only: the exit status is unchanged.
 
 - [ ] **Step 1: Write the failing tests:**
@@ -158,7 +167,7 @@ Task 4 waits for D1 so that the skills never call a `vrg-epic-docs` that is not 
   - `test_closed_epic_open_child_unchanged`: the existing behaviour holds after the refactor (the existing tests pass unchanged).
   - `test_render_epic_documents_section`.
 - [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`. Expected: the new tests fail.
-- [ ] **Step 3:** Implement the check and the refactor.
+- [ ] **Step 3:** Implement the check and the refactor, then refactor with the tests green: remove any listing code in `epic_audit.py` that `list_epics` replaces.
 - [ ] **Step 4:** Update the two site pages: the section's format and notes, the entry rules with both cutoffs, when the skills write it, `vrg-epic-docs set` and `backfill`, and the new invariant.
 - [ ] **Step 5:** Run `vrg-container-run -- vrg-validate`. Expected: PASS (tests, markdown lint, docs build).
 - [ ] **Step 6:** `vrg-commit --type feat --scope epic-audit --message "check every epic's Documents section"`
@@ -175,18 +184,17 @@ Operational: no PR. Run with `issue-deploy`.
 
 ### Task 4: Skills write the section (vergil-claude-plugin)
 
-Relink vergil-project/vergil-claude-plugin#837 under the epic as this task (`vrg-epic-link`).
+Relink vergil-project/vergil-claude-plugin#837 under the epic as this task (`vrg-epic-link`), and rewrite its body to the handoff design in spec §4 and §7.
 
 **Files:**
 
-- Modify: `skills/epic-create/SKILL.md` (step 2, step 8), `skills/epic-retrospective/SKILL.md` (close-out step 3), `skills/migrate-repo/SKILL.md` (wherever it creates an epic)
+- Modify: `skills/epic-create/SKILL.md` (step 2, step 8) and `skills/epic-retrospective/SKILL.md` (close-out step 3)
 
 - [ ] **Step 1:** In `epic-create` step 2, after `vrg-epic-create`, add: run `vrg-epic-docs set --epic <owner>/<repo>#<N>` to seed the Documents section. The epic body written by hand carries no document lines.
 - [ ] **Step 2:** In `epic-create` step 8, at the `report-ready` handoff, add: run `vrg-epic-docs set --epic <ref> --spec epics/<N>-<slug>/spec.md --plan epics/<N>-<slug>/plan.md`. The links resolve once the PR merges, and that window is accepted.
 - [ ] **Step 3:** In `epic-retrospective` close-out, at the handoff, add: run `vrg-epic-docs set --epic <ref> --retrospective epics/<N>-<slug>/retrospective.md`, taking `<slug>` from the epic's existing `epics/<N>-*/` directory.
-- [ ] **Step 4:** In `migrate-repo`, add the same `set` call after each epic it creates.
-- [ ] **Step 5:** `vrg-container-run -- vrg-validate`. Expected: PASS.
-- [ ] **Step 6:** `vrg-commit --type feat --scope skills --message "epic-create and epic-retrospective keep the epic Documents section current"`
+- [ ] **Step 4:** `vrg-container-run -- vrg-validate`. Expected: PASS.
+- [ ] **Step 5:** `vrg-commit --type feat --scope skills --message "epic-create and epic-retrospective keep the epic Documents section current"`
 
 ### Tasks D2–D6: Backfill each other org (deployment)
 
@@ -199,3 +207,13 @@ One task per org: logical-minds-foundry, mq-rest-admin-project, mnemosys-project
 ### Task D7: Confirm no epics under `wphillipmoore` (deployment)
 
 Operational, blocked by D1. List the account's repos (public and private) and confirm that none carries an `epic`-labelled issue. Record the repo list and the result. If any does, stop and report: the account has no epic home, so the human decides.
+
+### Task D8: Final vergil-project sweep with the released skills (deployment)
+
+Operational, run with `issue-deploy`, blocked by Task 4 and D2–D7. It runs before the documentation review and the retrospective.
+
+**Precondition (human-attested):** a vergil-claude-plugin release that contains Task 4 is cut and installed. The agent never cuts it.
+
+**Procedure:** run `vrg-epic-docs backfill --org vergil-project` as a dry run, then with `--apply`, to cover epics created between D1 and the plugin release. Then run `vrg-epic-audit --repo vergil-project/.github`.
+
+**Acceptance:** the audit shows no Epic documents findings, and #819's own section shows its spec and plan links.
