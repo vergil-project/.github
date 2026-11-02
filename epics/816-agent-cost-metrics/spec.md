@@ -85,17 +85,18 @@ possibly including permission waits the caller cannot see.
 One line per sub-agent call, or per turn of a continued call:
 
 ```text
-agent-cost: v1 call=<path> [turn=<n>] tokens=<n> tool_uses=<n> duration_ms=<n> [bail=<code>]
+agent-cost: v1 call=<path> [turn=<n>] tokens=<n> tool_uses=<n> duration_ms=<n> [bail=<code>] [lost]
 ```
 
 - **Prefix and version.** Each line starts with `agent-cost: v1`, at the
-  start of a line, outside any code fence it is reported in. A later change
-  to the fields bumps the version; readers accept every version they know.
+  start of a line. A later change to the fields bumps the version; readers
+  accept every version they know.
 - **Fields** are `key=value`, separated by single spaces, in the order shown.
   Values contain no spaces. `call`, `tokens`, `tool_uses` and `duration_ms`
   are always present. `turn` appears only on a continued call (below).
   `bail` appears only on a call that can bail (paad's specialists), and is
-  `none` when it did not.
+  `none` when it did not. `lost` is a bare marker, only on a lost call
+  (below).
 - **`tokens`.** If the probe (§12) finds that a completion notice breaks
   tokens down (input, output, cache reads and writes), the breakdown is
   recorded as extra fields after `tokens`, named in the rule doc. If the
@@ -117,7 +118,13 @@ agent-cost: v1 call=<path> [turn=<n>] tokens=<n> tool_uses=<n> duration_ms=<n> [
   design-review rounds. A fresh agent taking over from one that can no
   longer be continued takes a `.2` suffix (`implement.2`, `verifier.2`).
   Partitions of one paad lens on a large diff take `.a`/`.b`
-  (`logic.a`, `logic.b`), every instance suffixed.
+  (`logic.a`, `logic.b`), every instance suffixed. A `.<n>` suffix implies
+  its predecessor (`implement.2` implies `implement`), so a predecessor
+  with no line is an audit error.
+- **A lost call still gets a line.** When a call's completion notice never
+  arrives (the worker cannot be continued because the session that started
+  it ended, say), whoever takes over writes its stanza with every value
+  `not-reported` and the marker `lost`, before dispatching the successor.
 - **Continued calls keep their path.** A sub-agent that ended its turn and
   was continued with SendMessage is the same call. Each of its completion
   notices gets its own line, with the same path and `turn=<n>` from 2 up.
@@ -207,9 +214,14 @@ workflow, preview tree and branch rules of epic #699
 - **Compatibility.** The stanza is extra lines in existing metadata sections.
   No existing output field changes or moves, and a reader that ignores the
   lines sees the report it saw before.
+- **The unattended result.** Every review round runs through
+  `paad:paad-delegate`, which writes no report, so the caller gets paad's
+  stanzas only from the delegate's structured result. Each dispatching
+  skill's unattended result gains a skill-specific field carrying them.
 - **Deployment.** This environment always runs the fork's paad preview. A
-  paad change counts as deployed once the preview carries it; a deployment
-  task in this epic records that. The validation sample (§13) records which
+  paad change counts as deployed once the preview carries it and the
+  paad-policy §10 gate has passed on it; a deployment task in this epic
+  records both. The validation sample (§13) records which
   preview commit it ran against. The upstream PRs are an offer, and no task
   waits on them.
 
@@ -221,18 +233,29 @@ workflow, preview tree and branch rules of epic #699
   after the step it measures. Its first line names the step
   (`Agent cost: review round 2`, `Agent cost: implement`); the rest is the
   stanza lines, each starting with the prefix, so the extraction regex is
-  `^agent-cost: v\d+` followed by a space. A cost record never shares a comment with another
-  record.
+  `^agent-cost: v\d+` followed by a space. A cost record never shares a
+  comment with another record. Stanzas are read only from cost records: a
+  stanza-shaped line in any other comment (a code excerpt in a findings
+  comment, say) is ignored.
 - **In the roll-ups:** §11.
 
 ## 7. Write-once records and the ruling protocol
 
 ### 7.1 Write-once records
 
-Every comment a vergil skill or tool posts is written once and never edited.
-`--edit-last`, and the "unfinished comment" state it serves, are removed from
-the skills and the tooling. A record that needs correcting is followed by a
-new record that says what it corrects.
+An issue's comments are a running log of how it evolved. Every comment a
+vergil skill or tool posts is written once: never edited, never deleted.
+`--edit-last`, `--delete-last` and the "unfinished comment" state they
+serve are removed from the skills.
+
+- **A correction is a new comment.** A superseding record links to the
+  comment it replaces and says that it supersedes it, so the change reads
+  as a delta in the log rather than in an edit history. The tool (§9)
+  reads a superseded record as replaced, never as a second one.
+- **Edits are detected.** GitHub records each comment's edits. An edited
+  agent record (a cost record, a ruling request, any record of §9) is an
+  audit error. Humans may edit their own comments, to fix a typo say, but
+  an edited ruling is not acted on (§7.2).
 
 ### 7.2 The ruling protocol
 
@@ -246,8 +269,9 @@ do after a pause) goes through the issue:
   `approve` takes every default; `deny` comes with their answer; or they
   answer per item (`R2.3: file`).
 - **Reading it.** The agent reads a ruling only from a comment by the human's
-  account, posted after the request. A reply that is ambiguous, partial or
-  out of order is never guessed at: the agent posts a fresh request.
+  account, posted after the request. A reply that is ambiguous, partial,
+  out of order or edited is never guessed at: the agent posts a fresh
+  request, saying why, and the human answers in a new comment.
 - **Rulings are never relayed through prompts.** When work resumes, the
   agent that acts is told only that the human has responded on the issue,
   and reads the ruling there itself.
@@ -256,9 +280,11 @@ do after a pause) goes through the issue:
 - **`epic-implement` relays nothing.** It batches what needs the human,
   points the human at each issue's ruling request, and continues each
   manager once the human has replied there.
-- **The load-bearing assumption:** the agent's account cannot post as the
-  human. The rule doc states it. The tooling must tell the human's account
-  from the agent's; if it cannot, the protocol does not ship.
+- **The agent never posts as the human, checked every session.** Before it
+  posts a ruling request or reads a ruling, the session confirms that it
+  posts as one of the agent logins `vrg-trusted-authors` lists, never the
+  human login. If it does not, the protocol refuses: the run pauses and
+  names the fix, and no ruling is requested or read.
 
 A human interaction, for the roll-up's count (§2), is one ruling request or
 one pause.
@@ -317,12 +343,12 @@ manager posts the ruling request (§7).
   longer be continued, for example because the session that started it has
   ended. It too reads the ruling from the issue. Reviewers are never
   continued: the doctrine requires a fresh one every round.
-- **paad's stanzas come from its report.** The reviewer prompt stays
-  verbatim. The manager reads paad's stanzas from the collected `report.md`'s
-  Review Metadata, matching them with the strict stanza regex only. A
-  malformed line there is an audit error. The manager cross-checks them
-  against paad's `Agents dispatched:` list; a lens with no stanza is an
-  error.
+- **paad's stanzas come from the delegate's result.** The reviewer prompt
+  stays verbatim. The manager reads paad's stanzas from the new
+  skill-specific field of the delegate's result (§5), matching them with the
+  strict stanza regex only, and cross-checks them against paad's `Agents
+  dispatched:` list. A malformed line, or a lens with no stanza, is a failed
+  output check, handled like any other.
 - **Security fixes.** Findings held back as security reach the responder
   only as paths to their details files in the state directory, each with a
   hash the responder checks before reading. The responder reports on them
@@ -348,8 +374,15 @@ Section 3 of the review doctrine has the implementer do everything: fix,
 re-validate, pause on repairs that need the human (step 7), judge what to
 hold back (§3.6), and pause in the cases of §3.8. After the split those jobs
 belong to the manager, the responder and the ruling protocol. A dedicated
-task rewrites steps 1–7 and §3.6–3.8 for the new roles. It is separate from
-the rename sweep.
+task rewrites, for the new roles and records:
+
+- mode 2's steps 1–7 and §3.6–3.8;
+- §3.5 and §1.7: the delete-and-repost and unfinished-comment paths become
+  superseding records (§7.1);
+- §1.9 and §3.4: the new stanza field's place in the result, the strict
+  stanza regex and the cross-check against `Agents dispatched:`.
+
+It is separate from the rename sweep.
 
 ### 8.4 The rename sweep
 
@@ -363,7 +396,8 @@ with a search, not from memory.
 ## 9. The roll-up and audit tool
 
 A `vrg-` tool in vergil-tooling (`vrg-agent-cost`; the name is the builder's
-call) reads the cost records from an issue's trusted comments.
+call) reads the cost records (§6) from an issue's trusted comments, and
+no other comment.
 
 - **Inputs:** a task issue, or an epic. For an epic it reads every child task
   and the planning issue named in the epic's `Planning:` line, so the cost of
@@ -381,17 +415,18 @@ call) reads the cost records from an issue's trusted comments.
 - **Audit, at two levels:**
   - **errors** (exit non-zero, one line each): a record that implies a
     dispatch with no matching cost record; a call path whose parent is
-    neither a line nor the root (§3); an unknown segment; a full path
-    recorded twice; a dispatched manager with no matching `epic-implement`
-    line; a paad lens with no stanza; a malformed stanza; an unknown
-    version;
-  - **gaps** (reported and counted, exit zero): each `not-reported` value.
-    An honest gap is the anti-goal's alternative to a guessed number, not a
-    failure.
+    neither a line nor the root (§3); a suffixed path whose predecessor has
+    no line; an unknown segment; a full path recorded twice; a dispatched
+    manager with no matching `epic-implement` line; a malformed stanza; an
+    unknown version; an edited agent record (§7.1);
+  - **gaps** (reported and counted, exit zero): each `not-reported` value,
+    and each `lost` call. An honest gap is the anti-goal's alternative to a
+    guessed number, not a failure.
 - **What implies a dispatch:** the records with fixed first lines that the
   skills already post (mode 1 round comments, mode 2 findings comments, the
   worker result comments of §8). The rule doc lists them, and the tool reads
-  that list from one place.
+  that list from one place. A superseded record (§7.1) implies nothing; its
+  superseding record does.
 - **Cutover.** An issue with no cost records is `pre-rule`: reported, never
   an error. An issue with any cost record is in scope. An epic that
   straddles the cutover, as this one does, gets a partial cost summary that
@@ -400,8 +435,9 @@ call) reads the cost records from an issue's trusted comments.
   it.
 - **Output:** human-readable by default, `--json` for machines. The tool's
   output is the authoritative total.
-- **No silent failures:** a line that starts with `agent-cost: v` but does
-  not parse as a stanza is an audit error, not skipped.
+- **No silent failures:** a line in a cost record that starts with
+  `agent-cost: v` but does not parse as a stanza is an audit error, not
+  skipped.
 
 ## 10. The static lint
 
@@ -449,16 +485,22 @@ assumes. Each is recorded with evidence:
    notice, and whether its tokens are cumulative or only the new turn's;
 5. whether the main session can read its own cost;
 6. whether a sub-agent's dispatch can raise anything the human sees, and
-   whether the caller can count it.
+   whether the caller can count it;
+7. nesting at the split's real depth: main session, manager, delegate,
+   analyst;
+8. whether a continued sub-agent can continue its own sub-agents;
+9. whether `paad:paad-delegate` can be dispatched from a sub-agent.
 
 If a finding contradicts this spec, the spec is amended before the tasks that
-depend on it start.
+depend on it start; a negative result on items 7–9 amends §8 before the
+manager split or the rename sweep starts.
 
 **The baseline.** Once the rule doc and the stanza logging have landed on
 today's skills, and before the manager split, a small baseline sample of
 real tasks is run on today's flow and its roll-ups recorded. The validation
 sample (§13) is compared against it, so the epic can show what the split
-cost or saved.
+cost or saved. The baseline measures per-specialist cost and bail, so #812
+may be revived from it without waiting for the validation sample.
 
 ## 13. The validation sample
 
@@ -473,8 +515,8 @@ A closing `validation` task, blocked by every implementation task:
   bail, and a comparison against the baseline (§12), so #812 can be revived
   against its `Revisit when:` conditions.
 
-It passes only when the audit reports no errors. Gaps (`not-reported`) are
-allowed only where the probe showed the value cannot be read (the root
+It passes only when the audit reports no errors. Gaps are allowed only for
+a `lost` call, or where the probe showed the value cannot be read (the root
 session's own cost, for example); any other gap is a failure, fixed before
 the epic closes.
 
@@ -495,7 +537,6 @@ link across orgs.
 - the slugs, the bail codes and the ruling-request wording, within §3 and
   §7;
 - how the lint recognises a dispatch site;
-- how the tooling tells the human's account from the agent's (§7);
 - the exact wording of each worker's contract, within §8.2;
 - the order of the tasks, except that the probe comes first, the logging and
   the baseline come before the manager split, and the validation sample
