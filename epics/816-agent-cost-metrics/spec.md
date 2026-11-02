@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#816
 - **Planning issue:** vergil-project/.github#802 (review history is in its
   comments)
-- **Status:** draft
+- **Status:** approved
 - **Repos:** vergil-claude-plugin (the logging rule, the ruling protocol, the
   skills, the review doctrine), vergil-tooling (the roll-up and audit tool,
   the static lint, the comment tooling, the site docs), the paad fork
