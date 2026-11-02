@@ -81,7 +81,7 @@ Human task, closed by comment. The fixtures carry planted security bugs, so they
   - `fixture-seeded`: copies of a published spec and plan, with a planted security gap, framed as an omission;
   - the mode 2 seeded fixtures: a planted security bug in scope and one out of scope, and a non-security finding on the same symbol as a planted security bug.
 - [ ] **Step 2:** add the `Lenses:` fixtures:
-  - `fixture-lenses-large`: a Markdown-only diff of 500 or more lines against its base, including a file whose path contains `, `;
+  - `fixture-lenses-large`: a Markdown-only diff of 500 or more lines against its base, including a file whose path contains a comma followed by a space;
   - `fixture-lenses-seeded`: a code commit with a planted security bug.
 - [ ] **Step 3:** comment each branch's name, commit and base commit on this issue, and close it. Task 1 copies them into the gate file.
 
@@ -126,7 +126,7 @@ Spec §4.7, §4.6 step 1, §4.2 (both lens-name forms accepted).
 
   Also copy the "cleanly" acceptance criteria and the security-handling rule: seeded findings are never recorded, and counts only go on public issues. Leave out the interactive runs. Add a `## Lenses: scenarios` heading holding the four scenarios V2 adds:
   - a floor-only `Lenses: security, spec-compliance` on a recorded commit, where `Agents dispatched:` and `Lenses requested:` are exactly those two, by identifier;
-  - a floor-only request on a diff of 500 or more lines, including a path containing `, `, where the identifiers starting `Agents dispatched:`'s lines are exactly the floor;
+  - a floor-only request on a diff of 500 or more lines, including a path containing a comma followed by a space, where the identifiers starting `Agents dispatched:`'s lines are exactly the floor;
   - `Lenses: logic-correctness, no-such-lens`, which gives `Status: blocked: …` naming the lens;
   - a floor-only request on a commit with a planted security bug, where the finding is in the security section only.
 - [ ] **Step 4a: Pin every fixture.** For each scenario, the gate file names:
@@ -429,14 +429,14 @@ Spec §4.5.
 - Modify: `docs/paad-policy.md` (a register entry for `Lenses:`)
 - Modify: `vergil.toml` (vergil-claude-plugin's own `[review].extra-non-docs-paths`, from Task S)
 
-- [ ] **Step 1: §3.4 pre-dispatch.** After `vrg-git fetch origin`, run `vrg-review-lenses --base origin/<base> --json` in the worktree. Parse the JSON object: it must have exactly one `lenses` list, every entry a §4.1 identifier, including both floor lenses (`security`, `spec-compliance`), and exactly one `rule` string. Anything else pauses the run: the gate checks the floor itself, independently of the tool. The prompt's `Lenses:` value is the list joined with `, `. A non-zero exit pauses the run with the tool's stderr. Add that cause to §3.8's list of pause causes before dispatch.
+- [ ] **Step 1: §3.4 pre-dispatch.** After `vrg-git fetch origin`, run `vrg-review-lenses --base origin/<base> --json` in the worktree. Parse the JSON object: it must have exactly one `lenses` list, every entry a §4.1 identifier, including both floor lenses (`security`, `spec-compliance`), and exactly one `rule` string. Anything else pauses the run: the gate checks the floor itself, independently of the tool. The prompt's `Lenses:` value is the list joined with a comma and a space. A non-zero exit pauses the run with the tool's stderr. Add that cause to §3.8's list of pause causes before dispatch.
 - [ ] **Step 2: §3.2 and §1.9.**
-  - Add `Lenses: {{LENSES}}` after the template's `Intent:` line. The placeholder row reads "the `--json` output's `lenses` list, joined with `, `".
+  - Add `Lenses: {{LENSES}}` after the template's `Intent:` line. The placeholder row reads "the `--json` output's `lenses` list, joined with a comma and a space".
   - Update §3.2's provenance note: the prompt was validated in #733, and its `Lenses:` line in V2.
   - In §1.9, `Lenses:` becomes an input mode 2 always sends, and `Lenses requested:` a required agentic-review field, replacing Task 1's "not yet" wording.
 - [ ] **Step 3: §3.4 output checks.**
   - `Lenses requested:` equals the tool's value exactly.
-  - Split `Agents dispatched:` into its lines (Task 5) and take the identifier that starts each one. That set equals the tool's set exactly, and includes both floor lenses. A line that does not start with `- ` and a §4.1 identifier fails the check.
+  - Split `Agents dispatched:` into its lines (Task 5) and take the identifier that starts each one. That set equals the tool's set exactly, and includes both floor lenses. A line that does not start with a hyphen, a space and a §4.1 identifier fails the check.
   - A line marked `NOT DISPATCHED` fails the check.
   - Any difference, including extra lenses, fails the check and pauses the run.
   - Task 1's display-name acceptance is removed.

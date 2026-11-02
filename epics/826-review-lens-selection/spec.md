@@ -156,7 +156,7 @@ the same shape as the `Intent:` input.
   own line, `- <identifier>`, followed on that line by whatever paad writes
   today (a `BAIL:` reason, the large-diff partitioning). The gate reads only
   the identifier that starts each line, so nothing in the rest of the line,
-  such as a path containing `, `, can be mistaken for an entry.
+  such as a path containing a comma followed by a space, can be mistaken for an entry.
 - **The result says what happened.** `Agents dispatched:` lists the lenses
   dispatched, as it does today, and a new `Lenses requested:` skill-specific
   field gives the line's value, or `all (no Lenses: input)`. A lens left out on
@@ -354,7 +354,7 @@ Changes to `issue-implement` and doctrine §3, in vergil-claude-plugin.
   failure too: the gate checks the floor itself, independently of the tool.
 - **Every round sends `Lenses:`.** The delegate prompt (§3.2) gains a
   `Lenses: {{LENSES}}` line after its `Intent:` line, filled with the `--json`
-  form's `lenses` list, joined with `, `. The prompt is otherwise unchanged.
+  form's `lenses` list, joined with a comma and a space. The prompt is otherwise unchanged.
 - **The output checks** (§3.4) require an exact match:
   - `Lenses requested:` equals the value sent;
   - the identifiers that start `Agents dispatched:`'s lines are exactly the
