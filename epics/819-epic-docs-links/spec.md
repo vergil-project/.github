@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#819
 - **Planning issue:** vergil-project/.github#815 (review history is in its
   comments)
-- **Status:** draft, in design review
+- **Status:** approved
 - **Repos:** vergil-tooling (the `vrg-epic-docs` command and the
   `vrg-epic-audit` check), vergil-claude-plugin (`epic-create` and
   `epic-retrospective`), `.github` (this spec and plan, and the fleet
