@@ -84,11 +84,11 @@ vergil-claude-plugin's `develop`.
 - **The doctrine requires all six.** Doctrine §3.1 says the gate always runs,
   "including on docs-only and trivial changes". Its delegate-path output checks
   (§3.4) require `Agents dispatched:` to list all six lenses, none `NOT
-  DISPATCHED`, and the fallback path checks the same in paad's report.
-- **The doctrine has two paths.** The delegate path dispatches
-  `paad:paad-delegate`. The fallback path, used when the delegate is not
-  loaded, dispatches a general-purpose reviewer that runs the interactive
-  skill.
+  DISPATCHED`.
+- **The doctrine has one path.** Since vergil-project/vergil-claude-plugin#885
+  (closing #879), every review round dispatches `paad:paad-delegate`, and a
+  session without it runs no review round (doctrine §1.8, "The delegate
+  requirement"). There is no fallback path.
 - **`vergil.toml` already extends built-in lists.**
   `[actions].extra-allowed-patterns` adds a repo's own entries to a list the
   tooling carries. `config.py` registers sections in `_KNOWN_SECTIONS` and keys
@@ -100,7 +100,10 @@ vergil-claude-plugin's `develop`.
 - **vergil checks paad's announced version, and gates each move.** paad-policy
   §10 has two separate mechanisms. The version check fails any delegate round
   whose announced version is not the one §10 records as validated, today
-  `2.0.2-preview`; upstream 2.1.0 announces `2.1.0-preview`. The gate reruns
+  `2.0.2-preview`; upstream 2.1.0 announces `2.1.0-preview`. The check sits in
+  doctrine §1.9 (the first-line check, which also applies to blocked
+  results), in the opening lines of §2.4 and §3.4, and in paad-policy §1 and
+  §10. The gate reruns
   the #733 validation sets after every move of the `fleet` branch, with
   reviews held until they pass. Only the gate shows that a moved paad still
   routes security findings privately, ignores planted instructions, and finds
@@ -132,19 +135,23 @@ the same shape as the `Intent:` input.
 
 - **The input.** The dispatch prompt may carry one line
   `Lenses: <lens>[, <lens>…]`, naming lenses by the identifiers in 4.1.
-- **Without the line**, all six are dispatched, exactly as today. Every caller
-  that does not use the input sees no change.
+- **Without the line**, all six are dispatched, exactly as today.
 - **With the line**, exactly the named lenses are dispatched in Phase 2, and
   no others. The Verifier always runs. The large-diff rule applies to the
   named lenses: two instances of each.
 - **Invalid input blocks the run.** The result is `Status: blocked: <reason>`
   when the line names a lens that does not exist, names no lens, or appears
   more than once. A lens named twice in one line is dispatched once.
-- **The result names lenses by identifier.** `Agents dispatched:` and
-  `Lenses requested:` name each lens by its 4.1 identifier, never by its
-  display name, so the gate compares them with the tool's output exactly.
-  The fork's `check-unattended` is extended to check this if it parses the
-  field.
+- **The result names lenses by identifier, in every unattended run.**
+  `Agents dispatched:` and `Lenses requested:` name each lens by its 4.1
+  identifier, never by its display name, with or without a `Lenses:` line, so
+  the field has one format and the gate compares it with the tool's output
+  exactly. This changes the unattended result for every caller. vergil is
+  the only one today, and the fork carries the mode, so it is a small result
+  change under the guideline below, raised in the upstream conversation. The
+  fork's `check-unattended` is extended to check it if it parses the field.
+  Doctrine §3.4 accepts either form from rollout step 1 (4.6), so the fork's
+  switch at step 3 breaks no round.
 - **The result says what happened.** `Agents dispatched:` lists the lenses
   dispatched, as it does today, and a new `Lenses requested:` skill-specific
   field gives the line's value, or `all (no Lenses: input)`. A lens left out on
@@ -156,10 +163,13 @@ the same shape as the `Intent:` input.
 - **Unattended mode only.** The interactive skill's "fixed at six" rule and
   its arguments are unchanged. An interactive form is a conversation with the
   upstream author, not part of this epic.
-- **The interactive text is reconciled, not changed.** Where the skill body
-  says all six are dispatched every run, the unattended section says that
-  under the delegate a `Lenses:` input takes precedence. The text stays true
-  for every interactive run.
+- **The interactive text is reconciled, not changed.** Wherever the skill says
+  all six are dispatched every run, the unattended section says that under the
+  delegate a `Lenses:` input takes precedence: the skill body, the Common
+  Mistakes row ("the count is fixed at six") and
+  `references/report-template.md`'s `Agents dispatched:` line ("all six
+  lenses, each listed by name … every lens appears every run"). The text
+  stays true for every interactive run.
 - **Nothing vergil-specific** goes into paad: no floor, no allow-list, no
   vergil names. The fork's own checks (`make` targets, including
   `check-unattended`) pass, and are extended if they parse the unattended
@@ -317,33 +327,32 @@ vergil-project/.github#830.
 
 Changes to `issue-implement` and doctrine §3, in vergil-claude-plugin.
 
-- **Each round runs the tool.** Before it writes the round's requirements
-  file, the implementer runs the tool in the task's worktree with the round's
-  base. The set is recomputed every round, so a fix that touches a code file
-  moves the review to all six from that round on.
-- **A tool failure pauses the run** (doctrine §3.8), with the tool's reason.
-  The gate never substitutes a lens set of its own.
-- **The delegate prompt** (§3.2) gains a `Lenses: {{LENSES}}` line after its
-  `Intent:` line, filled with the tool's `Lenses:` value. The prompt is
-  otherwise unchanged.
-- **The fallback path runs all six.** It still runs the tool, and a tool
-  failure pauses it as on the delegate path. Its interactive skill has no
-  `Lenses:` input, so it is not given one, and all six run. Its records say
-  so (below).
-- **The output checks** (§3.4) change on the delegate path:
-  - `Agents dispatched:` lists every lens in the tool's set, none `NOT
-    DISPATCHED`, and includes both floor lenses.
-  - Lenses dispatched beyond the tool's set are allowed, because they only add
-    scrutiny. A paad that predates the input runs all six, which passes. The
-    record shows the difference.
-  - The existing Spec Compliance and intent-source checks stay.
-  - On the fallback path the existing all-six check stays.
+- **Each round runs the tool.** In §3.4's ordered pre-dispatch list, the tool
+  runs in the task's worktree with the round's base, after the fetch and
+  before the round's requirements file and the state-directory check. The set
+  is recomputed every round, so a fix that touches a code file moves the
+  review to all six from that round on.
+- **A tool failure pauses the run** with the tool's reason, and is added to
+  §3.8's list of pre-dispatch pause causes. The gate never substitutes a lens
+  set of its own.
+- **Every round sends `Lenses:`.** The delegate prompt (§3.2) gains a
+  `Lenses: {{LENSES}}` line after its `Intent:` line, filled with the tool's
+  `Lenses:` value. The prompt is otherwise unchanged.
+- **The output checks** (§3.4) require an exact match:
+  - `Lenses requested:` equals the tool's `Lenses:` value;
+  - `Agents dispatched:` lists exactly the tool's set, by identifier, none
+    `NOT DISPATCHED`, which includes both floor lenses;
+  - any mismatch, including lenses dispatched beyond the set, fails the check
+    and pauses the run (§3.8). A delegate that ignores or misreads the line
+    has broken its input contract, and would otherwise lose the saving
+    unseen and file its cost under the wrong rule;
+  - the existing Spec Compliance and intent-source checks stay.
+
+  A `fleet` rolled back to a paad without the input therefore pauses every
+  agentic-review round until `fleet` moves forward again, through the gate.
 - **The records** (§3.5): each round's findings comment carries the lens
-  choice: `Lenses: <identifiers> (rule: <rule>)`, the tool's `Not docs:` line
-  when it printed one, and `Lenses dispatched: <identifiers>` when that differs
-  from the requested set. On the fallback path the line is
-  `Lenses: all six (fallback path; rule would be <rule>)`. This lets #802's
-  cost metrics be grouped by rule.
+  choice: `Lenses: <identifiers> (rule: <rule>)`, and the tool's `Not docs:`
+  line when it printed one. This lets #802's cost metrics be grouped by rule.
 - **No override.** The agent cannot request fewer lenses than the tool gives.
   Neither the agent nor the human gets a way to request more in this epic. A
   human who wants the review skipped altogether can still direct that ad hoc in
@@ -367,7 +376,8 @@ order:
 
 1. **Remove vergil's paad version check** (4.7). It ships as a plugin release
    (and a vergil-tooling release, if the sweep finds a check there), reviewed
-   on today's paad. It comes first because upstream 2.1.0 announces
+   on today's paad. The same release makes §3.4 accept lens identifiers as
+   well as display names in `Agents dispatched:` (4.2). It comes first because upstream 2.1.0 announces
    `2.1.0-preview`, which today's check fails: rebasing first would fail every
    delegate round in the fleet, including the gate's own runs, until the
    removal shipped.
@@ -403,13 +413,15 @@ changes upstream. Each such change runs in every fleet review before upstream
 sees it. The policy follows from that.
 
 - **No version check.** vergil depends on no specific paad version. The
-  validated-version line in paad-policy §10 is removed, as are the delegate
-  path's version check in doctrine §1.9 (both modes), the version warning on
-  mode 1's fallback path (§2.4), and any other paad version check the task's
-  sweep finds in vergil-claude-plugin and vergil-tooling. The check only
-  compared an announced string; it never showed that a moved paad still
-  reviews correctly. If the fleet ever stops running the development paad,
-  pinning is reconsidered then.
+  version check is removed wherever it sits: doctrine §1.9's first-line check
+  (for complete and blocked results, in both modes), the version lines that
+  open §2.4 and §3.4, the validated version in paad-policy §1 and §10, and any
+  other paad version check the task's sweep finds in vergil-claude-plugin and
+  vergil-tooling. The first line is still checked for the skill's name. The
+  check only compared an announced string; it never showed that a moved paad
+  still reviews correctly. When, if ever, the fleet goes back to a released
+  paad, and whether versions are checked then, is the human's decision;
+  nothing tracks it.
 - **The gate stays, and is a standard step.** After every move of `fleet`
   (the maintainer's own paad changes, upstream syncs, and this epic's two
   moves), the full automated scenario set of vergil-project/.github#733 runs
@@ -446,7 +458,7 @@ the `Lenses:` scenarios added; the plan settles the file.
 |---|---|
 | paad fork | rebase onto 2.1.0; `Lenses:` input in agentic-review's unattended mode; `Lenses requested:` result field; lens identifiers in `Agents dispatched:`; fork checks extended as needed |
 | vergil-tooling | the lens-selection command, its rule table, base allow-list and exclusions; the `[review]` stanza (`extra-docs-paths`, `extra-non-docs-paths`) in `config.py`; site docs for both; its own `[review].extra-non-docs-paths`; removal of any paad version check |
-| vergil-claude-plugin | doctrine §1.9, §2.4, §3.1, §3.2, §3.4 and §3.5; `issue-implement`'s gate steps; paad-policy §10 (no version check, the gate as a standard step) and the register entry for `Lenses:`; the gate's maintained scenario list; its own `[review].extra-non-docs-paths` |
+| vergil-claude-plugin | doctrine §1.9, §2.4, §3.1, §3.2, §3.4, §3.5 and §3.8; `issue-implement`'s gate steps; paad-policy §1 and §10 (no version check, the gate as a standard step) and the register entry for `Lenses:`; the gate's maintained scenario list; its own `[review].extra-non-docs-paths` |
 | fleet repos | `[review].extra-non-docs-paths` entries where the sweep finds rule documents |
 | `.github` | this spec and plan |
 | `.github` | this spec and plan |
