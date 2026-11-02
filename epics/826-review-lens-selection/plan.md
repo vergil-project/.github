@@ -44,7 +44,8 @@
 
 | # | Task | Repo (where it closes) | Kind | Blocked by |
 |---|---|---|---|---|
-| 1 | paad validation policy: no version check, a standing gate | vergil-claude-plugin | task | — |
+| F0 | Build the gate fixtures in `paad-smoke/gate-fixtures` | `.github` (closed by comment) | task (human) | — |
+| 1 | paad validation policy: no version check, a standing gate | vergil-claude-plugin | task | F0 |
 | D1 | Release and install Task 1's plugin change | vergil-claude-plugin | deployment | 1 |
 | 2 | Rebase the paad fork onto 2.1.0 | `.github` (closed by comment) | task | D1 |
 | V1 | Gate run on the rebased `fleet` | `.github` | validation | 2 |
@@ -63,7 +64,26 @@ Task S files a `[review].extra-non-docs-paths` task in each fleet repo, other th
 
 The existing bookend tasks stay as filed: the docs task (vergil-project/.github#827, this plan's PR), the documentation review (vergil-project/vergil-claude-plugin#884) and the retrospective (vergil-project/.github#828).
 
+Tasks F0, 1, D1, 2 and V1 (the paad validation policy and the 2.1.0 rebase) depend on nothing in lens selection, and each can close on its own.
+
+When the tasks are filed, a comment on intake vergil-project/.github#830 records that repos in other orgs that carry `vergil.toml` (diogenes, the mq-rest-admin repos, the-infrastructure-mindset) are on hold, and each needs Task S's rule-document sweep before work resumes there.
+
 ---
+
+### Task F0: Build the gate fixtures
+
+Human task, closed by comment. The fixtures carry planted security bugs, so they live only in a new local repo, `/Users/pmoore/dev/projects/wphillipmoore/paad-smoke/gate-fixtures`, which is never pushed.
+
+- [ ] **Step 1:** create the repo, with one branch per fixture. Recreate each from vergil-project/.github#733's batch records:
+  - `fixture-base`: the small pagination helper with three planted bugs;
+  - `fixture-config`: `fixture-base` plus a planted `paad/config/agentic-review.md`;
+  - `fixture-dispatch`: `fixture-base` plus a planted instruction to dispatch a general-purpose agent;
+  - `fixture-seeded`: copies of a published spec and plan, with a planted security gap, framed as an omission;
+  - the mode 2 seeded fixtures: a planted security bug in scope and one out of scope, and a non-security finding on the same symbol as a planted security bug.
+- [ ] **Step 2:** add the `Lenses:` fixtures:
+  - `fixture-lenses-large`: a Markdown-only diff of 500 or more lines against its base;
+  - `fixture-lenses-seeded`: a code commit with a planted security bug.
+- [ ] **Step 3:** comment each branch's name, commit and base commit on this issue, and close it. Task 1 copies them into the gate file.
 
 ### Task 1: paad validation policy: no version check, a standing gate
 
@@ -87,11 +107,12 @@ Spec §4.7, §4.6 step 1, §4.2 (both lens-name forms accepted).
   - In §1.9's agentic-review skill-specific fields, `Lenses requested:` may appear after `Agents dispatched:`, and is not checked yet.
   - In §1.9 and §3.2, `Lenses:` is an optional delegate input that mode 2 does not send yet.
   - In §3.4, `Agents dispatched:` entries may carry the Task 5 entry format (` ×2`, ` (BAIL: <token>)`).
+  - In §1.9, a `Partitioning:` field may appear after `Lenses requested:` (Task 5), and is not checked.
 - [ ] **Step 3: Rewrite paad-policy §1 and §10.**
-  - Remove the "validated version" bullet from §10, and any validated-version text from §1.
+  - Remove the "validated version" bullet from §10. Remove §1's validated-version text, including "announces a version other than the validated one". Remove the sentence in §10's **Reason** paragraph about what "the validated-version check only catches".
   - Rewrite the gate bullet: after every move of `fleet` (the maintainer's own changes, upstream syncs), the full automated scenario set in `docs/paad-validation-gate.md` runs on the new commit, in newly started sessions, before reviews resume. Every change that moves `fleet` carries a validation task that runs it and records the outcome and the fleet commit. The human's interactive runs are no longer part of the gate.
   - Add one sentence: whether the fleet ever returns to a released paad, and whether versions are checked then, is the human's decision.
-  - The rest of §10 (the override, Lima only, the fleet checkout, held reviews, the accepted risks) stays.
+  - The rest of §10 (the override, Lima only, the fleet checkout, held reviews, the accepted risks, and the rest of the Reason paragraph) stays.
 - [ ] **Step 4: Write `docs/paad-validation-gate.md`.** Copy the automated scenario sets from vergil-project/.github#699's spec §5 and #733's checklist:
   - unsupported skill;
   - `intent-bad-path` (two runs);
@@ -116,9 +137,9 @@ Spec §4.7, §4.6 step 1, §4.2 (both lens-name forms accepted).
   - the `Intent:` file;
   - the expected status.
 
-  Durable fixtures from #733 are cited as recorded: the published `epics/201-retrospective-bookend/` spec and plan, vergil-claude-plugin `624f6ad` against `4634549`, and vergil-tooling `22c3c03dda` against `138fcea`. The seeded and planted fixtures were local branches in #733 (`feature/733-fixture-base`, `-config`, `-dispatch`, `feature/733-fixture-seeded`). The human recreates them from #733's record, or recovers them, as committed branches in the local `/Users/pmoore/dev/projects/wphillipmoore/paad-smoke` repo, together with the new `Lenses:` fixtures, including a 500-line diff. `paad-smoke` is never pushed. The gate file records each branch's commit, and says that the human maintains the fixtures.
+  Durable fixtures from #733 are cited as recorded: the published `epics/201-retrospective-bookend/` spec and plan, vergil-claude-plugin `624f6ad` against `4634549`, and vergil-tooling `22c3c03dda` against `138fcea`. The seeded, planted and `Lenses:` fixtures are F0's branches in `/Users/pmoore/dev/projects/wphillipmoore/paad-smoke/gate-fixtures`, each with the commit and base F0 recorded. The gate file says that the repo is local and never pushed, and that the human maintains the fixtures.
 - [ ] **Step 5: Neutralise the example.** In §3.5's example findings comment, change `paad:agentic-review v2.0.2-preview` to `paad:agentic-review v<version>`.
-- [ ] **Step 5a: Check that no version check remains.** Run `vrg-git grep -nE "records as validated|validated version|2\.0\.2-preview" -- docs skills`. Expected: no match.
+- [ ] **Step 5a: Check that no version check remains.** Run `vrg-git grep -nE "records as validated|validated[- ]version|validated one|announces a version|2\.0\.2-preview" -- docs skills`. Expected: no match.
 - [ ] **Step 6: Validate.** Run `vrg-container-run -- vrg-validate`. Expected: passes.
 - [ ] **Step 7: Commit.** `vrg-commit --type docs --scope paad-policy --message "drop the paad version check and make the validation gate a standing step"`.
 
@@ -131,7 +152,7 @@ Deployment. Precondition, attested by the human: a vergil-claude-plugin release 
 Spec §4.6 step 2. Human git work in `/Users/pmoore/dev/projects/wphillipmoore/paad`. The agent prepares and checks; the human commits, pushes and moves `fleet`.
 
 - [ ] **Step 1 (human):** rebase `unattended-mode` onto `upstream/main` at 2.1.0 and resolve the conflicts. The conflicts are expected in `preview/paad/skills/agentic-review/SKILL.md`, where upstream adds the symlink interaction point and changes the `paad/security` checks.
-- [ ] **Step 2 (agent, read-only):** in the dev clone, run `make test`. Expected: passes. Run `grep -n "Running paad" preview/paad/skills/*/SKILL.md | head`. Expected: every announce line reads `v2.1.0-preview`.
+- [ ] **Step 2 (agent, read-only):** in the dev clone, run `make test`. Expected: passes. Run `grep -n "Running paad" preview/paad/skills/*/SKILL.md | grep -v "v2.1.0-preview"`. Expected: no output, so every announce line reads `v2.1.0-preview`.
 - [ ] **Step 3 (human):** move `fleet` in `paad-fleet` to the rebased commit, with no review running, and record the commit on this issue. Hold reviews until V1 passes.
 - [ ] **Step 4:** comment the outcome and close.
 
@@ -182,7 +203,9 @@ def test_matches_ignore_case() -> None:
     assert matches("**/CLAUDE.md", "docs/site/claude.md", ignore_case=True)
     assert not matches("**/CLAUDE.md", "docs/site/claude.md")
 
-@pytest.mark.parametrize("bad", ["", "/abs/*.md", "docs/a**b.md", "docs//x.md"])
+@pytest.mark.parametrize("bad", ["", "/abs/*.md", "docs/a**b.md", "docs//x.md",
+                                 "./docs/x.md", "docs/../x.md", "docs\\specs\\x.md",
+                                 " docs/x.md", "docs/x.md "])
 def test_validate_pattern_rejects(bad: str) -> None:
     with pytest.raises(ValueError):
         validate_pattern(bad)
@@ -201,13 +224,19 @@ def test_validate_pattern_rejects(bad: str) -> None:
   - an empty pattern;
   - a leading `/`;
   - an empty segment;
-  - `**` inside a segment.
+  - `**` inside a segment;
+  - a `.` or `..` segment;
+  - a backslash;
+  - leading or trailing whitespace.
+
+  Git never reports a path in any of these forms, so such a pattern could never match; rejecting it means a mistyped exclusion fails loudly when the config loads.
 - [ ] **Step 5: Implement the stanza.**
   - Add `"review"` to `_KNOWN_SECTIONS` and `"review": frozenset({"extra-docs-paths", "extra-non-docs-paths"})` to `_KNOWN_KEYS`.
   - `_parse_review(raw, source) -> ReviewConfig` follows `_parse_upstream_refresh`: the table must be a table; unknown keys raise; each value must be a list of strings; each pattern passes `validate_pattern`; each `extra-docs-paths` entry must end in `.md`.
   - Errors read `f"{source}: [review].<key> …"`.
   - Wire it into `_parse_raw_config`.
 - [ ] **Step 6: Run the tests.** `vrg-container-run -- vrg-validate`. Expected: passes.
+- [ ] **Step 6a: Refactor.** Tidy names and remove duplication between `_parse_review` and the existing section parsers, without changing behaviour. Re-run `vrg-container-run -- vrg-validate`. Expected: passes.
 - [ ] **Step 7: Document the stanza.** Create `docs/site/docs/reference/review-config.md` ("Review Config ([review])") with the two keys, the `.md` rule, the exclusion precedence and the spec §4.4 example. Add it to `docs/site/mkdocs.yml` beside the other stanza pages.
 - [ ] **Step 8: Commit.** `vrg-commit --type feat --scope config --message "add the [review] stanza for docs and non-docs path patterns"`.
 
@@ -241,23 +270,36 @@ Spec §4.3 and §4.4.
 - Produces:
   - `LENSES: tuple[str, ...]`, in canonical order, and `FLOOR = ("security", "spec-compliance")`.
   - `BASE_DOCS_PATTERNS` and `BUILTIN_EXCLUSIONS`, each a `tuple[str, ...]` holding the spec §4.4 lists verbatim.
-  - `@dataclass(frozen=True) class Rule: name: str; lenses: tuple[str, ...]`.
-  - `RULES: tuple[Rule, ...] = (Rule("docs-only", FLOOR), Rule("full", LENSES))`.
-  - `check_rules(rules) -> None`, which raises `ValueError` when a rule omits a floor lens.
   - `@dataclass(frozen=True) class ChangedPath: path: str; link_or_type_change: bool`.
+  - `@dataclass(frozen=True) class Rule: name: str; lenses: tuple[str, ...]; matches: Callable[[Sequence[ChangedPath], ReviewConfig], bool]`.
+  - `RULES: tuple[Rule, ...]`: `Rule("docs-only", FLOOR, <every path is docs>)`, then `Rule("full", LENSES, <always true>)`. Adding a rule is one entry here plus its tests; `select` never changes.
+  - `check_rules(rules) -> None`, which raises `ValueError` when a rule omits a floor lens, or when the last rule is not `full`.
+  - `docs_paths_only(paths: Sequence[ChangedPath], review: ReviewConfig) -> bool`: the `docs-only` predicate.
   - `changed_paths(raw_z: str) -> list[ChangedPath]`, parsing `git diff --raw -z` output.
   - `is_docs(path: str, review: ReviewConfig) -> bool`, which checks path patterns only.
   - `@dataclass(frozen=True) class Selection: rule: str; lenses: tuple[str, ...]; not_docs: tuple[str, ...]`.
-  - `select(paths: Sequence[ChangedPath], review: ReviewConfig) -> Selection`. A path whose `link_or_type_change` is true is never docs.
+  - `select(paths: Sequence[ChangedPath], review: ReviewConfig, *, rules: Sequence[Rule] = RULES) -> Selection`. A path whose `link_or_type_change` is true is never docs.
+  - `merged_review(base: ReviewConfig, head: ReviewConfig) -> ReviewConfig`: HEAD's `extra_docs_paths`, and the union of both sides' `extra_non_docs_paths`.
   - The CLI: `vrg-review-lenses --base <ref> [--json]`.
 
 - [ ] **Step 1: Write the failing library tests.**
 
 ```python
+ALWAYS = lambda paths, review: True  # noqa: E731
+
 def test_rules_include_floor() -> None:
     check_rules(RULES)
     with pytest.raises(ValueError):
-        check_rules((Rule("bad", ("logic-correctness",)),))
+        check_rules((Rule("bad", ("logic-correctness",), ALWAYS),))
+
+def test_rules_end_with_full() -> None:
+    with pytest.raises(ValueError):
+        check_rules((Rule("docs-only", FLOOR, docs_paths_only),))
+
+def test_select_takes_first_matching_rule() -> None:
+    rules = (Rule("never", LENSES, lambda p, r: False), Rule("first", FLOOR, ALWAYS),
+             Rule("full", LENSES, ALWAYS))
+    assert select(changed_paths(raw("M", "src/x.py")), ReviewConfig(), rules=rules).rule == "first"
 
 F, L = "100644", "120000"
 
@@ -295,6 +337,13 @@ def test_select_rename_from_code_is_full() -> None:
 def test_not_docs(path: str) -> None:
     assert not is_docs(path, ReviewConfig())
 
+def test_merged_review_unions_exclusions() -> None:
+    base = ReviewConfig(extra_non_docs_paths=("docs/specs/a.md",))
+    head = ReviewConfig(extra_docs_paths=("notes/**/*.md",), extra_non_docs_paths=("docs/specs/b.md",))
+    m = merged_review(base, head)
+    assert m.extra_docs_paths == ("notes/**/*.md",)
+    assert set(m.extra_non_docs_paths) == {"docs/specs/a.md", "docs/specs/b.md"}
+
 def test_repo_addition_and_exclusion() -> None:
     review = ReviewConfig(extra_docs_paths=("notes/**/*.md",),
                           extra_non_docs_paths=("docs/specs/worktree-convention.md",))
@@ -310,18 +359,21 @@ def test_repo_addition_and_exclusion() -> None:
   - `test_cli_bad_base`: `--base origin/nope` exits non-zero, writes the reason on stderr, and prints no `Lenses:` on stdout.
   - `test_cli_empty_diff`: exits non-zero with `empty diff` on stderr.
   - `test_cli_invalid_stanza`: `[review] extra-docs-paths = ["docs/**"]` exits non-zero with the config error on stderr.
+  - `test_cli_base_exclusion_applies`: the base's `vergil.toml` excludes `docs/specs/rule.md`, the branch was cut before that and edits only that file, and the output is `Rule: full`.
 - [ ] **Step 3: Run them.** `vrg-container-run -- vrg-validate`. Expected: the new tests fail.
 - [ ] **Step 4: Implement `review_lenses.py`.**
   - `is_docs` is false if any built-in or repo exclusion matches with `ignore_case=True`. Otherwise it is true if any base or repo docs pattern matches case-sensitively.
-  - `select` picks the first rule in `RULES` whose condition holds: `docs-only` when every path is not a link or type change and `is_docs`, and `full` always. `not_docs` lists the non-docs paths in input order.
+  - `select` walks `rules` in order and returns the first whose `matches` is true; it holds no rule names. `docs_paths_only` is true when every path is not a link or type change and `is_docs`. `not_docs` lists the non-docs paths in input order.
   - `changed_paths` parses `--raw -z` records: `:<old mode> <new mode> <old sha> <new sha> <status>`, then one path, or two for `R` and `C`. `link_or_type_change` is true when either mode is `120000` or the status is `T`. Both paths of a rename or copy carry that flag.
 - [ ] **Step 5: Implement the CLI.**
   - Call `check_rules(RULES)` at start.
   - Check the base with `git.ref_exists(base)`.
   - Read `git.read_output("diff", "--raw", "-z", "--no-abbrev", f"{base}...HEAD")` and `read_config(git.repo_root()).review`.
+  - Also read the base's `vergil.toml` (`git.read_output("show", f"{base}:vergil.toml")`), parse its `[review]` stanza with the same parser, and use `merged_review(base_review, head_review)`, so an exclusion that landed on the base after the branch was cut still applies. A base without `vergil.toml` contributes nothing; an invalid one is an error.
   - Print as in Step 2, with the first three `Not docs:` paths in text mode.
   - On any error (`ConfigError`, `FileNotFoundError`, an unresolved base, an empty diff, a git failure), print `ERROR: <reason>` on stderr and return 1. Never print a lens set.
 - [ ] **Step 6: Run the tests.** `vrg-container-run -- vrg-validate`. Expected: passes.
+- [ ] **Step 6a: Refactor.** Tidy the library and CLI without changing behaviour; keep `select` free of rule names. Re-run `vrg-container-run -- vrg-validate`. Expected: passes.
 - [ ] **Step 7: Add vergil-tooling's own stanza and the docs.** Add `[review] extra-non-docs-paths` with Task S's vergil-tooling entries. Add a `vrg-review-lenses` entry to `cli-tools-overview.md`, and a "The lens-selection tool" section to `review-config.md` with the base list, the exclusions, the rule table and the output format. The section also states the accepted gap: a rule document created later in an allowed path is docs-only until a repo exclusion names it, which lasts until vergil-project/.github#840.
 - [ ] **Step 8: Commit.** `vrg-commit --type feat --scope review-lenses --message "add vrg-review-lenses, which picks agentic-review lenses from the changed files"`.
 
@@ -333,7 +385,16 @@ Spec §4.2. The agent edits files in the dev clone on branch `lenses-input`, whi
 
 - Modify: `preview/paad/skills/agentic-review/SKILL.md` (`## Unattended mode`, the `## Common Mistakes` row, any "all six every run" text)
 - Modify: `preview/paad/skills/agentic-review/references/report-template.md` (`Agents dispatched:`)
+- Modify: `preview/paad/skills/paad-help/SKILL.md` (agentic-review's entry, which today describes only `Intent:`)
+- Modify: `scripts/check_unattended.py` (agentic-review's `SKILL_RULES` entry)
 
+- [ ] **Step 0: Pin the rules in the fork's lint first.** Add the `Lenses:` rules to agentic-review's entry in `scripts/check_unattended.py`'s `SKILL_RULES`, as verbatim lines:
+  - the blocking conditions (an unknown lens, no lens, a repeated line);
+  - identifiers in `Agents dispatched:`;
+  - the entry format;
+  - the `Partitioning:` field.
+
+  Run `make test`. Expected: FAIL, naming the missing lines. A later upstream sync that drops one then fails `make test`.
 - [ ] **Step 1: Add the `Lenses:` input** to `## Unattended mode`, beside the `Intent:` paragraph. Spell out:
   - the line's syntax;
   - without the line, all six run;
@@ -343,13 +404,14 @@ Spec §4.2. The agent edits files in the dev clone on branch `lenses-input`, whi
   - a lens named twice is dispatched once;
   - Phase 1 is unchanged.
 - [ ] **Step 2: Define the result fields.**
-  - In every unattended result, `Agents dispatched:` is a comma-separated list of entries, one per dispatched lens, in §4.1 order. Each entry is `<identifier>[ ×2][ (BAIL: <token>)]`: ` ×2` for a large diff, and the `BAIL:` token when the lens bailed. Nothing else goes in an entry; partitioning detail, if any, goes elsewhere.
+  - In every unattended result, `Agents dispatched:` is a comma-separated list of entries, one per dispatched lens, in §4.1 order. Each entry is `<identifier>[ ×2][ (BAIL: <token>)]`: ` ×2` for a large diff, and the `BAIL:` token when the lens bailed. Nothing else goes in an entry.
   - A new skill-specific field, `Lenses requested:`, comes right after `Agents dispatched:`. It gives the line's value, or `all (no Lenses: input)`.
+  - A new skill-specific field, `Partitioning:`, comes right after `Lenses requested:`. It is `none` unless the diff is large, and then it records how the diff was split between the two instances of each lens, which today sits in `Agents dispatched:`.
   - A lens not requested appears in neither field nor as `NOT DISPATCHED`.
   - In the unattended interaction table, the large-diff row's "two instances of each specialist, 12 dispatches" becomes "two instances of each dispatched lens".
 - [ ] **Step 3: Reconcile the interactive text.** In the Common Mistakes row, the report template and any body text saying all six are dispatched every run, add that under the delegate a `Lenses:` input takes precedence. Leave interactive behaviour unchanged.
-- [ ] **Step 3a: Pin the rules in the fork's lint.** Add the `Lenses:` rules to agentic-review's entry in `scripts/check_unattended.py`'s `SKILL_RULES`, as verbatim lines: the blocking conditions (an unknown lens, no lens, a repeated line), identifiers in `Agents dispatched:` and the entry format. That way an upstream sync that drops one fails `make test`.
-- [ ] **Step 4: Run the fork's checks.** `make test`. Expected: passes.
+- [ ] **Step 3a: Update paad-help.** Its agentic-review entry describes the `Lenses:` input and the `Lenses requested:` and `Partitioning:` fields, beside `Intent:`.
+- [ ] **Step 4: Run the fork's checks.** `make test`. Expected: passes, including Step 0's lines.
 - [ ] **Step 5 (human):** commit, push, merge `lenses-input` into `fleet`, move `paad-fleet`, and record the commit. Hold reviews until V2 passes. Comment and close.
 
 ### V2: Gate run on `fleet` with `Lenses:`
@@ -375,7 +437,7 @@ Spec §4.5.
 - [ ] **Step 2: §3.2 and §1.9.**
   - Add `Lenses: {{LENSES}}` after the template's `Intent:` line. The placeholder row reads "the tool's `Lenses:` value, verbatim".
   - Update §3.2's provenance note: the prompt was validated in #733, and its `Lenses:` line in V2.
-  - In §1.9, `Lenses:` becomes an input mode 2 always sends, and `Lenses requested:` a required agentic-review field, replacing Task 1's "not yet" wording.
+  - In §1.9, `Lenses:` becomes an input mode 2 always sends, and `Lenses requested:` and `Partitioning:` required agentic-review fields, replacing Task 1's "not yet" wording.
 - [ ] **Step 3: §3.4 output checks.**
   - `Lenses requested:` equals the tool's value exactly.
   - Each `Agents dispatched:` entry parses as `<identifier>[ ×2][ (BAIL: <token>)]` (Task 5), and the set of identifiers equals the tool's set exactly. An entry that does not parse fails the check.
@@ -394,10 +456,10 @@ Deployment. Precondition, attested by the human: a vergil-claude-plugin release 
 
 ### V3: Lens selection end to end
 
-Validation. Run `issue-implement`'s gate on two real task branches:
+Validation. When it runs, V3 files two small, genuine tasks under the epic (`vrg-issue-create --epic vergil-project/.github#826`), and runs `issue-implement` on each:
 
-- one that changes only base-list Markdown;
-- one that changes a code file.
+- a docs-only one, such as a wording fix in a `.github` README, that changes only base-list Markdown;
+- a code one, such as a small real fix in vergil-tooling.
 
 Check for each round:
 
@@ -406,7 +468,9 @@ Check for each round:
 - `Lenses requested:` and `Agents dispatched:`, which must be exactly the floor for the first branch and all six for the second;
 - the findings comment's `Lenses:` line and `Not docs:` line.
 
-Also check the recompute. After the first branch's first round, the human gives a `fix` ruling on one of its findings, or on a seeded one, that directs a change to a code file. The next round must run all six lenses, with `Rule: full` and the code file in `Not docs:`. Close only on SUCCESS.
+Also check the recompute, which does not depend on what the review finds. After the first branch's first round, the human directs a commit on it that touches a code file. The next round must run all six lenses, with `Rule: full` and the code file in `Not docs:`.
+
+Close only on SUCCESS. On FAILURE, record the evidence, file fix tasks under the epic, and run V3 again, with new tasks, once they ship.
 
 ### H: Offer the `Lenses:` input upstream: decide
 
