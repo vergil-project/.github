@@ -144,6 +144,11 @@ tasks. Tasks 1–7 are delivered: Tasks 1–6 by comment, with the fork commits
 | 14 | `make` on the agent VM (vergil-vm#376) | — |
 | 15 | Report paad-side findings to the paad author privately (`.github`#768, human) | — |
 | 16 | The `build/` exception in the worktree convention and the consumer `CLAUDE.md` (vergil-tooling, issue filed with this amendment) | — |
+| 17 | Remove the fallback path; require the delegate (vergil-claude-plugin#879) | 12 |
+| 18 | The counts check and the notice decode (vergil-claude-plugin#883) | 17 |
+| 19 | The delegate contract's result rules (`.github`#825, fork) | 17 |
+| 20 | The §10 gate for the fleet move to `58db477` (`.github`#843, validation) | 19 |
+| 21 | The security-discard lines in the doctrine's template (vergil-claude-plugin#886) | 18, 20 |
 
 Task 7 runs in parallel with the fork work. Tasks 14, 15 and 16 can start at
 once, and 13a follows 16, so the convention states the exception before the
@@ -1187,6 +1192,50 @@ Task 12 decides, and other paad users stay exposed until then.
 - [ ] **Step 3:** Record on the issue the GHSA ID, channel and date of each
   report, with no details. Any paad-side finding recorded later in the epic
   goes through steps 1–3 the same way. Close the issue at Task 12.
+
+### Tasks 17–21: after Task 12's decision
+
+Added during implementation (vergil-project/.github#844). Task 12
+(vergil-project/.github#735) held the upstream offer: vergil keeps building
+on the fork and offers the collected changes once paad is fully integrated
+and running smoothly. The human also made the fork setup permanent: the fleet
+runs the fork's tree, tracks upstream and stays a patch or two ahead. That
+replaced Task 12's step 3 cleanup: the `plugin-dirs.toml` entry stays,
+paad-policy §10 was already rewritten by Task 10, the state-directory guards
+are deferred to vergil-project/.github#824, and syncing the fork with
+upstream is vergil-project/.github#823. Retiring the fallback path was not
+deferred. It became Task 17.
+
+- **Task 17** (vergil-project/vergil-claude-plugin#879): remove the fallback
+  path. A session without `paad:paad-delegate` runs no review round: mode 1
+  stops, mode 2 pauses, and the message names the fix. This removes the
+  fallback prompts, the stray-write sweep and the other "These go away"
+  machinery of spec 4.8, which is how spec 2's goal that the doctrine
+  shrinks is met.
+- **Task 18** (vergil-project/vergil-claude-plugin#883): the delegate's first
+  fleet use (Task 17's review) showed a counts line that disagreed with the
+  findings and HTML entities in the completion notice. The doctrine now
+  checks the counts line against the findings, by severity and scope, with
+  out-of-scope additions counted (the human's ruling); requires a valid
+  `Scope:`; states the `Defaults applied:` shape; decodes the notice's
+  entities; and posts result text publicly only in a top-level fenced block.
+- **Task 19** (vergil-project/.github#825, fork): the contract states the
+  counts rule, the `Defaults applied:` shape and the security section's
+  exact lines, and the unattended lint checks for them. Fork commit
+  `58db477`; the human moved `fleet` to it.
+- **Task 20** (vergil-project/.github#843, validation): the paad-policy §10
+  gate for that move. The human ruled a reduced set of 6 runs enough for a
+  change to the contract's wording only: the unsupported-skill refusal, mode
+  1 pushback and alignment plain, mode 1 seeded, and mode 2 plain and
+  seeded. Review rounds are held until it passes.
+- **Task 21** (vergil-project/vergil-claude-plugin#886): the doctrine's copy
+  of the result template gains one discard line per discard under
+  `Security discards:`,
+  with a check that the count matches. It needs the fixed contract on the
+  fleet, so it follows the gate.
+
+Then the documentation review (vergil-project/vergil-claude-plugin#820) and
+the retrospective (vergil-project/.github#701).
 
 ### Task 16: The `build/` exception in the worktree convention
 
