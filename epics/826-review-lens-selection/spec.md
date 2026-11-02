@@ -152,6 +152,10 @@ the same shape as the `Intent:` input.
   fork's `check-unattended` is extended to check it if it parses the field.
   Doctrine §3.4 accepts either form from rollout step 1 (4.6), so the fork's
   switch at step 3 breaks no round.
+- **Each `Agents dispatched:` entry begins with the lens's identifier.** What
+  follows it in the entry (a `BAIL:` reason, the large-diff partitioning)
+  stays as paad writes it today. The gate reads only the leading identifier
+  of each entry.
 - **The result says what happened.** `Agents dispatched:` lists the lenses
   dispatched, as it does today, and a new `Lenses requested:` skill-specific
   field gives the line's value, or `all (no Lenses: input)`. A lens left out on
@@ -187,8 +191,8 @@ A new vergil-tooling command. The working name is `vrg-review-lenses`; the plan
 may settle a different name.
 
 **Input.** The base the review compares against (`--base origin/develop`), run
-in the task's worktree. It reads the changed paths with the equivalent of
-`vrg-git diff --name-status <base>...HEAD`: the same diff the review covers.
+in the task's worktree. It reads the changed paths, with their file modes, from
+`vrg-git diff --raw -z <base>...HEAD`: the same diff the review covers.
 Both paths of a rename or copy count as changed, and a deleted file counts by
 its old path.
 
@@ -200,10 +204,13 @@ its old path.
 | 2 | `full` | always | all six |
 
 Adding a rule later means one table entry, placed by order, with its tests.
-Every rule's lens set must include the floor; the tool checks this when it
-starts, so a rule that drops the floor is a failure, never a lighter review.
+Every rule's lens set must include the floor, and the last rule must be
+`full`; the tool checks both when it starts, so a rule that drops the floor is
+a failure, never a lighter review.
 
-**Output.** Plain lines, parsed by the gate:
+**Output.** The gate reads the `--json` form, which carries exactly one
+`lenses` list, one `rule` and every non-docs path, with paths escaped. Plain
+lines are the form for people:
 
 ```text
 Lenses: security, spec-compliance
@@ -217,12 +224,12 @@ Not docs: src/vergil_tooling/bin/vrg_review_lenses.py, vergil.toml (+3 more)
 ```
 
 `Not docs:` names the first few changed paths that kept the change off the
-docs-only rule, and how many more there are. A `--json` form gives the same
-fields, with every path.
+docs-only rule, and how many more there are.
 
 **Errors.** The tool exits non-zero, with the reason on stderr, when the base
-does not resolve, the diff is empty, or `vergil.toml`'s stanza is invalid
-(4.4). It never guesses a lens set on an error.
+does not resolve, the diff is empty, `vergil.toml` is missing or its stanza is
+invalid (4.4), or a changed path contains a control character. It never
+guesses a lens set on an error.
 
 ### 4.4 The docs allow-list
 
@@ -231,7 +238,8 @@ A change is docs-only only if **every** changed path is on the allow-list.
 **Base list.** Fleet-standard documentation paths, carried in the tool's code.
 No repo can remove them. It matches Markdown files only (`*.md`); any other file
 type, even inside a listed directory (a site's `mkdocs.yml`, stylesheets,
-images), is not docs.
+images), is not docs. Only regular files can be docs: a changed path whose
+mode at the base or at HEAD is anything but a regular file is not docs.
 
 | Pattern | What it is |
 |---|---|
@@ -299,9 +307,13 @@ extra-non-docs-paths = ["docs/specs/worktree-convention.md"]
   (`docs/specs/worktree-convention.md`,
   `docs/site/docs/guides/claude-config-ownership.md`) and vergil-claude-plugin
   (`docs/site/docs/skills/index.md`). First, a sweep covers every base-list
-  pattern in every fleet repo the gate runs in, for any other file that
+  pattern in every repo that carries `vergil.toml` in the vergil-project,
+  logical-minds-foundry and mnemosys-project orgs, for any other file that
   skills, agents or a `CLAUDE.md` bind to, and each repo's stanza lists what
   it finds.
+- **Accepted gap: repos in other orgs.** Repos in other orgs that carry
+  `vergil.toml` are on hold and are not swept. Each needs the sweep before
+  work resumes there, which vergil-project/.github#830 records.
 - **Accepted gap until #840.** A rule document created later in an allowed
   path is docs-only, and so is every edit to it, until someone adds a repo
   exclusion for it. Until vergil-project/.github#840 moves rule documents out
@@ -316,7 +328,9 @@ extra-non-docs-paths = ["docs/specs/worktree-convention.md"]
 
 **Pattern syntax.** Paths are repo-relative, with `/` separators. `*` matches
 within one path segment, and `**` matches zero or more whole segments.
-Matching is case-sensitive. vergil-tooling supports Python 3.12, which lacks
+Allow-list patterns match case-sensitively; exclusions, built-in and
+repo-added, match case-insensitively, so every case mismatch fails toward the
+full review. vergil-tooling supports Python 3.12, which lacks
 `PurePath.full_match`, so the plan chooses the implementation (a small matcher
 in the tool, or a library), tested against these rules.
 
@@ -329,19 +343,20 @@ Changes to `issue-implement` and doctrine §3, in vergil-claude-plugin.
 
 - **Each round runs the tool.** In §3.4's ordered pre-dispatch list, the tool
   runs in the task's worktree with the round's base, after the fetch and
-  before the round's requirements file and the state-directory check. The set
+  before the state-directory check. (The round's requirements file is written
+  earlier, in §3.1, and does not depend on the lens set.) The set
   is recomputed every round, so a fix that touches a code file moves the
   review to all six from that round on.
 - **A tool failure pauses the run** with the tool's reason, and is added to
   §3.8's list of pre-dispatch pause causes. The gate never substitutes a lens
   set of its own.
 - **Every round sends `Lenses:`.** The delegate prompt (§3.2) gains a
-  `Lenses: {{LENSES}}` line after its `Intent:` line, filled with the tool's
-  `Lenses:` value. The prompt is otherwise unchanged.
+  `Lenses: {{LENSES}}` line after its `Intent:` line, filled with the `--json`
+  form's `lenses` list, joined with `, `. The prompt is otherwise unchanged.
 - **The output checks** (§3.4) require an exact match:
-  - `Lenses requested:` equals the tool's `Lenses:` value;
-  - `Agents dispatched:` lists exactly the tool's set, by identifier, none
-    `NOT DISPATCHED`, which includes both floor lenses;
+  - `Lenses requested:` equals the value sent;
+  - the leading identifiers of `Agents dispatched:`'s entries are exactly the
+    tool's set, none `NOT DISPATCHED`, which includes both floor lenses;
   - any mismatch, including lenses dispatched beyond the set, fails the check
     and pauses the run (§3.8). A delegate that ignores or misreads the line
     has broken its input contract, and would otherwise lose the saving
@@ -351,8 +366,9 @@ Changes to `issue-implement` and doctrine §3, in vergil-claude-plugin.
   A `fleet` rolled back to a paad without the input therefore pauses every
   agentic-review round until `fleet` moves forward again, through the gate.
 - **The records** (§3.5): each round's findings comment carries the lens
-  choice: `Lenses: <identifiers> (rule: <rule>)`, and the tool's `Not docs:`
-  line when it printed one. This lets #802's cost metrics be grouped by rule.
+  choice: `Lenses: <identifiers> (rule: <rule>)`, and, when the rule is not
+  `docs-only`, the first few non-docs paths in a fenced code block. This lets
+  #802's cost metrics be grouped by rule.
 - **No override.** The agent cannot request fewer lenses than the tool gives.
   Neither the agent nor the human gets a way to request more in this epic. A
   human who wants the review skipped altogether can still direct that ad hoc in
@@ -374,9 +390,8 @@ The fleet runs the maintainer's development paad, from the fork, until further
 notice. vergil depends on no specific paad version. The work runs in this
 order:
 
-1. **Remove vergil's paad version check** (4.7). It ships as a plugin release
-   (and a vergil-tooling release, if the sweep finds a check there), reviewed
-   on today's paad. The same release makes §3.4 accept lens identifiers as
+1. **Remove vergil's paad version check** (4.7). It ships as a plugin release,
+   reviewed on today's paad; vergil-tooling has no paad version check. The same release makes §3.4 accept lens identifiers as
    well as display names in `Agents dispatched:` (4.2). It comes first because upstream 2.1.0 announces
    `2.1.0-preview`, which today's check fails: rebasing first would fail every
    delegate round in the fleet, including the gate's own runs, until the
@@ -416,8 +431,8 @@ sees it. The policy follows from that.
   version check is removed wherever it sits: doctrine §1.9's first-line check
   (for complete and blocked results, in both modes), the version lines that
   open §2.4 and §3.4, the validated version in paad-policy §1 and §10, and any
-  other paad version check the task's sweep finds in vergil-claude-plugin and
-  vergil-tooling. The first line is still checked for the skill's name. The
+  other paad version check the task's sweep finds in vergil-claude-plugin
+  (vergil-tooling has none). The first line is still checked for the skill's name. The
   check only compared an announced string; it never showed that a moved paad
   still reviews correctly. When, if ever, the fleet goes back to a released
   paad, and whether versions are checked then, is the human's decision;
@@ -456,11 +471,10 @@ the `Lenses:` scenarios added; the plan settles the file.
 
 | Repo | What |
 |---|---|
-| paad fork | rebase onto 2.1.0; `Lenses:` input in agentic-review's unattended mode; `Lenses requested:` result field; lens identifiers in `Agents dispatched:`; fork checks extended as needed |
+| paad fork | rebase onto 2.1.0; `Lenses:` input in agentic-review's unattended mode; `Lenses requested:` result field; lens identifiers leading each `Agents dispatched:` entry; paad-help's agentic-review entry; fork checks extended as needed |
 | vergil-tooling | the lens-selection command, its rule table, base allow-list and exclusions; the `[review]` stanza (`extra-docs-paths`, `extra-non-docs-paths`) in `config.py`; site docs for both; its own `[review].extra-non-docs-paths`; removal of any paad version check |
 | vergil-claude-plugin | doctrine §1.9, §2.4, §3.1, §3.2, §3.4, §3.5 and §3.8; `issue-implement`'s gate steps; paad-policy §1 and §10 (no version check, the gate as a standard step) and the register entry for `Lenses:`; the gate's maintained scenario list; its own `[review].extra-non-docs-paths` |
 | fleet repos | `[review].extra-non-docs-paths` entries where the sweep finds rule documents |
-| `.github` | this spec and plan |
 | `.github` | this spec and plan |
 
 Offering the paad change upstream is a human decision, made after it has run

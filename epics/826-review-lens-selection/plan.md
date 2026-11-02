@@ -23,7 +23,7 @@
 - The docs allow-list matches Markdown only. Every `extra-docs-paths` pattern must end in `.md` (spec §4.4).
 - An exclusion, built-in or repo-added, wins over every allow-list entry; no key removes a built-in exclusion (spec §4.4).
 - Pattern syntax: repo-relative, `/` separators, `*` within one segment, `**` zero or more whole segments (spec §4.4). Allow-list patterns match case-sensitively. Exclusions, built-in and repo-added, match case-insensitively, so every case mismatch fails toward the full review. Python 3.12 has no `PurePath.full_match`.
-- A changed path that is a symlink at the base or at HEAD, or whose type changed, is never docs.
+- Only regular files can be docs: a changed path whose mode at the base or at HEAD is anything but `100644` or `100755` is never docs.
 - paad changes are backward compatible as a guideline: unobtrusive for callers not using them, nothing vergil-specific in paad, and any default change is discussed upstream first (spec §4.2).
 - The fork's git writes are the human's. Agents never run git in the fleet worktree. Only the human moves `fleet` (spec §4.6, paad-policy §10).
 - After every move of `fleet`, the full automated scenario set runs before reviews resume (spec §4.7).
@@ -106,8 +106,7 @@ Spec §4.7, §4.6 step 1, §4.2 (both lens-name forms accepted).
 - [ ] **Step 2a: Document the coming contract additions,** so paad-policy §10's rule (the doctrine matches the unattended contract before reviews resume) holds after V2.
   - In §1.9's agentic-review skill-specific fields, `Lenses requested:` may appear after `Agents dispatched:`, and is not checked yet.
   - In §1.9 and §3.2, `Lenses:` is an optional delegate input that mode 2 does not send yet.
-  - In §3.4, `Agents dispatched:` entries may carry the Task 5 entry format (` ×2`, ` (BAIL: <token>)`).
-  - In §1.9, a `Partitioning:` field may appear after `Lenses requested:` (Task 5), and is not checked.
+  - In §3.4, each `Agents dispatched:` entry may begin with the lens's identifier (Task 5), with the rest of the entry as today.
 - [ ] **Step 3: Rewrite paad-policy §1 and §10.**
   - Remove the "validated version" bullet from §10. Remove §1's validated-version text, including "announces a version other than the validated one". Remove the sentence in §10's **Reason** paragraph about what "the validated-version check only catches".
   - Rewrite the gate bullet: after every move of `fleet` (the maintainer's own changes, upstream syncs), the full automated scenario set in `docs/paad-validation-gate.md` runs on the new commit, in newly started sessions, before reviews resume. Every change that moves `fleet` carries a validation task that runs it and records the outcome and the fleet commit. The human's interactive runs are no longer part of the gate.
@@ -127,7 +126,7 @@ Spec §4.7, §4.6 step 1, §4.2 (both lens-name forms accepted).
 
   Also copy the "cleanly" acceptance criteria and the security-handling rule: seeded findings are never recorded, and counts only go on public issues. Leave out the interactive runs. Add a `## Lenses: scenarios` heading holding the four scenarios V2 adds:
   - a floor-only `Lenses: security, spec-compliance` on a recorded commit, where `Agents dispatched:` and `Lenses requested:` are exactly those two, by identifier;
-  - a floor-only request on a diff of 500 or more lines, where each entry carries ` ×2`;
+  - a floor-only request on a diff of 500 or more lines, where the leading identifiers of `Agents dispatched:`'s entries are exactly the floor;
   - `Lenses: logic-correctness, no-such-lens`, which gives `Status: blocked: …` naming the lens;
   - a floor-only request on a commit with a planted security bug, where the finding is in the security section only.
 - [ ] **Step 4a: Pin every fixture.** For each scenario, the gate file names:
@@ -266,11 +265,11 @@ Spec §4.3 and §4.4.
 
 **Interfaces:**
 
-- Consumes: `path_patterns.matches`, `config.read_config(...).review` (Task 3), `git.read_output`, `git.ref_exists`, `git.repo_root`.
+- Consumes: `path_patterns.matches`, `config.read_config(...).review` (Task 3, read from the branch's working tree only), `git.read_output`, `git.ref_exists`, `git.repo_root`.
 - Produces:
   - `LENSES: tuple[str, ...]`, in canonical order, and `FLOOR = ("security", "spec-compliance")`.
   - `BASE_DOCS_PATTERNS` and `BUILTIN_EXCLUSIONS`, each a `tuple[str, ...]` holding the spec §4.4 lists verbatim.
-  - `@dataclass(frozen=True) class ChangedPath: path: str; link_or_type_change: bool`.
+  - `@dataclass(frozen=True) class ChangedPath: path: str; regular_file: bool`.
   - `@dataclass(frozen=True) class Rule: name: str; lenses: tuple[str, ...]; matches: Callable[[Sequence[ChangedPath], ReviewConfig], bool]`.
   - `RULES: tuple[Rule, ...]`: `Rule("docs-only", FLOOR, <every path is docs>)`, then `Rule("full", LENSES, <always true>)`. Adding a rule is one entry here plus its tests; `select` never changes.
   - `check_rules(rules) -> None`, which raises `ValueError` when a rule omits a floor lens, or when the last rule is not `full`.
@@ -278,8 +277,7 @@ Spec §4.3 and §4.4.
   - `changed_paths(raw_z: str) -> list[ChangedPath]`, parsing `git diff --raw -z` output.
   - `is_docs(path: str, review: ReviewConfig) -> bool`, which checks path patterns only.
   - `@dataclass(frozen=True) class Selection: rule: str; lenses: tuple[str, ...]; not_docs: tuple[str, ...]`.
-  - `select(paths: Sequence[ChangedPath], review: ReviewConfig, *, rules: Sequence[Rule] = RULES) -> Selection`. A path whose `link_or_type_change` is true is never docs.
-  - `merged_review(base: ReviewConfig, head: ReviewConfig) -> ReviewConfig`: HEAD's `extra_docs_paths`, and the union of both sides' `extra_non_docs_paths`.
+  - `select(paths: Sequence[ChangedPath], review: ReviewConfig, *, rules: Sequence[Rule] = RULES) -> Selection`. A path whose `regular_file` is false is never docs.
   - The CLI: `vrg-review-lenses --base <ref> [--json]`.
 
 - [ ] **Step 1: Write the failing library tests.**
@@ -301,7 +299,7 @@ def test_select_takes_first_matching_rule() -> None:
              Rule("full", LENSES, ALWAYS))
     assert select(changed_paths(raw("M", "src/x.py")), ReviewConfig(), rules=rules).rule == "first"
 
-F, L = "100644", "120000"
+F, L, G = "100644", "120000", "160000"
 
 def raw(status: str, *paths: str, old: str = F, new: str = F) -> str:
     return f":{old} {new} {'0' * 40} {'0' * 40} {status}\0" + "".join(p + "\0" for p in paths)
@@ -316,8 +314,11 @@ def test_changed_paths_delete_and_odd_names() -> None:
 
 @pytest.mark.parametrize("entry", [raw("M", "docs/site/a.md", old=L, new=L),
                                    raw("A", "docs/site/a.md", old="000000", new=L),
-                                   raw("T", "docs/site/a.md", old=F, new=L)])
-def test_links_and_type_changes_are_not_docs(entry: str) -> None:
+                                   raw("T", "docs/site/a.md", old=F, new=L),
+                                   raw("A", "docs/site/a.md", old="000000", new=G),
+                                   raw("M", "docs/site/a.md", old=G, new=G),
+                                   raw("D", "docs/site/a.md", old=G, new="000000")])
+def test_only_regular_files_are_docs(entry: str) -> None:
     s = select(changed_paths(entry), ReviewConfig())
     assert (s.rule, s.not_docs) == ("full", ("docs/site/a.md",))
 
@@ -337,13 +338,6 @@ def test_select_rename_from_code_is_full() -> None:
 def test_not_docs(path: str) -> None:
     assert not is_docs(path, ReviewConfig())
 
-def test_merged_review_unions_exclusions() -> None:
-    base = ReviewConfig(extra_non_docs_paths=("docs/specs/a.md",))
-    head = ReviewConfig(extra_docs_paths=("notes/**/*.md",), extra_non_docs_paths=("docs/specs/b.md",))
-    m = merged_review(base, head)
-    assert m.extra_docs_paths == ("notes/**/*.md",)
-    assert set(m.extra_non_docs_paths) == {"docs/specs/a.md", "docs/specs/b.md"}
-
 def test_repo_addition_and_exclusion() -> None:
     review = ReviewConfig(extra_docs_paths=("notes/**/*.md",),
                           extra_non_docs_paths=("docs/specs/worktree-convention.md",))
@@ -359,20 +353,17 @@ def test_repo_addition_and_exclusion() -> None:
   - `test_cli_bad_base`: `--base origin/nope` exits non-zero, writes the reason on stderr, and prints no `Lenses:` on stdout.
   - `test_cli_empty_diff`: exits non-zero with `empty diff` on stderr.
   - `test_cli_invalid_stanza`: `[review] extra-docs-paths = ["docs/**"]` exits non-zero with the config error on stderr.
-  - `test_cli_base_exclusion_applies`: the base's `vergil.toml` excludes `docs/specs/rule.md`, the branch was cut before that and edits only that file, and the output is `Rule: full`.
-  - `test_cli_base_without_config`: the base has no `vergil.toml`, and the run succeeds using HEAD's stanza only.
   - `test_cli_control_character_path`: a changed path containing a newline or other control character makes the tool exit non-zero, with `ERROR:` on stderr and nothing on stdout.
   - `test_cli_json_single_values`: the `--json` object has exactly one `lenses` and one `rule` key, and `lenses` is a list drawn from `LENSES`.
 - [ ] **Step 3: Run them.** `vrg-container-run -- vrg-validate`. Expected: the new tests fail.
 - [ ] **Step 4: Implement `review_lenses.py`.**
   - `is_docs` is false if any built-in or repo exclusion matches with `ignore_case=True`. Otherwise it is true if any base or repo docs pattern matches case-sensitively.
-  - `select` walks `rules` in order and returns the first whose `matches` is true; it holds no rule names. `docs_paths_only` is true when every path is not a link or type change and `is_docs`. `not_docs` lists the non-docs paths in input order.
-  - `changed_paths` parses `--raw -z` records: `:<old mode> <new mode> <old sha> <new sha> <status>`, then one path, or two for `R` and `C`. `link_or_type_change` is true when either mode is `120000` or the status is `T`. Both paths of a rename or copy carry that flag.
+  - `select` walks `rules` in order and returns the first whose `matches` is true; it holds no rule names. `docs_paths_only` is true when every path is a `regular_file` and `is_docs`. `not_docs` lists the non-docs paths in input order.
+  - `changed_paths` parses `--raw -z` records: `:<old mode> <new mode> <old sha> <new sha> <status>`, then one path, or two for `R` and `C`. `regular_file` is true only when every mode the record carries is `100644` or `100755`, ignoring `000000` (the missing side of an add or delete). A symlink, a submodule, a type change or any other mode makes it false. Both paths of a rename or copy carry that flag.
 - [ ] **Step 5: Implement the CLI.**
   - Call `check_rules(RULES)` at start.
   - Check the base with `git.ref_exists(base)`.
   - Read `git.read_output("diff", "--raw", "-z", "--no-abbrev", f"{base}...HEAD")` and `read_config(git.repo_root()).review`.
-  - Also read the base's `vergil.toml`, parse its `[review]` stanza with the same parser, and use `merged_review(base_review, head_review)`, so an exclusion that landed on the base after the branch was cut still applies. First test whether it exists with `git cat-file -e {base}:vergil.toml`, whose only meaning is existence. If it does not exist, the base contributes nothing. If it does, read it with `git.read_output("show", f"{base}:vergil.toml")`; any failure of that read, or an invalid stanza, is an error.
   - Refuse any changed path that contains a control character (`\x00`–`\x1f` or `\x7f`): exit 1 with `ERROR:` naming the count of such paths. No legitimate fleet file has one.
   - `--json` is the form the gate reads; the text form is for people.
   - Print as in Step 2, with the first three `Not docs:` paths in text mode.
@@ -395,9 +386,7 @@ Spec §4.2. The agent edits files in the dev clone on branch `lenses-input`, whi
 
 - [ ] **Step 0: Pin the rules in the fork's lint first.** Add the `Lenses:` rules to agentic-review's entry in `scripts/check_unattended.py`'s `SKILL_RULES`, as verbatim lines:
   - the blocking conditions (an unknown lens, no lens, a repeated line);
-  - identifiers in `Agents dispatched:`;
-  - the entry format;
-  - the `Partitioning:` field.
+  - each `Agents dispatched:` entry begins with the lens identifier.
 
   Run `make test`. Expected: FAIL, naming the missing lines. A later upstream sync that drops one then fails `make test`.
 - [ ] **Step 1: Add the `Lenses:` input** to `## Unattended mode`, beside the `Intent:` paragraph. Spell out:
@@ -409,13 +398,12 @@ Spec §4.2. The agent edits files in the dev clone on branch `lenses-input`, whi
   - a lens named twice is dispatched once;
   - Phase 1 is unchanged.
 - [ ] **Step 2: Define the result fields.**
-  - In every unattended result, `Agents dispatched:` is a comma-separated list of entries, one per dispatched lens, in §4.1 order. Each entry is `<identifier>[ ×2][ (BAIL: <token>)]`: ` ×2` for a large diff, and the `BAIL:` token when the lens bailed. Nothing else goes in an entry.
+  - In every unattended result, each `Agents dispatched:` entry begins with the lens's §4.1 identifier, one entry per dispatched lens. The rest of the entry (a `BAIL:` reason, the large-diff partitioning) stays as paad writes it today.
   - A new skill-specific field, `Lenses requested:`, comes right after `Agents dispatched:`. It gives the line's value, or `all (no Lenses: input)`.
-  - A new skill-specific field, `Partitioning:`, comes right after `Lenses requested:`. It is `none` unless the diff is large, and then it records how the diff was split between the two instances of each lens, which today sits in `Agents dispatched:`.
   - A lens not requested appears in neither field nor as `NOT DISPATCHED`.
   - In the unattended interaction table, the large-diff row's "two instances of each specialist, 12 dispatches" becomes "two instances of each dispatched lens".
 - [ ] **Step 3: Reconcile the interactive text.** In the Common Mistakes row, the report template and any body text saying all six are dispatched every run, add that under the delegate a `Lenses:` input takes precedence. Leave interactive behaviour unchanged.
-- [ ] **Step 3a: Update paad-help.** Its agentic-review entry describes the `Lenses:` input and the `Lenses requested:` and `Partitioning:` fields, beside `Intent:`.
+- [ ] **Step 3a: Update paad-help.** Its agentic-review entry describes the `Lenses:` input and the `Lenses requested:` field, beside `Intent:`.
 - [ ] **Step 4: Run the fork's checks.** `make test`. Expected: passes, including Step 0's lines.
 - [ ] **Step 4a: Refactor.** Tidy the new unattended-section text and the `SKILL_RULES` lines without changing behaviour. Re-run `make test`. Expected: passes.
 - [ ] **Step 5 (human):** commit, push, merge `lenses-input` into `fleet`, move `paad-fleet`, and record the commit. Hold reviews until V2 passes. Comment and close.
@@ -443,10 +431,10 @@ Spec §4.5.
 - [ ] **Step 2: §3.2 and §1.9.**
   - Add `Lenses: {{LENSES}}` after the template's `Intent:` line. The placeholder row reads "the tool's `Lenses:` value, verbatim".
   - Update §3.2's provenance note: the prompt was validated in #733, and its `Lenses:` line in V2.
-  - In §1.9, `Lenses:` becomes an input mode 2 always sends, and `Lenses requested:` and `Partitioning:` required agentic-review fields, replacing Task 1's "not yet" wording.
+  - In §1.9, `Lenses:` becomes an input mode 2 always sends, and `Lenses requested:` a required agentic-review field, replacing Task 1's "not yet" wording.
 - [ ] **Step 3: §3.4 output checks.**
   - `Lenses requested:` equals the tool's value exactly.
-  - Each `Agents dispatched:` entry parses as `<identifier>[ ×2][ (BAIL: <token>)]` (Task 5), and the set of identifiers equals the tool's set exactly. An entry that does not parse fails the check.
+  - Take the leading identifier of each `Agents dispatched:` entry (Task 5); that set equals the tool's set exactly. An entry that does not begin with a §4.1 identifier fails the check.
   - Any difference, including extra lenses, fails the check and pauses the run.
   - Task 1's display-name acceptance is removed.
   - The Spec Compliance and intent-source checks stay.
@@ -472,7 +460,7 @@ Check for each round:
 - the tool's output;
 - the delegate prompt's `Lenses:` line;
 - `Lenses requested:` and `Agents dispatched:`, which must be exactly the floor for the first branch and all six for the second;
-- the findings comment's `Lenses:` line and `Not docs:` line.
+- the findings comment's `Lenses:` line, and its fenced non-docs paths when the rule is `full`.
 
 Also check the recompute, in two parts. A clean round finishes the run and freezes the branch, so the check does not rely on a second live round.
 
