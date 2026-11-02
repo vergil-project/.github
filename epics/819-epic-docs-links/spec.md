@@ -52,7 +52,8 @@ so tools can find and replace it:
 
 The entry for a document is a link when the document exists; otherwise the
 note is chosen from the epic's state. A note is chosen because a document is
-missing; dates only decide its wording.
+missing; dates only decide its wording. The rows are read top to bottom and
+the first that matches decides the entry.
 
 | Epic state | Document missing | Entry |
 | --- | --- | --- |
@@ -60,7 +61,7 @@ missing; dates only decide its wording.
 | open | any | `pending` |
 | closed as not planned | any | `not written (closed as not planned)` |
 | closed, created before 2026-07-12 | spec or plan | `not written (predates the spec and plan convention)` |
-| closed, closed before 2026-07-27 | retrospective | `not written (predates the retrospective convention)` |
+| closed, created before 2026-07-27 | retrospective | `not written (predates the retrospective convention)` |
 | closed, otherwise | any | `not written` |
 
 - **2026-07-12** is when epic vergil-project/.github#85 closed, after which
@@ -68,9 +69,11 @@ missing; dates only decide its wording.
   when epic vergil-project/.github#201 closed, introducing the retrospective
   bookend. The dates are fleet-wide constants, because every org runs the
   same tooling and skills.
-- An epic that ran across a cutoff is judged by the cutoff, not its
-  intentions: #156 and #171 closed after 2026-07-27 without a retrospective,
-  so their entry is `not written`.
+- Both cutoffs compare the epic's **creation** date, so an old epic that
+  stayed open past a cutoff still predates it: #40, created 2026-06-29 and
+  closed 2026-08-15, gets `not written (predates the retrospective
+  convention)`, as does #156. #171, closed as not planned, gets `not
+  written (closed as not planned)` by the first-match rule.
 - An open epic says `pending` even for a document it may never get; the
   entry is settled when the epic closes (§4).
 - **Nothing is written after the fact.** No missing spec, plan or
@@ -123,14 +126,19 @@ vrg-epic-docs set --epic <owner>/<repo>#<N> [--spec PATH] [--plan PATH] [--retro
 ### 5.2 `vrg-epic-docs backfill`
 
 ```text
-vrg-epic-docs backfill --org <org> [--apply]
+vrg-epic-docs backfill (--org <org> | --repo <owner>/<repo>) [--apply]
 ```
+
+`--org` works on the org's `.github`; `--repo` works on a private repo that
+keeps its own epics.
 
 - **Which issues:** every issue labelled `epic` in the org's epic home, open
   and closed, found by label (some epics lack an `Epic:` title, for example
-  vergil-project/.github#76, #80, #224 and #322). It skips standing container
-  epics (ad hoc, intake, planning, deferred, standing — the existing
-  `epics.is_standing` test) and epics whose title starts `[archived]`.
+  vergil-project/.github#76, #80, #224 and #322). It skips container epics
+  and epics whose title starts `[archived]`. A container epic is one that
+  `epics.is_standing` recognises (ad hoc, intake, planning, deferred), one
+  carrying the retired `standing` label, or one whose title starts
+  `Epic (standing):` (for example vergil-project/.github#44).
 - **Finding the documents,** for each epic `N`:
   1. the directory `epics/<N>-*/` in the home repo's default branch;
   2. otherwise, an `epics/<dir>/` path the body mentions that exists;
@@ -145,9 +153,15 @@ vrg-epic-docs backfill --org <org> [--apply]
 - **Ambiguity is not guessed.** Two candidate directories, or two candidate
   specs, for one epic: the epic is reported as needing a decision and left
   unchanged. The human settles it with `vrg-epic-docs set`.
-- **Legacy lists.** A hand-written list (a `Documents:` line followed by
-  Spec, Plan and Retrospective bullets, as in vergil-project/.github#558 and
-  #819) is removed when the section is written. No other body text changes.
+- **Legacy document lines.** Hand-written document references outside the
+  markers are removed when the section is written:
+  - a `Documents:` line followed by Spec, Plan and Retrospective bullets (as
+    in vergil-project/.github#558 and #819);
+  - a standalone line starting `Spec:`, `Plan:` or `Retrospective:`, with
+    or without a trailing "(published by …)" note (as in
+    vergil-project/.github#51, #500 and #550).
+
+  The dry run shows every line it would remove. No other body text changes.
 - **Dry run by default.** Without `--apply` it prints, per epic, the section
   it would write and whether that is an add, a change or no change, then a
   summary count. With `--apply` it makes the edits.
@@ -170,8 +184,9 @@ A new **Epic documents** finding section in `vrg-epic-audit`, over every
   (contents API; a 404 is a finding), and no entry is `pending`.
 - **Open epics:** links are not checked for resolution.
 
-The audit today reads open epics only and has no per-epic body check, so the
-check adds a closed-epic listing. Findings are reported like the existing
+The audit has no per-epic body check today. It already lists closed epics
+for `closed_epic_open_child`; the new check shares that listing, with the
+§5.2 skips, rather than adding a second one. Findings are reported like the existing
 sections and do not change the exit status. Pointing it at another org uses
 the existing `--repo <org>/.github`.
 
@@ -198,15 +213,20 @@ The epic closes only once every org is clean. The backfill runs as
 not PR-workable. Each:
 
 1. checks its precondition: the released `vrg-epic-docs` is installed;
-2. runs `vrg-epic-docs backfill --org <org>` as a dry run and records the
+2. lists the org's private repos and records which, if any, keep their own
+   epics (a private repo self-homes its epics, §5.2 covers only the org's
+   `.github`). Each one found gets steps 3–6 as well, run with `--repo
+   <owner>/<repo>` in place of `--org <org>`;
+3. runs `vrg-epic-docs backfill --org <org>` as a dry run and records the
    summary;
-3. settles every epic reported as needing a decision with
+4. settles every epic reported as needing a decision with
    `vrg-epic-docs set`, after the human decides it;
-4. runs it with `--apply`;
-5. runs `vrg-epic-audit --repo <org>/.github` and records a clean Epic
+5. runs it with `--apply`;
+6. runs `vrg-epic-audit --repo <org>/.github` and records a clean Epic
    documents section as its `Outcome: SUCCESS`.
 
-Order: **vergil-project first**, where the format is proven on 71 epics.
+Order: **vergil-project first**, where the format is proven on its 77
+epics.
 Then one task each, blocked on the vergil-project task, for
 **logical-minds-foundry, mq-rest-admin-project, mnemosys-project,
 diogenes-project and vergils-nemesis**. The personal `wphillipmoore`
@@ -215,11 +235,22 @@ none of its repos carries an `epic`-labelled issue and records the result.
 Nothing in another org is linked to this epic; the sweeps only edit issue
 bodies there.
 
-The survey behind this (vergil-project, 2026-11-01): 34 epics have spec,
-plan and retrospective; 5 are open with the retrospective pending; 15 have
-spec and plan and closed before the retrospective convention; 2 have a spec
-only; 2 closed after it without a retrospective; 13 have no epic documents;
-2 closed as not planned; 2 are still in planning.
+The expected vergil-project result, computed on 2026-11-02 under §3 and the
+§5.2 skips, is 77 epics. The vergil-project task checks its dry run against
+this, allowing for epics created or closed since:
+
+| Spec | Plan | Retrospective | Epics |
+| --- | --- | --- | --- |
+| link | link | link | 34 |
+| link | link | predates the retrospective convention | 16 |
+| predates the spec and plan convention | predates the spec and plan convention | predates the retrospective convention | 8 |
+| link | link | pending | 5 |
+| link | predates the spec and plan convention | predates the retrospective convention | 5 |
+| pending | pending | pending | 4 |
+| closed as not planned | closed as not planned | closed as not planned | 2 |
+| link | link | closed as not planned | 1 |
+| not written | not written | predates the retrospective convention | 1 |
+| not written | not written | not written | 1 |
 
 ## 9. Documentation
 
