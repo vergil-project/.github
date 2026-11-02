@@ -86,7 +86,9 @@ scripts with `--self-test`.
 
 Each task below is one issue under the epic. Fork, probe, deployment,
 baseline, validation and human tasks are filed in `vergil-project/.github`
-and closed by comment (spec 14); the rest close by a same-repo PR. The
+and closed by comment (spec 14); the rest close when their same-repo PR
+merges. Every dependency means the blocking task is **closed**: no task
+waits on another's report-ready, and no task merges another's PR. The
 bookends already exist: the docs task vergil-project/.github#817, the
 documentation review vergil-project/vergil-claude-plugin#877 and the
 retrospective vergil-project/.github#818.
@@ -97,30 +99,42 @@ retrospective vergil-project/.github#818.
 | 2 | The logging rule doc (vergil-claude-plugin) | 1 |
 | 3 | `vrg-agent-cost`: the stanza and `record` (vergil-tooling) | 1 |
 | 4 | `vrg-agent-cost`: `report` and the audit (vergil-tooling) | 3 |
-| 5 | `vrg-agent-cost lint` and its `vrg-validate` stage (vergil-tooling) | 2, 3 |
+| 5 | `vrg-agent-cost lint` and its opt-in `vrg-validate` stage (vergil-tooling) | 3 |
 | 6 | paad: the stanza convention, agentic-review and the lint (`.github`, fork) | 1 |
 | 7 | paad: the other dispatching skills (`.github`, fork; one issue and one commit with Task 6) | 6 |
-| 8 | Logging and write-once on today's skills (vergil-claude-plugin) | 2, 3, 5 |
-| 9 | Doctrine: the result's `Agent costs:` field (vergil-claude-plugin) | 6 |
-| 10 | Deploy wave 1 (`.github`, deployment) | 2–9 |
-| 11 | Baseline sample on today's flow (`.github`, validation) | 10 |
-| 12 | `vrg-ruling` (vergil-tooling) | 3 |
+| 10a | Release vergil-tooling for wave 1 (`.github`, deployment) | 3, 4, 5 |
+| 8 | Logging and write-once on today's skills (vergil-claude-plugin) | 2, 10a |
+| 9 | Doctrine and skills: accept and record `Agent costs:` (vergil-claude-plugin) | 8 |
+| 10b | Release the plugin, move the fleet, run the gate (`.github`, deployment) | 6, 7, 9 |
+| 11 | Baseline sample on today's flow, and the checkpoint (`.github`, validation) | 10b |
+| 12 | `vrg-ruling` (vergil-tooling) | 1, 3 |
 | 13 | The ruling protocol doc (vergil-claude-plugin) | 12 |
 | 14 | The manager split (vergil-claude-plugin) | 4, 11, 13 |
-| 15 | Doctrine: mode 2 for the new roles and records (vergil-claude-plugin) | 11, 13 |
+| 15 | Doctrine: mode 2 for the new roles, and `Agent costs:` required (vergil-claude-plugin) | 11, 14 |
 | 16 | `epic-retrospective`: the epic cost summary (vergil-claude-plugin) | 4 |
 | 17 | Rename sweep: vergil-claude-plugin | 14 |
 | 18 | Rename sweep: vergil-tooling | 14 |
 | 19 | Rename sweep: the `docs` repo | 14 |
-| 20 | Deploy wave 2 (`.github`, deployment) | 12–19 |
-| 21 | Validation sample (`.github`, validation) | 20 |
+| 20a | Release vergil-tooling for wave 2 (`.github`, deployment) | 12, 18 |
+| 20b | Release the plugin for wave 2 (`.github`, deployment) | 13, 15, 16, 17, 20a |
+| 21 | Validation sample (`.github`, validation) | 19, 20b |
 | 22 | Offer the paad changes upstream (`.github`, human) | 6, 7 |
 
 - **Two waves.** Tasks 1–11 put logging on today's flow and measure the
   baseline before the split (spec 12). Tasks 12–21 add the ruling protocol
-  and the split. Task 12 can start once Task 3 has merged.
-- **The checkpoint.** Task 11 ends wave 1: the human reviews the baseline
-  and confirms before Tasks 14–21 start.
+  and the split. Task 12 can start once Tasks 1 and 3 have closed.
+- **The checkpoint.** Task 11 ends wave 1 with a decision by the human:
+  continue to wave 2 in this epic, or close the epic after wave 1 and file
+  wave 2 as its own epic, measured against the same baseline.
+- **Compatibility is by design, not by merge timing.** The lint stage is
+  off until a repo opts in (Task 5), and Task 8 opts the plugin in with the
+  fixes. The doctrine accepts `Agent costs:` when present (Task 9) before
+  the fleet carries it (Task 10b), and requires it only in wave 2 (Task
+  15).
+- **One plugin release for the split.** The plugin ships by tagged
+  release, not on merge. No plugin release is cut between Task 14's merge
+  and Task 20b, so the new `issue-manager`, mode 2 for the new roles and
+  the plugin sweep reach users together.
 - **Tasks 6 and 7 are one fork issue and one commit**, so `preview/paad`
   goes from no skill on the convention to every dispatching skill at once
   (Task 6's lint fails only partial adoption).
@@ -130,17 +144,16 @@ retrospective vergil-project/.github#818.
   per-specialist cost (spec 12) and is recorded write-once; its roles part
   (Task 15) must land with the split. All stay separate from the rename
   sweep, as the spec requires.
-- **Merge together.** Tasks 14, 15 and 17 are merged in one sitting, and
-  the plugin release that carries one carries all three, so no release has
-  the new `issue-manager` with old-meaning references or an old mode 2.
 - **#812** may be revived from Task 11's results (spec 12).
 - **Security advisories.** When the spec and plan merge, the agent hands
   each advisory on #802 to its fix task: GHSA-2fjg-qxrj-fc2v (the
   responder's security contract) to Task 14, and GHSA-9q3r-h2xj-rgq3 (the
-  posting identity) to Task 12. GHSA-3q8w-mvq4-w3fq was rejected and its
+  posting identity) and GHSA-r5f4-5586-mqfp (marking security items in a
+  ruling request) to Task 12. GHSA-3q8w-mvq4-w3fq was rejected and its
   intake issue closed.
 - **Probe outcomes amend the spec** before dependent tasks start (spec 12):
-  items 1–4 before Tasks 2–4, items 7–9 before Tasks 14 and 15.
+  items 1–4 before Tasks 2–4, item 10 before Task 12, items 7–9 before
+  Tasks 14 and 15.
 
 ## File map
 
@@ -204,8 +217,10 @@ suffixes):
 | `dispatch` | a vergil dispatch with no more specific name; the lint asks for a reason |
 
 Suffixes: `.a`, `.b` for partitions of one lens (every instance
-suffixed); `.<n>` (`n` ≥ 2) for a fresh agent taking over, which implies
-`<base>` (or `<base>.<n-1>`) has a line.
+suffixed); `.<n>` (`n` ≥ 2) for a fresh agent taking over, or for a re-run
+of a broken round in either mode (`spec-pushback-2.2`), which implies
+`<base>` (or `<base>.<n-1>`) has a line. A round's one cost record carries
+a line for every dispatch of that round, re-runs included.
 
 **Bail codes:** `none`, `no-intent`, `no-boundary`, `no-surface`, `other`.
 A `BAIL:` reason paad does not map to one of these is written `other`; its
@@ -233,11 +248,16 @@ Run: <root>.<k>
 Dispatched by: epic-implement | interactive
 ```
 
-`k` is one past the highest `k` for that root on the issue, or the value
-the dispatch prompt passes.
+`k` is one past the highest `k` for that root on the issue, counted from
+both `Run:` records and `Agent cost: dispatch <root>.<k>` records (so a run
+lost before its first record still uses up its `k`), or the value the
+dispatch prompt passes.
 
 **A superseding record** keeps the replaced record's first line and adds
-`Supersedes: <comment URL>` as its second line.
+`Supersedes: <comment URL>` as its second line. A superseded comment is
+dead: every reader ignores all its lines (`Paused:`, `Kept:`, `Human
+ruling:`, `Recorded:`, `Ruling record:`, stanzas), and only the latest
+comment in the chain counts.
 
 **A ruling request**:
 
@@ -260,13 +280,16 @@ two marks, or with any other question, is refused.
 **A ruling reply**, posted by the human login, after the request: the
 first non-empty line is `approve` or `deny` (case-insensitive); every
 other non-empty line is `<ID>: <answer>`, with `<answer>` one of that
-item's options. A human comment after the request is a **ruling
-attempt** when its first non-empty line is `approve` or `deny`, or when any
-line starts with one of the request's IDs and a colon; any other comment is
-ignored. The latest ruling attempt that parses is the ruling, and a later
-one supersedes an earlier one. A ruling attempt that does not parse (an
-answer to an unknown ID, an option not offered, a `deny` that leaves an
-item unanswered), or an edited ruling attempt, is not a ruling.
+item's options. The comments are a single-threaded, turn-based log:
+request `k`'s window runs from the request to the next request (or the
+end), and a newer request voids any unresolved older one. A human comment
+in the window is a **ruling attempt** when its first non-empty line is
+`approve` or `deny`, or when any line starts with one of the request's IDs
+and a colon; any other comment is ignored. The latest ruling attempt in
+the window decides, with no fallback to an earlier one: if it parses, it is
+the ruling; if it does not parse (an answer to an unknown ID, an option not
+offered, a `deny` that leaves an item unanswered) or was edited, there is
+no ruling, and the agent posts a fresh request.
 
 **A pause** is a trusted agent comment carrying a `Paused:` line (wave 1),
 or a ruling request (wave 2). Each counts as one human interaction.
@@ -288,7 +311,8 @@ evidence quoted.
   `tool_uses`, `duration_ms`; `BREAKDOWN_FIELDS`; whether tokens include
   children; whether a continued turn's tokens are cumulative; whether the
   main session's cost is readable and how; the answers on depth,
-  nested continuation and the delegate from a sub-agent.
+  nested continuation and the delegate from a sub-agent; the login GitHub
+  reports for the session's posting identity under the App token.
 
 - [ ] **Step 1:** Dispatch a `general-purpose` sub-agent in the foreground,
   and one in the background, each running one `Read`. Record each
@@ -318,7 +342,12 @@ evidence quoted.
 - [ ] **Step 8:** Have a dispatched sub-agent start a child that ends with
   a question, then end its own turn; continue the parent, and have it
   continue the child with SendMessage (item 8). Record the result.
-- [ ] **Step 9:** Compare each finding with the spec. For any
+- [ ] **Step 9:** In an agent-mode session, record the live GraphQL
+  `viewer { login }` response under the App installation token, and the
+  author login GitHub shows on a comment that session posts, and how each
+  compares with the `vrg-trusted-authors` agent list (item 10, for Task
+  12).
+- [ ] **Step 10:** Compare each finding with the spec. For any
   contradiction, open a spec amendment (a docs PR on `.github`) before the
   dependent tasks start (Delivery). Close the issue with a summary comment
   listing every value later tasks use.
@@ -488,6 +517,9 @@ evidence quoted.
     `Deviation: run interactively` implies no dispatch;
   - `test_split_comment_counts_once`: parts `(part 1/2)` and `(part 2/2)`
     of one round comment imply one dispatch;
+  - `test_broken_round_rerun`: a round comment whose cost record has lines
+    for `spec-pushback-2` and `spec-pushback-2.2` is clean; the same two
+    lines at one path are a duplicate;
   - `test_audit_errors_on_orphan_parent`, `test_audit_errors_on_unknown_segment`,
     `test_audit_errors_on_duplicate_path`,
     `test_audit_errors_on_missing_predecessor` (`implement.2` without
@@ -502,7 +534,8 @@ evidence quoted.
     errors;
   - `test_next_run_index`: no `Run: issue-manager.<k>` records gives 1;
     records for 1 and 3 give 4; an `issue-implement` run does not count
-    toward `issue-manager`;
+    toward `issue-manager`; an `Agent cost: dispatch issue-manager.5` with
+    no `Run:` record gives 6;
   - `test_human_interactions`: counts each `Ruling request` record and
     each `Paused:` line in a trusted agent comment, per Formats, and the
     same issue in either shape gives the same count;
@@ -525,7 +558,8 @@ evidence quoted.
 - Create: `src/vergil_tooling/lib/agent_cost_lint.py`
 - Modify: `src/vergil_tooling/bin/vrg_agent_cost.py` (`lint`),
   `src/vergil_tooling/bin/validate_common.py` (stage `agent-cost-lint`, run
-  when `skills/*/SKILL.md` exists)
+  only when the repo's `vergil.toml` sets `agent-cost-lint = true` under
+  `[validate]`)
 - Test: `tests/vergil_tooling/test_agent_cost_lint.py`
 
 **Interfaces:**
@@ -534,7 +568,9 @@ evidence quoted.
   per site); exception marker `<!-- agent-cost: exempt (<reason>) -->` on
   the site's line or the line above.
 
-- [ ] **Step 1: Write the failing tests:** a site recognised by any of
+- [ ] **Step 1: Write the failing tests:** the stage does not run without
+  the flag and runs with it, and a flag set on a repo with no
+  `skills/*/SKILL.md` fails; a site recognised by any of
   `Agent tool`, `subagent`, `sub-agent`, `dispatch` (word, any case) that
   neither links `agent-cost-logging.md` within its paragraph nor names
   where its stanza is recorded fails, with file and line; a site with the
@@ -546,11 +582,10 @@ evidence quoted.
 - [ ] **Step 3:** Implement the lint and the stage (`Running:
   agent-cost-lint (<n> skills)`).
 - [ ] **Step 4:** `vrg-container-run -- vrg-validate`. Expected: pass.
-  (vergil-tooling holds no `skills/`, so the stage does not run here.)
-- [ ] **Step 5:** Commit (`feat(agent-cost): dispatch-site lint`) and
-  report-ready. vergil-claude-plugin's validation would fail on the stage
-  without Task 8, so Task 10 releases this and merges Task 8 in one
-  sitting.
+  (vergil-tooling does not set the flag, so the stage does not run here.)
+- [ ] **Step 5:** Commit (`feat(agent-cost): opt-in dispatch-site lint`)
+  and report-ready. Releasing it changes no repo's validation until that
+  repo opts in.
 
 ### Task 6: paad: the stanza convention, agentic-review and the lint
 
@@ -638,9 +673,10 @@ Done in Task 6's branch and commit, at its Step 6.
 `--edit-last` and delete-and-repost paths), §2.6 (round comment: the cost
 record) and §3.5 (`Review cost:` replaced by a cost record).
 
-- [ ] **Step 1:** Validate this branch with the vergil-tooling release that
-  carries Task 5 (Task 10 Step 1). Expected: `agent-cost-lint` FAIL, the
-  sites listed.
+- [ ] **Step 1:** Set `agent-cost-lint = true` under `[validate]` in
+  `vergil.toml`, and run `vrg-container-run -- vrg-validate` (Task 10a has
+  released the stage). Expected: `agent-cost-lint` FAIL, the sites
+  listed.
 - [ ] **Step 2:** At each site, after the completion notice: write the
   stanza and post it with `vrg-agent-cost record`, linking
   `docs/agent-cost-logging.md`. `epic-create`'s mode 1 rounds record
@@ -661,68 +697,92 @@ record) and §3.5 (`Review cost:` replaced by a cost record).
   comment's first line and adds `Supersedes: <url>`; the `dismiss` repost
   does the same. No `--edit-last` or `--delete-last` remains in any skill
   or doctrine text.
-- [ ] **Step 3:** Validate again against the same release. Expected:
-  `agent-cost-lint` passes, and `vrg-git grep -n -e '--edit-last' -e
+- [ ] **Step 2b: Superseded means dead.** Every doctrine and skill reader of
+  response-comment lines (open `Kept:`, a live `Paused:`, `Human ruling:`,
+  `Recorded:`, `Ruling record:`, in the doctrine and in `epic-implement`
+  and `issue-implement`) ignores a comment that a later trusted comment
+  supersedes (Formats). Add a doctrine example: a paused round, then its
+  finished round, as two comments, with the first one's `Kept:` lines
+  closed by being superseded.
+- [ ] **Step 3:** Validate again. Expected: `agent-cost-lint` passes,
+  and `vrg-git grep -n -e '--edit-last' -e
   '--delete-last' -- skills docs/paad-review-doctrine.md` prints nothing.
 - [ ] **Step 4:** `vrg-container-run -- vrg-validate`. Expected: pass.
 - [ ] **Step 5:** Commit (`feat(skills): log every dispatch's cost`) and
   report-ready.
 
-### Task 9: Doctrine: the result's `Agent costs:` field
+### Task 9: Doctrine and skills: accept and record `Agent costs:`
 
 **Files:** `docs/paad-review-doctrine.md` §1.9 (the result format and the
 output checks), §3.4 (mode 2's values), §2.4 (mode 1's values);
 `docs/paad-policy.md` §10 (a line naming the field as part of the
-contract).
+contract); `skills/issue-implement/SKILL.md` and
+`skills/epic-create/SKILL.md` (their restated round steps).
 
 - [ ] **Step 1:** Add `Agent costs:` to the result format after the
-  skill-specific fields, required in every delegate result: `none` when
-  nothing was dispatched, otherwise the stanza lines.
+  skill-specific fields: `none` when nothing was dispatched, otherwise the
+  stanza lines. Until Task 15, the field is accepted when present and
+  checked, and its absence is not a failure, so this can release before
+  the fleet carries it.
 - [ ] **Step 2:** Add the output checks: each line matches the stanza
   grammar exactly (Formats); for agentic-review, at least one line for each
   lens in `Agents dispatched:` and at least one for the Verifier, with
   partition and `.<n>` suffixes and `analyst` lines allowed; for pushback
   and alignment, `Agent costs: none` with `paad:paad-analyst` listed in
   `Agent types dispatched:` fails. A malformed line or a lens with no line
-  is a failed check, handled as any other. The caller prefixes each path
-  with its own and records them in the round's cost record.
-- [ ] **Step 3:** `vrg-container-run -- vrg-validate`. Expected: pass.
-- [ ] **Step 4:** Commit (`docs(paad-doctrine): the result's agent costs`)
-  and report-ready. Not merged until Task 10 says so.
+  is a failed check, handled as any other. These checks apply whenever the
+  field is present. The caller prefixes each path with its own and records
+  them in the round's cost record.
+- [ ] **Step 3:** In `issue-implement`'s and `epic-create`'s round steps,
+  state the recording rule: read `Agent costs:` when present, prefix each
+  path with the round's own path, and record the lines in the round's cost
+  record beside the delegate's own line.
+- [ ] **Step 4:** `vrg-container-run -- vrg-validate`. Expected: pass.
+- [ ] **Step 5:** Commit (`docs(paad-doctrine): accept and record the
+  result's agent costs`) and report-ready.
 
-### Task 10: Deploy wave 1
+### Task 10a: Release vergil-tooling for wave 1
 
-Operational; the order matters, because the result's syntax changes
-(paad-policy §10).
+- [ ] **Step 1 (human):** Release vergil-tooling carrying Tasks 3, 4 and 5,
+  and sync the consumer repos.
+- [ ] **Step 2:** In vergil-claude-plugin, run `vrg-container-run --
+  vrg-validate` on develop. Expected: pass, and no `agent-cost-lint` stage
+  (the repo has not opted in). Record the release and close the issue.
 
-- [ ] **Step 1 (human):** Merge Tasks 3, 4 and 5; release vergil-tooling;
-  sync the consumer repos. The agent records the release. Steps 1 and 2
-  happen in one sitting.
-- [ ] **Step 2 (human):** The agent validates Task 8's branch against the
-  released tooling (Task 8 Steps 1 and 3). Then merge Tasks 2 and 8 and
-  release the plugin. The agent records it and checks `vrg-container-run --
-  vrg-validate` passes in vergil-claude-plugin on develop.
-- [ ] **Step 3 (human):** Hold reviews. Move `fleet` to the commit carrying
+### Task 10b: Release the plugin, move the fleet, run the gate
+
+Operational. The doctrine already accepts `Agent costs:` (Task 9), so the
+fleet move needs no doctrine change first (paad-policy §10).
+
+- [ ] **Step 1 (human):** Release the plugin carrying Tasks 2, 8 and 9.
+  The agent records it.
+- [ ] **Step 2 (human):** Hold reviews. Move `fleet` to the commit carrying
   Tasks 6 and 7, and record it. Update the #733 validation sets' expected
   results for the new field, then run the gate on the new commit.
-- [ ] **Step 4 (human):** Once the gate passes, merge Task 9 and release
-  the plugin. Reviews resume. The agent records each step's evidence and
+- [ ] **Step 3 (human):** Once the gate passes, reviews resume. The agent
+  runs one mode 1 round on a scratch document and checks its cost record
+  carries the delegate's children. It records each step's evidence and
   closes the issue.
 
 ### Task 11: Baseline sample on today's flow
 
 - [ ] **Step 1:** Pick at least two docs-only and two code tasks from real
   queued work; record the list.
-- [ ] **Step 2:** Run each through today's flow (`epic-implement` or
-  `issue-implement`).
+- [ ] **Step 2:** Run each through today's flow under `epic-implement`
+  only, so each `issue-implement.<k>` run's whole cost is in
+  `epic-implement`'s dispatch line. If Task 1 found the main session's own
+  cost readable, record `epic-implement`'s own cost with that method.
 - [ ] **Step 3:** For each, run `vrg-agent-cost report --issue <ref>` and
   record the output, the audit result, and per-specialist cost and bail.
 - [ ] **Step 4:** Post a summary on the issue: per task and per activity;
   docs-only against code; human interactions, counted per Formats; the
-  paad fleet commit used. Note on #812 that it may be revived from these
-  numbers.
-- [ ] **Step 5 (human):** Review the baseline and confirm on the issue that
-  wave 2 may start. Close the issue.
+  paad fleet commit used. State the limit of today's flow: coding and
+  responding share one context, so the baseline gives each run's whole
+  cost but cannot split implementing from responding. Note on #812 that it
+  may be revived from these numbers.
+- [ ] **Step 5 (human):** Review the baseline and decide on the issue:
+  continue to wave 2 in this epic, or close the epic after wave 1 and file
+  wave 2 as its own epic. Close the issue.
 
 ### Task 12: `vrg-ruling`
 
@@ -770,6 +830,10 @@ below; no detail goes in public records.
   - `test_read_ignores_non_ruling_comments`: a valid ruling followed by an
     unrelated human comment still reads as that ruling;
   - `test_read_later_ruling_supersedes`: two valid rulings give the later;
+  - `test_read_invalid_later_attempt_voids_earlier`: `approve`, then a
+    `deny` with a bad answer, gives `NotARuling`, never the `approve`;
+  - `test_read_bounded_by_next_request`: an `approve` posted after request
+    2 is not a ruling on request 1, and request 1 reads as void;
   - `test_read_rejects_reply_by_agent_login`: a reply from an agent login
     is ignored (pending if it is the only one);
   - `test_read_reports_edited_reply`: an edited human reply gives
@@ -786,9 +850,10 @@ below; no detail goes in public records.
   (`get_installation_token(require_installation=True)` gives `None`);
   `test_identity_check_refuses_login_not_agent` (the token's login is not
   in `load_trusted_authors().agents`); `test_identity_check_passes`. The
-  token's login comes from GraphQL `viewer { login }` under the token; if
-  Step 3 finds the API names it differently for an App, follow the API and
-  record it in the module docstring.
+  stubs use the exact response Task 1 Step 9 recorded, and the
+  normalisation (if any) between that login and the agents list is the one
+  Task 1 found, written in the module docstring with the recorded
+  evidence.
 - [ ] **Step 3:** `vrg-container-run -- vrg-validate`. Expected: FAIL.
 - [ ] **Step 4:** Implement `lib/rulings.py` and `bin/vrg_ruling.py`.
   Every refusal names the fix: start the session in agent mode with App
@@ -814,7 +879,7 @@ below; no detail goes in public records.
 ### Task 14: The manager split
 
 Carries GHSA-2fjg-qxrj-fc2v: the requirement is the responder's security
-contract below. Merged with Tasks 15 and 17.
+contract below. Released together with Tasks 15 and 17 (Task 20b).
 
 **Files:**
 
@@ -842,8 +907,10 @@ contract below. Merged with Tasks 15 and 17.
   "the human has responded on the issue", a fresh suffixed worker with a
   `lost` line for the original when it cannot be continued; the task
   roll-up from `vrg-agent-cost report` before report-ready or closing,
-  noting that a dispatched manager's own cost is recorded after it. No
-  `--edit-last` or `--delete-last` survives from today's skill.
+  noting that a dispatched manager's own cost is recorded after it; the
+  main session's own cost, when Task 1 found it readable, recorded with
+  that method. No `--edit-last` or `--delete-last` survives from today's
+  skill.
 - [ ] **Step 2:** Write the workers. Each starts by checking the marker
   line and otherwise stops with "This skill runs only under
   `issue-manager`; run `issue-manager <issue>`." before any other step.
@@ -867,18 +934,21 @@ contract below. Merged with Tasks 15 and 17.
 
 ### Task 15: Doctrine: mode 2 for the new roles and records
 
-Merged with Tasks 14 and 17.
+Released together with Tasks 14 and 17 (Task 20b).
 
 **Files:** `docs/paad-review-doctrine.md` §3 (title, §3.1 steps 1–7,
-§3.5, §3.6–3.8). Write-once (§1.7, §3.5's edit and delete paths) already
-landed in Task 8.
+§3.5, §3.6–3.8), §1.9 (`Agent costs:` required). Write-once (§1.7, §3.5's
+edit and delete paths) already landed in Task 8.
 
 - [ ] **Step 1:** Rewrite mode 2 so the manager orchestrates, the reviewer
   is fresh each round, the responder fixes, every pause and ruling goes
   through the ruling protocol, the hold-back judgement stays with the
   manager, and security fixes reach the responder only as hashed paths.
-- [ ] **Step 2:** `vrg-container-run -- vrg-validate`. Expected: pass.
-- [ ] **Step 3:** Commit (`docs(paad-doctrine): mode 2 under issue-manager`)
+- [ ] **Step 2:** Make `Agent costs:` required in every delegate result:
+  its absence is now a failed check (the fleet carries it since Task
+  10b).
+- [ ] **Step 3:** `vrg-container-run -- vrg-validate`. Expected: pass.
+- [ ] **Step 4:** Commit (`docs(paad-doctrine): mode 2 under issue-manager`)
   and report-ready.
 
 ### Task 16: `epic-retrospective`: the epic cost summary
@@ -903,9 +973,12 @@ leaves releases, dated specs and plans unchanged.
   `steering-audit`), `README.md`, `CLAUDE.md`,
   `docs/development/skills-architecture.md`,
   `docs/development/starting-work-on-an-issue.md`, `docs/paad-policy.md`,
-  `docs/site/docs/skills/index.md`. Merged with Tasks 14 and 15.
+  `docs/site/docs/skills/index.md`. Released together with Tasks 14 and
+  15 (Task 20b).
 - [ ] **Task 18 (vergil-tooling):** `src/vergil_tooling/bin/vrg_submit_pr.py`
-  (its refusal text, with its test), `docs/site/docs/guides/account-setup.md`,
+  (its refusal text, with its test), `src/vergil_tooling/bin/vrg_pr_workflow.py`
+  (its Outcome-recording text), `src/vergil_tooling/data/deployment_task_body.md`
+  (the deployment issue template), `docs/site/docs/guides/account-setup.md`,
   `docs/site/docs/guides/security-records.md`,
   `docs/site/docs/standards/github-issues.md`.
 - [ ] **Task 19 (`docs`):** `docs/site/docs/management/tools-and-skills.md`,
@@ -914,21 +987,28 @@ leaves releases, dated specs and plans unchanged.
 Each: search, edit, `vrg-container-run -- vrg-validate` (pass), commit,
 report-ready.
 
-### Task 20: Deploy wave 2
+### Task 20a: Release vergil-tooling for wave 2
 
-- [ ] **Step 1 (human):** Merge Tasks 12 and 18; release vergil-tooling;
-  sync consumers.
-- [ ] **Step 2 (human):** Merge Tasks 13, 16, then 14, 15 and 17 together;
-  release the plugin. Merge Task 19.
-- [ ] **Step 3:** In a fresh agent session, run `vrg-ruling read` against
-  a test request to confirm the identity check passes; record it. Close the
-  issue.
+- [ ] **Step 1 (human):** Release vergil-tooling carrying Tasks 12 and 18,
+  and sync the consumer repos.
+- [ ] **Step 2:** Check the identity check live (GHSA-9q3r-h2xj-rgq3): in
+  an agent-mode session, `vrg-ruling read` against a test request passes
+  the check; in a human-mode session, it refuses with the fix named and
+  posts nothing. Record both and close the issue.
+
+### Task 20b: Release the plugin for wave 2
+
+- [ ] **Step 1 (human):** Confirm no plugin release has been cut since Task
+  14 merged, then release the plugin carrying Tasks 13–17. The agent
+  records it and closes the issue.
 
 ### Task 21: Validation sample
 
 - [ ] **Step 1:** Pick at least three docs-only and three code tasks from
   real queued work; record the list.
-- [ ] **Step 2:** Run each through the new flow, rulings on the issue.
+- [ ] **Step 2:** Run each through the new flow under `epic-implement`,
+  as Task 11 did, rulings on the issue; record the main session's own cost
+  the same way Task 11 did.
 - [ ] **Step 3:** For each, `vrg-agent-cost report --issue <ref>`: no
   errors; gaps only for `lost` calls or values Task 1 showed unreadable.
   Check every dispatch left a stanza, paths nest, and rulings went through
