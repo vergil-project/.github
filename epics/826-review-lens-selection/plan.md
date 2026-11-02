@@ -360,6 +360,9 @@ def test_repo_addition_and_exclusion() -> None:
   - `test_cli_empty_diff`: exits non-zero with `empty diff` on stderr.
   - `test_cli_invalid_stanza`: `[review] extra-docs-paths = ["docs/**"]` exits non-zero with the config error on stderr.
   - `test_cli_base_exclusion_applies`: the base's `vergil.toml` excludes `docs/specs/rule.md`, the branch was cut before that and edits only that file, and the output is `Rule: full`.
+  - `test_cli_base_without_config`: the base has no `vergil.toml`, and the run succeeds using HEAD's stanza only.
+  - `test_cli_control_character_path`: a changed path containing a newline or other control character makes the tool exit non-zero, with `ERROR:` on stderr and nothing on stdout.
+  - `test_cli_json_single_values`: the `--json` object has exactly one `lenses` and one `rule` key, and `lenses` is a list drawn from `LENSES`.
 - [ ] **Step 3: Run them.** `vrg-container-run -- vrg-validate`. Expected: the new tests fail.
 - [ ] **Step 4: Implement `review_lenses.py`.**
   - `is_docs` is false if any built-in or repo exclusion matches with `ignore_case=True`. Otherwise it is true if any base or repo docs pattern matches case-sensitively.
@@ -369,7 +372,9 @@ def test_repo_addition_and_exclusion() -> None:
   - Call `check_rules(RULES)` at start.
   - Check the base with `git.ref_exists(base)`.
   - Read `git.read_output("diff", "--raw", "-z", "--no-abbrev", f"{base}...HEAD")` and `read_config(git.repo_root()).review`.
-  - Also read the base's `vergil.toml` (`git.read_output("show", f"{base}:vergil.toml")`), parse its `[review]` stanza with the same parser, and use `merged_review(base_review, head_review)`, so an exclusion that landed on the base after the branch was cut still applies. A base without `vergil.toml` contributes nothing; an invalid one is an error.
+  - Also read the base's `vergil.toml`, parse its `[review]` stanza with the same parser, and use `merged_review(base_review, head_review)`, so an exclusion that landed on the base after the branch was cut still applies. First test whether it exists with `git cat-file -e {base}:vergil.toml`, whose only meaning is existence. If it does not exist, the base contributes nothing. If it does, read it with `git.read_output("show", f"{base}:vergil.toml")`; any failure of that read, or an invalid stanza, is an error.
+  - Refuse any changed path that contains a control character (`\x00`–`\x1f` or `\x7f`): exit 1 with `ERROR:` naming the count of such paths. No legitimate fleet file has one.
+  - `--json` is the form the gate reads; the text form is for people.
   - Print as in Step 2, with the first three `Not docs:` paths in text mode.
   - On any error (`ConfigError`, `FileNotFoundError`, an unresolved base, an empty diff, a git failure), print `ERROR: <reason>` on stderr and return 1. Never print a lens set.
 - [ ] **Step 6: Run the tests.** `vrg-container-run -- vrg-validate`. Expected: passes.
@@ -412,6 +417,7 @@ Spec §4.2. The agent edits files in the dev clone on branch `lenses-input`, whi
 - [ ] **Step 3: Reconcile the interactive text.** In the Common Mistakes row, the report template and any body text saying all six are dispatched every run, add that under the delegate a `Lenses:` input takes precedence. Leave interactive behaviour unchanged.
 - [ ] **Step 3a: Update paad-help.** Its agentic-review entry describes the `Lenses:` input and the `Lenses requested:` and `Partitioning:` fields, beside `Intent:`.
 - [ ] **Step 4: Run the fork's checks.** `make test`. Expected: passes, including Step 0's lines.
+- [ ] **Step 4a: Refactor.** Tidy the new unattended-section text and the `SKILL_RULES` lines without changing behaviour. Re-run `make test`. Expected: passes.
 - [ ] **Step 5 (human):** commit, push, merge `lenses-input` into `fleet`, move `paad-fleet`, and record the commit. Hold reviews until V2 passes. Comment and close.
 
 ### V2: Gate run on `fleet` with `Lenses:`
@@ -433,7 +439,7 @@ Spec §4.5.
 - Modify: `docs/paad-policy.md` (a register entry for `Lenses:`)
 - Modify: `vergil.toml` (vergil-claude-plugin's own `[review].extra-non-docs-paths`, from Task S)
 
-- [ ] **Step 1: §3.4 pre-dispatch.** After `vrg-git fetch origin`, run `vrg-review-lenses --base origin/<base>` in the worktree. Keep its `Lenses:`, `Rule:` and any `Not docs:` lines. A non-zero exit pauses the run with the tool's stderr. Add that cause to §3.8's list of pause causes before dispatch.
+- [ ] **Step 1: §3.4 pre-dispatch.** After `vrg-git fetch origin`, run `vrg-review-lenses --base origin/<base> --json` in the worktree. Parse the JSON object: it must have exactly one `lenses` list, every entry a §4.1 identifier, and exactly one `rule` string. Anything else pauses the run. The prompt's `Lenses:` value is the list joined with `, `. A non-zero exit pauses the run with the tool's stderr. Add that cause to §3.8's list of pause causes before dispatch.
 - [ ] **Step 2: §3.2 and §1.9.**
   - Add `Lenses: {{LENSES}}` after the template's `Intent:` line. The placeholder row reads "the tool's `Lenses:` value, verbatim".
   - Update §3.2's provenance note: the prompt was validated in #733, and its `Lenses:` line in V2.
@@ -444,7 +450,7 @@ Spec §4.5.
   - Any difference, including extra lenses, fails the check and pauses the run.
   - Task 1's display-name acceptance is removed.
   - The Spec Compliance and intent-source checks stay.
-- [ ] **Step 4: §3.5 and §3.1.** The findings comment carries `Lenses: <identifiers> (rule: <rule>)`, plus the `Not docs:` line when the tool printed one. §3.1's "including on docs-only and trivial changes" becomes: the gate always runs, with the tool's lens set, never below the floor.
+- [ ] **Step 4: §3.5 and §3.1.** The findings comment carries `Lenses: <identifiers> (rule: <rule>)`. When the rule is not `docs-only`, it also carries the first three `not_docs` paths and the count of the rest, inside a fenced code block, under the same rule §3.5 applies to text copied from the result. §3.1's "including on docs-only and trivial changes" becomes: the gate always runs, with the tool's lens set, never below the floor.
 - [ ] **Step 5: `issue-implement`.** Add the tool run and the `Lenses:` line to the gate procedure's steps, citing §3.4 and §3.2. Repeat no rules.
 - [ ] **Step 6: The register entry and the stanza.** Add a paad-policy register entry: vergil uses the fork's `Lenses:` input, not yet upstream; the floor lives in `vrg-review-lenses` and §3.4. Add Task S's plugin entries to `vergil.toml`, including `docs/site/docs/skills/index.md`.
 - [ ] **Step 7: Validate.** `vrg-container-run -- vrg-validate`. Expected: passes.
@@ -468,7 +474,10 @@ Check for each round:
 - `Lenses requested:` and `Agents dispatched:`, which must be exactly the floor for the first branch and all six for the second;
 - the findings comment's `Lenses:` line and `Not docs:` line.
 
-Also check the recompute, which does not depend on what the review finds. After the first branch's first round, the human directs a commit on it that touches a code file. The next round must run all six lenses, with `Rule: full` and the code file in `Not docs:`.
+Also check the recompute, in two parts. A clean round finishes the run and freezes the branch, so the check does not rely on a second live round.
+
+- **The tool:** on a throwaway branch with a docs-only commit, `vrg-review-lenses --base origin/develop --json` gives `"rule": "docs-only"`. After a second commit that touches a code file, it gives `"rule": "full"`, all six lenses, and the code file in `not_docs`. Delete the branch afterwards.
+- **The gate:** for every V3 task whose run took more than one round, each round's findings comment carries that round's own `Lenses:` line, so the tool ran before each dispatch (§3.4).
 
 Close only on SUCCESS. On FAILURE, record the evidence, file fix tasks under the epic, and run V3 again, with new tasks, once they ship.
 
