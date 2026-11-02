@@ -1,8 +1,8 @@
 # Measuring agent cost
 
-- **Epics:** vergil-project/.github#816 (measuring agent cost: §3–6, §9–12)
-  and vergil-project/.github#848 (the ruling protocol and the manager
-  split: §7, §8, §13), planned together
+- **Epics:** vergil-project/.github#816 (measuring agent cost: §3–6,
+  §7.1 write-once records, §9–12) and vergil-project/.github#848 (the ruling
+  protocol and the manager split: §7.2, §8, §13), planned together
 - **Planning issue:** vergil-project/.github#802 (review history is in its
   comments)
 - **Status:** approved
@@ -111,10 +111,15 @@ agent-cost: v1 call=<path> [turn=<n>] tokens=<n> tool_uses=<n> duration_ms=<n> [
   not a dispatch and has no segment. The parent of a call is its path less
   the last segment; nesting needs no other field.
 - **Segments come from a closed vocabulary**, defined in the rule doc (§4):
-  `issue-manager.<k>`, `implement`, `review-<n>`, `respond-<n>`, `deploy`,
-  `validate`, `<stage>-<n>` for design-review rounds, and a fixed slug for
-  each paad lens and the Verifier. A segment matches `[a-z0-9][a-z0-9.-]*`.
-  An unknown segment is an audit error.
+  the session roots, listed by name (`epic-implement`, `epic-create`,
+  `epic-retrospective` and each other skill that dispatches);
+  `issue-manager.<k>`, and on today's flow `issue-implement.<k>`,
+  `issue-deploy.<k>`, `issue-validate.<k>`; `implement`, `review-<n>`,
+  `respond-<n>`, `deploy`, `validate`; `<stage>-<n>` for design-review
+  rounds; a fixed slug for each paad lens and the Verifier; `analyst` for
+  paad's other analysis dispatches; and `dispatch` for a vergil dispatch
+  with no more specific name. A segment matches `[a-z0-9][a-z0-9.-]*`. An
+  unknown segment is an audit error.
 - **Numbering.** A fresh run of something known to iterate takes a plain
   digit index: review rounds (`review-1`, `review-2`), responder rounds,
   design-review rounds. A fresh agent taking over from one that can no
@@ -218,8 +223,9 @@ workflow, preview tree and branch rules of epic #699
   lines sees the report it saw before.
 - **The unattended result.** Every review round runs through
   `paad:paad-delegate`, which writes no report, so the caller gets paad's
-  stanzas only from the delegate's structured result. Each dispatching
-  skill's unattended result gains a skill-specific field carrying them.
+  stanzas only from the delegate's structured result. Every delegate
+  result carries an `Agent costs:` field: the stanza lines, or `none` when
+  nothing was dispatched.
 - **Deployment.** This environment always runs the fork's paad preview. A
   paad change counts as deployed once the preview carries it and the
   paad-policy §10 gate has passed on it; a deployment task in this epic
@@ -250,10 +256,17 @@ vergil skill or tool posts is written once: never edited, never deleted.
 `--edit-last`, `--delete-last` and the "unfinished comment" state they
 serve are removed from the skills.
 
-- **A correction is a new comment.** A superseding record links to the
-  comment it replaces and says that it supersedes it, so the change reads
-  as a delta in the log rather than in an edit history. The tool (§9)
-  reads a superseded record as replaced, never as a second one.
+- **Comments are turns.** The log is single-threaded and turn-based:
+  each turn is a new comment, and nothing is replaced. A paused round's
+  comment stays; resuming posts the next turn, which carries the ruling and
+  closes the round. Readers read the log in order: an open line (a pause,
+  kept material) is closed only by a later trusted agent comment on the
+  same issue for the same round.
+- **A correction is rare and is a new comment.** Only a record that was
+  wrong is corrected: a new comment links to it and says that it corrects
+  it, so the change reads as a delta in the log rather than in an edit
+  history. The target must be a trusted comment on the same issue, by the
+  same author, of the same kind, not already corrected.
 - **Edits are detected.** GitHub records each comment's edits. An edited
   agent record (a cost record, a ruling request, any record of §9) is an
   audit error. Humans may edit their own comments, to fix a typo say, but
@@ -375,16 +388,19 @@ manager posts the ruling request (§7).
 Section 3 of the review doctrine has the implementer do everything: fix,
 re-validate, pause on repairs that need the human (step 7), judge what to
 hold back (§3.6), and pause in the cases of §3.8. After the split those jobs
-belong to the manager, the responder and the ruling protocol. A dedicated
-task rewrites, for the new roles and records:
+belong to the manager, the responder and the ruling protocol. The rewrite
+is done in dedicated tasks, timed by what each part must precede:
 
-- mode 2's steps 1–7 and §3.6–3.8;
-- §3.5 and §1.7: the delete-and-repost and unfinished-comment paths become
-  superseding records (§7.1);
-- §1.9 and §3.4: the new stanza field's place in the result, the strict
-  stanza regex and the cross-check against `Agents dispatched:`.
+- §3.5 and §1.7, with the logging on today's flow: the edit, delete and
+  unfinished-comment paths become turns (§7.1), so the baseline is recorded
+  write-once;
+- §1.9 and §3.4, before the baseline: the `Agent costs:` field's place in
+  the result, the strict stanza regex and the cross-check against `Agents
+  dispatched:`, accepted when present;
+- mode 2's steps 1–7 and §3.6–3.8, with the split, which also makes the
+  field required.
 
-It is separate from the rename sweep.
+All are separate from the rename sweep.
 
 ### 8.4 The rename sweep
 
@@ -420,21 +436,27 @@ no other comment.
     neither a line nor the root (§3); a suffixed path whose predecessor has
     no line; an unknown segment; a full path recorded twice; a dispatched
     manager with no matching `epic-implement` line; a malformed stanza; an
-    unknown version; an edited agent record (§7.1);
+    unknown version; an edited agent record (§7.1); a closing line from a
+    comment not allowed to close it, or a correction whose target fails
+    §7.1's checks (neither is applied); a worker result with no matching
+    cost line;
   - **gaps** (reported and counted, exit zero): each `not-reported` value,
     and each `lost` call. An honest gap is the anti-goal's alternative to a
     guessed number, not a failure.
 - **What implies a dispatch:** the records with fixed first lines that the
   skills already post (mode 1 round comments, mode 2 findings comments, the
   worker result comments of §8). The rule doc lists them, and the tool reads
-  that list from one place. A superseded record (§7.1) implies nothing; its
-  superseding record does.
+  that list from one place. Implied dispatches are counted per round (or per
+  worker turn), not per comment, so a repost, a split comment or a resumed
+  turn implies one dispatch.
 - **Cutover.** An issue with no cost records is `pre-rule`: reported, never
-  an error. An issue with any cost record is in scope. An epic that
-  straddles the cutover, as this one does, gets a partial cost summary that
-  says so. The residual gap is that a run which logs nothing at all looks
-  pre-rule; the lint (§10) and the validation sample (§13) are what catch
-  it.
+  an error. An issue with any cost record is in scope. Work in flight when
+  logging starts has partial data, and that is accepted: such an issue may
+  show audit errors for its records from before the logging, and an epic
+  that straddles the cutover, as this one does, gets a cost summary that
+  lists them rather than stopping. The residual gap is that a run which
+  logs nothing at all looks pre-rule; the lint (§10) and the validation
+  sample (§13) are what catch it.
 - **Output:** human-readable by default, `--json` for machines. The tool's
   output is the authoritative total.
 - **No silent failures:** a line in a cost record that starts with
@@ -491,11 +513,15 @@ assumes. Each is recorded with evidence:
 7. nesting at the split's real depth: main session, manager, delegate,
    analyst;
 8. whether a continued sub-agent can continue its own sub-agents;
-9. whether `paad:paad-delegate` can be dispatched from a sub-agent.
+9. whether `paad:paad-delegate` can be dispatched from a sub-agent;
+10. the login GitHub reports for an agent session's posting identity under
+    the App token, and how it compares with the agent logins
+    `vrg-trusted-authors` lists.
 
 If a finding contradicts this spec, the spec is amended before the tasks that
 depend on it start; a negative result on items 7–9 amends §8 before the
-manager split or the rename sweep starts.
+manager split or the rename sweep starts, and item 10 is settled before the
+ruling protocol's tool is built.
 
 **The baseline.** Once the rule doc and the stanza logging have landed on
 today's skills, and before the manager split, a small baseline sample of

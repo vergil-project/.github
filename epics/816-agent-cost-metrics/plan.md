@@ -55,6 +55,9 @@ scripts with `--self-test`.
 - **vergil-tooling and vergil-claude-plugin work** uses `vrg-container-run
   -- vrg-validate` as its only validation, `vrg-commit`, and `vrg-pr-workflow
   report-ready`; agents never run `vrg-submit-pr`.
+- **Every code task is red, green, refactor.** Its failing tests come first,
+  and it ends with a refactor step that changes no behaviour, before its
+  final validation.
 - **No silent failures** in either tool: a record that cannot be read or
   parsed is an error with its comment URL, never skipped.
 - **The fleet checkout moves only with reviews held** (paad-policy §10):
@@ -111,7 +114,7 @@ and retrospective bookends when it is created; its docs are #817's.
 | 10a | Release vergil-tooling for wave 1 (`.github`, deployment) | 3, 4, 5 |
 | 8 | Logging and write-once on today's skills (vergil-claude-plugin) | 2, 10a |
 | 9 | Doctrine and skills: accept and record `Agent costs:` (vergil-claude-plugin) | 8 |
-| 10b | Release the plugin, move the fleet, run the gate (`.github`, deployment) | 6, 7, 9 |
+| 10b | Release the plugin, move the fleet, run the gate (`.github`, deployment) | 6, 7, 9, 16 |
 | 11 | Baseline sample on today's flow (`.github`, validation) | 10b |
 | 12 | `vrg-ruling` (vergil-tooling) | 1, 3 |
 | 13 | The ruling protocol doc (vergil-claude-plugin) | 12 |
@@ -122,7 +125,7 @@ and retrospective bookends when it is created; its docs are #817's.
 | 18 | Rename sweep: vergil-tooling | 14 |
 | 19 | Rename sweep: the `docs` repo | 14 |
 | 20a | Release vergil-tooling for wave 2 (`.github`, deployment) | 12, 18 |
-| 20b | Release the plugin for wave 2 (`.github`, deployment) | 13, 15, 16, 17, 20a |
+| 20b | Release the plugin for wave 2 (`.github`, deployment) | 13, 15, 17, 20a |
 | 21 | Validation sample (`.github`, validation) | 19, 20b |
 | 22 | Offer the paad changes upstream (`.github`, human) | 6, 7 |
 
@@ -193,8 +196,9 @@ and retrospective bookends when it is created; its docs are #817's.
 
 The spec leaves the exact syntax to the builder. Several tasks parse it, so
 this plan fixes it. Task 2's rule doc copies this section as its normative
-text; Task 1's findings may only fill in `BREAKDOWN_FIELDS` and the notice
-mapping.
+text. Task 1's findings fill in `BREAKDOWN_FIELDS` and the notice mapping;
+a finding that contradicts anything else here amends the spec and this
+section (Task 1 Step 10) before any task that depends on it starts.
 
 **The stanza line** (one per call, or per turn of a continued call):
 
@@ -216,7 +220,7 @@ suffixes):
 | Base | Used for |
 | --- | --- |
 | `issue-manager.<k>` | a manager run's root, `k` ≥ 1; on today's flow (wave 1), `issue-implement.<k>`, `issue-deploy.<k>`, `issue-validate.<k>` the same way |
-| `epic-implement`, `epic-create`, `epic-retrospective` and any other skill name | a session's root |
+| `epic-implement`, `epic-create`, `epic-retrospective`, and each other dispatching skill by name, as Task 2's rule doc lists them | a session's root |
 | `implement`, `deploy`, `validate` | the workers |
 | `review-<n>`, `respond-<n>` | mode 2 rounds, `n` ≥ 1 |
 | `spec-pushback-<n>`, `plan-pushback-<n>`, `alignment-<n>` | mode 1 rounds |
@@ -281,7 +285,12 @@ corrected; any other `Corrects:` is an audit error and is not applied.
 
 **A worker result comment** opens `Worker result: <segment>[ turn <n>]`
 (`implement`, `implement turn 2`, `implement.2`): one per result the worker
-returns, matching the cost line with the same path and turn.
+returns, matching the cost line with the same path and turn. The manager
+writes it from fixed fields only: `Status:`, `Commits:`, `Validation:`,
+`Outcome:` (deployer and validator), and counts (findings fixed, proposed
+follow-ups, problems, security items). It never copies the worker's text
+verbatim; follow-ups and problems reach the human only through a ruling
+request, and security items only as counts.
 
 **A ruling request**:
 
@@ -577,6 +586,9 @@ evidence quoted.
     exit 0;
   - `test_pre_rule`: an issue with no cost records reports `pre_rule`, no
     errors;
+  - `test_root_own_cost_not_reported`: when no method reads the root
+    session's own cost, the roll-up shows it as `not-reported` and counts
+    one gap, and the root's missing line is not a nesting error;
   - `test_next_run_index`: no `Run: issue-manager.<k>` records gives 1;
     records for 1 and 3 give 4; an `issue-implement` run does not count
     toward `issue-manager`; an `Agent cost: dispatch issue-manager.5` with
@@ -801,7 +813,8 @@ contract); `skills/issue-implement/SKILL.md` and
 Operational. The doctrine already accepts `Agent costs:` (Task 9), so the
 fleet move needs no doctrine change first (paad-policy §10).
 
-- [ ] **Step 1 (human):** Release the plugin carrying Tasks 2, 8 and 9.
+- [ ] **Step 1 (human):** Release the plugin carrying Tasks 2, 8, 9 and
+  16.
   The agent records it.
 - [ ] **Step 2 (human):** Hold reviews. Move `fleet` to the commit carrying
   Tasks 6 and 7, and record it. Update the #733 validation sets' expected
@@ -916,7 +929,10 @@ below; no detail goes in public records.
   corrections (spec 7.1, Formats); the request, the reply grammar and reading (spec 7.2,
   Formats); never relayed through prompts; security items by ID only;
   `epic-implement` relays nothing; the per-session identity check and its
-  fix; how to use `vrg-ruling`; what counts as a human interaction.
+  fix; how to use `vrg-ruling`, including what to do on `read` exit 3 (no
+  ruling yet: wait, and continue only when the human has replied) and exit
+  4 (not a ruling: post a fresh request that states the reason); what
+  counts as a human interaction.
 - [ ] **Step 2:** `vrg-container-run -- vrg-validate`. Expected: pass.
 - [ ] **Step 3:** Commit (`docs(rulings): the ruling protocol`) and
   report-ready.
@@ -950,10 +966,15 @@ contract below. Released together with Tasks 15 and 17 (Task 20b).
   issue-manager` (or `k` from the dispatch prompt) and the run record; the kind
   dispatch; every human decision through `vrg-ruling`; the mode 2 loop per
   Task 15; a cost record per dispatch; resuming by SendMessage with only
-  "the human has responded on the issue", a fresh suffixed worker with a
-  `lost` line for the original when it cannot be continued; the task
-  roll-up from `vrg-agent-cost report` (with `--in-run issue-manager.<k>`
-  when dispatched) before report-ready or closing,
+  "the human has responded on the issue", a fresh suffixed worker when the
+  original cannot be continued, with the original's `lost` line recorded
+  before the successor is dispatched; on `vrg-ruling read` exit 3, wait for
+  the human, and on exit 4, post a fresh ruling request stating the reason;
+  each worker result comment written from fixed fields per Formats, never
+  copying the worker's text; the task roll-up from `vrg-agent-cost report`
+  (with `--in-run issue-manager.<k>` when dispatched) before report-ready or
+  closing, carried by mode 2's `agentic-review summary` comment in place of
+  its `Review tokens` line for an implementation task,
   noting that a dispatched manager's own cost is recorded after it; the
   main session's own cost, when Task 1 found it readable, recorded with
   that method. No `--edit-last` or `--delete-last` survives from today's
@@ -991,6 +1012,8 @@ edit and delete paths) already landed in Task 8.
   is fresh each round, the responder fixes, every pause and ruling goes
   through the ruling protocol, the hold-back judgement stays with the
   manager, and security fixes reach the responder only as hashed paths.
+  §3.5's `agentic-review summary` comment carries the task roll-up in place
+  of its `Review tokens` line.
 - [ ] **Step 2:** Make `Agent costs:` required in every delegate result:
   its absence is now a failed check (the fleet carries it since Task
   10b).
@@ -1035,7 +1058,8 @@ leaves releases, dated specs and plans unchanged.
   `docs/site/docs/management/workflow.md`.
 
 Each: search, edit, `vrg-container-run -- vrg-validate` (pass), commit,
-report-ready.
+report-ready. In Task 18, where a text change has a test, update the test's
+expected text first and see it fail, then change the text.
 
 ### Task 20a: Release vergil-tooling for wave 2
 
@@ -1051,7 +1075,8 @@ report-ready.
 ### Task 20b: Release the plugin for wave 2
 
 - [ ] **Step 1 (human):** Confirm no plugin release has been cut since Task
-  14 merged, then release the plugin carrying Tasks 13–17. The agent
+  14 merged, then release the plugin carrying Tasks 13, 14, 15 and 17. The
+  agent
   records it and closes the issue.
 
 ### Task 21: Validation sample
