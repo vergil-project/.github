@@ -152,10 +152,11 @@ the same shape as the `Intent:` input.
   fork's `check-unattended` is extended to check it if it parses the field.
   Doctrine §3.4 accepts either form from rollout step 1 (4.6), so the fork's
   switch at step 3 breaks no round.
-- **Each `Agents dispatched:` entry begins with the lens's identifier.** What
-  follows it in the entry (a `BAIL:` reason, the large-diff partitioning)
-  stays as paad writes it today. The gate reads only the leading identifier
-  of each entry.
+- **`Agents dispatched:` is one entry per line.** Each dispatched lens has its
+  own line, `- <identifier>`, followed on that line by whatever paad writes
+  today (a `BAIL:` reason, the large-diff partitioning). The gate reads only
+  the identifier that starts each line, so nothing in the rest of the line,
+  such as a path containing `, `, can be mistaken for an entry.
 - **The result says what happened.** `Agents dispatched:` lists the lenses
   dispatched, as it does today, and a new `Lenses requested:` skill-specific
   field gives the line's value, or `all (no Lenses: input)`. A lens left out on
@@ -349,14 +350,16 @@ Changes to `issue-implement` and doctrine §3, in vergil-claude-plugin.
   review to all six from that round on.
 - **A tool failure pauses the run** with the tool's reason, and is added to
   §3.8's list of pre-dispatch pause causes. The gate never substitutes a lens
-  set of its own.
+  set of its own. A tool result whose lens set lacks either floor lens is a
+  failure too: the gate checks the floor itself, independently of the tool.
 - **Every round sends `Lenses:`.** The delegate prompt (§3.2) gains a
   `Lenses: {{LENSES}}` line after its `Intent:` line, filled with the `--json`
   form's `lenses` list, joined with `, `. The prompt is otherwise unchanged.
 - **The output checks** (§3.4) require an exact match:
   - `Lenses requested:` equals the value sent;
-  - the leading identifiers of `Agents dispatched:`'s entries are exactly the
-    tool's set, none `NOT DISPATCHED`, which includes both floor lenses;
+  - the identifiers that start `Agents dispatched:`'s lines are exactly the
+    tool's set, and include both floor lenses;
+  - no line is marked `NOT DISPATCHED`;
   - any mismatch, including lenses dispatched beyond the set, fails the check
     and pauses the run (§3.8). A delegate that ignores or misreads the line
     has broken its input contract, and would otherwise lose the saving

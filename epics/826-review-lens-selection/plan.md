@@ -81,7 +81,7 @@ Human task, closed by comment. The fixtures carry planted security bugs, so they
   - `fixture-seeded`: copies of a published spec and plan, with a planted security gap, framed as an omission;
   - the mode 2 seeded fixtures: a planted security bug in scope and one out of scope, and a non-security finding on the same symbol as a planted security bug.
 - [ ] **Step 2:** add the `Lenses:` fixtures:
-  - `fixture-lenses-large`: a Markdown-only diff of 500 or more lines against its base;
+  - `fixture-lenses-large`: a Markdown-only diff of 500 or more lines against its base, including a file whose path contains `, `;
   - `fixture-lenses-seeded`: a code commit with a planted security bug.
 - [ ] **Step 3:** comment each branch's name, commit and base commit on this issue, and close it. Task 1 copies them into the gate file.
 
@@ -106,7 +106,7 @@ Spec §4.7, §4.6 step 1, §4.2 (both lens-name forms accepted).
 - [ ] **Step 2a: Document the coming contract additions,** so paad-policy §10's rule (the doctrine matches the unattended contract before reviews resume) holds after V2.
   - In §1.9's agentic-review skill-specific fields, `Lenses requested:` may appear after `Agents dispatched:`, and is not checked yet.
   - In §1.9 and §3.2, `Lenses:` is an optional delegate input that mode 2 does not send yet.
-  - In §3.4, each `Agents dispatched:` entry may begin with the lens's identifier (Task 5), with the rest of the entry as today.
+  - In §3.4, `Agents dispatched:` may be one line per lens, each starting `- <identifier>` (Task 5), with the rest of the line as today.
 - [ ] **Step 3: Rewrite paad-policy §1 and §10.**
   - Remove the "validated version" bullet from §10. Remove §1's validated-version text, including "announces a version other than the validated one". Remove the sentence in §10's **Reason** paragraph about what "the validated-version check only catches".
   - Rewrite the gate bullet: after every move of `fleet` (the maintainer's own changes, upstream syncs), the full automated scenario set in `docs/paad-validation-gate.md` runs on the new commit, in newly started sessions, before reviews resume. Every change that moves `fleet` carries a validation task that runs it and records the outcome and the fleet commit. The human's interactive runs are no longer part of the gate.
@@ -126,7 +126,7 @@ Spec §4.7, §4.6 step 1, §4.2 (both lens-name forms accepted).
 
   Also copy the "cleanly" acceptance criteria and the security-handling rule: seeded findings are never recorded, and counts only go on public issues. Leave out the interactive runs. Add a `## Lenses: scenarios` heading holding the four scenarios V2 adds:
   - a floor-only `Lenses: security, spec-compliance` on a recorded commit, where `Agents dispatched:` and `Lenses requested:` are exactly those two, by identifier;
-  - a floor-only request on a diff of 500 or more lines, where the leading identifiers of `Agents dispatched:`'s entries are exactly the floor;
+  - a floor-only request on a diff of 500 or more lines, including a path containing `, `, where the identifiers starting `Agents dispatched:`'s lines are exactly the floor;
   - `Lenses: logic-correctness, no-such-lens`, which gives `Status: blocked: …` naming the lens;
   - a floor-only request on a commit with a planted security bug, where the finding is in the security section only.
 - [ ] **Step 4a: Pin every fixture.** For each scenario, the gate file names:
@@ -353,6 +353,8 @@ def test_repo_addition_and_exclusion() -> None:
   - `test_cli_bad_base`: `--base origin/nope` exits non-zero, writes the reason on stderr, and prints no `Lenses:` on stdout.
   - `test_cli_empty_diff`: exits non-zero with `empty diff` on stderr.
   - `test_cli_invalid_stanza`: `[review] extra-docs-paths = ["docs/**"]` exits non-zero with the config error on stderr.
+  - `test_cli_missing_config`: a repo with no `vergil.toml` exits non-zero, with `ERROR:` on stderr and nothing on stdout.
+  - `test_cli_undecodable_path`: a changed path that is not valid UTF-8 exits non-zero, with `ERROR:` on stderr, no traceback, and nothing on stdout.
   - `test_cli_control_character_path`: a changed path containing a newline or other control character makes the tool exit non-zero, with `ERROR:` on stderr and nothing on stdout.
   - `test_cli_json_single_values`: the `--json` object has exactly one `lenses` and one `rule` key, and `lenses` is a list drawn from `LENSES`.
 - [ ] **Step 3: Run them.** `vrg-container-run -- vrg-validate`. Expected: the new tests fail.
@@ -367,7 +369,7 @@ def test_repo_addition_and_exclusion() -> None:
   - Refuse any changed path that contains a control character (`\x00`–`\x1f` or `\x7f`): exit 1 with `ERROR:` naming the count of such paths. No legitimate fleet file has one.
   - `--json` is the form the gate reads; the text form is for people.
   - Print as in Step 2, with the first three `Not docs:` paths in text mode.
-  - On any error (`ConfigError`, `FileNotFoundError`, an unresolved base, an empty diff, a git failure), print `ERROR: <reason>` on stderr and return 1. Never print a lens set.
+  - On any error (`ConfigError`, `FileNotFoundError`, `UnicodeDecodeError`, an unresolved base, an empty diff, a git failure), print `ERROR: <reason>` on stderr and return 1. Never print a lens set.
 - [ ] **Step 6: Run the tests.** `vrg-container-run -- vrg-validate`. Expected: passes.
 - [ ] **Step 6a: Refactor.** Tidy the library and CLI without changing behaviour; keep `select` free of rule names. Re-run `vrg-container-run -- vrg-validate`. Expected: passes.
 - [ ] **Step 7: Add vergil-tooling's own stanza and the docs.** Add `[review] extra-non-docs-paths` with Task S's vergil-tooling entries. Add a `vrg-review-lenses` entry to `cli-tools-overview.md`, and a "The lens-selection tool" section to `review-config.md` with the base list, the exclusions, the rule table and the output format. The section also states the accepted gap: a rule document created later in an allowed path is docs-only until a repo exclusion names it, which lasts until vergil-project/.github#840.
@@ -386,7 +388,7 @@ Spec §4.2. The agent edits files in the dev clone on branch `lenses-input`, whi
 
 - [ ] **Step 0: Pin the rules in the fork's lint first.** Add the `Lenses:` rules to agentic-review's entry in `scripts/check_unattended.py`'s `SKILL_RULES`, as verbatim lines:
   - the blocking conditions (an unknown lens, no lens, a repeated line);
-  - each `Agents dispatched:` entry begins with the lens identifier.
+  - `Agents dispatched:` is one line per dispatched lens, each starting `- <identifier>`.
 
   Run `make test`. Expected: FAIL, naming the missing lines. A later upstream sync that drops one then fails `make test`.
 - [ ] **Step 1: Add the `Lenses:` input** to `## Unattended mode`, beside the `Intent:` paragraph. Spell out:
@@ -398,7 +400,7 @@ Spec §4.2. The agent edits files in the dev clone on branch `lenses-input`, whi
   - a lens named twice is dispatched once;
   - Phase 1 is unchanged.
 - [ ] **Step 2: Define the result fields.**
-  - In every unattended result, each `Agents dispatched:` entry begins with the lens's §4.1 identifier, one entry per dispatched lens. The rest of the entry (a `BAIL:` reason, the large-diff partitioning) stays as paad writes it today.
+  - In every unattended result, `Agents dispatched:` is a list with one line per dispatched lens, each starting `- <identifier>` (the §4.1 identifier). The rest of the line (a `BAIL:` reason, the large-diff partitioning) stays as paad writes it today.
   - A new skill-specific field, `Lenses requested:`, comes right after `Agents dispatched:`. It gives the line's value, or `all (no Lenses: input)`.
   - A lens not requested appears in neither field nor as `NOT DISPATCHED`.
   - In the unattended interaction table, the large-diff row's "two instances of each specialist, 12 dispatches" becomes "two instances of each dispatched lens".
@@ -427,19 +429,20 @@ Spec §4.5.
 - Modify: `docs/paad-policy.md` (a register entry for `Lenses:`)
 - Modify: `vergil.toml` (vergil-claude-plugin's own `[review].extra-non-docs-paths`, from Task S)
 
-- [ ] **Step 1: §3.4 pre-dispatch.** After `vrg-git fetch origin`, run `vrg-review-lenses --base origin/<base> --json` in the worktree. Parse the JSON object: it must have exactly one `lenses` list, every entry a §4.1 identifier, and exactly one `rule` string. Anything else pauses the run. The prompt's `Lenses:` value is the list joined with `, `. A non-zero exit pauses the run with the tool's stderr. Add that cause to §3.8's list of pause causes before dispatch.
+- [ ] **Step 1: §3.4 pre-dispatch.** After `vrg-git fetch origin`, run `vrg-review-lenses --base origin/<base> --json` in the worktree. Parse the JSON object: it must have exactly one `lenses` list, every entry a §4.1 identifier, including both floor lenses (`security`, `spec-compliance`), and exactly one `rule` string. Anything else pauses the run: the gate checks the floor itself, independently of the tool. The prompt's `Lenses:` value is the list joined with `, `. A non-zero exit pauses the run with the tool's stderr. Add that cause to §3.8's list of pause causes before dispatch.
 - [ ] **Step 2: §3.2 and §1.9.**
-  - Add `Lenses: {{LENSES}}` after the template's `Intent:` line. The placeholder row reads "the tool's `Lenses:` value, verbatim".
+  - Add `Lenses: {{LENSES}}` after the template's `Intent:` line. The placeholder row reads "the `--json` output's `lenses` list, joined with `, `".
   - Update §3.2's provenance note: the prompt was validated in #733, and its `Lenses:` line in V2.
   - In §1.9, `Lenses:` becomes an input mode 2 always sends, and `Lenses requested:` a required agentic-review field, replacing Task 1's "not yet" wording.
 - [ ] **Step 3: §3.4 output checks.**
   - `Lenses requested:` equals the tool's value exactly.
-  - Take the leading identifier of each `Agents dispatched:` entry (Task 5); that set equals the tool's set exactly. An entry that does not begin with a §4.1 identifier fails the check.
+  - Split `Agents dispatched:` into its lines (Task 5) and take the identifier that starts each one. That set equals the tool's set exactly, and includes both floor lenses. A line that does not start with `- ` and a §4.1 identifier fails the check.
+  - A line marked `NOT DISPATCHED` fails the check.
   - Any difference, including extra lenses, fails the check and pauses the run.
   - Task 1's display-name acceptance is removed.
   - The Spec Compliance and intent-source checks stay.
-- [ ] **Step 4: §3.5 and §3.1.** The findings comment carries `Lenses: <identifiers> (rule: <rule>)`. When the rule is not `docs-only`, it also carries the first three `not_docs` paths and the count of the rest, inside a fenced code block, under the same rule §3.5 applies to text copied from the result. §3.1's "including on docs-only and trivial changes" becomes: the gate always runs, with the tool's lens set, never below the floor.
-- [ ] **Step 5: `issue-implement`.** Add the tool run and the `Lenses:` line to the gate procedure's steps, citing §3.4 and §3.2. Repeat no rules.
+- [ ] **Step 4: §3.5 and §3.1.** The findings comment carries `Lenses: <identifiers> (rule: <rule>)`. When the rule is not `docs-only`, it also carries the first three `not_docs` paths and the count of the rest, inside a fenced code block, under the same rule §3.5 applies to text copied from the result. §3.1's "including on docs-only and trivial changes" becomes: the gate always runs, with the tool's lens set, never below the floor. In §3.4's `Agent types dispatched:` check, "the six lenses and the Verifier are analysts" becomes "the dispatched lenses and the Verifier are analysts".
+- [ ] **Step 5: `issue-implement`.** Add the tool run and the `Lenses:` line to the gate procedure's steps, citing §3.4 and §3.2. Its own "always runs, including on docs-only and trivial changes" sentence is rewritten to match §3.1's new text. Repeat no rules.
 - [ ] **Step 6: The register entry and the stanza.** Add a paad-policy register entry: vergil uses the fork's `Lenses:` input, not yet upstream; the floor lives in `vrg-review-lenses` and §3.4. Add Task S's plugin entries to `vergil.toml`, including `docs/site/docs/skills/index.md`.
 - [ ] **Step 7: Validate.** `vrg-container-run -- vrg-validate`. Expected: passes.
 - [ ] **Step 8: Commit.** `vrg-commit --type feat --scope paad-doctrine --message "run the agentic-review lenses vrg-review-lenses picks, with the floor checked exactly"`.
@@ -460,6 +463,7 @@ Check for each round:
 - the tool's output;
 - the delegate prompt's `Lenses:` line;
 - `Lenses requested:` and `Agents dispatched:`, which must be exactly the floor for the first branch and all six for the second;
+- the floor guard: feed the gate's §3.4 check a recorded result with a line marked `NOT DISPATCHED` for `security`, and confirm the check fails;
 - the findings comment's `Lenses:` line, and its fenced non-docs paths when the rule is `full`.
 
 Also check the recompute, in two parts. A clean round finishes the run and freezes the branch, so the check does not rely on a second live round.
