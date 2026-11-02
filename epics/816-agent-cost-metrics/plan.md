@@ -1,6 +1,7 @@
 # Measuring agent cost Implementation Plan
 
-- **Epic:** vergil-project/.github#816
+- **Epics:** vergil-project/.github#816 (wave 1: measuring agent cost) and
+  vergil-project/.github#848 (wave 2: the ruling protocol and the manager split)
 - **Planning issue:** vergil-project/.github#802 (review history is in its
   comments)
 - **Status:** draft
@@ -18,9 +19,9 @@ no parsing: `vrg-agent-cost` (record, report and audit, lint) and
 `vrg-ruling` (request and read, with the posting-identity check). Two new
 plugin docs carry the rules: `docs/agent-cost-logging.md` and
 `docs/ruling-protocol.md`. paad gains the stanza as a generic convention.
-The work lands in two waves: logging on today's flow, measured by a
-baseline, then the ruling protocol and the manager split, measured by the
-closing validation sample.
+The work lands in two epics planned together: logging on today's flow,
+measured by a baseline (#816), then the ruling protocol and the manager
+split, measured by the closing validation sample.
 
 **Tech Stack:** vergil-tooling Python 3 with pytest and GitHub GraphQL;
 vergil-claude-plugin Markdown skills and doctrine, checked by
@@ -38,8 +39,9 @@ scripts with `--self-test`.
 - **The caller writes the stanza** from the completion notice; it never asks
   a sub-agent to report on itself (spec 3).
 - **Each stanza is recorded once** (spec 3).
-- **Write-once:** no agent edits or deletes a comment. A correction is a new
-  comment that links to the one it supersedes (spec 7.1).
+- **Write-once:** no agent edits or deletes a comment. Comments are a
+  single-threaded, turn-based log; each turn is a new comment. A correction
+  is a new comment that links to the record it corrects (spec 7.1).
 - **Rulings are never relayed through prompts.** The acting agent is told
   only that the human has responded on the issue (spec 7.2).
 - **Security items** appear in public records as IDs and counts only;
@@ -84,14 +86,18 @@ scripts with `--self-test`.
 
 ## Delivery
 
-Each task below is one issue under the epic. Fork, probe, deployment,
+Tasks 1–11, 16 and 22 are issues under #816 (wave 1); Tasks 12–15 and
+17–21 are issues under vergil-project/.github#848 (wave 2). Both epics share this
+spec and plan, published by the one docs PR (#817). Fork, probe, deployment,
 baseline, validation and human tasks are filed in `vergil-project/.github`
 and closed by comment (spec 14); the rest close when their same-repo PR
 merges. Every dependency means the blocking task is **closed**: no task
-waits on another's report-ready, and no task merges another's PR. The
-bookends already exist: the docs task vergil-project/.github#817, the
-documentation review vergil-project/vergil-claude-plugin#877 and the
-retrospective vergil-project/.github#818.
+waits on another's report-ready, and no task merges another's PR.
+Dependencies cross the two epics where the table says so. #816's bookends
+already exist: the docs task vergil-project/.github#817, the documentation
+review vergil-project/vergil-claude-plugin#877 and the retrospective
+vergil-project/.github#818. vergil-project/.github#848 gets its own documentation review
+and retrospective bookends when it is created; its docs are #817's.
 
 | Task | Issue (repo, kind) | Blocked by |
 |---|---|---|
@@ -106,12 +112,12 @@ retrospective vergil-project/.github#818.
 | 8 | Logging and write-once on today's skills (vergil-claude-plugin) | 2, 10a |
 | 9 | Doctrine and skills: accept and record `Agent costs:` (vergil-claude-plugin) | 8 |
 | 10b | Release the plugin, move the fleet, run the gate (`.github`, deployment) | 6, 7, 9 |
-| 11 | Baseline sample on today's flow, and the checkpoint (`.github`, validation) | 10b |
+| 11 | Baseline sample on today's flow (`.github`, validation) | 10b |
 | 12 | `vrg-ruling` (vergil-tooling) | 1, 3 |
 | 13 | The ruling protocol doc (vergil-claude-plugin) | 12 |
 | 14 | The manager split (vergil-claude-plugin) | 4, 11, 13 |
 | 15 | Doctrine: mode 2 for the new roles, and `Agent costs:` required (vergil-claude-plugin) | 11, 14 |
-| 16 | `epic-retrospective`: the epic cost summary (vergil-claude-plugin) | 4 |
+| 16 | `epic-retrospective`: the epic cost summary (vergil-claude-plugin) | 4, 10a |
 | 17 | Rename sweep: vergil-claude-plugin | 14 |
 | 18 | Rename sweep: vergil-tooling | 14 |
 | 19 | Rename sweep: the `docs` repo | 14 |
@@ -120,12 +126,12 @@ retrospective vergil-project/.github#818.
 | 21 | Validation sample (`.github`, validation) | 19, 20b |
 | 22 | Offer the paad changes upstream (`.github`, human) | 6, 7 |
 
-- **Two waves.** Tasks 1–11 put logging on today's flow and measure the
-  baseline before the split (spec 12). Tasks 12–21 add the ruling protocol
-  and the split. Task 12 can start once Tasks 1 and 3 have closed.
-- **The checkpoint.** Task 11 ends wave 1 with a decision by the human:
-  continue to wave 2 in this epic, or close the epic after wave 1 and file
-  wave 2 as its own epic, measured against the same baseline.
+- **Two epics.** #816 puts logging on today's flow and measures the
+  baseline before the split (spec 12). vergil-project/.github#848 adds the ruling protocol
+  and the split; its Tasks 14 and 15 are blocked by #816's Task 11, and
+  Task 12 can start once Tasks 1 and 3 have closed. Each epic closes when
+  its own tasks are done, and wave 2's retrospective compares against the
+  baseline.
 - **Compatibility is by design, not by merge timing.** The lint stage is
   off until a repo opts in (Task 5), and Task 8 opts the plugin in with the
   fixes. The doctrine accepts `Agent costs:` when present (Task 9) before
@@ -148,9 +154,11 @@ retrospective vergil-project/.github#818.
 - **Security advisories.** When the spec and plan merge, the agent hands
   each advisory on #802 to its fix task: GHSA-2fjg-qxrj-fc2v (the
   responder's security contract) to Task 14, and GHSA-9q3r-h2xj-rgq3 (the
-  posting identity) and GHSA-r5f4-5586-mqfp (marking security items in a
-  ruling request) to Task 12. GHSA-3q8w-mvq4-w3fq was rejected and its
-  intake issue closed.
+  posting identity), GHSA-r5f4-5586-mqfp (marking security items in a
+  ruling request) and GHSA-xffj-678w-ggjp (live verification of the
+  identity check) to Task 12, and GHSA-w38c-m89h-5v9q (validating
+  correction links and closing comments) to Task 4. GHSA-3q8w-mvq4-w3fq was
+  rejected and its intake issue closed.
 - **Probe outcomes amend the spec** before dependent tasks start (spec 12):
   items 1–4 before Tasks 2–4, item 10 before Task 12, items 7–9 before
   Tasks 14 and 15.
@@ -230,7 +238,7 @@ prose stays in `Agents dispatched:`.
 
 ```text
 Agent cost: <step>
-[Supersedes: <comment URL>]
+[Corrects: <comment URL>]
 <stanza line>
 …
 ```
@@ -253,11 +261,27 @@ both `Run:` records and `Agent cost: dispatch <root>.<k>` records (so a run
 lost before its first record still uses up its `k`), or the value the
 dispatch prompt passes.
 
-**A superseding record** keeps the replaced record's first line and adds
-`Supersedes: <comment URL>` as its second line. A superseded comment is
-dead: every reader ignores all its lines (`Paused:`, `Kept:`, `Human
-ruling:`, `Recorded:`, `Ruling record:`, stanzas), and only the latest
-comment in the chain counts.
+**Turns append.** Each turn is a new comment; nothing is replaced. A
+paused round's comment stays as it is, and resuming posts the next turn's
+comment, which carries the ruling and closes the round (`Finished:`).
+Readers read the log in order: a `Paused:` or `Kept:` line is open until a
+later trusted agent comment on the same issue, for the same round, closes
+it; a closing line from any other comment is not applied and is an audit
+error.
+
+**Implied dispatches are counted per round** (stage and round number, or
+worker segment and turn), not per comment: a repost, a split comment's
+parts or a resumed turn of the same round imply one dispatch.
+
+**A correction** is rare: only a record that was wrong. It is a new
+comment with the corrected record's first line and `Corrects: <comment
+URL>` as its second line. Its target must be a trusted comment on the same
+issue, by the same author, with the same first line, not already
+corrected; any other `Corrects:` is an audit error and is not applied.
+
+**A worker result comment** opens `Worker result: <segment>[ turn <n>]`
+(`implement`, `implement turn 2`, `implement.2`): one per result the worker
+returns, matching the cost line with the same path and turn.
 
 **A ruling request**:
 
@@ -377,10 +401,10 @@ evidence quoted.
   codes (Formats); cost records and run records (spec 6, Formats);
   `## Records that imply a dispatch` (mode 1 round comments, mode 2
   findings comments, run records, the worker result comments of
-  Task 14), each by its fixed first line, with the exceptions that a round
-  comment carrying `Deviation: run interactively` implies nothing, a
-  split comment's parts count once, and a superseded record implies
-  nothing; where a skill with no issue
+  Task 14), each by its fixed first line, counted per round (Formats),
+  with the exception that a round comment carrying `Deviation: run
+  interactively` implies nothing; turns, corrections and their validation
+  (Formats); where a skill with no issue
   prints its stanzas (spec 4); the main session's own cost (Task 1); the
   time label; write-once (spec 7.1, pointing at Task 13's doc for
   rulings).
@@ -413,7 +437,7 @@ evidence quoted.
     lost: bool` (`None` means `not-reported`);
   - `parse_stanza(line: str) -> Stanza` (raises `StanzaError(str)`),
     `format_stanza(s: Stanza) -> str`;
-  - `@dataclass(frozen=True) class CostRecord: step: str; supersedes: str |
+  - `@dataclass(frozen=True) class CostRecord: step: str; corrects: str |
     None; stanzas: tuple[Stanza, ...]`;
     `parse_cost_record(body: str) -> CostRecord | None` (`None` when the
     first line is not `Agent cost:`; raises `StanzaError` naming the line
@@ -426,7 +450,7 @@ evidence quoted.
     first, all pages, `edited` from `lastEditedAt`, authors filtered by
     `load_trusted_authors()`).
   - `vrg-agent-cost record --issue <ref> --step <step> --stanza-file
-    <path> [--supersedes <url>]`.
+    <path> [--corrects <url>]`.
 
 - [ ] **Step 1: Write the failing tests** in `test_agent_cost.py`:
   - `test_parse_minimal`:
@@ -448,7 +472,7 @@ evidence quoted.
     `issue-manager` are not;
   - `test_parse_cost_record`: a body `Agent cost: review round 2\n<two
     stanza lines>` parses with `step == "review round 2"` and two stanzas;
-    a `Supersedes:` second line sets `supersedes`; a body whose first line
+    a `Corrects:` second line sets `corrects`; a body whose first line
     is `Review cost: …` returns `None`; a body with one bad line raises
     naming it.
 - [ ] **Step 2:** `vrg-container-run -- vrg-validate`. Expected: the new
@@ -464,7 +488,7 @@ evidence quoted.
 - [ ] **Step 6: Write the failing tests** in `test_vrg_agent_cost.py` for
   `record`: it posts `Agent cost: <step>\n<lines>` through the existing
   comment-posting helper; a stanza file with a bad line exits 1 and posts
-  nothing; an unknown segment exits 1; `--supersedes` adds the second line.
+  nothing; an unknown segment exits 1; `--corrects` adds the second line.
 - [ ] **Step 7:** Implement `bin/vrg_agent_cost.py` with `record` and the
   entry point; document it in `cli-tools-overview.md`.
 - [ ] **Step 8:** `vrg-container-run -- vrg-validate`. Expected: pass.
@@ -496,7 +520,11 @@ evidence quoted.
     IssueRef) -> Report` (children plus the `Planning:` issue);
   - `next_run_index(comments: list[Comment], root: str) -> int`;
   - `vrg-agent-cost report (--issue <ref> | --epic <ref>) [--json]
-    [--next-run-index <root>]`: exit 1 on any error finding, 0 otherwise.
+    [--next-run-index <root>] [--in-run <root>.<k>]`: exit 1 on any error
+    finding, 0 otherwise. With `--in-run`, that run's own missing
+    dispatcher line (its `epic-implement/<root>.<k>` line, written only
+    after it returns) is reported as `pending`, counted, and is not an
+    error; every other finding is unchanged.
 
 - [ ] **Step 1: Write the failing tests**, each building comments in
   memory:
@@ -511,8 +539,25 @@ evidence quoted.
   - `test_audit_errors_on_missing_dispatch`: a `agentic-review round 2:
     findings` comment with no `Agent cost: review round 2` record is an
     error;
-  - `test_superseded_record_implies_nothing`: a findings comment and its
-    superseding comment give one implied dispatch;
+  - `test_repost_counts_once`: two findings comments for round 2 imply
+    one dispatch;
+  - `test_paused_then_finished_counts_one_pause`: a paused round's comment
+    and its later finishing comment give one pause and one dispatch, and
+    the pause's `Kept:` lines read as closed;
+  - `test_close_from_other_round_rejected`: a `Finished:` for round 3 does
+    not close round 2's `Kept:` lines, and is an error;
+  - `test_correction_valid`: a `Corrects:` record replaces its target in
+    the roll-up;
+  - `test_correction_rejected`: a `Corrects:` naming a comment on another
+    issue, by another author, with another first line, or already
+    corrected, is an error and changes nothing;
+  - `test_in_run_pending`: with `--in-run issue-manager.2`, a `Run:
+    issue-manager.2 / Dispatched by: epic-implement` record with no
+    dispatcher line is `pending` and exit 0; without `--in-run`, it is an
+    error;
+  - `test_worker_turns_match`: `Worker result: implement`, `Worker result:
+    implement turn 2` and `Worker result: implement.2` each match the cost
+    line with that path and turn, and an unmatched one is an error;
   - `test_interactive_round_implies_nothing`: a round comment carrying
     `Deviation: run interactively` implies no dispatch;
   - `test_split_comment_counts_once`: parts `(part 1/2)` and `(part 2/2)`
@@ -559,8 +604,10 @@ evidence quoted.
 - Modify: `src/vergil_tooling/bin/vrg_agent_cost.py` (`lint`),
   `src/vergil_tooling/bin/validate_common.py` (stage `agent-cost-lint`, run
   only when the repo's `vergil.toml` sets `agent-cost-lint = true` under
-  `[validate]`)
-- Test: `tests/vergil_tooling/test_agent_cost_lint.py`
+  `[validation]`), `src/vergil_tooling/lib/config.py` (the key in
+  `_KNOWN_KEYS["validation"]` and a typed field)
+- Test: `tests/vergil_tooling/test_agent_cost_lint.py`, the config tests
+  (the key parses; an unknown `[validation]` key still warns)
 
 **Interfaces:**
 
@@ -673,7 +720,7 @@ Done in Task 6's branch and commit, at its Step 6.
 `--edit-last` and delete-and-repost paths), §2.6 (round comment: the cost
 record) and §3.5 (`Review cost:` replaced by a cost record).
 
-- [ ] **Step 1:** Set `agent-cost-lint = true` under `[validate]` in
+- [ ] **Step 1:** Set `agent-cost-lint = true` under `[validation]` in
   `vergil.toml`, and run `vrg-container-run -- vrg-validate` (Task 10a has
   released the stage). Expected: `agent-cost-lint` FAIL, the sites
   listed.
@@ -690,20 +737,20 @@ record) and §3.5 (`Review cost:` replaced by a cost record).
   `issue-implement`'s mode 2 records `Agent cost: review round <n>` in
   place of `Review cost:`, posted straight after the completion notice and
   before the findings comment, and the gate's summary takes its review
-  total from `vrg-agent-cost report`.
+  total from `vrg-agent-cost report --in-run <skill>.<k>` when dispatched.
 - [ ] **Step 2a: Write-once.** Replace every edit and delete path in §1.7
-  and §3.5, and in `issue-implement`, with superseding records (Formats):
-  finishing a paused round posts a new comment that keeps the paused
-  comment's first line and adds `Supersedes: <url>`; the `dismiss` repost
-  does the same. No `--edit-last` or `--delete-last` remains in any skill
-  or doctrine text.
-- [ ] **Step 2b: Superseded means dead.** Every doctrine and skill reader of
+  and §3.5, and in `issue-implement`, with turns (Formats): finishing a
+  paused round posts the next turn's comment, carrying `Human ruling:` and
+  `Finished:`; the `dismiss` path posts a new turn. No `--edit-last` or
+  `--delete-last` remains in any skill or doctrine text.
+- [ ] **Step 2b: Read in order.** Every doctrine and skill reader of
   response-comment lines (open `Kept:`, a live `Paused:`, `Human ruling:`,
   `Recorded:`, `Ruling record:`, in the doctrine and in `epic-implement`
-  and `issue-implement`) ignores a comment that a later trusted comment
-  supersedes (Formats). Add a doctrine example: a paused round, then its
-  finished round, as two comments, with the first one's `Kept:` lines
-  closed by being superseded.
+  and `issue-implement`) reads the log in order: a line is open until a
+  later trusted agent comment on the same issue, for the same round,
+  closes it, and a closing line from any other comment is not applied.
+  Add a doctrine example: a paused round, then its finishing turn, as two
+  comments.
 - [ ] **Step 3:** Validate again. Expected: `agent-cost-lint` passes,
   and `vrg-git grep -n -e '--edit-last' -e
   '--delete-last' -- skills docs/paad-review-doctrine.md` prints nothing.
@@ -779,10 +826,8 @@ fleet move needs no doctrine change first (paad-policy §10).
   paad fleet commit used. State the limit of today's flow: coding and
   responding share one context, so the baseline gives each run's whole
   cost but cannot split implementing from responding. Note on #812 that it
-  may be revived from these numbers.
-- [ ] **Step 5 (human):** Review the baseline and decide on the issue:
-  continue to wave 2 in this epic, or close the epic after wave 1 and file
-  wave 2 as its own epic. Close the issue.
+  may be revived from these numbers. Close the issue; wave 2's Tasks 14
+  and 15 are now unblocked.
 
 ### Task 12: `vrg-ruling`
 
@@ -867,8 +912,8 @@ below; no detail goes in public records.
 **Files:** Create `docs/ruling-protocol.md`; modify
 `docs/agent-cost-logging.md` (link), `README.md`.
 
-- [ ] **Step 1:** Write the doc: write-once records and superseding (spec
-  7.1, Formats); the request, the reply grammar and reading (spec 7.2,
+- [ ] **Step 1:** Write the doc: write-once records, turns and
+  corrections (spec 7.1, Formats); the request, the reply grammar and reading (spec 7.2,
   Formats); never relayed through prompts; security items by ID only;
   `epic-implement` relays nothing; the per-session identity check and its
   fix; how to use `vrg-ruling`; what counts as a human interaction.
@@ -895,8 +940,9 @@ contract below. Released together with Tasks 15 and 17 (Task 20b).
 - Consumes: Tasks 4, 12, 13; Task 1 items 7–9.
 - Produces: the marker line `Dispatched by issue-manager: <issue ref>`
   that every worker requires as its prompt's first line; each worker's
-  result form (below); the worker result comments' first lines, `Worker
-  result: <worker> <attempt>`, which Task 2's list names.
+  result form (below); one worker result comment per result, opening
+  `Worker result: <segment>[ turn <n>]` (Formats), which Task 2's list
+  names.
 
 - [ ] **Step 1:** Write `issue-manager` from today's `issue-implement`:
   every trigger of the old three skills; preflight, worktree,
@@ -906,7 +952,8 @@ contract below. Released together with Tasks 15 and 17 (Task 20b).
   Task 15; a cost record per dispatch; resuming by SendMessage with only
   "the human has responded on the issue", a fresh suffixed worker with a
   `lost` line for the original when it cannot be continued; the task
-  roll-up from `vrg-agent-cost report` before report-ready or closing,
+  roll-up from `vrg-agent-cost report` (with `--in-run issue-manager.<k>`
+  when dispatched) before report-ready or closing,
   noting that a dispatched manager's own cost is recorded after it; the
   main session's own cost, when Task 1 found it readable, recorded with
   that method. No `--edit-last` or `--delete-last` survives from today's
@@ -956,8 +1003,11 @@ edit and delete paths) already landed in Task 8.
 - [ ] **Step 1:** Add a step: run `vrg-agent-cost report --epic <ref>`;
   post its output as a final comment on the epic, opening `Agent cost
   summary:` and stating that it excludes the retrospective task itself and
-  that a straddling epic's summary is partial; the retrospective doc links
-  the comment and repeats no numbers.
+  that a straddling epic's summary is partial. The summary is posted even
+  when the audit reports errors (exit 1), with the errors listed in it;
+  records made before the logging existed show as errors or gaps, and that
+  is expected. The retrospective doc links the comment and repeats no
+  numbers.
 - [ ] **Step 2:** `vrg-container-run -- vrg-validate`. Expected: pass.
 - [ ] **Step 3:** Commit (`feat(epic-retrospective): post the epic cost
   summary`) and report-ready.
@@ -994,7 +1044,9 @@ report-ready.
 - [ ] **Step 2:** Check the identity check live (GHSA-9q3r-h2xj-rgq3): in
   an agent-mode session, `vrg-ruling read` against a test request passes
   the check; in a human-mode session, it refuses with the fix named and
-  posts nothing. Record both and close the issue.
+  posts nothing. Record both and close the issue. Until Task 20b,
+  `vrg-submit-pr`'s refusal text names `issue-manager`, which users do not
+  have yet; that short window is accepted.
 
 ### Task 20b: Release the plugin for wave 2
 

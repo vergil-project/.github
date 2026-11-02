@@ -1,6 +1,8 @@
 # Measuring agent cost
 
-- **Epic:** vergil-project/.github#816
+- **Epics:** vergil-project/.github#816 (measuring agent cost: §3–6, §9–12)
+  and vergil-project/.github#848 (the ruling protocol and the manager
+  split: §7, §8, §13), planned together
 - **Planning issue:** vergil-project/.github#802 (review history is in its
   comments)
 - **Status:** approved
