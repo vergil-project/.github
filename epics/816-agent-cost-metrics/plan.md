@@ -4,7 +4,7 @@
   vergil-project/.github#848 (wave 2: the ruling protocol and the manager split)
 - **Planning issue:** vergil-project/.github#802 (review history is in its
   comments)
-- **Status:** draft
+- **Status:** approved
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -155,13 +155,11 @@ and retrospective bookends when it is created; its docs are #817's.
   sweep, as the spec requires.
 - **#812** may be revived from Task 11's results (spec 12).
 - **Security advisories.** When the spec and plan merge, the agent hands
-  each advisory on #802 to its fix task: GHSA-2fjg-qxrj-fc2v (the
-  responder's security contract) to Task 14, and GHSA-9q3r-h2xj-rgq3 (the
-  posting identity), GHSA-r5f4-5586-mqfp (marking security items in a
-  ruling request) and GHSA-xffj-678w-ggjp (live verification of the
-  identity check) to Task 12, and GHSA-w38c-m89h-5v9q (validating
-  correction links and closing comments) to Task 4. GHSA-3q8w-mvq4-w3fq was
-  rejected and its intake issue closed.
+  each advisory on #802 to its fix task: GHSA-2fjg-qxrj-fc2v and
+  GHSA-8459-fr73-66rm to Task 14; GHSA-9q3r-h2xj-rgq3, GHSA-r5f4-5586-mqfp
+  and GHSA-xffj-678w-ggjp to Task 12; GHSA-w38c-m89h-5v9q to Task 4.
+  GHSA-3q8w-mvq4-w3fq was rejected and its intake issue closed. The
+  advisories are tracked privately; this plan states only requirements.
 - **Probe outcomes amend the spec** before dependent tasks start (spec 12):
   items 1–4 before Tasks 2–4, item 10 before Task 12, items 7–9 before
   Tasks 14 and 15.
@@ -844,8 +842,8 @@ fleet move needs no doctrine change first (paad-policy §10).
 
 ### Task 12: `vrg-ruling`
 
-Carries GHSA-9q3r-h2xj-rgq3: the requirement is the posting-identity check
-below; no detail goes in public records.
+Carries security advisories tracked privately (Delivery); no detail goes
+in public records.
 
 **Files:**
 
@@ -939,8 +937,8 @@ below; no detail goes in public records.
 
 ### Task 14: The manager split
 
-Carries GHSA-2fjg-qxrj-fc2v: the requirement is the responder's security
-contract below. Released together with Tasks 15 and 17 (Task 20b).
+Carries security advisories tracked privately (Delivery). Released
+together with Tasks 15 and 17 (Task 20b).
 
 **Files:**
 
@@ -1065,7 +1063,7 @@ expected text first and see it fail, then change the text.
 
 - [ ] **Step 1 (human):** Release vergil-tooling carrying Tasks 12 and 18,
   and sync the consumer repos.
-- [ ] **Step 2:** Check the identity check live (GHSA-9q3r-h2xj-rgq3): in
+- [ ] **Step 2:** Check the identity check live: in
   an agent-mode session, `vrg-ruling read` against a test request passes
   the check; in a human-mode session, it refuses with the fix named and
   posts nothing. Record both and close the issue. Until Task 20b,
