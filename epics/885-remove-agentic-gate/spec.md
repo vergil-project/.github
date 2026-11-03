@@ -69,8 +69,8 @@ Every `issue-implement` run on this epic's tasks **skips the agentic-review
 gate and Preflight steps 6 and 7** (the leftover `agentic-review/<N>/`
 check and the delegate check): it implements, validates to green and goes
 straight to `report-ready`. The epic exists to remove the gate, and the
-installed plugin still carries it until the removal ships in a plugin release. `epic-implement`
-passes this order in every dispatch prompt for the epic. The task bodies
+installed plugin still carries it until the removal ships in a plugin
+release. `epic-implement` passes this order in every dispatch prompt for the epic. The task bodies
 repeat it.
 
 ## 5. Install paad from the fork
@@ -204,8 +204,8 @@ What goes:
   the resume-a-paused-task line in step 8; the gate's mentions in the
   overview, the description and the creating-issues paragraph; the "Run
   this skill in a Lima session" paragraph and the Preflight wording that a
-  cloud VM never has the delegate. The skill goes back to: Preflight, implement, validate to green,
-  `report-ready`.
+  cloud VM never has the delegate. The skill goes back to: Preflight,
+  implement, validate to green, `report-ready`.
 - **The paad review doctrine:** §3 (mode 2) in full, and every mode 2 branch
   in §1: the `agentic-review` column of §1.3's severity table, mode 2's
   handling in §1.6, §1.7, §1.8, §1.9 and §1.10, and the introduction's
