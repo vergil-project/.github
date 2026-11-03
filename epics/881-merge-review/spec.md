@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#881
 - **Planning issue:** vergil-project/.github#878 (review history is in its
   comments)
-- **Status:** draft
+- **Status:** draft, in design review
 - **Repos:** vergil-claude-plugin (the `merge-review` skill, its reviewer
   prompt and its gate in `issue-implement`), vergil-tooling (the protocol
   spec, the result check and the change classifier), `.github` (this spec
