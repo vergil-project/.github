@@ -4,7 +4,8 @@
 - **Planning issue:** vergil-project/.github#880 (review history is in its
   comments)
 - **Status:** draft
-- **Repos:** the paad fork (`wphillipmoore/paad`, human-gated), vergil-tooling
+- **Repos:** the paad fork (`wphillipmoore/paad`, changed in the human's
+  deployment task D1), vergil-tooling
   (`vrg-vm session`'s `--plugin-dir` override and its docs),
   vergil-claude-plugin (`issue-implement`, the paad review doctrine, the paad
   policy and the skills that read the gate's records), `.github` (this spec
@@ -140,7 +141,7 @@ it only after the gate passes is the control, as moving `fleet` was before.
 
 ### 5.5 The host settings and the paad policy
 
-**Host settings (human).** The `paad` entry in the host's
+**Host settings (human, in D1, §7).** The `paad` entry in the host's
 `~/.claude/settings.json` `extraKnownMarketplaces` becomes:
 
 ```json
@@ -248,32 +249,35 @@ The fork half comes first: the gate removal does nothing for cloud
 implementation until boxes have the delegate-free path, and the override
 must not be removed until the fork install is proven.
 
-1. **Fork (human-gated precondition).** §5.1–§5.4 on `wphillipmoore/paad`:
-   rebase onto 2.1.0, catalog points at `preview/paad`, version
-   `2.1.0-preview.1`, validation gate passes, `develop` pushed. The fork is
-   outside the vergil-project org, so this is attested by the human on the
-   epic, not filed as a fleet task.
-2. **Host settings (human).** §5.5's settings entry.
-3. **V1, validation:** on a freshly refreshed cloud VM and a Lima VM, with
-   no `plugin-dirs.toml`, `paad@paad` is installed from `wphillipmoore/paad`
+1. **D1, deployment: install paad from the fork.** A task the human carries
+   out, with the agent guiding; it closes on a recorded `Outcome: SUCCESS`
+   like any operational task. Its procedure: §5.1–§5.4 on
+   `wphillipmoore/paad` (rebase onto 2.1.0, catalog points at
+   `preview/paad`, version `2.1.0-preview.1`, validation gate passes,
+   `develop` pushed), then §5.5's host settings entry. The fork is outside
+   the vergil-project org, so the fork's own changes have no fleet PR; the
+   task records what was pushed (the `develop` commit) in its outcome.
+2. **V1, validation,** blocked by D1: on a freshly refreshed cloud VM and a
+   Lima VM, with no `plugin-dirs.toml`, `paad@paad` is installed from
+   `wphillipmoore/paad`
    at `develop` and a session lists `paad:paad-delegate`. Then a version
    bump pushed to `develop` reaches both boxes on refresh, and an unchanged
    version is tested to settle §5.2's question. The result decides whether
    the version bump is required, and is recorded in paad-policy.
-4. **Remove the override (vergil-tooling),** blocked by V1:
+3. **Remove the override (vergil-tooling),** blocked by V1:
    `lib/plugin_dirs.py`, its use and Lima-only message in `vrg-vm session`,
    `test_plugin_dirs.py`, the override cases in `test_vrg_vm.py` and
    `conftest.py`, and the docs (`cli-tools-overview.md`'s "The
    `--plugin-dir` override", `releasing.md`, `github-issues.md`). The human
    deletes `~/.config/vergil/plugin-dirs.toml`.
-5. **paad policy and doctrine §1.8 (vergil-claude-plugin),** blocked by V1:
+4. **paad policy and doctrine §1.8 (vergil-claude-plugin),** blocked by V1:
    §5.5's rewrite, with V1's version finding.
-6. **Remove the gate (vergil-claude-plugin):** §6. Independent of the fork
+5. **Remove the gate (vergil-claude-plugin):** §6. Independent of the fork
    half; it can land in parallel.
-7. **Gate mentions in vergil-tooling's docs:** `github-issues.md`'s gate
+6. **Gate mentions in vergil-tooling's docs:** `github-issues.md`'s gate
    section, `security-records.md`'s agentic-review paths and
    `account-setup.md`'s "used first by the agentic review gate".
-8. **V2, validation,** blocked by the plugin release carrying 5 and 6:
+7. **V2, validation,** blocked by the plugin release carrying 4 and 5:
    `issue-implement` runs end to end on a cloud VM on a real task and
    reaches `report-ready` with no gate and no delegate check. Plugin
    releases are human-gated, so the release is a precondition of V2, not a
