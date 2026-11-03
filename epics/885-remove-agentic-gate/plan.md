@@ -123,9 +123,8 @@ that changes the clone or the remote.
   `preview/paad/skills/agentic-review/SKILL.md` (upstream's symlink guard and
   `paad/security` checks).
 - [ ] **Step 2 (agent, read-only):** check the tag carries no unreleased
-  work: `diff -r` of `preview/paad` and `plugins/paad` as of `paad--v2.1.0`
-  (extract both with `vrg-git archive` into the scratchpad). Expected: the
-  only differences are the `-preview` announce suffix, `internal: true`
+  work: `vrg-git diff paad--v2.1.0:plugins/paad paad--v2.1.0:preview/paad`.
+  Expected: the only differences are the `-preview` announce suffix, `internal: true`
   metadata and the `plugin.json` version. Anything else stops D1.
 - [ ] **Step 3 (human, agent drafts the edits):** the fleet's version delta,
   as one commit on `develop`:
@@ -156,7 +155,8 @@ that changes the clone or the remote.
 - [ ] **Step 7 (human):** set the host's `~/.claude/settings.json`
   `extraKnownMarketplaces.paad` to
   `{ "source": { "source": "github", "repo": "wphillipmoore/paad", "ref": "develop" } }`,
-  then run `vrg-host plugins`. Expected: `paad@paad` installs from the fork.
+  then run `vrg-host plugins` and `vrg-vm update --all`. Expected: on the
+  host and every running VM, `paad@paad` installs from the fork.
 - [ ] **Step 8:** comment `Outcome: SUCCESS` with the pushed `develop`
   commit and the gate's run summary, and close.
 
@@ -172,8 +172,9 @@ Validation, blocked by D1. Spec §7 step 2.
   (`claude plugin marketplace remove paad`) and refresh again; record which
   path was needed.
 - [ ] **Step 2:** start a session; `paad:paad-delegate` is a listed agent
-  type. The human pushes a behaviour-free commit to `develop` (a line in the
-  fork's root `README.md`; exempt from the gate). Refresh the VM again.
+  type. The human pushes a behaviour-free commit to `develop`
+  (`git commit --allow-empty`, which touches no file, so it is exempt from
+  the gate and a later rebase drops it). Refresh the VM again.
   Expected: the installed commit is the new one, with no version changed.
 - [ ] **Step 3:** comment the outcome with both installed commits and the
   re-add finding (Task 4 records it), and close on SUCCESS.
@@ -208,11 +209,11 @@ vergil-tooling, blocked by V1. Spec §7 step 3, §5.5. Standing order applies.
   contains `--plugin-dir /x` exactly once, on Lima and on cloud. Run it;
   expected: passes before and after the removal.
 - [ ] **Step 2:** delete the override's tests and the `conftest.py`
-  fixture, and add `test_session_ignores_plugin_dirs_file`: a
-  `plugin-dirs.toml` with an entry exists at the old default path, and the
-  launch argv carries no `--plugin-dir`. Expected: FAIL.
+  fixture. No test replaces them: once the module is gone nothing reads the
+  file.
 - [ ] **Step 3:** remove the override from `vrg_vm.py` and delete
-  `lib/plugin_dirs.py`. Expected: Step 2's test passes.
+  `lib/plugin_dirs.py`. Expected: Step 1's test still passes, and
+  `vrg-git grep -nE "plugin_dirs|plugin-dirs" -- src tests` finds nothing.
 - [ ] **Step 4:** rewrite the docs: remove the override section and the
   Lima-only paragraph from `cli-tools-overview.md`; in `releasing.md`,
   remove the paragraph saying a Lima session with the override bypasses the
@@ -232,8 +233,10 @@ vergil-tooling release carrying Task 3 is published.
 
 - [ ] **Step 1 (human):** install the release on the host.
 - [ ] **Step 2 (human):** delete `~/.config/vergil/plugin-dirs.toml`;
-  remove the `paad-fleet` worktree and delete the local and remote `fleet`
-  branches. The agent gives the commands; it runs none of them.
+  remove the `paad-fleet` worktree and delete the local `fleet` branch (it
+  was never pushed); delete `unattended-mode` locally and on `origin`, since
+  `develop` holds its commits. The agent gives the commands; it runs none of
+  them.
 - [ ] **Step 3:** start a fresh Lima `vrg-vm session`. Expected: no
   `--plugin-dir` in the launch, `claude plugin list --json` shows `paad@paad`
   from `wphillipmoore/paad`, and `paad:paad-delegate` is listed.
@@ -263,7 +266,14 @@ applies.
   the fork; the override, fleet checkout, `fleet` branch, Lima-only
   paragraph and its accepted risk removed; the one reworded accepted risk;
   the delegate required, a missing one meaning a misconfigured box. Add
-  V1's re-add finding as the procedure for switching a box's source.
+  V1's re-add finding as the procedure for switching a box's source. Add a
+  second accepted risk: only the human pushes to the fork, and nothing
+  technical enforces it (`vrg-git` allows `push`, and the clone is on the
+  read-write projects mount).
+- [ ] **Step 2a:** the retitle changes §10's anchor. Re-point every link to
+  `paad-policy.md#10-paad-unattended-mode-and-the-fleet-checkout` in
+  vergil-claude-plugin, vergil-tooling and `.github` (outside historical
+  records) to the new anchor, including doctrine §1.9's.
 - [ ] **Step 3:** make §1, §8 and §9 agree with §10 (paad's version is the
   fork's `develop`, installed through the marketplace).
 - [ ] **Step 4:** rewrite doctrine §1.8: the delegate comes from the
@@ -272,8 +282,9 @@ applies.
   `vrg-host plugins` / `vrg-vm update`; no override, fleet checkout or
   "cloud boxes have no delegate". Update `epic-create`'s step 1 fix text
   to the same.
-- [ ] **Step 5:** `vrg-git grep -nE "paad-fleet|plugin-dirs|fleet checkout|Lima only" -- docs skills README.md`.
-  Expected: no match outside historical records.
+- [ ] **Step 5:** `vrg-git grep -nE "paad-fleet|plugin-dirs|fleet checkout|Lima only|10-paad-unattended-mode-and-the-fleet-checkout" -- docs skills README.md`
+  in vergil-claude-plugin, and the same pattern in vergil-tooling's `docs`
+  and `src`. Expected: no match outside historical records.
 - [ ] **Step 6:** `vrg-container-run -- vrg-validate`; expected: passes.
   `vrg-commit --type docs --scope paad-policy --message "install paad from the fork's develop branch"`,
   then `report-ready`.
@@ -310,7 +321,14 @@ vergil-claude-plugin, independent. Spec §6. Standing order applies.
   Step 5 keeps its trusted-author check, links doctrine §1.2 instead of
   §3.3, and on an untrusted author stops and waits for the human's ruling.
   The skill reads: Preflight, Implement, validate to green, `report-ready`.
-- [ ] **Step 3: doctrine.** Delete §3. In §1: drop §1.3's `agentic-review`
+- [ ] **Step 3: doctrine.** Before deleting §3, move what kept text
+  depends on: the ruling and `Recorded:` line form (§3.5) and the
+  `vrg-security-record create` procedure for a `record` ruling (§3.6) go
+  into §1.7, written for `issue-implement`'s follow-ups; how rulings arrive
+  through `epic-implement`'s dispatch prompt (§3.8) goes into §1.7; every
+  other reference to §3 (the trusted-author link to §3.3, and the links in
+  §1.2–§1.10) points at §1.2, §1.6, §1.7 or §2.7, or goes with the mode 2
+  text around it. Then delete §3. In §1: drop §1.3's `agentic-review`
   column; rename §1.5's `agentic-review` row to `issue-implement`,
   `build/.vergil-state/issue-implement/<N>/`, holding a `record` ruling's
   `security-<i>.md`; drop mode 2 handling in §1.6–§1.10 and §1.7's "inside
@@ -327,8 +345,10 @@ vergil-claude-plugin, independent. Spec §6. Standing order applies.
   fixtures to `build/.vergil-state/issue-implement/9001/1/...`. Run the hook
   test through `vrg-validate`; expected: passes with the logic unchanged.
 - [ ] **Step 7:** docs per Files. Then check Review Focus 3:
-  `vrg-git grep -nE "paad-review-doctrine\.md#3|agentic-review gate|mode 2" -- . ':!CHANGELOG.md' ':!docs/specs' ':!docs/plans'`.
-  Expected: no match.
+  `vrg-git grep -nE "paad-review-doctrine\.md#3|agentic-review gate|mode 2" -- . ':!CHANGELOG.md' ':!releases' ':!docs/specs' ':!docs/plans'`,
+  and inside the doctrine
+  `vrg-git grep -nE "\]\(#3[0-9]|§3\.[0-9]" -- docs/paad-review-doctrine.md`.
+  Expected: no match from either.
 - [ ] **Step 8:** list any `build/.vergil-state/agentic-review/` directory
   in the fleet's main clones, once, in the final report, for the human to
   delete.
@@ -343,8 +363,13 @@ vergil-tooling, independent. Spec §6.2, §7 step 6. Standing order applies.
 **Files:**
 
 - Modify: `docs/site/docs/standards/github-issues.md` (the gate section),
-  `docs/site/docs/guides/security-records.md` (the agentic-review paths
-  become `build/.vergil-state/issue-implement/<N>/`),
+  `docs/site/docs/guides/security-records.md` (the policy exception at
+  lines 15–18 and the "Agentic review, during `issue-implement`" section
+  are reworded to what `issue-implement` keeps: a security follow-up it
+  finds stays private until the human rules, a `record` ruling files it
+  through `vrg-security-record`, and its details sit in
+  `build/.vergil-state/issue-implement/<N>/`, linking doctrine §1.7; line
+  53's review rounds become `epic-create`'s only),
   `docs/site/docs/guides/account-setup.md` ("used first by the agentic
   review gate")
 - Modify: `src/vergil_tooling/bin/vrg_git.py:87` and
@@ -354,7 +379,9 @@ vergil-tooling, independent. Spec §6.2, §7 step 6. Standing order applies.
 - [ ] **Step 1:** search per Global Constraints for `agentic-review`,
   `agentic review` and mode 2 in vergil-tooling; handle every hit not
   Task 3's.
-- [ ] **Step 2:** edit the files above; no behaviour changes.
+- [ ] **Step 2:** edit the files above; no behaviour changes. Then
+  `vrg-git grep -nE "paad-review-doctrine\.md#3|agentic-review gate|agentic review gate" -- . ':!CHANGELOG.md' ':!releases' ':!docs/specs' ':!docs/plans'`.
+  Expected: no match.
 - [ ] **Step 3:** `vrg-container-run -- vrg-validate`; expected: passes.
   `vrg-commit --type docs --scope paad --message "drop the agentic-review gate from the docs"`,
   then `report-ready`.
