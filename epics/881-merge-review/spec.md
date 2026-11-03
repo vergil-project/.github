@@ -110,12 +110,13 @@ The design takes from four tools and credits each in the skill's docs.
 |---|---|
 | The high-signal bar ("if you are not certain an issue is real, do not flag it") and the exclusion list (pre-existing issues, nitpicks, anything a linter catches) | Anthropic `code-review` plugin, `claude-plugins-official` |
 | A silent-failure lens: swallowed errors, fallbacks that hide failure | Anthropic `pr-review-toolkit` plugin |
-| A reviewer given crafted context, never the implementer's session; a merge verdict | superpowers `requesting-code-review` |
+| A reviewer given crafted context, never the implementer's session | superpowers `requesting-code-review` |
 | Out-of-scope additions; checking the change against its spec; blame-based scope | paad `agentic-review` |
 
 Deliberately not taken: multiple parallel specialists, severity tiers below
 blocking, praise sections, "declined to judge" lists, numeric confidence
-scores, and a backlog of pre-existing bugs.
+scores, a merge verdict from the reviewer, and a backlog of pre-existing
+bugs.
 
 ## 4. What the reviewer judges
 
@@ -144,8 +145,14 @@ A finding is a **blocker** only when all of these hold:
 
 Not findings:
 
-- anything a gate in the request's list of passed checks covers (§8.2): the
-  reviewer is told those passed and does not repeat them;
+- anything CI covers. "CI" means both the `vrg-validate` run and the
+  repository's PR CI workflows: `vrg-validate` passed before the review,
+  and PR CI gates the PR after it. The
+  reviewer prompt names the categories they cover (formatting, linting, type
+  checking, tests and coverage, security scanners, dependency audits), and
+  the reviewer raises nothing in them. When unsure whether something
+  specific is covered, it may read the repository's CI workflow files and
+  `vrg-validate` configuration; it is not required to read them every run;
 - nitpicks and matters of taste that a senior engineer would not block on;
 - pathological input from a trusted author. Configuration and files the
   operator writes are judged on realistic use. A glob with ten consecutive
@@ -161,8 +168,10 @@ is judged against an attacker. That is a production-safety question.
 The caller classifies the change before dispatch, deterministically, from
 the changed files:
 
-- **docs-only:** every changed file is documentation by an explicit
-  allow-list. The reviewer answers only the merge-quality question: accuracy
+- **docs-only:** every change is an addition or an edit of a file that is
+  documentation by an explicit allow-list. Any deletion or rename makes the
+  change code: the docs class is a narrow special case, and anything outside
+  it gets the full review. The reviewer answers only the merge-quality question: accuracy
   against the code and the issue, and clarity. The fleet accepts that a
   documentation change does not break production.
 - **code:** everything else, and any doubt. Both questions.
@@ -209,11 +218,9 @@ design does not have?" When the reviewer is unsure, it is a design question.
 
 ### 5.3 Out-of-scope addition
 
-Code or content the issue did not ask for. Reported for the human to keep,
-split into its own issue, or revert. It does not block on its own and the
-run does not stop for it: it is listed under "Awaiting a ruling" in the
-handoff (§6.1). It does make the run ineligible to merge without a human
-(§6.3).
+Code or content the issue did not ask for. The run stops for the human
+(§6.1 step 3), who rules to keep it, split it into its own issue, or revert
+it; the implementer carries the ruling out before the check.
 
 ### 5.4 Pre-existing problem
 
@@ -226,10 +233,9 @@ the implementer checks whether it is already tracked: an open issue, or a
 security record (`vrg-security-record list`). Tracked problems are recorded
 as such and need nothing more. An untracked one is proposed to the human as
 a new issue or security record, under the existing rule that creating an
-issue needs the human's approval. The proposal is listed under "Awaiting a
-ruling" in the handoff (§6.1); nothing is filed before the human approves,
-and the run neither stops for it nor loses eligibility over it, since the
-branch did not cause it.
+issue needs the human's approval. The run stops for the human (§6.1 step
+3), who approves or rejects each proposal; an approved one is filed before
+the run moves on.
 
 The lookup is the expensive part, so it runs only for notes that survive the
 epic filter, and it searches by file and component rather than by wording,
@@ -242,17 +248,23 @@ because security records are deliberately neutral.
 1. **Validate.** The branch is committed and `vrg-container-run --
    vrg-validate` is green. The review never starts before that.
 2. **Review.** A fresh reviewer subagent, which never changes the code
-   (§8.4), gets the request (§8.2)
-   and writes a result (§8.3).
+   (§8.4), gets the request (§8.2) and returns a result (§8.3).
 3. **Decide.**
-   - No blockers and no design questions: done. Eligibility follows §6.3.
-   - Any design question, or more than 5 blockers: stop and ask the human.
-     Too many blockers means the branch is too big or the design is wrong,
-     and a fix round is the wrong tool.
-   - Otherwise the implementer fixes every defect (and handles pre-existing
-     notes, §5.4) and runs `vrg-validate` again, fixing any failure until it
-     is green, as in normal implementation. Getting back to green is not
-     capped and is not a review round.
+   - First, the implementer looks up each pre-existing note (§5.4).
+   - Nothing raised, or only tracked pre-existing notes: done. Eligibility
+     follows §6.3.
+   - More than 5 blockers: stop and ask the human. Too many blockers means
+     the branch is too big or the design is wrong, and a fix round is the
+     wrong tool.
+   - Any design question, out-of-scope addition (§5.3), untracked
+     pre-existing proposal (§5.4) or dispute (below): stop and ask the
+     human, once, before any fix, with every such item together. The
+     rulings are carried out in the fix that follows, a revert included.
+   - Then the implementer fixes every defect and carries out every ruling,
+     and runs `vrg-validate` again, fixing any failure until it is green, as
+     in normal implementation. Getting back to green is not capped and is
+     not a review round. With nothing to fix or change, the check is
+     skipped.
 4. **Check.** A fresh reviewer gets the original findings, the fix diff and
    the whole branch with the fix applied. It judges the quality of each fix,
    not only whether the symptom is gone, and answers two questions:
@@ -269,12 +281,15 @@ because security records are deliberately neutral.
    something went wrong that more agent iteration will not fix; there is no
    second fix round without the human.
 
-Out-of-scope additions (§5.3) and proposals for untracked pre-existing
-problems (§5.4) never stop the loop. They are listed in report-ready's notes
-under "Awaiting a ruling", for the human to rule on at handoff.
+**No unfinished business.** Merge review is complete only when every item
+it raised is closed: fixed, ruled on and carried out (kept, reverted, filed
+as an issue or security record), or rejected. The run never reaches
+report-ready with an item still open, so nothing waits on the human after
+handoff.
 
-The implementer may dispute a finding instead of fixing it. A dispute goes
-to the human; the two agents never argue it out.
+The implementer may dispute a finding instead of fixing it, deciding that
+before any fix. A dispute goes to the human in the step-3 stop; the two
+agents never argue it out.
 
 ### 6.2 The human
 
@@ -296,9 +311,7 @@ A run ends **eligible** when the review or the check passed, with no design
 questions, no out-of-scope additions, no disputes and no human ruling
 needed. Otherwise it ends **not eligible**, with the reason. The reason is
 one of a fixed set of values; security appears in it only as a count (§7),
-because report-ready's notes are public. A pending
-proposal for an untracked pre-existing problem (§5.4) does not affect
-eligibility. Eligibility is
+because report-ready's notes are public. Eligibility is
 recorded on the task issue and in report-ready's notes. While only the human
 submits PRs, it is information; it becomes the gate when agents merge (a
 non-goal here).
@@ -314,10 +327,18 @@ finding if reading it would help an attacker.
   in the task's private state directory and the conversation.
 - **A pre-existing security problem** goes through §5.4. A new record is made
   only with `vrg-security-record`, on the human's approval.
-- **A security design question** goes to the human like any other, with
-  details in the terminal only.
+- **A security design question** goes to the human like any other.
 
-Because the reviewer is ours and writes a structured result, security
+Every security item's details, whatever its kind, are kept by the caller in
+the task's private state directory, so they survive the end of a session
+between a stop and its ruling. The run that carries out a ruling reads the
+details there.
+
+Every public record (report-ready's title, summary and notes, step comments,
+ruling requests and rulings) refers to a security item, of any kind, by ID
+or count only.
+
+Because the reviewer is ours and returns a structured result, security
 findings are marked in that result, and the caller routes them by that
 field. The reviewer's prose is not trusted for routing.
 
@@ -333,9 +354,14 @@ reading this epic. It defines:
   before dispatch. That directory is merge-review's own kind,
   `build/.vergil-state/merge-review/<N>/` in the task repo's main clone, where
   `<N>` is the task issue; it does not reuse the `agentic-review` kind that
-  vergil-project/.github#880 removes;
-- **a result file**, written by the subagent into the same directory, made of
-  a structured block followed by free prose;
+  vergil-project/.github#880 removes. Its privacy rests on one rule: the
+  `build/.vergil-state/` root is mode 700, and the caller checks that before
+  writing anything below it, refusing if it does not hold. The human and the
+  agents share one Unix user, so a private root makes everything below it
+  private, whatever the modes of the files;
+- **a result**, returned by the reviewer as its reply, made of a structured
+  block followed by free prose. The caller writes it as the result file in
+  the same directory; the reviewer writes nothing (§8.4);
 - **the result check**, a `vrg-*` command that checks the result file's
   structured block against the protocol's schema (required fields present,
   values from the allowed set, finding IDs consistent) and exits non-zero on
@@ -344,17 +370,19 @@ reading this epic. It defines:
 - the rule that the caller acts only on a block that passed the result
   check. The prose is for the human.
 
-The subagent's reply message carries nothing the caller acts on beyond "the
-result is written".
+The caller owns all of the data: it writes the request, stores the reply as
+the result file, and runs the result check on that file.
 
 ### 8.2 The request
 
 At least:
 
 - the repository, base and head SHAs, the issue reference and its body;
+- the diff (in a check, the fix diff as well), and the worktree path for
+  reading surrounding code;
 - the change class (§4.3);
 - the design sources, where they exist: the epic's spec and plan;
-- the list of checks `vrg-validate` ran and passed;
+- the list of stages `vrg-validate` ran and passed (§4.2);
 - the open tasks of the issue's epic, with titles;
 - the step: `review`, or `check` with the earlier findings and the fix diff.
 
@@ -363,12 +391,15 @@ At least:
 The structured block holds at least:
 
 - the step and the request it answers (a hash of the request file);
-- a verdict: `pass` or `blockers`;
 - each finding: an ID, the question it answers (production safety or merge
   quality), its kind (defect, design question, out-of-scope addition,
   pre-existing), whether it is security, and its location;
 - in a check: each earlier finding's ID with `fixed` or `not fixed`, and any
   breakage the fix caused.
+
+The result carries no verdict. The reviewer reports findings; the caller
+decides from the findings' kinds alone, by the rules of §6.1, so there is no
+second field that could disagree with them.
 
 Security findings carry no description in the structured block: their
 details go only in the prose part, which is never posted.
@@ -377,13 +408,12 @@ details go only in the prose part, which is never posted.
 
 - The reviewer never changes the code. It reads the change and reports:
   findings, requested changes and bugs. Making the changes is the
-  implementer's job, never the reviewer's. The reviewer may write files, but
-  only inside the task's state directory: the result file and any scratch
-  files it needs there.
-- The protocol names the reviewer's agent type, one without Write or Edit
-  tools, so its only way to write is through Bash into the state directory.
-- The caller checks that the worktree's branch, HEAD and clean status, and
-  its list of ignored files, did not change across the review.
+  implementer's job, never the reviewer's.
+- The reviewer writes nothing to the file system and runs no commands. The
+  protocol names its agent type, which has only read tools (no Write, Edit
+  or Bash), so it has no way to write. Everything it needs that a command
+  would produce, such as the diff, comes in the request (§8.2), and
+  everything it produces goes back in its reply.
 - A result that fails the result check (a malformed structured block) is not
   acted on. The reviewer is dispatched once more; if its second result also
   fails, the run stops for the human rather than guessing what the reviewer
@@ -394,7 +424,7 @@ details go only in the prose part, which is never posted.
 ## 9. Records and cost
 
 Each step posts one comment on the task issue with a fixed first line naming
-the step, the verdict and the counts by kind. Security findings appear only
+the step, the caller's decision (§6.1) and the counts by kind. Security findings appear only
 as a count. This is the history; the state directory is working storage,
 deleted when the task reaches report-ready.
 
