@@ -37,7 +37,7 @@ by-hand repair of data the backfill would have lost (§3).
 
 The `wphillipmoore` account has no epics.
 
-**Work delivered**
+### Work delivered
 
 | PR | Repo | What it did |
 |---|---|---|
