@@ -94,20 +94,29 @@ the fleet installs from:
 
 ### 5.2 Version scheme
 
-The fork keeps upstream's own version form, unchanged: the catalog entry,
-`package.json` and `plugins/paad` carry the upstream base (`2.1.0`), and
-`preview/paad/.claude-plugin/plugin.json` carries `<base>-preview`
-(`2.1.0-preview`), with every `SKILL.md` announcing it. This is what the
-fork's `make check-versions` and `check-skill-versions` require, so the
-fleet adds no delta to the Makefile or the announce lines. A rebase onto a
-new upstream release takes upstream's new versions as they are.
+**Boxes track commits, not versions.** Claude Code takes an installed
+plugin's version from its manifest's `version`, then from its catalog
+entry's, and only when neither is set from the source's commit SHA; it
+replaces a cached copy only when that version changes
+([plugin loading reference, "Versions and
+updates"](https://code.claude.com/docs/en/plugins/loading.md#versions-and-updates)).
+A pinned version would leave every push to `develop` uninstalled until
+upstream's next release.
 
-**Open question, settled by V1 (§7).** Claude Code may decide whether to
-replace an installed plugin by its version rather than by the commit at the
-ref. If it does, a push to `develop` that keeps the same version would not
-reach installed boxes. V1 tests this. If V1 shows the version decides it, a
-version scheme that changes on every push is designed before the override
-is removed (§7 step 3), and recorded in paad-policy.
+So on `develop`, `preview/paad/.claude-plugin/plugin.json` and the catalog
+entry for `paad` carry **no `version` field**, and each box picks up every
+pushed commit on its next refresh. Nothing is bumped on a push.
+
+- `package.json` and `plugins/paad` keep upstream's base version, and every
+  `SKILL.md` in `preview/paad` keeps announcing `<base>-preview` (for
+  example `2.1.0-preview`), so a transcript still names the tree that ran.
+- The fork's `make check-versions` and `check-skill-versions` read the
+  removed fields, so the fleet patches them to accept their absence and to
+  check the announce lines against `<base>-preview`, with `<base>` read from
+  `plugins/paad`. This Makefile patch and the two removed fields are the
+  fleet's only version delta.
+- A rebase onto a new upstream release takes upstream's new base version and
+  re-applies that delta.
 
 ### 5.3 The rebase process
 
@@ -116,10 +125,15 @@ Written into paad-policy §10 (§5.5) and run once in this epic:
 1. Fetch upstream (`Ovid/paad`) with its tags.
 2. Rebase `develop` onto upstream's release tag (`paad--v<X.Y.Z>`), never
    onto `upstream/main`. Drop any fleet patch the release already contains.
-3. Set the version per §5.2.
-4. Run the fork's own checks (`make test`).
-5. Run the validation gate (§5.4) on the result.
-6. Force-push `develop` (`--force-with-lease`).
+3. Check that the tag carries no unreleased upstream work: at the tag,
+   `preview/paad` and `plugins/paad` differ only by upstream's preview
+   markers (the announce suffix, the `internal` flag and the `plugin.json`
+   version). Any other difference stops the rebase for the human to look at.
+4. Check the version delta per §5.2: no `version` in `preview/paad`'s
+   manifest or its catalog entry, and the announce lines on the new base.
+5. Run the fork's own checks (`make test`).
+6. Run the validation gate (§5.4) on the result.
+7. Force-push `develop` (`--force-with-lease`), under §5.4's push rule.
 
 Contributions upstream go as PRs from topic branches in the fork, never from
 `develop`. Once upstream merges one, the next rebase drops the fleet's copy.
@@ -137,8 +151,13 @@ Claude Code's own `claude --plugin-dir <candidate>/preview/paad` flag, as a
 **manual test** run through `issue-validate`, not as fleet plumbing:
 nothing in vergil configures or reads it.
 
-A push that changes no behaviour (a version-only or documentation-only
-change, such as V1's update test in §7) is exempt from the scenario sets.
+**The push rule.** The commit pushed is the commit validated: just before
+the push, the fork's working tree is clean and `develop`'s HEAD is the
+commit the gate ran on.
+
+**The exemption.** A push that touches nothing under `preview/paad/` (for
+example the root `README.md`, `CHANGELOG.md` or `docs/`, or V1's test
+commit in §7) is exempt from the scenario sets.
 
 Pushing `develop` is now the deliberate step that puts a paad change in front
 of the fleet: the next marketplace refresh on each box installs it. Pushing
@@ -177,9 +196,11 @@ fleet checkout, §9, and §10. §10 states:
   commands that change the fork (`vrg-git` does not stop them); they give
   the human the commands to run;
 - the `--plugin-dir` override, the fleet checkout, the `fleet` branch, the
-  "Lima only" paragraph and the accepted risks that only existed because of
-  them (the read-write mount, a session started without the override) are
-  removed;
+  "Lima only" paragraph and the accepted risk that only existed because of
+  them (a session started without the override) are removed;
+- one accepted risk stays, reworded: the fork's development clone sits on
+  the projects tree every Lima VM mounts read-write, so a change to it is
+  caught only by §5.4's push rule;
 - the delegate stays required for mode 1 rounds; a session without it is
   now a misconfigured box, and the fix it names is the host settings entry
   above.
@@ -259,14 +280,18 @@ What goes:
   response` comment with a live `Paused:` line) is resumed after this epic
   as an ordinary `issue-implement` run. The plan lists any such tasks found
   when the removal is implemented.
-- Leftover `build/.vergil-state/agentic-review/` directories in main clones
-  are deleted by the human; agents report them and do not delete them.
+- Leftover `build/.vergil-state/agentic-review/` directories: the
+  gate-removal task (§7 step 5) lists any it finds in the fleet's main
+  clones in its final report, once. The human deletes them; agents do not.
 
 ## 7. Delivery order and validation
 
-The fork half comes first: the gate removal does nothing for cloud
-implementation until boxes have the delegate-free path, and the override
-must not be removed until the fork install is proven.
+The two halves are independent. Removing the gate alone restores
+`issue-implement` on cloud VMs, since without the gate and Preflight step 7
+it needs no delegate; it can land first, and V2 does not depend on D1 or
+V1. The fork half is what gives cloud VMs the delegate for mode 1 design
+review and retires the override, which is not removed until the fork
+install is proven.
 
 The fleet has one user, so the epic runs as a freeze: no other fleet work
 runs from D1 until the override is removed. Anything that breaks in between
@@ -284,16 +309,15 @@ and specs). The documentation review sweeps again at the end.
    out, with the agent guiding; it closes on a recorded `Outcome: SUCCESS`
    like any operational task. Its procedure: §5.1–§5.4 on
    `wphillipmoore/paad` (rebase onto 2.1.0, catalog points at
-   `preview/paad`, versions per §5.2, validation gate passes,
+   `preview/paad`, version delta per §5.2, validation gate passes,
    `develop` pushed), then §5.5's host settings entry. The fork is outside
    the vergil-project org, so the fork's own changes have no fleet PR; the
    task records what was pushed (the `develop` commit) in its outcome.
 2. **V1, validation,** blocked by D1: on a freshly refreshed cloud VM (which
    never applies the override), `paad@paad` is installed from
    `wphillipmoore/paad` at `develop` and a session lists
-   `paad:paad-delegate`. Then a change pushed to `develop` with the version
-   unchanged is checked for whether it reaches the box on refresh, settling
-   §5.2's open question. The result is recorded in paad-policy.
+   `paad:paad-delegate`. Then a behaviour-free commit pushed to `develop`
+   reaches the box on its next refresh, with nothing bumped (§5.2).
 3. **Remove the override (vergil-tooling),** blocked by V1:
    `lib/plugin_dirs.py`, its use and Lima-only message in `vrg-vm session`,
    `test_plugin_dirs.py`, the override cases in `test_vrg_vm.py` and
@@ -311,7 +335,7 @@ and specs). The documentation review sweeps again at the end.
 6. **Gate mentions in vergil-tooling's docs:** `github-issues.md`'s gate
    section, `security-records.md`'s agentic-review paths and
    `account-setup.md`'s "used first by the agentic review gate".
-7. **V2, validation,** blocked by the plugin release carrying 4 and 5:
+7. **V2, validation,** blocked by the plugin release carrying step 5:
    `issue-implement` runs end to end on a cloud VM on a real task and
    reaches `report-ready` with no gate and no delegate check. Plugin
    releases are human-gated, so the release is a precondition of V2, not a
@@ -327,10 +351,9 @@ Then the closing bookends: the documentation review
   runs in every session's paad on its next refresh. The validation gate
   before each push is the control (§5.4), and it rests on the human's
   process, as moving `fleet` did.
-- **Version keying.** If updates key on the version, a push that keeps the
-  version leaves boxes silently on the old paad. V1 settles whether this
-  applies; if it does, §5.2's follow-up scheme is designed before the
-  override is removed.
+- **A `version` field coming back.** If a rebase re-adds `version` to
+  `preview/paad`'s manifest or its catalog entry, boxes silently stop
+  picking up pushes. §5.3 step 3 checks for it on every rebase.
 - **No pre-PR review until #878 lands.** Branches go to the human with only
   `vrg-validate` and CI behind them, as before the gate existed. Accepted by
   decision.
