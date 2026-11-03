@@ -70,7 +70,8 @@ gate and Preflight steps 6 and 7** (the leftover `agentic-review/<N>/`
 check and the delegate check): it implements, validates to green and goes
 straight to `report-ready`. The epic exists to remove the gate, and the
 installed plugin still carries it until the removal ships in a plugin
-release. `epic-implement` passes this order in every dispatch prompt for the epic. The task bodies
+release. `epic-implement` passes this order in every dispatch prompt for
+the epic. The task bodies
 repeat it.
 
 ## 5. Install paad from the fork
