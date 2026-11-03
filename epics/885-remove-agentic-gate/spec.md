@@ -66,9 +66,10 @@ vergil-project/.github#878. Until then the gate is an obstacle.
 ## 4. Standing order
 
 Every `issue-implement` run on this epic's tasks **skips the agentic-review
-gate**: it implements, validates to green and goes straight to
-`report-ready`. The epic exists to remove the gate, and the installed plugin
-still carries it until the removal ships in a plugin release. `epic-implement`
+gate and Preflight steps 6 and 7** (the leftover `agentic-review/<N>/`
+check and the delegate check): it implements, validates to green and goes
+straight to `report-ready`. The epic exists to remove the gate, and the
+installed plugin still carries it until the removal ships in a plugin release. `epic-implement`
 passes this order in every dispatch prompt for the epic. The task bodies
 repeat it.
 
@@ -79,41 +80,42 @@ repeat it.
 The fork `wphillipmoore/paad` gains a `develop` branch, and it is the one ref
 the fleet installs from:
 
-- `develop` is upstream `main` plus the fleet's patches, kept rebased on
-  upstream (§5.3). It is pushed to GitHub.
+- `develop` is upstream's latest release tag plus the fleet's patches, kept
+  rebased on each new upstream release (§5.3). It is pushed to GitHub. It
+  never carries upstream's unreleased work: the fleet takes in upstream's
+  preview changes only when upstream releases them.
 - On `develop`, the root `.claude-plugin/marketplace.json` entry for `paad`
   has `"source": "./preview/paad"`. The fork's unattended-mode work, the
   delegate included, lives only in `preview/paad`; `plugins/paad` is
-  upstream's released tree. Pointing the catalog at `preview/paad` is a
-  one-line change that keeps the fleet's delta out of the files upstream
-  edits most.
+  upstream's released tree.
 - The local `fleet` branch and the `paad-fleet` worktree
-  (`/Users/pmoore/dev/projects/wphillipmoore/paad-fleet`) are retired once
-  the fleet installs from `develop`.
+  (`/Users/pmoore/dev/projects/wphillipmoore/paad-fleet`) are retired last,
+  when the override is removed (§7 step 3).
 
 ### 5.2 Version scheme
 
-`preview/paad/.claude-plugin/plugin.json`'s `version` (and the catalog
-entry's, kept equal) is **the upstream base version plus a preview counter**:
-`<base>-preview.<n>`, for example `2.1.0-preview.1`.
+The fork keeps upstream's own version form, unchanged: the catalog entry,
+`package.json` and `plugins/paad` carry the upstream base (`2.1.0`), and
+`preview/paad/.claude-plugin/plugin.json` carries `<base>-preview`
+(`2.1.0-preview`), with every `SKILL.md` announcing it. This is what the
+fork's `make check-versions` and `check-skill-versions` require, so the
+fleet adds no delta to the Makefile or the announce lines. A rebase onto a
+new upstream release takes upstream's new versions as they are.
 
-- Every push to `develop` that changes the plugin bumps `<n>`.
-- A rebase onto a new upstream release sets `<base>` to that release and
-  resets `<n>` to 1.
-
-**Why.** Claude Code's plugin update is believed to key on the version, so an
-unchanged version would leave a pushed change uninstalled. The first
-validation (§7, V1) tests this. If an unchanged version does update, the
-scheme still stands, because it names the upstream base and the fleet's
-distance from it, but it is no longer what makes updates arrive.
+**Open question, settled by V1 (§7).** Claude Code may decide whether to
+replace an installed plugin by its version rather than by the commit at the
+ref. If it does, a push to `develop` that keeps the same version would not
+reach installed boxes. V1 tests this. If V1 shows the version decides it, a
+version scheme that changes on every push is designed before the override
+is removed (§7 step 3), and recorded in paad-policy.
 
 ### 5.3 The rebase process
 
 Written into paad-policy §10 (§5.5) and run once in this epic:
 
-1. Fetch upstream (`Ovid/paad`).
-2. Rebase `develop` onto `upstream/main`. Drop any fleet patch upstream has
-   since merged.
+1. Fetch upstream (`Ovid/paad`) with its tags.
+2. Rebase `develop` onto upstream's release tag (`paad--v<X.Y.Z>`), never
+   onto `upstream/main`. Drop any fleet patch the release already contains.
 3. Set the version per §5.2.
 4. Run the fork's own checks (`make test`).
 5. Run the validation gate (§5.4) on the result.
@@ -134,6 +136,9 @@ candidate tree, in newly started sessions. The candidate is loaded with
 Claude Code's own `claude --plugin-dir <candidate>/preview/paad` flag, as a
 **manual test** run through `issue-validate`, not as fleet plumbing:
 nothing in vergil configures or reads it.
+
+A push that changes no behaviour (a version-only or documentation-only
+change, such as V1's update test in §7) is exempt from the scenario sets.
 
 Pushing `develop` is now the deliberate step that puts a paad change in front
 of the fleet: the next marketplace refresh on each box installs it. Pushing
@@ -158,13 +163,19 @@ itself picks it up through `vrg-host plugins`. If Claude Code refuses to
 re-add a marketplace whose repo changed under the same name, the existing
 registration is removed first; V1 (§7) finds out.
 
-**paad-policy §10 (vergil-claude-plugin)** is rewritten to the new
-arrangement:
+**paad-policy (vergil-claude-plugin)** is rewritten to the new arrangement,
+wherever it describes the old one: §1 (paad's version and the installed
+paad), the deviations table's rows about the installed release and the
+fleet checkout, §9, and §10. §10 states:
 
 - the fleet installs paad from `wphillipmoore/paad` at ref `develop`, through
   the marketplace, on every box;
 - the version scheme (§5.2), the rebase process (§5.3) and the validation
   gate (§5.4);
+- **only the human changes the fork:** every push, rebase and branch move
+  in `wphillipmoore/paad` is run by the human. Agents never run git
+  commands that change the fork (`vrg-git` does not stop them); they give
+  the human the commands to run;
 - the `--plugin-dir` override, the fleet checkout, the `fleet` branch, the
   "Lima only" paragraph and the accepted risks that only existed because of
   them (the read-write mount, a session started without the override) are
@@ -191,16 +202,14 @@ What goes:
 - **`issue-implement`:** "The agentic-review gate" section; Preflight step 6
   (leftover `agentic-review/<N>/` state) and step 7 (the delegate check);
   the resume-a-paused-task line in step 8; the gate's mentions in the
-  overview, the description and the creating-issues paragraph (the
-  `epic-implement` ruling-carrying run that writes `security-<i>.md` into
-  `agentic-review/<N>/` goes with it); the "Run this skill in a Lima
-  session" paragraph and the Preflight wording that a cloud VM never has the
-  delegate. The skill goes back to: Preflight, implement, validate to green,
+  overview, the description and the creating-issues paragraph; the "Run
+  this skill in a Lima session" paragraph and the Preflight wording that a
+  cloud VM never has the delegate. The skill goes back to: Preflight, implement, validate to green,
   `report-ready`.
 - **The paad review doctrine:** §3 (mode 2) in full, and every mode 2 branch
-  in §1: the `agentic-review` column of §1.3's severity table, its row in
-  §1.5's state-directory table, mode 2's handling in §1.6, §1.7, §1.8, §1.9
-  and §1.10, and the introduction's description of two modes. The doctrine
+  in §1: the `agentic-review` column of §1.3's severity table, mode 2's
+  handling in §1.6, §1.7, §1.8, §1.9 and §1.10, and the introduction's
+  description of two modes. The doctrine
   becomes the rules for mode 1 design review; its section numbers for §1 and
   §2 are kept, so existing links stay valid.
 - **paad-policy:** the agentic-review output rule, the mode 2 row of the
@@ -209,9 +218,11 @@ What goes:
   and any dispatch text about gate pauses and `fix` confirmations.
 - **`epic-retrospective`:** the step that reads each task's
   `agentic-review summary` or round comments.
-- **The write hook** (`hooks/scripts/block-worktree-bypass-write.sh`): its
-  allowance for `build/.vergil-state/agentic-review/`, with its test cases.
-  The `design-review/` allowance stays.
+- **The write hook** (`hooks/scripts/block-worktree-bypass-write.sh`): the
+  hook already allows any git-ignored path under `build/`, with no per-kind
+  allowance, so its logic is unchanged. Only its header comment and its
+  test's `agentic-review` fixture paths change, to the renamed
+  `issue-implement` kind (§6.2).
 - **Docs:** the plugin README's and site skills page's descriptions of the
   gate and of `issue-implement` as Lima-only, and the "what a session needs
   for paad review rounds" section's Lima-only limit and override
@@ -227,6 +238,14 @@ What goes:
 - **Creating issues needs the human's approval** (doctrine §1.7) and the
   `Awaiting a ruling` list: mode 1 and `issue-implement` both use it. Only
   its "inside the agentic-review gate" branch goes.
+- **`issue-implement`'s private directory, renamed.** `issue-implement`
+  already handles a security follow-up it finds as §1.7 says: a count in
+  public, the details private until the human rules, filed only through
+  `vrg-security-record`. Its private directory changes name only: §1.5's
+  `agentic-review` row becomes `issue-implement`,
+  `build/.vergil-state/issue-implement/<N>/`, and the `epic-implement`
+  run that carries out the human's rulings writes a `record` ruling's
+  `security-<i>.md` there.
 - **vergil-tooling's generic paad hygiene:** `vrg-git`'s read-only
   `symbolic-ref` allowance and the managed `.gitignore`'s `paad/code-reviews/`
   pattern. Both serve any run of paad's skills, not only the gate; their
@@ -249,27 +268,42 @@ The fork half comes first: the gate removal does nothing for cloud
 implementation until boxes have the delegate-free path, and the override
 must not be removed until the fork install is proven.
 
+The fleet has one user, so the epic runs as a freeze: no other fleet work
+runs from D1 until the override is removed. Anything that breaks in between
+is fixed as it is found.
+
+**The file lists in this spec are starting points, not the scope.** Each
+removal task starts with a search of vergil-tooling, vergil-claude-plugin
+and `.github` for every mention of what it removes (`plugin-dirs`,
+`plugin_dirs`, `--plugin-dir`, `paad-fleet`, the fleet checkout,
+`agentic-review`, mode 2), and handles every hit outside archived and
+historical records (`epics/`, `CHANGELOG.md`, `releases/`, completed plans
+and specs). The documentation review sweeps again at the end.
+
 1. **D1, deployment: install paad from the fork.** A task the human carries
    out, with the agent guiding; it closes on a recorded `Outcome: SUCCESS`
    like any operational task. Its procedure: §5.1–§5.4 on
    `wphillipmoore/paad` (rebase onto 2.1.0, catalog points at
-   `preview/paad`, version `2.1.0-preview.1`, validation gate passes,
+   `preview/paad`, versions per §5.2, validation gate passes,
    `develop` pushed), then §5.5's host settings entry. The fork is outside
    the vergil-project org, so the fork's own changes have no fleet PR; the
    task records what was pushed (the `develop` commit) in its outcome.
-2. **V1, validation,** blocked by D1: on a freshly refreshed cloud VM and a
-   Lima VM, with no `plugin-dirs.toml`, `paad@paad` is installed from
-   `wphillipmoore/paad`
-   at `develop` and a session lists `paad:paad-delegate`. Then a version
-   bump pushed to `develop` reaches both boxes on refresh, and an unchanged
-   version is tested to settle §5.2's question. The result decides whether
-   the version bump is required, and is recorded in paad-policy.
+2. **V1, validation,** blocked by D1: on a freshly refreshed cloud VM (which
+   never applies the override), `paad@paad` is installed from
+   `wphillipmoore/paad` at `develop` and a session lists
+   `paad:paad-delegate`. Then a change pushed to `develop` with the version
+   unchanged is checked for whether it reaches the box on refresh, settling
+   §5.2's open question. The result is recorded in paad-policy.
 3. **Remove the override (vergil-tooling),** blocked by V1:
    `lib/plugin_dirs.py`, its use and Lima-only message in `vrg-vm session`,
    `test_plugin_dirs.py`, the override cases in `test_vrg_vm.py` and
    `conftest.py`, and the docs (`cli-tools-overview.md`'s "The
-   `--plugin-dir` override", `releasing.md`, `github-issues.md`). The human
-   deletes `~/.config/vergil/plugin-dirs.toml`.
+   `--plugin-dir` override", `releasing.md`, `github-issues.md`, and in
+   vergil-claude-plugin the README's Update section and the site
+   `index.md` paragraph on loading a tree with `--plugin-dir`). The human
+   then deletes `~/.config/vergil/plugin-dirs.toml`, retires the `fleet`
+   branch and the `paad-fleet` worktree, and confirms a Lima session lists
+   `paad:paad-delegate`.
 4. **paad policy and doctrine §1.8 (vergil-claude-plugin),** blocked by V1:
    §5.5's rewrite, with V1's version finding.
 5. **Remove the gate (vergil-claude-plugin):** §6. Independent of the fork
@@ -293,10 +327,10 @@ Then the closing bookends: the documentation review
   runs in every session's paad on its next refresh. The validation gate
   before each push is the control (§5.4), and it rests on the human's
   process, as moving `fleet` did.
-- **Version keying.** If updates key on the version and a push forgets the
-  bump, boxes silently keep the old paad. V1 settles whether this applies;
-  if it does, the rebase process and paad-policy make the bump a checked
-  step.
+- **Version keying.** If updates key on the version, a push that keeps the
+  version leaves boxes silently on the old paad. V1 settles whether this
+  applies; if it does, §5.2's follow-up scheme is designed before the
+  override is removed.
 - **No pre-PR review until #878 lands.** Branches go to the human with only
   `vrg-validate` and CI behind them, as before the gate existed. Accepted by
   decision.
