@@ -37,6 +37,10 @@ Three epics run in this order:
 3. The merge review that replaces agentic-review. It defines the review loop
    inside `issue-implement` and adopts these tools.
 
+The epic also documents the `build/tmp/` scratch convention (§11). It came up
+in this design and is carried here as a general convention, though these
+tools do not use it.
+
 This epic changes no skill. The merge-review epic makes every skill change,
 including how `epic-implement` resumes a run and how `issue-implement` orders
 its decisions (§4).
@@ -169,7 +173,10 @@ on the `agents` list (§3).
 
 - **`request`** posts a request on an issue from an items file (each item: an
   ID, a security flag, and for non-security items the question and the
-  recommendation). It prints the request's comment ID.
+  recommendation). It prints the request's comment ID. It refuses while the
+  issue has an open exchange (an earlier request without a reply, or a reply
+  without a well-formed response after it), and names that request's ID so a
+  resumed run can pick it up instead.
 - **`draft`** runs once the human has decided. It pushes the reply the agent
   drafted to the request's draft ref (§9) and prints the paste-ready human
   command (§8) for that issue and request. It posts no comment.
@@ -189,8 +196,9 @@ The request and the response each carry a required hidden HTML marker that
 gives the comment's kind (`request` or `response`) and, for a response, the
 request and reply comment IDs. The tools recognise the comments only by it.
 An agent comment after a reply that is not a well-formed response is a turn
-violation (§5.2). The marker never carries identity: a marker in a comment by
-anyone not on the trusted-authors list is ignored, like the comment.
+violation (§5.2). The marker never carries identity, and the tools recognise
+it only in comments by the derived agent login: a marker anywhere else,
+including a comment by the human, is ignored.
 
 ## 8. The human tool: `vrg-ruling-reply` (vergil-tooling)
 
@@ -213,7 +221,15 @@ shell carries the agent's identity and bypasses the hooks.
   interactive prompt. It posts exactly those bytes, so a draft changed after
   it was read is never posted. It refuses to run without an interactive
   terminal.
-- After posting a draft, it deletes the draft ref.
+- **Only plain text is posted.** The tool refuses a reply (a draft or
+  `--response-text`) that contains a control character other than newline
+  and tab, or a vergil marker (§7). It shows the reply with any non-printing
+  character made visible, with its byte length and SHA-256 hash, so nothing on
+  screen can hide part of what is posted.
+- After posting any reply to a request, the draft or the human's own text, it
+  deletes that request's draft ref. A reply declined at the prompt keeps the
+  ref, so the command can be run again. `respond` also deletes any draft ref
+  left for its request.
 
 ## 9. The draft relay
 
@@ -235,6 +251,14 @@ projects live on its own volume. It reuses the relay mechanism of
   (§6).
 
 ## 10. Failures and recovery
+
+**Every comment is posted exactly once.** `request`, `respond` and the human
+tool each post with no retry (vergil-tooling's `post_json_once`, or an
+equivalent), because a retried POST that had already landed would post a
+duplicate, and a duplicate request or reply is a fatal turn violation. After
+an uncertain failure (a timeout or a 5xx), the tool re-reads the issue: if
+its comment landed, it reports the comment's ID; if not, it fails with an
+error saying the post did not land, and posts nothing more.
 
 A fatal check stops the run with a non-zero exit and a message naming the
 check and the comment. The human triages it. The recovery is to start over
@@ -269,7 +293,9 @@ vergil-tooling's docs gain:
   - that a draft ref pushed again after the human was shown it is not what
     gets posted;
   - that each of these is fatal: an edited request, an edited reply, a
-    deleted request, a deleted reply, and a trusted comment out of turn;
+    deleted request, a reply deleted after `read` (caught by `respond`), and
+    a trusted comment out of turn. A reply deleted before `read` cannot be
+    told from no reply, and gives the "no reply yet" outcome;
   - that deleting an untrusted comment is not;
   - that the logins GitHub reports for the App and the human on these
     comments match the checks, live rather than against stubs
