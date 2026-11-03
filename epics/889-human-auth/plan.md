@@ -67,6 +67,7 @@ pytest.
 ### Task 1: the shared library (identity, comments, marker, turn checks)
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/rulings/__init__.py`
 - Create: `src/vergil_tooling/lib/rulings/identity.py`
 - Create: `src/vergil_tooling/lib/rulings/comments.py`
@@ -77,6 +78,7 @@ pytest.
   `test_rulings_exchange.py`
 
 **Interfaces:**
+
 - Consumes: `load_trusted_authors() -> TrustedAuthors`,
   `identity_mode.current_mode() -> IdentityMode`, `github.graphql(query,
   **variables) -> dict`.
@@ -225,6 +227,7 @@ Expected: PASS.
 ### Task 2: `vrg-ruling request`, `read` and `respond`
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/rulings/items.py`
 - Create: `src/vergil_tooling/lib/rulings/post.py`
 - Create: `src/vergil_tooling/bin/vrg_ruling.py`
@@ -236,6 +239,7 @@ Expected: PASS.
   `test_rulings_post.py`, `test_vrg_ruling.py`
 
 **Interfaces:**
+
 - Consumes: Task 1's whole interface; `github.post_json_once(endpoint,
   body) -> dict`; `github.GitHubAPIError`.
 - Produces:
@@ -356,6 +360,7 @@ Expected: PASS, including `test_cli_tools_overview.py` and
 ### Task 3: the draft relay ref and `vrg-ruling draft`
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/rulings/draft_ref.py`
 - Modify: `src/vergil_tooling/bin/vrg_ruling.py` (the `draft` subcommand and
   `_after_respond`)
@@ -365,6 +370,7 @@ Expected: PASS, including `test_cli_tools_overview.py` and
   `test_vrg_ruling.py`
 
 **Interfaces:**
+
 - Consumes: Task 1 and Task 2; `git.read_output`, `git.read_output_stdin`,
   `git.run`; `github.read_json`, `github.delete_if_exists`.
 - Produces:
@@ -444,6 +450,7 @@ Expected: PASS.
 ### Task 4: `vrg-ruling-reply`, the human tool
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/rulings/plain_text.py`
 - Create: `src/vergil_tooling/bin/vrg_ruling_reply.py`
 - Modify: `pyproject.toml` (`vrg-ruling-reply =
@@ -454,6 +461,7 @@ Expected: PASS.
   `test_vrg_ruling_reply.py`
 
 **Interfaces:**
+
 - Consumes: Tasks 1 to 3; `identity_mode.is_agent()`,
   `confirm.confirm(prompt, *, assume_yes)`, `github.read_output`.
 - Produces:
@@ -550,6 +558,7 @@ Expected: PASS.
 ### Task 5: the protocol guide and the `build/tmp/` convention
 
 **Files:**
+
 - Create: `docs/site/docs/guides/human-replies.md`
 - Create: `docs/site/docs/reference/dev/ruling.md` (the reference page for
   both commands: every subcommand, flag and exit code)
@@ -560,6 +569,7 @@ Expected: PASS.
   nav coverage; no new test)
 
 **Interfaces:**
+
 - Consumes: the commands and exit codes from Tasks 2 to 4.
 - Produces: the page the merge-review epic cites,
   `guides/human-replies.md`.
