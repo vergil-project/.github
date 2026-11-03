@@ -4,7 +4,7 @@
   vergil-project/.github#848 (wave 2: the ruling protocol and the manager split)
 - **Planning issue:** vergil-project/.github#802 (review history is in its
   comments)
-- **Status:** approved
+- **Status:** on hold, unlikely to be implemented (epics #816 and #848 closed as not planned). The ruling protocol (Tasks 12 and 13) is superseded by vergil-project/.github#889 (`epics/889-human-auth/spec.md`).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

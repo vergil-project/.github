@@ -5,7 +5,7 @@
   protocol and the manager split: §7.2, §8, §13), planned together
 - **Planning issue:** vergil-project/.github#802 (review history is in its
   comments)
-- **Status:** approved
+- **Status:** on hold, unlikely to be implemented (epics #816 and #848 closed as not planned). The ruling protocol in §7.2 is superseded by vergil-project/.github#889 (`epics/889-human-auth/spec.md`).
 - **Repos:** vergil-claude-plugin (the logging rule, the ruling protocol, the
   skills, the review doctrine), vergil-tooling (the roll-up and audit tool,
   the static lint, the comment tooling, the site docs), the paad fork
