@@ -1,0 +1,260 @@
+# Authenticated human replies on task issues
+
+- **Epic:** vergil-project/.github#889
+- **Planning issue:** vergil-project/.github#879 (review history is in its
+  comments)
+- **Status:** draft
+- **Repos:** vergil-tooling (the two tools, their docs and the `build/tmp/`
+  convention), `.github` (this spec and plan)
+
+## 1. Problem
+
+When a code review of a task's change needs the human's decision, the
+decision reaches the agent that acts on it as text. Under `epic-implement`,
+the dispatching agent copies the human's rulings into the dispatched run's
+prompt, and `issue-implement` writes them onto the task issue as `Human
+ruling:` lines in a comment from its own agent login. Nothing proves the
+human said any of it.
+
+This epic builds the tools for an authenticated channel. The agent posts a
+request on the task issue. The human posts the reply from their own GitHub
+account, in their own shell. The agent reads the reply from the issue and
+checks who wrote it. A caller never relays the decision: under
+`epic-implement` it says only "human response available", and the run reads
+the issue itself.
+
+The task issue is the unit of record. A task is closed by one PR, and its
+comments record how that PR's change was reviewed and what the human
+decided.
+
+## 2. Scope and sequence
+
+Three epics run in this order:
+
+1. Removing agentic-review from the workflow (planned separately).
+2. This epic: the tools, their documentation, their release and an end-to-end
+   validation.
+3. The merge review that replaces agentic-review. It defines the review loop
+   inside `issue-implement` and adopts these tools.
+
+This epic changes no skill. The merge-review epic makes every skill change,
+including how `epic-implement` resumes a run and how `issue-implement` orders
+its decisions (§4).
+
+## 3. Identities and assumptions
+
+- **Trusted authors.** The tools read identity only from the existing
+  trusted-authors configuration (`vrg-trusted-authors`,
+  `lib/trusted_authors.py`): its `human` logins and its `agents` logins. A
+  leading `app/` is stripped before comparing, as that module says. Comments
+  by any other login are ignored by every check in this spec.
+- **The agent login.** The login the agent tool expects to post as is derived
+  by the trusted-authors convention: `<human login>-vergil-<mode>`, where
+  `<mode>` is the session's identity mode (`user` or `audit`). The derived
+  login must be on the `agents` list, or the tool refuses before posting. No
+  new configuration. The tool never needs to ask GitHub its own login:
+  `viewer { login }` is not reachable through `vrg-gh` in the agent identity
+  (probe vergil-project/.github#864).
+- **Comment authors.** Probe #864 found that comment authors appear exactly as
+  `vrg-trusted-authors` lists them.
+- **Agent sessions have only App credentials.** Every agent session runs in a
+  `vrg-vm` VM whose only GitHub credentials are the App's. `vrg-gh`'s fallback
+  to ambient gh auth finds none there and runs unauthenticated, which cannot
+  post. So an agent can never post as the human. This is a stated assumption,
+  not something the tools check (GHSA-9q3r-h2xj-rgq3).
+- **Identity is never asserted in text.** A comment's author is the only
+  source of who wrote it. A hidden marker may let the tools recognise a
+  request or a response (§7), but never says who wrote it.
+
+## 4. One round on a task issue
+
+1. The review's findings, posted by an agent login.
+2. **The request:** one comment listing every finding that needs the human,
+   each with the agent's recommendation. Posted by the agent tool.
+3. **The reply:** one plain-text comment covering everything in the request.
+   Posted by the human tool, as the human.
+4. **The response:** what the agent did with each item, and how it read the
+   reply. Posted by the agent tool.
+
+One request per round, and one reply per request. A reply has no grammar:
+the skill that reads it interprets it, and states its reading in the
+response. An unclear reply is answered by a new request.
+
+Decisions that are not about review (approving a follow-up issue or a new
+operational task, preflight stops, problems the agent cannot resolve) stay
+outside this channel. The skill handles them first, before posting the
+request, so the review exchange sits in one block on the issue. That is the
+merge-review epic's to build.
+
+In practice the human and the agent talk the items through in the terminal
+first. That conversation is not recorded. Once the human decides, the agent
+drafts the reply and hands the human a command with it already filled in;
+the human reads it and runs it.
+
+## 5. The checks
+
+### 5.1 Accepting a reply
+
+The agent tool accepts a reply only when:
+
+- the request it answers was posted by the derived agent login (§3);
+- its author is a `human` login;
+- it is the first trusted comment after the request;
+- neither the request nor the reply has been edited.
+
+### 5.2 Turn order
+
+The issue is single-threaded. After a request, the next trusted comment must
+be the reply. After the reply, the next trusted comment must be the response.
+Any other trusted comment in either gap is a turn violation and fatal: an
+agent comment between the request and the reply, or a second human comment
+before the response. To correct an answer, the human waits for the response,
+and the agent asks again in a new request.
+
+### 5.3 Write-once
+
+Agents never edit a comment; they post a new one. The human never edits one
+either. The tools enforce this on the request and the reply: an edited
+request or reply is fatal, whoever wrote it.
+
+### 5.4 Deletions
+
+Each response names, by comment ID, the request and the reply it acted on.
+A read that finds a named request or reply missing is fatal. Deleting an
+untrusted comment (marketing noise, for example) is allowed and ignored.
+
+### 5.5 The audit's ceiling
+
+Other comments in the exchange (the findings, earlier responses) are not
+chained or checked, and anyone with write access can delete evidence,
+up to a whole issue. GitHub's docs say only a comment's author or someone
+with write access can edit or delete it, and that an edit stays visible as
+edited; there is no way to make a comment uneditable. The record is as
+trustworthy as the people with write access. The tools guarantee only that
+the decision the agent acts on is the human's, unaltered.
+
+## 6. Security items
+
+A security finding's details never appear in a public record. Its decision
+still goes through the request and the reply, by ID:
+
+- The details reach the human only in the terminal, and reach a dispatched
+  run only privately, as they do today (from the task's state directory),
+  never from the issue.
+- **In a request,** a security item is marked by an explicit flag, not
+  recognised by the shape of its ID, and carries only its ID and a fixed
+  text: `security finding, details given privately`. The agent tool refuses a
+  request whose flagged item carries anything else (GHSA-r5f4-5586-mqfp).
+- **In a response,** security items appear by ID and as counts, with no
+  detail, and nothing from the review's result is copied into a response
+  word for word (GHSA-2fjg-qxrj-fc2v, GHSA-8459-fr73-66rm).
+- **The reply** is the human's text, which the tools cannot screen. The agent
+  drafts it by the same rule, security items by ID only, and the human reads
+  it before running the command.
+
+## 7. The agent tool: `vrg-ruling` (vergil-tooling)
+
+Run by an agent. Every subcommand refuses unless the derived agent login is
+on the `agents` list (§3).
+
+- **`request`** posts a request on an issue from an items file (each item: an
+  ID, a security flag, and for non-security items the question and the
+  recommendation). It prints the request's comment ID.
+- **`draft`** runs once the human has decided. It writes the reply the agent
+  drafted to a response file (§9) and prints the paste-ready human command
+  (§8) for that request and file. It posts nothing.
+- **`read`** reads the reply to a given request ID, running every check in
+  §5.1 to §5.4. It has three outcomes, each with its own exit code: a valid
+  reply (printed), no reply yet, and a fatal check (naming the check and the
+  comment).
+- **`respond`** posts the response to a request and its reply. It re-runs
+  `read`'s checks first, refuses unless the reply is still the latest trusted
+  comment, and records the request and reply comment IDs in the response.
+
+The request and the response may carry a hidden HTML marker so the tools can
+recognise them.
+
+## 8. The human tool: `vrg-ruling-reply` (vergil-tooling)
+
+Run by the human in their own shell on the host, logged in as themselves,
+the way `vrg-submit-pr` is run. Never through `!` in the agent session, whose
+shell carries the agent's identity and bypasses the hooks.
+
+- It refuses in an agent identity mode, as `vrg-submit-pr` does, and refuses
+  unless the login its credentials post as is a `human` login. The agent
+  tool's author check (§5.1) is the guarantee; this refusal catches the tool
+  being run in the wrong shell.
+- It takes the issue, the request's comment ID, and the reply as either
+  `--response-text "<text>"` or `--response-file <path>`.
+- Before posting, it reads the issue and refuses when the request is not the
+  latest trusted comment (it is already answered, or the turn has moved on),
+  or when the response file's issue number is not the target issue. It shares
+  the agent tool's comment-reading code.
+- A response file must match §9's pattern; anything else is refused. The tool
+  deletes the file after posting.
+- It accepts any login on the `human` list.
+
+## 9. The `build/tmp/` convention
+
+Everything under a repo's `build/tmp/` is scratch: a file there can be
+deleted once nothing is using it.
+
+Response files live in `build/tmp/` at the root of the main checkout of the
+repo the agent is working in, the one place there an agent may write outside
+a task worktree. They are named `vrg-response-<issue>-<random>.md`. The human
+cannot see the VM's `/tmp`, but VM and host paths to the repo are identical,
+so the agent tool prints an absolute path. The human tool refuses a path
+that does not resolve to `<repo root>/build/tmp/` with that name, and refuses
+symlinks.
+
+## 10. Failures and recovery
+
+A fatal check stops the run with a non-zero exit and a message naming the
+check and the comment. The human triages it. The recovery is to start over
+on a new issue carrying the same context, patching the spec or plan if
+needed. The broken issue is not repaired. Nothing is built for recovery
+beyond detecting and stopping; it is expected to be rare.
+
+## 11. Documentation
+
+vergil-tooling's docs gain:
+
+- the protocol: the round (§4), the checks (§5), security items (§6) and
+  recovery (§10), written for the merge-review epic to cite;
+- the two tools' reference pages;
+- the `build/tmp/` convention (§9).
+
+## 12. Deployment and validation
+
+- **Deployment** (vergil-project/vergil-tooling#3918) releases the tools so
+  they are usable before the merge-review epic starts. Cutting the release is
+  the human's.
+- **Validation** (vergil-project/vergil-tooling#3919) runs real rounds on a
+  throwaway issue. A stub step posting a canned finding stands in for the
+  review; it lives in the validation's procedure, never as a skill. It
+  checks:
+  - a full round: `request`, the human running `vrg-ruling-reply`, `read`
+    and `respond`;
+  - that each of these is fatal: an edited request, an edited reply, a
+    deleted request, a deleted reply, and a trusted comment out of turn;
+  - that deleting an untrusted comment is not;
+  - that the logins GitHub reports for the App and the human on these
+    comments match the checks, live rather than against stubs
+    (GHSA-xffj-678w-ggjp).
+
+## 13. Out of scope
+
+- Every skill change, including `issue-implement`, `epic-implement` and the
+  merge review itself (§2).
+- Decisions not about review (§4).
+- `issue-deploy` and `issue-validate`, whose comments stay a plain log of the
+  work.
+- `epic-create` and direct human-to-agent conversation, whose record is the
+  spec and plan.
+- Making every human ruling an authenticated comment
+  (vergil-project/.github#892).
+- A grammar for replies, and what any particular answer means.
+- Chaining or checking comments other than the request and the reply (§5.5).
+- The `Supersedes:` correction links of the paused design: a correction is a
+  new request, and nothing invalidates an earlier comment
+  (GHSA-w38c-m89h-5v9q).
