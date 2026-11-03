@@ -91,7 +91,9 @@ the fleet installs from:
   upstream's released tree.
 - The local `fleet` branch and the `paad-fleet` worktree
   (`/Users/pmoore/dev/projects/wphillipmoore/paad-fleet`) are retired last,
-  when the override is removed (§7 step 3).
+  when the override is removed (§7 step 3). The `unattended-mode` branch,
+  whose commits `develop` now carries, is retired then too, locally and on
+  `origin`, unless an open upstream PR uses it as its head.
 
 ### 5.2 Version scheme
 
@@ -149,8 +151,10 @@ Before any change reaches `develop`, including a rebase, the #733 validation
 scenario sets (vergil-project/.github#733, spec §5) pass against the
 candidate tree, in newly started sessions. The candidate is loaded with
 Claude Code's own `claude --plugin-dir <candidate>/preview/paad` flag, as a
-**manual test** run through `issue-validate`, not as fleet plumbing:
-nothing in vergil configures or reads it.
+**manual test** following `issue-validate`'s conventions, not as fleet
+plumbing: nothing in vergil configures or reads it. The run may be its own
+validation task or a step of the deployment task that pushes the result
+(as in D1, §7).
 
 **The push rule.** The commit pushed is the commit validated: just before
 the push, the fork's working tree is clean and `develop`'s HEAD is the
@@ -199,9 +203,15 @@ fleet checkout, §9, and §10. §10 states:
 - the `--plugin-dir` override, the fleet checkout, the `fleet` branch, the
   "Lima only" paragraph and the accepted risk that only existed because of
   them (a session started without the override) are removed;
-- one accepted risk stays, reworded: the fork's development clone sits on
-  the projects tree every Lima VM mounts read-write, so a change to it is
-  caught only by §5.4's push rule;
+- the "No version check" bullet stays: boxes track commits (§5.2);
+- the accepted risks are: every push to `develop` reaches every box (§8),
+  replacing "running the development tree is a deliberate choice"; the
+  fork's development clone sits on the projects tree every Lima VM mounts
+  read-write, so a change to it is caught only by §5.4's push rule; and only
+  the human pushes to the fork, with nothing technical enforcing it
+  (`vrg-git` allows `push`);
+- how a box switches marketplace source, and that a pushed commit installs
+  with nothing bumped, both as V1 finds them (§7);
 - the delegate stays required for mode 1 rounds; a session without it is
   now a misconfigured box, and the fix it names is the host settings entry
   above.
@@ -235,7 +245,8 @@ What goes:
   becomes the rules for mode 1 design review; its section numbers for §1 and
   §2 are kept, so existing links stay valid.
 - **paad-policy:** the agentic-review output rule, the mode 2 row of the
-  deviations table (the three-round cap), and §10's mentions of the gate.
+  deviations table (the three-round cap), §9's mode 2 sentence, and §10's
+  mentions of the gate.
 - **`epic-implement`:** the list of tasks paused at the gate in its report,
   and any dispatch text about gate pauses and `fix` confirmations.
 - **`epic-retrospective`:** the step that reads each task's
@@ -246,9 +257,10 @@ What goes:
   test's `agentic-review` fixture paths change, to the renamed
   `issue-implement` kind (§6.2).
 - **Docs:** the plugin README's and site skills page's descriptions of the
-  gate and of `issue-implement` as Lima-only, and the "what a session needs
-  for paad review rounds" section's Lima-only limit and override
-  instructions.
+  gate and of `issue-implement` as Lima-only. The override instructions in
+  the skills page's "what a session needs for paad review rounds" section
+  stay until the fork install is proven, and go with the policy rewrite
+  (§7 step 4).
 
 ### 6.2 What stays
 
@@ -283,7 +295,10 @@ What goes:
   when the removal is implemented.
 - Leftover `build/.vergil-state/agentic-review/` directories: the
   gate-removal task (§7 step 5) lists any it finds in the fleet's main
-  clones in its final report, once. The human deletes them; agents do not.
+  clones in its final report, once, with any file in them and any open
+  trusted `Kept:` line naming them. A kept item still awaiting a ruling is
+  ruled on before its directory is deleted. The human deletes them; agents
+  do not.
 
 ## 7. Delivery order and validation
 
@@ -323,14 +338,15 @@ and specs). The documentation review sweeps again at the end.
    `lib/plugin_dirs.py`, its use and Lima-only message in `vrg-vm session`,
    `test_plugin_dirs.py`, the override cases in `test_vrg_vm.py` and
    `conftest.py`, and the docs (`cli-tools-overview.md`'s "The
-   `--plugin-dir` override", `releasing.md`, `github-issues.md`, and in
-   vergil-claude-plugin the README's Update section and the site
-   `index.md` paragraph on loading a tree with `--plugin-dir`). The human
+   `--plugin-dir` override", `releasing.md`, `github-issues.md`). The human
    then deletes `~/.config/vergil/plugin-dirs.toml`, retires the `fleet`
    branch and the `paad-fleet` worktree, and confirms a Lima session lists
    `paad:paad-delegate`.
 4. **paad policy and doctrine §1.8 (vergil-claude-plugin),** blocked by V1:
-   §5.5's rewrite, with V1's version finding.
+   §5.5's rewrite, with both of V1's findings, and the plugin's override
+   docs (the README's Update section, the site `index.md` sentence on a
+   Lima session loading a tree, and the skills page's override
+   instructions).
 5. **Remove the gate (vergil-claude-plugin):** §6. Independent of the fork
    half; it can land in parallel.
 6. **Gate mentions in vergil-tooling's docs:** `github-issues.md`'s gate
@@ -354,7 +370,7 @@ Then the closing bookends: the documentation review
   process, as moving `fleet` did.
 - **A `version` field coming back.** If a rebase re-adds `version` to
   `preview/paad`'s manifest or its catalog entry, boxes silently stop
-  picking up pushes. §5.3 step 3 checks for it on every rebase.
+  picking up pushes. §5.3 step 4 checks for it on every rebase.
 - **No pre-PR review until #878 lands.** Branches go to the human with only
   `vrg-validate` and CI behind them, as before the gate existed. Accepted by
   decision.

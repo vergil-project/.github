@@ -77,7 +77,7 @@ plugin marketplace.
    Task 5 step 7.
 4. **A user's own `--plugin-dir` after `vrg-vm session --`** still reaches
    `claude`, since the manual validation gate relies on it. Pinned in Task 3
-   step 1.
+   step 2.
 5. **A Lima session after the override's config is deleted** loads the
    installed fork paad and lists `paad:paad-delegate`, not upstream paad and
    not the stale fleet tree. Pinned in D2 step 3.
@@ -119,9 +119,11 @@ that changes the clone or the remote.
 
 - [ ] **Step 1 (human):** fetch upstream with tags, create `develop` from
   `unattended-mode` and rebase it onto `paad--v2.1.0`, dropping any fleet
-  patch 2.1.0 already carries. Expected conflicts are in
-  `preview/paad/skills/agentic-review/SKILL.md` (upstream's symlink guard and
-  `paad/security` checks).
+  patch 2.1.0 already carries. Expect conflicts in every file both sides
+  touch: `preview/paad/skills/agentic-review/SKILL.md` (upstream's symlink
+  guard and `paad/security` checks), `pushback`, `alignment` and
+  `paad-help` `SKILL.md`, `Makefile` and `CHANGELOG.md`. After resolving,
+  re-check each skill's announce line.
 - [ ] **Step 2 (agent, read-only):** check the tag carries no unreleased
   work: `vrg-git diff paad--v2.1.0:plugins/paad paad--v2.1.0:preview/paad`.
   Expected: the only differences are the `-preview` announce suffix, `internal: true`
@@ -137,6 +139,11 @@ that changes the clone or the remote.
   - `Makefile` `check-skill-versions`: when the tree's `plugin.json` has no
     `version`, expect `v<plugins/paad version>-preview` in every announce
     line.
+- [ ] **Step 3a (human, before committing Step 3):** prove the patched
+  checks fail on a bad tree. In turn: re-add `"version"` to the catalog's
+  `paad` entry; re-add it to `preview/paad`'s manifest; change one
+  `preview/paad` announce line's suffix. Each time `make check-versions` or
+  `make check-skill-versions` fails; revert each before the next.
 - [ ] **Step 4 (agent, read-only):** run `make test`. Expected: passes. Run
   `grep -c '"version"' preview/paad/.claude-plugin/plugin.json` and
   `python3 -c "import json;print([p.get('version') for p in json.load(open('.claude-plugin/marketplace.json'))['plugins']])"`.
@@ -176,8 +183,9 @@ Validation, blocked by D1. Spec §7 step 2.
   (`git commit --allow-empty`, which touches no file, so it is exempt from
   the gate and a later rebase drops it). Refresh the VM again.
   Expected: the installed commit is the new one, with no version changed.
-- [ ] **Step 3:** comment the outcome with both installed commits and the
-  re-add finding (Task 4 records it), and close on SUCCESS.
+- [ ] **Step 3:** comment the outcome with both installed commits, the
+  re-add finding and the commit-tracking result (Task 4 records both), and
+  close on SUCCESS.
 
 ### Task 3: Remove the `--plugin-dir` override
 
@@ -203,24 +211,27 @@ vergil-tooling, blocked by V1. Spec §7 step 3, §5.5. Standing order applies.
   `~/.config/vergil/plugin-dirs.toml`.
 
 - [ ] **Step 1: Search** the three repos per Global Constraints and list the
-  hits in the task's notes. Add the Review Focus 4 test first:
+  hits in the task's notes.
+- [ ] **Step 2: Characterize.** Add the Review Focus 4 test:
   `test_session_passes_user_plugin_dir_through`, asserting that
   `vrg-vm session -- claude --plugin-dir /x` builds a launch whose argv
   contains `--plugin-dir /x` exactly once, on Lima and on cloud. Run it;
   expected: passes before and after the removal.
-- [ ] **Step 2:** delete the override's tests and the `conftest.py`
-  fixture. No test replaces them: once the module is gone nothing reads the
-  file.
-- [ ] **Step 3:** remove the override from `vrg_vm.py` and delete
-  `lib/plugin_dirs.py`. Expected: Step 1's test still passes, and
+- [ ] **Step 3: Remove.** Delete the override's tests and the `conftest.py`
+  fixture (no test replaces them: once the module is gone nothing reads the
+  file), remove the override from `vrg_vm.py` and delete
+  `lib/plugin_dirs.py`. Expected: Step 2's test still passes, and
   `vrg-git grep -nE "plugin_dirs|plugin-dirs" -- src tests` finds nothing.
+- [ ] **Step 3a: Clean up.** Simplify `_session_inner` and `_cloud_session`
+  now the parameter is gone: no leftover `plugin_flags` plumbing or cloud
+  notice path. Step 2's test still passes.
 - [ ] **Step 4:** rewrite the docs: remove the override section and the
   Lima-only paragraph from `cli-tools-overview.md`; in `releasing.md`,
   remove the paragraph saying a Lima session with the override bypasses the
   installed plugin; in `github-issues.md`, remove the override and
   Lima-only text (the gate text is Task 6's).
   The plugin README's Update-section paragraph and the site `index.md`
-  sentence on the override are in Task 5, since a vergil-tooling PR cannot
+  sentence on the override are in Task 4, since a vergil-tooling PR cannot
   close plugin changes.
 - [ ] **Step 5:** `vrg-container-run -- vrg-validate`. Expected: passes.
 - [ ] **Step 6:** `vrg-commit --type feat --scope vrg-vm --message "remove the --plugin-dir session override"`,
@@ -234,7 +245,8 @@ vergil-tooling release carrying Task 3 is published.
 - [ ] **Step 1 (human):** install the release on the host.
 - [ ] **Step 2 (human):** delete `~/.config/vergil/plugin-dirs.toml`;
   remove the `paad-fleet` worktree and delete the local `fleet` branch (it
-  was never pushed); delete `unattended-mode` locally and on `origin`, since
+  was never pushed); unless an open upstream PR uses it as its head (the
+  human checks), delete `unattended-mode` locally and on `origin`, since
   `develop` holds its commits. The agent gives the commands; it runs none of
   them.
 - [ ] **Step 3:** start a fresh Lima `vrg-vm session`. Expected: no
@@ -255,21 +267,26 @@ applies.
 - Modify: `docs/paad-review-doctrine.md` §1.8
 - Modify: `skills/epic-create/SKILL.md` (Design review rounds step 1's fix
   text, which names `vrg-vm session` and the fleet checkout)
+- Modify: `README.md` (the Update-section paragraph on
+  `plugin-dirs.toml`), `docs/site/docs/index.md` (the sentence on a Lima
+  session loading a tree with `--plugin-dir`),
+  `docs/site/docs/skills/index.md` (the paad review rounds section's
+  override instructions)
 
 - [ ] **Step 1:** search per Global Constraints for `paad-fleet`, `fleet
   checkout`, `fleet` branch, `plugin-dirs`, `Lima only` and `Ovid/paad`
   in the plugin and handle every hit.
-- [ ] **Step 2:** rewrite §10 (retitle it "paad from the fork") with
-  exactly spec §5.5's six bullets: the install source; the version scheme,
-  rebase process (spec §5.3's seven steps, verbatim in substance) and
-  validation gate with its push rule and exemption; only the human changes
-  the fork; the override, fleet checkout, `fleet` branch, Lima-only
-  paragraph and its accepted risk removed; the one reworded accepted risk;
-  the delegate required, a missing one meaning a misconfigured box. Add
-  V1's re-add finding as the procedure for switching a box's source. Add a
-  second accepted risk: only the human pushes to the fork, and nothing
-  technical enforces it (`vrg-git` allows `push`, and the clone is on the
-  read-write projects mount).
+- [ ] **Step 2:** rewrite §10 (retitle it "paad from the fork") with spec
+  §5.5's bullets: the install source; the version scheme, rebase process
+  (spec §5.3's seven steps, verbatim in substance) and validation gate with
+  its push rule and exemption; only the human changes the fork; the
+  override, fleet checkout, `fleet` branch, Lima-only paragraph and its
+  accepted risk removed; "No version check" kept; the three accepted risks
+  (every push reaches every box, the read-write-mounted clone, nothing
+  technical enforcing the push rule); V1's two findings (how a box switches
+  marketplace source, and that a pushed commit installs with nothing
+  bumped); the delegate required, a missing one meaning a misconfigured
+  box.
 - [ ] **Step 2a:** the retitle changes §10's anchor. Re-point every link to
   `paad-policy.md#10-paad-unattended-mode-and-the-fleet-checkout` in
   vergil-claude-plugin, vergil-tooling and `.github` (outside historical
@@ -303,12 +320,11 @@ vergil-claude-plugin, independent. Spec §6. Standing order applies.
 - Modify: `hooks/scripts/block-worktree-bypass-write.sh` (header comment),
   `hooks/tests/block-worktree-bypass-write.test.sh` (fixture paths, lines 33
   and 135)
-- Modify: `README.md` (the `issue-implement` row; the Update-section
-  paragraph on `plugin-dirs.toml`), `docs/site/docs/index.md` (the sentence
-  on a Lima session loading a tree with `--plugin-dir`),
-  `docs/site/docs/skills/index.md` (the paad review rounds section's
-  override and Lima-only text, the `issue-implement` row and section),
-  `docs/development/skills-architecture.md` line 349
+- Modify: `README.md` (the `issue-implement` row),
+  `docs/site/docs/skills/index.md` (the paad review rounds section's gate
+  text, the `issue-implement` row and section; its override instructions
+  are Task 4's). `docs/development/skills-architecture.md`'s mention of
+  agentic-review is interactive use and stays.
 
 - [ ] **Step 1:** search per Global Constraints. List any task paused at
   the gate (a trusted `agentic-review round <n>: response` comment with a
@@ -340,7 +356,8 @@ vergil-claude-plugin, independent. Spec §6. Standing order applies.
   `epic-retrospective`: remove the step reading `agentic-review summary` or
   round comments.
 - [ ] **Step 5:** paad-policy: remove the agentic-review output rule, the
-  three-round-cap row and §10's gate mentions.
+  three-round-cap row, §9's mode 2 sentence and §10's gate mentions
+  (including "mode 2 pauses").
 - [ ] **Step 6:** hook: reword the header comment and rename the test
   fixtures to `build/.vergil-state/issue-implement/9001/1/...`. Run the hook
   test through `vrg-validate`; expected: passes with the logic unchanged.
@@ -350,8 +367,9 @@ vergil-claude-plugin, independent. Spec §6. Standing order applies.
   `vrg-git grep -nE "\]\(#3[0-9]|§3\.[0-9]" -- docs/paad-review-doctrine.md`.
   Expected: no match from either.
 - [ ] **Step 8:** list any `build/.vergil-state/agentic-review/` directory
-  in the fleet's main clones, once, in the final report, for the human to
-  delete.
+  in the fleet's main clones, once, in the final report, with any file in
+  it and any open trusted `Kept:` line naming it, for the human to rule on
+  kept items and then delete.
 - [ ] **Step 9:** `vrg-container-run -- vrg-validate`; expected: passes.
   `vrg-commit --type feat --scope issue-implement --message "remove the agentic-review gate"`,
   then `report-ready`.
