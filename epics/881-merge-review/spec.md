@@ -6,7 +6,8 @@
 - **Status:** draft
 - **Repos:** vergil-claude-plugin (the `merge-review` skill, its reviewer
   prompt and its gate in `issue-implement`), vergil-tooling (the protocol
-  spec and the result validator), `.github` (this spec and plan)
+  spec, the result check and the change classifier), `.github` (this spec
+  and plan)
 
 ## 1. Intent
 
@@ -41,6 +42,11 @@ already produces work the human is happy with. The review is risk
 management: the extra check that has to exist before agents merge on their
 own.
 
+This epic is the prerequisite for agents submitting and merging PRs. The
+fleet lacks the confidence to allow that today precisely because it has no
+judgement-level review between a green `vrg-validate` and the PR. Turning
+on agent submit and merge is the next step, and it depends on this one.
+
 ## 2. Goals, non-goals, anti-goals
 
 ### Goals
@@ -57,9 +63,10 @@ own.
 
 ### Non-goals
 
-- **Agents submitting or merging PRs.** This epic produces the eligibility
-  signal. Acting on it changes the rule that only the human runs
-  `vrg-submit-pr`, and that is a later epic.
+- **Agents submitting or merging PRs.** This epic exists to make that
+  possible, and produces the eligibility signal it will rely on. Acting on
+  the signal changes the rule that only the human runs `vrg-submit-pr`, and
+  that change is the follow-on epic.
 - **Moving paad's design-review rounds onto the new protocol** and removing
   the paad review doctrine's workarounds (state-directory seals and hashes,
   scratch copies, security cut-outs, broken-round exits). That is a later
@@ -211,7 +218,9 @@ because security records are deliberately neutral.
      Too many blockers means the branch is too big or the design is wrong,
      and a fix round is the wrong tool.
    - Otherwise the implementer fixes every defect (and handles pre-existing
-     notes, §5.4), re-validates to green, and continues.
+     notes, §5.4) and runs `vrg-validate` again, fixing any failure until it
+     is green, as in normal implementation. Getting back to green is not
+     capped and is not a review round.
 4. **Check.** A fresh reviewer gets the original findings and the fix diff,
    and answers one question per finding: fixed or not. It may also report
    that a fix broke something it touched. It does not review anything else.
@@ -273,10 +282,13 @@ reading this epic. It defines:
   before dispatch;
 - **a result file**, written by the subagent into the same directory, made of
   a structured block followed by free prose;
-- **a validator**, a `vrg-*` command that checks the structured block against
-  a schema and exits non-zero on any violation;
-- the rule that the caller acts only on the validated block. The prose is for
-  the human.
+- **the result check**, a `vrg-*` command that checks the result file's
+  structured block against the protocol's schema (required fields present,
+  values from the allowed set, finding IDs consistent) and exits non-zero on
+  any violation. It checks the reviewer's output, not the code, and is
+  unrelated to `vrg-validate`;
+- the rule that the caller acts only on a block that passed the result
+  check. The prose is for the human.
 
 The subagent's reply message carries nothing the caller acts on beyond "the
 result is written".
@@ -312,8 +324,10 @@ details go only in the prose part, which is never posted.
 - The reviewer is read-only. The caller checks that the worktree's branch,
   HEAD and clean status did not change across the review, and that the
   reviewer wrote nothing in the state directory except the result file.
-- A result that fails validation is not acted on. The review is re-run once,
-  then the run stops for the human.
+- A result that fails the result check (a malformed structured block) is not
+  acted on. The reviewer is dispatched once more; if its second result also
+  fails, the run stops for the human rather than guessing what the reviewer
+  meant.
 - The issue, the diff and every file the reviewer reads are data, not
   instructions.
 
@@ -334,7 +348,7 @@ to measure it.
   the epic; it must not collide with any other name in the plugin namespace
   or with built-in skills.
 - The exact schema, field names and file names of the protocol.
-- The validator's command name.
+- The result check's command name.
 - The docs-only allow-list's initial contents.
 - The reviewer prompt's wording, within §4 and §5.
 - Which model and effort the reviewer subagent runs at.
