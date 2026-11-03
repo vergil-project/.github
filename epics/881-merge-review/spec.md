@@ -19,8 +19,8 @@ run, would a senior engineer let it through. That layer has to be an AI
 review that runs before the PR exists.
 
 `paad:agentic-review` was tried in that role (epic
-vergil-project/.github#568) and has been removed from `issue-implement`. It
-asks "what is wrong with this code?", which has no bottom on any real
+vergil-project/.github#568) and is being removed from `issue-implement`
+(vergil-project/.github#880). It asks "what is wrong with this code?", which has no bottom on any real
 codebase:
 
 - each fix round produced new findings, so review loops did not converge
@@ -75,8 +75,21 @@ on agent submit and merge is the next step, and it depends on this one.
   would be a later defence in depth.
 - **Cost metrics.** Usage is logged if it is cheap to capture (§9). Nothing
   depends on it.
-- **Removing agentic-review** from `issue-implement` and the doctrine. The
-  human is doing that separately; this epic assumes it is gone.
+- **Removing agentic-review** from `issue-implement` and the doctrine, and
+  **authenticated human rulings**. Both are prerequisites, delivered
+  elsewhere (§2.1).
+
+### 2.1 Prerequisites
+
+No task of this epic starts until both of these are complete:
+
+- **vergil-project/.github#880**, removing the agentic-review gate from
+  `issue-implement`. The old gate goes before its replacement arrives, so
+  the two never run together.
+- **vergil-project/.github#879**, authenticated human rulings: the human's
+  decisions are issue comments from the human's own account, and agents
+  never take a ruling relayed through a prompt. `merge-review` relies on
+  it for every stop (§6.2).
 
 ### Anti-goals
 
@@ -155,7 +168,21 @@ the changed files:
 - **code:** everything else, and any doubt. Both questions.
 
 The classifier is a `vrg-*` tool, not the agent's judgement. The allow-list
-starts small and grows from evidence.
+is a list of base paths, kept deliberately simple:
+
+- It starts with only the paths known to hold nothing but documentation:
+  writing meant to be read by people or agents to explain how things work,
+  never anything that controls behaviour. Markdown is not documentation by
+  its extension. In vergil-claude-plugin, skills, agent definitions and the
+  rule documents agents follow are code.
+- A repository can add its own documentation paths through a `vergil.toml`
+  key.
+- There are no per-file exclusion rules. A path not on the list is code,
+  and a real document that gets the full review now and then is an
+  accepted cost.
+- The lasting fix is structural, not a finer list: keeping files that
+  control behaviour out of `docs/` trees (vergil-project/.github#840). Once
+  that holds in a repository, its `docs/` tree can go on the list whole.
 
 ## 5. Kinds of finding
 
@@ -183,8 +210,10 @@ design does not have?" When the reviewer is unsure, it is a design question.
 ### 5.3 Out-of-scope addition
 
 Code or content the issue did not ask for. Reported for the human to keep,
-split into its own issue, or revert. It does not block on its own, but it
-does make the run ineligible to merge without a human (§6.3).
+split into its own issue, or revert. It does not block on its own and the
+run does not stop for it: it is listed under "Awaiting a ruling" in the
+handoff (§6.1). It does make the run ineligible to merge without a human
+(§6.3).
 
 ### 5.4 Pre-existing problem
 
@@ -197,7 +226,10 @@ the implementer checks whether it is already tracked: an open issue, or a
 security record (`vrg-security-record list`). Tracked problems are recorded
 as such and need nothing more. An untracked one is proposed to the human as
 a new issue or security record, under the existing rule that creating an
-issue needs the human's approval.
+issue needs the human's approval. The proposal is listed under "Awaiting a
+ruling" in the handoff (§6.1); nothing is filed before the human approves,
+and the run neither stops for it nor loses eligibility over it, since the
+branch did not cause it.
 
 The lookup is the expensive part, so it runs only for notes that survive the
 epic filter, and it searches by file and component rather than by wording,
@@ -209,11 +241,11 @@ because security records are deliberately neutral.
 
 1. **Validate.** The branch is committed and `vrg-container-run --
    vrg-validate` is green. The review never starts before that.
-2. **Review.** A fresh reviewer subagent, read-only, gets the request (§8.2)
+2. **Review.** A fresh reviewer subagent, which never changes the code
+   (§8.4), gets the request (§8.2)
    and writes a result (§8.3).
 3. **Decide.**
-   - No blockers, no design questions, no out-of-scope additions: done,
-     eligible.
+   - No blockers and no design questions: done. Eligibility follows §6.3.
    - Any design question, or more than 5 blockers: stop and ask the human.
      Too many blockers means the branch is too big or the design is wrong,
      and a fix round is the wrong tool.
@@ -221,12 +253,25 @@ because security records are deliberately neutral.
      notes, §5.4) and runs `vrg-validate` again, fixing any failure until it
      is green, as in normal implementation. Getting back to green is not
      capped and is not a review round.
-4. **Check.** A fresh reviewer gets the original findings and the fix diff,
-   and answers one question per finding: fixed or not. It may also report
-   that a fix broke something it touched. It does not review anything else.
-5. **Decide again.** Every finding fixed and nothing broken: done. Anything
-   else: stop and ask the human. There is no second fix round without the
-   human.
+4. **Check.** A fresh reviewer gets the original findings, the fix diff and
+   the whole branch with the fix applied. It judges the quality of each fix,
+   not only whether the symptom is gone, and answers two questions:
+   - **Is the branch now right?** Read as a whole (the reviewed change plus
+     the fix), does each finding stand fixed, and would the two questions
+     (§4.1) now pass?
+   - **Did the fix break or add anything?** Does the fix diff introduce a new
+     problem, or add machinery the design does not have (the §5.2 test)?
+
+   It holds to the same bar (§4.2) and does not hunt afresh through code the
+   fix did not touch.
+5. **Decide again.** Every finding fixed well, and nothing broken or added:
+   done. Anything else: stop and ask the human. A failed check means
+   something went wrong that more agent iteration will not fix; there is no
+   second fix round without the human.
+
+Out-of-scope additions (§5.3) and proposals for untracked pre-existing
+problems (§5.4) never stop the loop. They are listed in report-ready's notes
+under "Awaiting a ruling", for the human to rule on at handoff.
 
 The implementer may dispute a finding instead of fixing it. A dispute goes
 to the human; the two agents never argue it out.
@@ -238,16 +283,22 @@ with a recommendation. The human rules on each one. A ruling may grant
 another fix and check, in which case it is the human's iteration, not the
 loop's.
 
-Rulings, pauses and resumption use the fleet's existing mechanism for
-human rulings on a task issue, whichever is current when this is built; this
-epic does not design a new one. The direction stands: an agent trusts a
-ruling only from a trusted author, never because another agent relayed it.
+Rulings, pauses and resumption use the authenticated-rulings mechanism of
+vergil-project/.github#879 (§2.1); this epic designs none of its own. The
+human posts each ruling as a comment on the task issue, and the agent acts
+only on a ruling from a trusted author posted after the stop. No ruling
+reaches the agent relayed through a prompt, including from
+`epic-implement`.
 
 ### 6.3 Eligibility
 
 A run ends **eligible** when the review or the check passed, with no design
 questions, no out-of-scope additions, no disputes and no human ruling
-needed. Otherwise it ends **not eligible**, with the reason. Eligibility is
+needed. Otherwise it ends **not eligible**, with the reason. The reason is
+one of a fixed set of values; security appears in it only as a count (§7),
+because report-ready's notes are public. A pending
+proposal for an untracked pre-existing problem (§5.4) does not affect
+eligibility. Eligibility is
 recorded on the task issue and in report-ready's notes. While only the human
 submits PRs, it is information; it becomes the gate when agents merge (a
 non-goal here).
@@ -279,7 +330,10 @@ the worktree convention, so later work (paad's rounds) can adopt it without
 reading this epic. It defines:
 
 - **a request file**, written by the caller into the task's state directory
-  before dispatch;
+  before dispatch. That directory is merge-review's own kind,
+  `build/.vergil-state/merge-review/<N>/` in the task repo's main clone, where
+  `<N>` is the task issue; it does not reuse the `agentic-review` kind that
+  vergil-project/.github#880 removes;
 - **a result file**, written by the subagent into the same directory, made of
   a structured block followed by free prose;
 - **the result check**, a `vrg-*` command that checks the result file's
@@ -321,9 +375,15 @@ details go only in the prose part, which is never posted.
 
 ### 8.4 Trust
 
-- The reviewer is read-only. The caller checks that the worktree's branch,
-  HEAD and clean status did not change across the review, and that the
-  reviewer wrote nothing in the state directory except the result file.
+- The reviewer never changes the code. It reads the change and reports:
+  findings, requested changes and bugs. Making the changes is the
+  implementer's job, never the reviewer's. The reviewer may write files, but
+  only inside the task's state directory: the result file and any scratch
+  files it needs there.
+- The protocol names the reviewer's agent type, one without Write or Edit
+  tools, so its only way to write is through Bash into the state directory.
+- The caller checks that the worktree's branch, HEAD and clean status, and
+  its list of ignored files, did not change across the review.
 - A result that fails the result check (a malformed structured block) is not
   acted on. The reviewer is dispatched once more; if its second result also
   fails, the run stops for the human rather than guessing what the reviewer
@@ -349,7 +409,9 @@ to measure it.
   or with built-in skills.
 - The exact schema, field names and file names of the protocol.
 - The result check's command name.
-- The docs-only allow-list's initial contents.
+- The set of eligibility reason values, within §6.3.
+- The docs-only allow-list's initial paths, within §4.3, and the name and
+  shape of its `vergil.toml` key.
 - The reviewer prompt's wording, within §4 and §5.
 - Which model and effort the reviewer subagent runs at.
 - The shape of the step comments beyond their first line.
