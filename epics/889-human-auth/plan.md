@@ -104,7 +104,8 @@ pytest.
   - `read_reply(stream: list[IssueComment], *, request_id: int, agent: str,
     human: str) -> IssueComment | None`
   - `check_respond(stream: list[IssueComment], *, request_id: int,
-    reply_id: int, agent: str, human: str) -> None`
+    reply_id: int, agent: str, human: str) -> int | None` (`None`: ready
+    to respond; an ID: the response that already landed)
 
 Here `stream` is always the output of `trusted()`.
 
@@ -135,10 +136,23 @@ def test_fetch_comments_reads_every_page_and_strips_app(fake_graphql):
     assert comments[0].author == "h-vergil-user"
     assert comments[-1].edited is True   # lastEditedAt set on the last node
 
+def test_fetch_comments_keeps_64_bit_ids(fake_graphql):
+    # one node with fullDatabaseId "4300000001" (above 2**31), as a string
+    assert fetch_comments("o/r", 7)[0].id == 4300000001
+
 def test_marker_round_trip():
     m = Marker("response", 11, 12)
     c = IssueComment(1, "h-vergil-user", "text\n" + render_marker(m), False)
     assert parse_marker(c, "h-vergil-user") == m
+
+def test_quoted_marker_is_plain_text():
+    quoted = render_marker(Marker("request", None, None))
+    mid = IssueComment(1, "h-vergil-user", f"findings\n{quoted}\nmore", False)
+    fenced = IssueComment(2, "h-vergil-user", f"```\n{quoted}\n```", False)
+    two = IssueComment(3, "h-vergil-user", f"{quoted}\n{quoted}", False)
+    assert parse_marker(mid, "h-vergil-user") is None
+    assert parse_marker(fenced, "h-vergil-user") is None
+    assert parse_marker(two, "h-vergil-user") is None
 
 def test_marker_ignored_unless_by_agent():
     body = render_marker(Marker("request", None, None))
@@ -155,7 +169,9 @@ def test_read_reply_outcomes():
 def test_check_respond():
     # request 1, reply 2, then a second human comment 3 -> FatalCheck("turn", 3)
     # reply 2 absent -> FatalCheck("deleted", 2)
-    # request 1, reply 2 and nothing after -> passes
+    # request 1, reply 2 and nothing after -> None
+    # request 1, reply 2, response(request=1, reply=2) by agent -> its id
+    # request 1, reply 2, response naming another reply -> FatalCheck("turn")
 
 def test_open_request():
     # empty -> None; request 1 -> 1; request 1, reply 2 -> 1;
@@ -179,9 +195,11 @@ mode, then returns `f"{human_login(authors)}-vergil-user"` if it is in
 
 `fetch_comments` pages through `repository(owner, name) { issue(number) {
 comments(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor }
-nodes { databaseId author { login } body lastEditedAt } } } }` with
-`github.graphql`, stripping `app/` from each login; `edited` is
-`lastEditedAt is not None`. A node with no author (a deleted account) is
+nodes { fullDatabaseId author { login } body lastEditedAt } } } }` with
+`github.graphql`, stripping `app/` from each login; `id` is
+`int(fullDatabaseId)` (a `BigInt`, returned as a string, so it matches the
+64-bit REST `id`; never `databaseId`, a 32-bit `Int` that current comment IDs
+overflow); `edited` is `lastEditedAt is not None`. A node with no author (a deleted account) is
 kept with author `""`, so it is never trusted. `parse_issue_ref` accepts
 only `^([\w.-]+/[\w.-]+)#([1-9][0-9]*)$`.
 
@@ -189,9 +207,14 @@ only `^([\w.-]+/[\w.-]+)#([1-9][0-9]*)$`.
 
 The marker is one line, `<!-- vrg-ruling kind=request -->` or `<!--
 vrg-ruling kind=response request=<id> reply=<id> -->`, parsed with a
-`fullmatch` on that exact form. `parse_marker` returns `None` unless the
-comment's author is `agent`, and returns `None` for a comment with no marker
-line. A malformed marker line in an agent comment raises
+`fullmatch` on that exact form. A marker counts only when it is the body's
+last line (after stripping trailing whitespace) and the only line in the body
+that starts with `MARKER_PREFIX`. `parse_marker` returns `None` unless the
+comment's author is `agent`, and `None` for any other comment: one with no
+marker line, a marker-like line anywhere but the last line, or several
+prefix lines. A prefix line in that position is plain text, never a fatal
+check. Only a last line that starts with `MARKER_PREFIX`, in an agent
+comment with no other prefix line, but does not match the exact form raises
 `FatalCheck("marker", comment.id)`.
 
 - [ ] **Step 6: Implement `exchange.py`**
@@ -209,8 +232,12 @@ read_reply(stream, request_id, agent, human):
   first.edited                       -> FatalCheck("edited", first.id)
   return first
 check_respond: read_reply must return the comment reply_id (a different
-  comment, or None, -> FatalCheck("deleted", reply_id)); any comment after
-  it -> FatalCheck("turn", that id)
+  comment, or None, -> FatalCheck("deleted", reply_id)); then
+  nothing after it                   -> None (ready to respond)
+  first comment after it is by agent with a well-formed response marker
+  naming (request_id, reply_id), and nothing after that
+                                     -> that comment's id (already responded)
+  anything else after it             -> FatalCheck("turn", that id)
 open_request: the latest comment by agent with a request marker that has
   no response marker naming it afterwards, else None
 ```
@@ -253,8 +280,9 @@ Expected: PASS.
   - `class PostNotLanded(RulingError)`
   - `post_comment_once(repo: str, issue: int, body: str, *, author: str) ->
     int`
-  - CLI exit codes: `0` success (or a valid reply), `3` no reply yet, `2` a
-    `FatalCheck`, `1` any other refusal or error.
+  - CLI exit codes: `0` success (or a valid reply), `1` any other refusal or
+    error, `2` a usage error (argparse's own), `3` no reply yet, `4` a
+    `FatalCheck`. Both commands use the same codes.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -294,7 +322,8 @@ def test_request_refuses_open_exchange(cli, open_request_on_issue):
 
 def test_read_exit_codes(cli):
     # valid reply -> 0 and the reply body on stdout; none -> 3;
-    # FatalCheck -> 2 with the check and comment id on stderr
+    # FatalCheck -> 4 with the check and comment id on stderr; a missing
+    # --request -> 2 (usage), never 4
 
 def test_respond_records_ids(cli):
     # body ends with render_marker(Marker("response", 41, 42))
@@ -325,10 +354,11 @@ None))`; `render_response` likewise, ending with the response marker.
 
 Snapshot the IDs from `fetch_comments` first, then call
 `github.post_json_once(f"repos/{repo}/issues/{issue}/comments", {"body":
-body})` once and return its `id`. On `GitHubAPIError`, fetch again: a new
-comment by `author` whose body equals `body` is the landed post (return its
-ID); none raises `PostNotLanded("comment did not land on <repo>#<n>; nothing
-more was posted")`.
+body})` once and return its `id`. On `GitHubAPIError`, fetch again, up to
+three times two seconds apart: a new comment by `author` whose body equals
+`body` is the landed post (return its ID); none after the last re-read
+raises `PostNotLanded("comment did not land on <repo>#<n>; nothing more was
+posted")`. The POST itself is never repeated.
 
 - [ ] **Step 5: Implement `bin/vrg_ruling.py`**
 
@@ -338,14 +368,17 @@ Subcommands `request --issue --items`, `read --issue --request` and
 then reads the stream with `trusted(fetch_comments(...))`. `request` refuses
 when `open_request` is not `None`, naming it, then posts and prints the new
 ID. `read` maps `read_reply`'s result to the exit codes. `respond` runs
-`check_respond`, posts, then deletes the draft ref (Task 3 adds the delete;
+`check_respond`: an ID means the response already landed, so it prints that
+ID, posts nothing and exits `0`; otherwise it posts. Either way it then
+deletes the draft ref (Task 3 adds the delete;
 leave the call site as `_after_respond(repo, issue, request_id)`, a no-op
 until then).
 
 - [ ] **Step 6: Add the `### vrg-ruling` entry to the CLI Tools Overview**
 
-One paragraph naming the subcommands and linking the protocol guide
-(Task 5's `guides/human-replies.md`).
+One paragraph naming the subcommands, with no link: the pages it will link
+do not exist until Task 5, and the docs build runs in strict mode in CI
+(`ci-docs.yml`), which local `vrg-validate` does not run.
 
 - [ ] **Step 7: Run the tests to verify they pass**
 
@@ -378,13 +411,13 @@ Expected: PASS, including `test_cli_tools_overview.py` and
     `refs/vergil/ruling-draft/<issue>/<request_id>`
   - `push_draft(issue: int, request_id: int, text: str, *, remote: str =
     "origin") -> None`
-  - `delete_draft(issue: int, request_id: int, *, remote: str = "origin")
-    -> None`
   - `fetch_draft(repo: str, issue: int, request_id: int) -> str | None`
     (REST, for the human tool)
   - `delete_draft_api(repo: str, issue: int, request_id: int) -> None`
   - `reply_command(repo: str, issue: int, request_id: int) -> str`
     returning `vrg-ruling-reply --issue <repo>#<issue> --request <id>`
+  - in `items.py`: `load_reply_items(path: Path) -> list[Item]` and
+    `render_reply(items: list[Item]) -> str`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -401,7 +434,13 @@ def test_fetch_draft_via_rest(fake_gh):
     assert fetch_draft("o/r", 7, 99) is None
 
 def test_draft_refuses_other_repo(cli, origin_is("o/other")):
-    assert cli("draft", "--issue", "o/r#7", "--request", "41", "--reply-file", "r.md") == 1
+    assert cli("draft", "--issue", "o/r#7", "--request", "41", "--items", "d.json") == 1
+
+def test_reply_items_security_decision_only(tmp_path):
+    # {"id": "R1.S1", "security": True, "decision": "fix"} renders "R1.S1: fix"
+    # {"id": "R1.S1", "security": True, "decision": "fix the SQL in x"}
+    #   -> RulingError naming R1.S1; any extra key on a flagged item -> RulingError
+    # {"id": "R1.1", "security": False, "text": "file it"} renders "R1.1: file it"
 
 def test_draft_refuses_answered_request(cli):
     # read_reply returns a reply -> 1, nothing pushed
@@ -433,10 +472,16 @@ blob's base64 content as UTF-8 (invalid UTF-8 raises `RulingError`).
 
 - [ ] **Step 4: Implement the `draft` subcommand**
 
-`draft --issue --request --reply-file`: refuses unless the repo of
-`origin`'s URL is the issue's repo, refuses unless the request is still
-open (`read_reply` returns `None`), pushes the file's text, and prints
-`reply_command(...)`. Fill `_after_respond` with `delete_draft`.
+`draft --issue --request --items`: refuses unless the repo of `origin`'s URL
+is the issue's repo, refuses unless the request is still open (`read_reply`
+returns `None`), loads the items with `load_reply_items` (the shape of
+response items, with `decision` in place of `outcome`: a flagged item
+carries only its ID and a decision matching `^[a-z][a-z-]{0,29}$`), pushes
+`render_reply(items)` (one `<id>: <text or decision>` line per item), and
+prints `reply_command(...)`. The agent never pushes free text: the screening
+happens before anything is published. Fill `_after_respond` with
+`delete_draft_api(repo, issue, request_id)`, addressed by the issue's repo
+whatever the clone's `origin` is.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -544,7 +589,7 @@ draft.
 - [ ] **Step 5: Add the `### vrg-ruling-reply` entry to the CLI Tools Overview**
 
 One paragraph: a human-only command, run in the human's own shell, never
-through `!` in an agent session.
+through `!` in an agent session. No link yet (Task 5 adds it).
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
@@ -574,7 +619,7 @@ Expected: PASS.
 - Produces: the page the merge-review epic cites,
   `guides/human-replies.md`.
 
-- [ ] **Step 1: Write `guides/human-replies.md`**
+- [ ] **Step 1: Write `guides/human-replies.md` and `reference/dev/ruling.md`**
 
 Sections, from the spec: the round (spec §4), what each command does and
 its exit codes, the checks (spec §5: acceptance, turn order, write-once,
@@ -589,12 +634,18 @@ that agent sessions hold only App credentials (spec §3).
 Within the existing `build/` exception: everything under `build/tmp/` is
 scratch, and a file there can be deleted once nothing is using it.
 
-- [ ] **Step 3: Add the guide to `mkdocs.yml`'s nav and run validation**
+- [ ] **Step 3: Link the CLI Tools Overview entries**
+
+Add links from the `### vrg-ruling` and `### vrg-ruling-reply` entries in
+`docs/site/docs/reference/cli-tools-overview.md` to `reference/dev/ruling.md`
+and `guides/human-replies.md`.
+
+- [ ] **Step 4: Add both pages to `mkdocs.yml`'s nav and run validation**
 
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS (markdownlint and the docs checks).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 `vrg-commit --type docs --scope rulings --message "human replies protocol guide and the build/tmp convention"`
 
@@ -615,7 +666,8 @@ content.
   deleted after `read`, a trusted comment out of turn); a deleted untrusted
   comment is not fatal; and the logins GitHub reports on the posted
   comments match the checks (`h-vergil-user` without `app/`, and the human
-  login).
+  login), and the comment IDs `fetch_comments` reads equal the REST IDs
+  `post_comment_once` returned.
 - **Documentation review, vergil-project/vergil-tooling#3917,** then **the
   retrospective, vergil-project/.github#891.**
 
@@ -625,9 +677,10 @@ Each is retargeted to its task once the tasks are filed:
 
 | Advisory | Task |
 | --- | --- |
-| GHSA-9p3c-62q9-v2cg, GHSA-mv5w-h5vr-wjfm | Task 1 |
+| GHSA-9p3c-62q9-v2cg, GHSA-mv5w-h5vr-wjfm, GHSA-hw7h-g8vr-wj94 | Task 1 |
 | GHSA-r5f4-5586-mqfp, GHSA-2fjg-qxrj-fc2v, GHSA-8459-fr73-66rm, GHSA-g8m7-qqg9-mvch | Task 2 |
+| GHSA-mx99-fwcp-2vrh | Task 3 |
 | GHSA-wrf8-xm8j-wvw4, GHSA-pjwf-v9g2-4h8f | Task 4 |
 | GHSA-xffj-678w-ggjp | Validation #3919 |
-| GHSA-9q3r-h2xj-rgq3 | the docs task (the stated assumption in spec §3); the human closes it |
-| GHSA-w38c-m89h-5v9q | the docs task (not applicable here); the human closes it |
+| GHSA-9q3r-h2xj-rgq3 | Task 5 (`guides/human-replies.md` states the assumption in spec §3); the human closes it |
+| GHSA-w38c-m89h-5v9q | Task 5 (not applicable here); the human closes it |
