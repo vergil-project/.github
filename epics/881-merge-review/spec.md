@@ -155,8 +155,7 @@ Not findings:
   `vrg-validate` configuration; it is not required to read them every run;
 - nitpicks and matters of taste that a senior engineer would not block on;
 - pathological input from a trusted author. Configuration and files the
-  operator writes are judged on realistic use. A glob with ten consecutive
-  wildcards in the operator's own config file is not a finding;
+  operator writes are judged on realistic use;
 - general worries without a concrete failure ("could be more robust",
   "consider more tests").
 
