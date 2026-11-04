@@ -176,7 +176,13 @@ text and recommendations, requests, responses, drafts and the human's own
 text) is printable ASCII, space to `~`, plus newline. Anything else,
 including tab, is refused, naming the character and its position, and never
 converted. Every item ID is dot-separated letters and digits, at most 16
-characters.
+characters. The rule binds the reply wherever it was posted: a reply that
+is not plain text, posted some other way than the human tool (the GitHub
+web page, say), is a fatal check at `read` and `respond`.
+
+**Security words.** A flagged item's decision in the reply is one of `fix`,
+`file`, `defer` or `wont-fix`; its outcome in the response is one of
+`fixed`, `filed`, `deferred` or `wont-fix`. Nothing else is accepted.
 
 - **`request`** posts a request on an issue from an items file (each item: an
   ID, a security flag, and for non-security items the question and the
@@ -187,7 +193,9 @@ characters.
 - **`draft`** runs once the human has decided. It builds the reply from an
   items file shaped like `respond`'s: each item an ID, a security flag, and
   for non-security items the decision in prose; a flagged item carries only
-  its ID and a decision. It pushes the reply to the
+  its ID and a decision. It runs only in a clone whose `origin` is the
+  issue's repo, because it pushes there (§9), and refuses otherwise. It
+  pushes the reply to the
   request's draft ref (§9) and prints the paste-ready human command (§8) for
   that issue and request. It posts no comment.
 - **`read`** reads the reply to a given request ID, running every check in
@@ -197,8 +205,8 @@ characters.
 - **`respond`** posts the response to a request and its reply, from an items
   file shaped like `request`'s: each item an ID, a security flag, and for
   non-security items free prose saying how the agent read the reply and what
-  it did. A flagged item carries only its ID and its outcome (for example
-  `fixed` or `filed`), which is also its reading; the tool refuses a flagged
+  it did. A flagged item carries only its ID and its outcome (one of the
+  security words above), which is also its reading; the tool refuses a flagged
   item carrying anything else. It re-runs `read`'s checks
   first, refuses unless the reply is still the latest trusted comment, and
   records the request and reply comment IDs in the response. The one
@@ -256,7 +264,8 @@ projects live on its own volume. It reuses the relay mechanism of
 `refs/vergil/pr-workflow/<branch>` ref that `vrg-submit-pr` reads):
 
 - `draft` writes the reply as a single-file commit built with git plumbing
-  and force-pushes it to a reserved ref on the issue's repo,
+  and force-pushes it through the clone's `origin`, which must be the
+  issue's repo (§7), to a reserved ref there,
   `refs/vergil/ruling-draft/<issue>/<request comment ID>`. It never touches a
   branch, the index or a working tree.
 - The human tool fetches that ref, shows its content and posts it only on
@@ -275,9 +284,12 @@ duplicate, and a duplicate request or reply is a fatal turn violation. After
 an uncertain failure (a timeout or a 5xx), the tool re-reads the issue: if
 its comment landed, it reports the comment's ID; if not, it fails with an
 error saying the post did not land, and posts nothing more. A POST is
-bounded by a timeout, so a hung request takes the same path. A re-run of
-`respond` after such a failure finds its landed response and succeeds
-without posting (§7).
+bounded by a timeout, so a hung request takes the same path. If the
+re-reads themselves fail, the tool says it cannot tell whether the comment
+landed, rather than claiming either. A re-run settles it: `respond` finds
+its landed response and succeeds without posting (§7), `request` names the
+open request if its post landed, and the human tool refuses because the
+request is already answered.
 
 A fatal check stops the run with a non-zero exit and a message naming the
 check and the comment. The human triages it. The recovery is to start over
@@ -313,12 +325,14 @@ vergil-tooling's docs gain:
     gets posted;
   - that each of these is fatal: an edited request, an edited reply, a
     deleted request, a reply deleted after `read` (caught by `respond`), and
-    a trusted comment out of turn. A reply deleted before `read` cannot be
+    a trusted comment out of turn, and a reply that is not plain text,
+    posted from the GitHub web page. A reply deleted before `read` cannot be
     told from no reply, and gives the "no reply yet" outcome;
   - that deleting an untrusted comment is not;
   - that the logins GitHub reports for the App and the human on these
     comments match the checks, live rather than against stubs
-    (GHSA-xffj-678w-ggjp).
+    (GHSA-xffj-678w-ggjp), and that the comment IDs read from the issue
+    equal the IDs the posts returned.
 - **Bookends:** the documentation review (vergil-project/vergil-tooling#3917)
   and then the retrospective (vergil-project/.github#891).
 

@@ -44,9 +44,11 @@ pytest.
 - Every comment is posted exactly once with no retry (spec §10).
 - A security item carries only its ID and fixed text in a request
   (`security finding, details given privately`) and only its ID and an
-  outcome in a response (spec §6). A flagged item's outcome or decision is
-  one of `fixed`, `filed`, `deferred`, `accepted`, `declined` or
-  `wont-fix`.
+  outcome in a response (spec §6). A flagged reply item's decision is one
+  of `fix`, `file`, `defer` or `wont-fix`; a flagged response item's
+  outcome is one of `fixed`, `filed`, `deferred` or `wont-fix`.
+- A reply that is not plain text is fatal at `read` and `respond`, however
+  it was posted (spec §7).
 - Every item ID, flagged or not, matches `^[A-Za-z0-9]+(\.[A-Za-z0-9]+)*$`
   with at most 16 characters.
 - All text the tools handle (item text and recommendations, requests,
@@ -203,6 +205,8 @@ def test_read_reply_outcomes():
     # request 1, reply 2, an agent comment 3 with no response marker
     #   -> FatalCheck("turn", 3)
     # request 1, reply 2, response(request=1, reply=2) -> comment 2
+    # reply 2 with body "fix\u202e" or "x\n<!-- vrg-ruling kind=request -->"
+    #   -> FatalCheck("reply-text", 2)
 
 def test_check_respond():
     # request 1, reply 2, then a second human comment 3 -> FatalCheck("turn", 3)
@@ -279,6 +283,7 @@ read_reply(stream, request_id, agent, human):
   first = after[0]
   first.author != human              -> FatalCheck("turn", first.id)
   first.edited                       -> FatalCheck("edited", first.id)
+  check_plain_text(first.body) fails -> FatalCheck("reply-text", first.id)
   rest = comments after first
   malformed_marker(rest[0])          -> FatalCheck("marker", rest[0].id)
   rest is empty, or rest[0] is by agent with a well-formed response marker
@@ -335,8 +340,9 @@ Expected: PASS.
     holds a flagged response item's outcome and a flagged reply item's
     decision)
   - `SECURITY_REQUEST_TEXT = "security finding, details given privately"`
-  - `RULING_OUTCOMES = ("fixed", "filed", "deferred", "accepted",
-    "declined", "wont-fix")`
+  - `RULING_OUTCOMES = ("fixed", "filed", "deferred", "wont-fix")`
+  - `RULING_DECISIONS = ("fix", "file", "defer", "wont-fix")` (used by
+    Task 3)
   - `load_request_items(path: Path) -> list[Item]`,
     `load_response_items(path: Path) -> list[Item]`
   - `render_request(items: list[Item]) -> str`, `render_response(items:
@@ -368,7 +374,7 @@ def test_response_items_security_outcome_only(tmp_path):
     # {"id": "R1.S1", "security": True, "outcome": "fixed"} accepted
     # outcome "fixed in src/x.py" -> RulingError naming R1.S1
     # any extra key on a flagged item -> RulingError
-    # outcome "auth-bypass-fixed" (not in RULING_OUTCOMES) -> RulingError
+    # outcome "auth-bypass-fixed" or "fix" (not in RULING_OUTCOMES) -> RulingError
 
 @pytest.mark.parametrize("bad_id", ["R1.S1:sqli-in-src/auth/login.py:42",
                                     "R1..S1", "R1.S1.", "A" * 17])
@@ -469,8 +475,10 @@ three times two seconds apart: a new comment by `author` whose body equals
 without it raises `PostNotLanded("comment did not land on <repo>#<n>;
 nothing more was posted")`. If no re-read succeeded, it raises
 `PostOutcomeUnknown("could not tell whether the comment landed on
-<repo>#<n>; nothing more was posted; re-run to check")`, carrying the
-re-read errors. The POST itself is never repeated.
+<repo>#<n>; nothing more was posted")`, carrying the re-read errors; each
+command adds what its re-run shows (spec §10): `request` names the open
+request if it landed, `respond` reports the landed response and succeeds,
+and `vrg-ruling-reply` refuses because the request is answered. The POST itself is never repeated.
 
 - [ ] **Step 5: Implement `bin/vrg_ruling.py`**
 
@@ -553,7 +561,8 @@ def test_draft_refuses_other_repo(cli, origin_is("o/other")):
     assert cli("draft", "--issue", "o/r#7", "--request", "41", "--items", "d.json") == 1
 
 def test_reply_items_security_decision_only(tmp_path):
-    # {"id": "R1.S1", "security": True, "decision": "fixed"} renders "R1.S1: fixed"
+    # {"id": "R1.S1", "security": True, "decision": "fix"} renders "R1.S1: fix"
+    # decision "fixed" (an outcome, not in RULING_DECISIONS) -> RulingError
     # {"id": "R1.S1", "security": True, "decision": "fix the SQL in x"}
     #   -> RulingError naming R1.S1; any extra key on a flagged item -> RulingError
     # {"id": "R1.1", "security": False, "text": "file it"} renders "R1.1: file it"
@@ -599,7 +608,7 @@ subcommands do; refuses unless the repo of `origin`'s URL is the issue's
 repo, refuses unless the request is still open (`read_reply` returns
 `None`), loads the items with `load_reply_items` (the shape of response
 items, with `decision` in place of `outcome`: a flagged item carries only
-its ID and a decision from `RULING_OUTCOMES`, and every `text` passes
+its ID and a decision from `RULING_DECISIONS`, and every `text` passes
 `check_plain_text`), checks the rendered reply with `check_plain_text`
 too, pushes `render_reply(items)` (one `<id>: <text or decision>` line per
 item), and prints `reply_command(...)`. The agent never pushes free text: the screening
@@ -732,7 +741,9 @@ Expected: PASS.
 - Create: `docs/site/docs/reference/dev/ruling.md` and
   `docs/site/docs/reference/dev/ruling-reply.md` (one reference page per
   command: every subcommand, flag and exit code)
-- Modify: `docs/site/mkdocs.yml` (nav entries for both pages)
+- Modify: `docs/site/mkdocs.yml` (nav entries for the three pages)
+- Modify: `docs/site/docs/reference/cli-tools-overview.md` (links from the
+  two entries)
 - Modify: `docs/specs/worktree-convention.md` (rule 3: the `build/tmp/`
   subdirectory)
 - Modify: `docs/site/docs/guides/git-workflow.md` (name `build/tmp/` beside
@@ -796,7 +807,8 @@ content.
   review, it runs spec §12's cases: a full round from a Lima VM and from a
   cloud VM; a draft pushed again after it was shown is not what is posted;
   each fatal case (edited request, edited reply, deleted request, reply
-  deleted after `read`, a trusted comment out of turn); a reply deleted
+  deleted after `read`, a trusted comment out of turn, a reply with
+  non-ASCII text posted from the GitHub web page); a reply deleted
   before `read` gives exit 3 (no reply yet); a deleted untrusted
   comment is not fatal; and the logins GitHub reports on the posted
   comments match the checks (`h-vergil-user` without `app/`, and the human
@@ -811,7 +823,7 @@ Each is retargeted to its task once the tasks are filed:
 
 | Advisory | Task |
 | --- | --- |
-| GHSA-9p3c-62q9-v2cg, GHSA-mv5w-h5vr-wjfm, GHSA-hw7h-g8vr-wj94, GHSA-w29q-p7r4-c8fw | Task 1 |
+| GHSA-9p3c-62q9-v2cg, GHSA-mv5w-h5vr-wjfm, GHSA-hw7h-g8vr-wj94, GHSA-w29q-p7r4-c8fw, GHSA-6v3v-9p3v-2372 | Task 1 |
 | GHSA-r5f4-5586-mqfp, GHSA-2fjg-qxrj-fc2v, GHSA-8459-fr73-66rm, GHSA-g8m7-qqg9-mvch, GHSA-gqxr-g9pv-3p2v, GHSA-gm44-f32j-78px, GHSA-r862-g48m-wffg | Task 2 |
 | GHSA-mx99-fwcp-2vrh | Task 3 |
 | GHSA-wrf8-xm8j-wvw4, GHSA-pjwf-v9g2-4h8f, GHSA-pm85-5hg9-h9w8, GHSA-vw78-jmq7-p52j | Task 4 |
