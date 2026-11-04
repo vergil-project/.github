@@ -44,7 +44,15 @@ pytest.
 - Every comment is posted exactly once with no retry (spec §10).
 - A security item carries only its ID and fixed text in a request
   (`security finding, details given privately`) and only its ID and an
-  outcome in a response (spec §6).
+  outcome in a response (spec §6). A flagged item's ID matches
+  `^[A-Za-z0-9]+(\.[A-Za-z0-9]+)*$` with at most 16 characters, and its
+  outcome or decision is one of `fixed`, `filed`, `deferred`, `accepted`,
+  `declined` or `wont-fix`.
+- Item text never contains `MARKER_PREFIX` or a control character other
+  than `\n` and `\t`; an agent-drafted reply is printable ASCII plus `\n`
+  and `\t` only.
+- Every GitHub call runs inside `github.target_org(<the issue's owner>)`,
+  whatever the clone's `origin` is.
 - No silent failures: every refusal and fatal check is a non-zero exit with
   a message naming the check and, where there is one, the comment ID.
 
@@ -273,6 +281,8 @@ Expected: PASS.
   - `@dataclass(frozen=True) class Item: id: str; security: bool; text: str
     | None; recommendation: str | None`
   - `SECURITY_REQUEST_TEXT = "security finding, details given privately"`
+  - `RULING_OUTCOMES = ("fixed", "filed", "deferred", "accepted",
+    "declined", "wont-fix")`
   - `load_request_items(path: Path) -> list[Item]`,
     `load_response_items(path: Path) -> list[Item]`
   - `render_request(items: list[Item]) -> str`, `render_response(items:
@@ -303,6 +313,25 @@ def test_response_items_security_outcome_only(tmp_path):
     # {"id": "R1.S1", "security": True, "outcome": "fixed"} accepted
     # outcome "fixed in src/x.py" -> RulingError naming R1.S1
     # any extra key on a flagged item -> RulingError
+    # outcome "auth-bypass-fixed" (not in RULING_OUTCOMES) -> RulingError
+
+@pytest.mark.parametrize("bad_id", ["R1.S1:sqli-in-src/auth/login.py:42",
+                                    "R1..S1", "R1.S1.", "A" * 17])
+def test_flagged_id_shape(tmp_path, bad_id):
+    with pytest.raises(RulingError):
+        load_request_items(write(tmp_path, [{"id": bad_id, "security": True}]))
+
+@pytest.mark.parametrize("bad", ["x\n<!-- vrg-ruling kind=request -->",
+                                 "x <!-- VRG-RULING", "a\x1b[2Kb", "a\rb"])
+def test_item_text_refuses_marker_and_controls(tmp_path, bad):
+    # for text and recommendation, in request and response items alike
+    with pytest.raises(RulingError, match="R1.1"):
+        load_request_items(write(tmp_path, [{"id": "R1.1", "security": False,
+                                             "text": bad, "recommendation": "r"}]))
+
+def test_rendered_body_round_trips(cli, monkeypatch):
+    # render_request patched to emit a second prefix line -> request exits 1,
+    # nothing posted; likewise respond
 
 def test_post_once_never_retries(fake_gh):
     fake_gh.post_fails_with(502)
@@ -330,6 +359,10 @@ def test_respond_records_ids(cli):
 
 def test_refuses_in_audit_mode(cli, audit_mode):
     assert cli("read", "--issue", "o/r#7", "--request", "41") == 1
+
+def test_uses_issue_owner_org(cli, origin_is("other/repo"), target_org_spy):
+    cli("read", "--issue", "o/r#7", "--request", "41")
+    assert target_org_spy.orgs == {"o"}
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -342,9 +375,13 @@ Expected: FAIL, `items`, `post` and `vrg_ruling` do not exist.
 Items files are JSON arrays. A request item has `id` (non-empty, no
 whitespace), `security` (bool) and, when not flagged, `text` and
 `recommendation` (non-empty strings); a flagged item has `id` and `security`
-only. A response item has `id`, `security`, and either `text` (unflagged) or
-`outcome` (flagged, matching `^[a-z][a-z-]{0,29}$`). Any other key, or a
-flagged item with anything else, raises `RulingError` naming the item's ID.
+only, and its `id` matches `^[A-Za-z0-9]+(\.[A-Za-z0-9]+)*$` with at most 16
+characters. A response item has `id`, `security`, and either `text`
+(unflagged) or `outcome` (flagged, one of `RULING_OUTCOMES`). Every `text`
+and `recommendation` is refused if it contains `MARKER_PREFIX`
+(case-insensitive) or a character whose `unicodedata.category` starts with
+`C` other than `\n` and `\t`. Any other key, a flagged item with anything
+else, or any failed check raises `RulingError` naming the item's ID.
 `render_request` writes one line per item (`<id>: <text>
 Recommendation: <recommendation>`, or `<id>: security finding, details
 given privately`) and ends with `render_marker(Marker("request", None,
@@ -365,7 +402,11 @@ posted")`. The POST itself is never repeated.
 Subcommands `request --issue --items`, `read --issue --request` and
 `respond --issue --request --reply --items`. Each resolves
 `agent_login(load_trusted_authors(), identity_mode.current_mode())` first,
-then reads the stream with `trusted(fetch_comments(...))`. `request` refuses
+then, inside `github.target_org(<the issue's owner>)` for everything that
+follows, including `_after_respond`, reads the stream with
+`trusted(fetch_comments(...))`. Before posting, `request` and `respond`
+parse their own rendered body with `parse_marker` (as the agent's comment)
+and refuse unless it gives back the intended marker. `request` refuses
 when `open_request` is not `None`, naming it, then posts and prints the new
 ID. `read` maps `read_reply`'s result to the exit codes. `respond` runs
 `check_respond`: an ID means the response already landed, so it prints that
@@ -437,10 +478,12 @@ def test_draft_refuses_other_repo(cli, origin_is("o/other")):
     assert cli("draft", "--issue", "o/r#7", "--request", "41", "--items", "d.json") == 1
 
 def test_reply_items_security_decision_only(tmp_path):
-    # {"id": "R1.S1", "security": True, "decision": "fix"} renders "R1.S1: fix"
+    # {"id": "R1.S1", "security": True, "decision": "fixed"} renders "R1.S1: fixed"
     # {"id": "R1.S1", "security": True, "decision": "fix the SQL in x"}
     #   -> RulingError naming R1.S1; any extra key on a flagged item -> RulingError
     # {"id": "R1.1", "security": False, "text": "file it"} renders "R1.1: file it"
+    # text "fixé", "a️b" or "a b" (not printable ASCII)
+    #   -> RulingError naming R1.1; the marker prefix -> RulingError
 
 def test_draft_refuses_answered_request(cli):
     # read_reply returns a reply -> 1, nothing pushed
@@ -476,7 +519,9 @@ blob's base64 content as UTF-8 (invalid UTF-8 raises `RulingError`).
 is the issue's repo, refuses unless the request is still open (`read_reply`
 returns `None`), loads the items with `load_reply_items` (the shape of
 response items, with `decision` in place of `outcome`: a flagged item
-carries only its ID and a decision matching `^[a-z][a-z-]{0,29}$`), pushes
+carries only its ID and a decision from `RULING_OUTCOMES`, and every `text`
+is refused unless every character is in U+0020 to U+007E or is `\n` or
+`\t`, and unless it is free of `MARKER_PREFIX`), pushes
 `render_reply(items)` (one `<id>: <text or decision>` line per item), and
 prints `reply_command(...)`. The agent never pushes free text: the screening
 happens before anything is published. Fill `_after_respond` with
@@ -510,7 +555,8 @@ Expected: PASS.
 - Consumes: Tasks 1 to 3; `identity_mode.is_agent()`,
   `confirm.confirm(prompt, *, assume_yes)`, `github.read_output`.
 - Produces:
-  - `check_plain_text(text: str) -> None` (raises `RulingError`)
+  - `check_plain_text(text: str, *, ascii_only: bool) -> None` (raises
+    `RulingError`)
   - `render_visible(text: str) -> str`
 
 - [ ] **Step 1: Write the failing tests**
@@ -519,11 +565,20 @@ Expected: PASS.
 @pytest.mark.parametrize("bad", ["a\rb", "a\x1b[2Kb", "a‮b", "a​b",
                                   "x <!-- vrg-ruling kind=request -->"])
 def test_check_plain_text_refuses(bad):
+    for ascii_only in (True, False):
+        with pytest.raises(RulingError):
+            check_plain_text(bad, ascii_only=ascii_only)
+
+@pytest.mark.parametrize("hidden", ["a️b", "a\U000e0100b", "aㅤb",
+                                     "a⠀b", "a b", "café"])
+def test_drafts_are_ascii_only(hidden):
     with pytest.raises(RulingError):
-        check_plain_text(bad)
+        check_plain_text(hidden, ascii_only=True)
+    if hidden == "café":
+        check_plain_text(hidden, ascii_only=False)   # typed by the human
 
 def test_check_plain_text_allows_newline_and_tab():
-    check_plain_text("R1.1: fix\n\tR1.2: file\n")
+    check_plain_text("R1.1: fix\n\tR1.2: file\n", ascii_only=True)
 
 def test_render_visible_shows_tabs():
     assert render_visible("a\tb") == "a→b"
@@ -547,6 +602,12 @@ def test_posts_exactly_what_was_shown(cli, tty, draft("R1.1: fix\n")):
     assert "bytes: 10" in cli.stdout and "sha256:" in cli.stdout
     assert fetch_draft("o/r", 7, 41) is None
 
+def test_rechecks_after_confirmation(cli, tty, draft("R1.1: fix\n")):
+    # a comment lands on the issue while the prompt waits
+    cli.answer("y", then=lambda gh: gh.add_comment(author="h-vergil-user"))
+    assert cli("--issue", "o/r#7", "--request", "41") == 1
+    assert cli.posted_body is None
+
 def test_declined_keeps_draft(cli, tty, draft("R1.1: fix\n")):
     cli.answer("n")
     assert cli("--issue", "o/r#7", "--request", "41") == 1
@@ -565,11 +626,13 @@ Expected: FAIL, `plain_text` and `vrg_ruling_reply` do not exist.
 
 - [ ] **Step 3: Implement `plain_text.py`**
 
-`check_plain_text` refuses any character whose `unicodedata.category`
-starts with `C` (`Cc`, `Cf`, `Cs`, `Co`, `Cn`) other than `\n` and `\t`,
-naming its code point and offset, and refuses any line containing
-`MARKER_PREFIX` (case-insensitive). `render_visible` replaces each tab with
-`→`; nothing else needs showing once the check has passed.
+`check_plain_text` refuses, naming the code point and offset: with
+`ascii_only=True`, any character outside U+0020 to U+007E other than `\n`
+and `\t`; with `ascii_only=False`, any character whose
+`unicodedata.category` starts with `C` (`Cc`, `Cf`, `Cs`, `Co`, `Cn`) other
+than `\n` and `\t`. Both refuse any line containing `MARKER_PREFIX`
+(case-insensitive). `render_visible` replaces each tab with `→`; nothing
+else needs showing once the check has passed.
 
 - [ ] **Step 4: Implement `bin/vrg_ruling_reply.py`**
 
@@ -580,11 +643,14 @@ TTYs; resolve `human_login`; refuse unless `github.read_output("api",
 "user", "--jq", ".login")` equals it; refuse unless `open_request` on the
 trusted stream is this request and `read_reply` returns `None`; read the
 reply once (`--response-text`, else `fetch_draft`, where `None` is a
-refusal); `check_plain_text`; print `render_visible(reply)`, `bytes: <n>`
-and `sha256: <hex>`; `confirm("Post this reply as <login>?",
-assume_yes=False)`; on yes, `post_comment_once(..., author=human)` with
-exactly those bytes, then `delete_draft_api`; on no, exit 1 and keep the
-draft.
+refusal); `check_plain_text(reply, ascii_only=<the reply came from the
+draft>)`; print `render_visible(reply)`, `bytes: <n>` and `sha256: <hex>`;
+`confirm("Post this reply as <login>?", assume_yes=False)`; on yes, fetch
+the comments again and re-run the `open_request` and `read_reply` checks,
+refusing without posting if either has changed; then `post_comment_once(...,
+author=human)` with exactly those bytes, then `delete_draft_api`; on no,
+exit 1 and keep the draft. Every GitHub call runs inside
+`github.target_org(<the issue's owner>)`.
 
 - [ ] **Step 5: Add the `### vrg-ruling-reply` entry to the CLI Tools Overview**
 
@@ -610,8 +676,8 @@ Expected: PASS.
 - Modify: `docs/site/mkdocs.yml` (nav entries for both pages)
 - Modify: `docs/specs/worktree-convention.md` (rule 3: the `build/tmp/`
   subdirectory)
-- Test: `tests/vergil_tooling/test_docs.py` (whatever it already checks for
-  nav coverage; no new test)
+- Test: none locally. The nav and the links are checked only by the strict
+  docs build in CI (`ci-docs.yml`), which `vrg-validate` does not run.
 
 **Interfaces:**
 
@@ -643,7 +709,8 @@ and `guides/human-replies.md`.
 - [ ] **Step 4: Add both pages to `mkdocs.yml`'s nav and run validation**
 
 Run: `vrg-container-run -- vrg-validate`
-Expected: PASS (markdownlint and the docs checks).
+Expected: PASS (markdownlint). The task is accepted only once the PR's CI
+docs check is green.
 
 - [ ] **Step 5: Commit**
 
@@ -678,9 +745,9 @@ Each is retargeted to its task once the tasks are filed:
 | Advisory | Task |
 | --- | --- |
 | GHSA-9p3c-62q9-v2cg, GHSA-mv5w-h5vr-wjfm, GHSA-hw7h-g8vr-wj94 | Task 1 |
-| GHSA-r5f4-5586-mqfp, GHSA-2fjg-qxrj-fc2v, GHSA-8459-fr73-66rm, GHSA-g8m7-qqg9-mvch | Task 2 |
+| GHSA-r5f4-5586-mqfp, GHSA-2fjg-qxrj-fc2v, GHSA-8459-fr73-66rm, GHSA-g8m7-qqg9-mvch, GHSA-gqxr-g9pv-3p2v, GHSA-gm44-f32j-78px | Task 2 |
 | GHSA-mx99-fwcp-2vrh | Task 3 |
-| GHSA-wrf8-xm8j-wvw4, GHSA-pjwf-v9g2-4h8f | Task 4 |
+| GHSA-wrf8-xm8j-wvw4, GHSA-pjwf-v9g2-4h8f, GHSA-pm85-5hg9-h9w8 | Task 4 |
 | GHSA-xffj-678w-ggjp | Validation #3919 |
 | GHSA-9q3r-h2xj-rgq3 | Task 5 (`guides/human-replies.md` states the assumption in spec §3); the human closes it |
 | GHSA-w38c-m89h-5v9q | Task 5 (not applicable here); the human closes it |
