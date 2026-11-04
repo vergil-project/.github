@@ -5,7 +5,8 @@
   comments)
 - **Status:** draft, in design review
 - **Repos:** vergil-claude-plugin (the `merge-review` skill, its reviewer
-  prompt and its gate in `issue-implement`), vergil-tooling (the protocol
+  prompt, its gate in `issue-implement` and the resume in
+  `epic-implement`), vergil-tooling (the protocol
   spec, the result check and the change classifier), `.github` (this spec
   and plan)
 
@@ -20,7 +21,7 @@ review that runs before the PR exists.
 
 `paad:agentic-review` was tried in that role (epic
 vergil-project/.github#568) and is being removed from `issue-implement`
-(vergil-project/.github#880). It asks "what is wrong with this code?", which has no bottom on any real
+(epic vergil-project/.github#885). It asks "what is wrong with this code?", which has no bottom on any real
 codebase:
 
 - each fix round produced new findings, so review loops did not converge
@@ -81,15 +82,18 @@ on agent submit and merge is the next step, and it depends on this one.
 
 ### 2.1 Prerequisites
 
-No task of this epic starts until both of these are complete:
+No task of this epic starts until both of these epics are complete, in
+this order:
 
-- **vergil-project/.github#880**, removing the agentic-review gate from
-  `issue-implement`. The old gate goes before its replacement arrives, so
-  the two never run together.
-- **vergil-project/.github#879**, authenticated human rulings: the human's
-  decisions are issue comments from the human's own account, and agents
-  never take a ruling relayed through a prompt. `merge-review` relies on
-  it for every stop (§6.2).
+- **Epic vergil-project/.github#885**, which removes the agentic-review gate
+  from `issue-implement` (spec `epics/885-remove-agentic-gate/spec.md`).
+  The old gate goes before its replacement arrives, so the two never run
+  together. `issue-implement` is then: Preflight, implement, validate to
+  green, `report-ready`; this epic adds `merge-review` to it.
+- **Epic vergil-project/.github#889**, authenticated human replies on task
+  issues (spec `epics/889-human-auth/spec.md`). It builds `vrg-ruling` and
+  `vrg-ruling-reply` and their protocol guide, and leaves every skill change
+  to this epic (its §2). `merge-review` relies on it for every stop (§6.2).
 
 ### Anti-goals
 
@@ -259,6 +263,11 @@ because security records are deliberately neutral.
      pre-existing proposal (§5.4) or dispute (below): stop and ask the
      human, once, before any fix, with every such item together. The
      rulings are carried out in the fix that follows, a revert included.
+     Everything merge review raises is a review item, so all of it goes in
+     this one request (§6.2), proposals to file an issue or security record
+     included. Epic 889's rule that non-review decisions stay outside the
+     channel (its §4) covers only decisions `issue-implement` raises on its
+     own, which it settles before the request.
    - Then the implementer fixes every defect and carries out every ruling,
      and runs `vrg-validate` again, fixing any failure until it is green, as
      in normal implementation. Getting back to green is not capped and is
@@ -297,12 +306,27 @@ with a recommendation. The human rules on each one. A ruling may grant
 another fix and check, in which case it is the human's iteration, not the
 loop's.
 
-Rulings, pauses and resumption use the authenticated-rulings mechanism of
-vergil-project/.github#879 (§2.1); this epic designs none of its own. The
-human posts each ruling as a comment on the task issue, and the agent acts
-only on a ruling from a trusted author posted after the stop. No ruling
-reaches the agent relayed through a prompt, including from
-`epic-implement`.
+The stop is one round of epic 889's protocol (its §4, and vergil-tooling's
+`guides/human-replies.md`); this epic designs no channel of its own:
+
+1. The step comment posts the review's findings (§9).
+2. `vrg-ruling request` posts one request covering every item that needs
+   the human, each with the implementer's recommendation.
+3. The human and the agent talk the items through in the terminal; the
+   agent drafts the reply with `vrg-ruling draft`, and the human posts it
+   from their own shell with `vrg-ruling-reply`.
+4. The run reads the reply with `vrg-ruling read`, carries out the rulings
+   (the fix and check of §6.1), and posts what it did with each item with
+   `vrg-ruling respond`.
+
+The agent acts only on a reply that passes `vrg-ruling read`'s checks. A
+fatal check stops the run for the human, who recovers as epic 889's §10
+says. An unclear reply is answered by a new request.
+
+No ruling reaches the agent relayed through a prompt. This epic changes
+`epic-implement` so that, when the human has replied, it re-dispatches the
+run saying only "human response available"; the run reads the reply from
+the issue itself.
 
 ### 6.3 Eligibility
 
@@ -330,8 +354,14 @@ finding if reading it would help an attacker.
 
 Every security item's details, whatever its kind, are kept by the caller in
 the task's private state directory, so they survive the end of a session
-between a stop and its ruling. The run that carries out a ruling reads the
-details there.
+between a stop and its ruling. That directory is the private channel epic
+889's §6 leaves to this epic: the details reach the human in the terminal
+and a dispatched run only from there, never from the issue. The run that
+carries out a ruling reads the details there.
+
+A security item's decision goes through the request and the reply like any
+other, by ID, with epic 889's fixed security words (`fix`, `file`, `defer`,
+`wont-fix`, and the matching outcomes in the response).
 
 Every public record (report-ready's title, summary and notes, step comments,
 ruling requests and rulings) refers to a security item, of any kind, by ID
@@ -350,10 +380,11 @@ the worktree convention, so later work (paad's rounds) can adopt it without
 reading this epic. It defines:
 
 - **a request file**, written by the caller into the task's state directory
-  before dispatch. That directory is merge-review's own kind,
-  `build/.vergil-state/merge-review/<N>/` in the task repo's main clone, where
-  `<N>` is the task issue; it does not reuse the `agentic-review` kind that
-  vergil-project/.github#880 removes. Its privacy rests on one rule: the
+  before dispatch. That directory is the caller's own,
+  `build/.vergil-state/issue-implement/<N>/` in the task repo's main clone,
+  where `<N>` is the task issue: the private directory epic 885 keeps for
+  `issue-implement` (its §6.2), so a task has one private directory, not a
+  second one for merge review. Its privacy rests on one rule: the
   `build/.vergil-state/` root is mode 700, and the caller checks that before
   writing anything below it, refusing if it does not hold. The human and the
   agents share one Unix user, so a private root makes everything below it
