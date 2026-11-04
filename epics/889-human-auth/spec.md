@@ -10,11 +10,12 @@
 ## 1. Problem
 
 When a code review of a task's change needs the human's decision, the
-decision reaches the agent that acts on it as text. Under `epic-implement`,
-the dispatching agent copies the human's rulings into the dispatched run's
-prompt, and `issue-implement` writes them onto the task issue as `Human
-ruling:` lines in a comment from its own agent login. Nothing proves the
-human said any of it.
+decision reaches the agent that acts on it as text. The agentic-review gate
+did this by having the dispatching agent copy the human's rulings into the
+dispatched run's prompt, and `issue-implement` write them onto the task
+issue as `Human ruling:` lines in a comment from its own agent login.
+Epic 885 removes that gate, but a merge review would otherwise reuse the
+same mechanism, and nothing in it proves the human said any of it.
 
 This epic builds the tools for an authenticated channel. The agent posts a
 request on the task issue. The human posts the reply from their own GitHub
@@ -151,8 +152,8 @@ A security finding's details never appear in a public record. Its decision
 still goes through the request and the reply, by ID:
 
 - The details reach the human only in the terminal, and reach a dispatched
-  run only privately, as they do today (from the task's state directory),
-  never from the issue.
+  run only privately, through the private channel the merge-review epic
+  defines, never from the issue.
 - **In a request,** a security item is marked by an explicit flag, not
   recognised by the shape of its ID, and carries only its ID and a fixed
   text: `security finding, details given privately`. The agent tool refuses a
@@ -161,14 +162,21 @@ still goes through the request and the reply, by ID:
   word for word. The agent tool refuses a flagged item in a response that
   carries anything but its ID and outcome (§7) (GHSA-2fjg-qxrj-fc2v,
   GHSA-8459-fr73-66rm).
-- **The reply** is the human's text, which the tools cannot screen. The agent
-  drafts it by the same rule, security items by ID only, and the human reads
-  it before running the command.
+- **The reply** is the human's text, which the tools screen only for plain
+  text (§7). The agent drafts it by the same rule, security items by ID
+  only, and the human reads it before running the command.
 
 ## 7. The agent tool: `vrg-ruling` (vergil-tooling)
 
 Run by an agent. Every subcommand refuses unless the derived agent login is
 on the `agents` list (§3).
+
+**Plain text only.** Every piece of text either tool handles (item IDs,
+text and recommendations, requests, responses, drafts and the human's own
+text) is printable ASCII, space to `~`, plus newline. Anything else,
+including tab, is refused, naming the character and its position, and never
+converted. Every item ID is dot-separated letters and digits, at most 16
+characters.
 
 - **`request`** posts a request on an issue from an items file (each item: an
   ID, a security flag, and for non-security items the question and the
@@ -179,8 +187,7 @@ on the `agents` list (§3).
 - **`draft`** runs once the human has decided. It builds the reply from an
   items file shaped like `respond`'s: each item an ID, a security flag, and
   for non-security items the decision in prose; a flagged item carries only
-  its ID and a decision. The drafted text is printable ASCII plus newline and
-  tab, and the tool refuses anything else. It pushes the reply to the
+  its ID and a decision. It pushes the reply to the
   request's draft ref (§9) and prints the paste-ready human command (§8) for
   that issue and request. It posts no comment.
 - **`read`** reads the reply to a given request ID, running every check in
@@ -189,9 +196,10 @@ on the `agents` list (§3).
   comment).
 - **`respond`** posts the response to a request and its reply, from an items
   file shaped like `request`'s: each item an ID, a security flag, and for
-  non-security items free prose saying what was done. A flagged item carries
-  only its ID and its outcome (for example `fixed` or `filed`); the tool
-  refuses a flagged item carrying anything else. It re-runs `read`'s checks
+  non-security items free prose saying how the agent read the reply and what
+  it did. A flagged item carries only its ID and its outcome (for example
+  `fixed` or `filed`), which is also its reading; the tool refuses a flagged
+  item carrying anything else. It re-runs `read`'s checks
   first, refuses unless the reply is still the latest trusted comment, and
   records the request and reply comment IDs in the response. The one
   exception is a re-run that finds its own well-formed response to that
@@ -204,7 +212,9 @@ request and reply comment IDs. The tools recognise the comments only by it.
 An agent comment after a reply that is not a well-formed response is a turn
 violation (§5.2). The marker never carries identity, and the tools recognise
 it only in comments by the derived agent login: a marker anywhere else,
-including a comment by the human, is ignored.
+including a comment by the human, is ignored. A malformed marker is fatal
+only in a comment of the exchange in hand; elsewhere it is plain text
+(§5.4).
 
 ## 8. The human tool: `vrg-ruling-reply` (vergil-tooling)
 
@@ -218,10 +228,7 @@ shell carries the agent's identity and bypasses the hooks.
   being run in the wrong shell.
 - It takes the issue and the request's comment ID. By default the reply is the
   agent's draft, fetched from the request's draft ref (§9); with
-  `--response-text "<text>"` it is the human's own text instead. A reply is
-  printable ASCII plus newline and tab, whichever way it comes, because the
-  agent may have written a suggested `--response-text` command too; only
-  `--response-text` with `--allow-unicode` admits other printable text.
+  `--response-text "<text>"` it is the human's own text instead.
 - Before posting, it reads the issue and refuses when the request is not the
   latest trusted comment (it is already answered, or the turn has moved on).
   It shares the agent tool's comment-reading code.
@@ -231,10 +238,10 @@ shell carries the agent's identity and bypasses the hooks.
   it was read is never posted. It refuses to run without an interactive
   terminal.
 - **Only plain text is posted.** The tool refuses a reply (a draft or
-  `--response-text`) that contains a control character other than newline
-  and tab, or a vergil marker (§7). It shows the reply with any non-printing
-  character made visible, with its byte length and SHA-256 hash, so nothing on
-  screen can hide part of what is posted.
+  `--response-text`) that is not plain text (§7) or that contains a vergil
+  marker (§7). Plain ASCII has no invisible characters, so what is on screen
+  is all that is posted. It shows the reply with its byte length and SHA-256
+  hash.
 - After posting any reply to a request, the draft or the human's own text, it
   deletes that request's draft ref. A reply declined at the prompt keeps the
   ref, so the command can be run again. `respond` also deletes any draft ref
@@ -312,6 +319,8 @@ vergil-tooling's docs gain:
   - that the logins GitHub reports for the App and the human on these
     comments match the checks, live rather than against stubs
     (GHSA-xffj-678w-ggjp).
+- **Bookends:** the documentation review (vergil-project/vergil-tooling#3917)
+  and then the retrospective (vergil-project/.github#891).
 
 ## 13. Out of scope
 
