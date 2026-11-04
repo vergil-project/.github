@@ -49,8 +49,8 @@ pytest.
   outcome or decision is one of `fixed`, `filed`, `deferred`, `accepted`,
   `declined` or `wont-fix`.
 - Item text never contains `MARKER_PREFIX` or a control character other
-  than `\n` and `\t`; an agent-drafted reply is printable ASCII plus `\n`
-  and `\t` only.
+  than `\n` and `\t`; a reply is printable ASCII plus `\n` and `\t` only,
+  unless it is `--response-text` with `--allow-unicode` (spec §8).
 - Every GitHub call runs inside `github.target_org(<the issue's owner>)`,
   whatever the clone's `origin` is.
 - No silent failures: every refusal and fatal check is a non-zero exit with
@@ -173,6 +173,10 @@ def test_read_reply_outcomes():
     # agent comment(2) before reply -> FatalCheck("turn", 2)
     # request id 1 absent -> FatalCheck("deleted", 1)
     # request 1 posted by the human -> FatalCheck("request-author", 1)
+    # request 1, reply 2, a second human comment 3 -> FatalCheck("turn", 3)
+    # request 1, reply 2, an agent comment 3 with no response marker
+    #   -> FatalCheck("turn", 3)
+    # request 1, reply 2, response(request=1, reply=2) -> comment 2
 
 def test_check_respond():
     # request 1, reply 2, then a second human comment 3 -> FatalCheck("turn", 3)
@@ -238,7 +242,11 @@ read_reply(stream, request_id, agent, human):
   first = after[0]
   first.author != human              -> FatalCheck("turn", first.id)
   first.edited                       -> FatalCheck("edited", first.id)
-  return first
+  rest = comments after first
+  rest is empty, or rest[0] is by agent with a well-formed response marker
+  naming (request_id, first.id) and is the only comment in rest
+                                     -> return first
+  otherwise                          -> FatalCheck("turn", rest[0].id)
 check_respond: read_reply must return the comment reply_id (a different
   comment, or None, -> FatalCheck("deleted", reply_id)); then
   nothing after it                   -> None (ready to respond)
@@ -266,6 +274,8 @@ Expected: PASS.
 - Create: `src/vergil_tooling/lib/rulings/items.py`
 - Create: `src/vergil_tooling/lib/rulings/post.py`
 - Create: `src/vergil_tooling/bin/vrg_ruling.py`
+- Modify: `src/vergil_tooling/lib/github.py` (`post_json_once`'s
+  `timeout`)
 - Modify: `pyproject.toml` (`[project.scripts]`: `vrg-ruling =
   "vergil_tooling.bin.vrg_ruling:main"`)
 - Modify: `docs/site/docs/reference/cli-tools-overview.md` (a `###
@@ -277,9 +287,14 @@ Expected: PASS.
 
 - Consumes: Task 1's whole interface; `github.post_json_once(endpoint,
   body) -> dict`; `github.GitHubAPIError`.
+- Modifies: `github.post_json_once` gains `timeout: float | None = None`,
+  passed to `subprocess.run`; a `subprocess.TimeoutExpired` is raised as
+  `GitHubAPIError`. Existing callers keep the default.
 - Produces:
   - `@dataclass(frozen=True) class Item: id: str; security: bool; text: str
-    | None; recommendation: str | None`
+    | None; recommendation: str | None; outcome: str | None` (`outcome`
+    holds a flagged response item's outcome and a flagged reply item's
+    decision)
   - `SECURITY_REQUEST_TEXT = "security finding, details given privately"`
   - `RULING_OUTCOMES = ("fixed", "filed", "deferred", "accepted",
     "declined", "wont-fix")`
@@ -339,6 +354,12 @@ def test_post_once_never_retries(fake_gh):
     assert post_comment_once("o/r", 7, "B", author="h-vergil-user") == 55
     assert fake_gh.post_calls == 1
 
+def test_post_once_times_out_into_reread(fake_gh):
+    fake_gh.post_hangs()
+    fake_gh.comment_landed(body="B", author="h-vergil-user", id=55)
+    assert post_comment_once("o/r", 7, "B", author="h-vergil-user") == 55
+    assert fake_gh.post_calls == 1 and fake_gh.post_timeout == 30
+
 def test_post_once_reports_not_landed(fake_gh):
     fake_gh.post_fails_with(502)
     with pytest.raises(PostNotLanded, match="did not land"):
@@ -391,7 +412,7 @@ None))`; `render_response` likewise, ending with the response marker.
 
 Snapshot the IDs from `fetch_comments` first, then call
 `github.post_json_once(f"repos/{repo}/issues/{issue}/comments", {"body":
-body})` once and return its `id`. On `GitHubAPIError`, fetch again, up to
+body}, timeout=30)` once and return its `id`. On `GitHubAPIError`, fetch again, up to
 three times two seconds apart: a new comment by `author` whose body equals
 `body` is the landed post (return its ID); none after the last re-read
 raises `PostNotLanded("comment did not land on <repo>#<n>; nothing more was
@@ -613,6 +634,16 @@ def test_declined_keeps_draft(cli, tty, draft("R1.1: fix\n")):
     assert cli("--issue", "o/r#7", "--request", "41") == 1
     assert fetch_draft("o/r", 7, 41) == "R1.1: fix\n"
 
+def test_response_text_is_ascii_unless_allowed(cli, tty, draft("x\n")):
+    cli.answer("y")
+    assert cli("--issue", "o/r#7", "--request", "41",
+               "--response-text", "aㅤb") == 1
+    assert cli("--issue", "o/r#7", "--request", "41",
+               "--response-text", "café", "--allow-unicode") == 0
+
+def test_allow_unicode_needs_response_text(cli):
+    assert cli("--issue", "o/r#7", "--request", "41", "--allow-unicode") == 2
+
 def test_response_text_also_deletes_draft(cli, tty, draft("x\n")):
     cli.answer("y")
     assert cli("--issue", "o/r#7", "--request", "41", "--response-text", "deny") == 0
@@ -636,15 +667,15 @@ else needs showing once the check has passed.
 
 - [ ] **Step 4: Implement `bin/vrg_ruling_reply.py`**
 
-Arguments: `--issue`, `--request`, optional `--response-text`. In order:
+Arguments: `--issue`, `--request`, optional `--response-text` and
+`--allow-unicode` (a usage error without `--response-text`). In order:
 refuse if `identity_mode.is_agent()` (as `vrg-submit-pr` does, before
 parsing, so `--help` also redirects); refuse unless stdin and stdout are
 TTYs; resolve `human_login`; refuse unless `github.read_output("api",
 "user", "--jq", ".login")` equals it; refuse unless `open_request` on the
 trusted stream is this request and `read_reply` returns `None`; read the
 reply once (`--response-text`, else `fetch_draft`, where `None` is a
-refusal); `check_plain_text(reply, ascii_only=<the reply came from the
-draft>)`; print `render_visible(reply)`, `bytes: <n>` and `sha256: <hex>`;
+refusal); `check_plain_text(reply, ascii_only=not allow_unicode)`; print `render_visible(reply)`, `bytes: <n>` and `sha256: <hex>`;
 `confirm("Post this reply as <login>?", assume_yes=False)`; on yes, fetch
 the comments again and re-run the `open_request` and `read_reply` checks,
 refusing without posting if either has changed; then `post_comment_once(...,
@@ -671,8 +702,9 @@ Expected: PASS.
 **Files:**
 
 - Create: `docs/site/docs/guides/human-replies.md`
-- Create: `docs/site/docs/reference/dev/ruling.md` (the reference page for
-  both commands: every subcommand, flag and exit code)
+- Create: `docs/site/docs/reference/dev/ruling.md` and
+  `docs/site/docs/reference/dev/ruling-reply.md` (one reference page per
+  command: every subcommand, flag and exit code)
 - Modify: `docs/site/mkdocs.yml` (nav entries for both pages)
 - Modify: `docs/specs/worktree-convention.md` (rule 3: the `build/tmp/`
   subdirectory)
@@ -685,7 +717,7 @@ Expected: PASS.
 - Produces: the page the merge-review epic cites,
   `guides/human-replies.md`.
 
-- [ ] **Step 1: Write `guides/human-replies.md` and `reference/dev/ruling.md`**
+- [ ] **Step 1: Write `guides/human-replies.md` and the two reference pages**
 
 Sections, from the spec: the round (spec §4), what each command does and
 its exit codes, the checks (spec §5: acceptance, turn order, write-once,
@@ -702,11 +734,12 @@ scratch, and a file there can be deleted once nothing is using it.
 
 - [ ] **Step 3: Link the CLI Tools Overview entries**
 
-Add links from the `### vrg-ruling` and `### vrg-ruling-reply` entries in
-`docs/site/docs/reference/cli-tools-overview.md` to `reference/dev/ruling.md`
-and `guides/human-replies.md`.
+Link the `### vrg-ruling` entry in
+`docs/site/docs/reference/cli-tools-overview.md` to `reference/dev/ruling.md`,
+the `### vrg-ruling-reply` entry to `reference/dev/ruling-reply.md`, and
+both to `guides/human-replies.md`.
 
-- [ ] **Step 4: Add both pages to `mkdocs.yml`'s nav and run validation**
+- [ ] **Step 4: Add the three pages to `mkdocs.yml`'s nav and run validation**
 
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS (markdownlint). The task is accepted only once the PR's CI
@@ -747,7 +780,7 @@ Each is retargeted to its task once the tasks are filed:
 | GHSA-9p3c-62q9-v2cg, GHSA-mv5w-h5vr-wjfm, GHSA-hw7h-g8vr-wj94 | Task 1 |
 | GHSA-r5f4-5586-mqfp, GHSA-2fjg-qxrj-fc2v, GHSA-8459-fr73-66rm, GHSA-g8m7-qqg9-mvch, GHSA-gqxr-g9pv-3p2v, GHSA-gm44-f32j-78px | Task 2 |
 | GHSA-mx99-fwcp-2vrh | Task 3 |
-| GHSA-wrf8-xm8j-wvw4, GHSA-pjwf-v9g2-4h8f, GHSA-pm85-5hg9-h9w8 | Task 4 |
+| GHSA-wrf8-xm8j-wvw4, GHSA-pjwf-v9g2-4h8f, GHSA-pm85-5hg9-h9w8, GHSA-vw78-jmq7-p52j | Task 4 |
 | GHSA-xffj-678w-ggjp | Validation #3919 |
 | GHSA-9q3r-h2xj-rgq3 | Task 5 (`guides/human-replies.md` states the assumption in spec §3); the human closes it |
 | GHSA-w38c-m89h-5v9q | Task 5 (not applicable here); the human closes it |

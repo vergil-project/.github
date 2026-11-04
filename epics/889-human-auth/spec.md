@@ -157,8 +157,7 @@ still goes through the request and the reply, by ID:
   recognised by the shape of its ID, and carries only its ID and a fixed
   text: `security finding, details given privately`. The agent tool refuses a
   request whose flagged item carries anything else (GHSA-r5f4-5586-mqfp).
-- **In a response,** security items appear by ID and as counts, with no
-  detail, and nothing from the review's result is copied into a response
+- **In a response,** security items appear by ID only, with no detail, and nothing from the review's result is copied into a response
   word for word. The agent tool refuses a flagged item in a response that
   carries anything but its ID and outcome (§7) (GHSA-2fjg-qxrj-fc2v,
   GHSA-8459-fr73-66rm).
@@ -177,9 +176,13 @@ on the `agents` list (§3).
   issue has an open exchange (an earlier request without a reply, or a reply
   without a well-formed response after it), and names that request's ID so a
   resumed run can pick it up instead.
-- **`draft`** runs once the human has decided. It pushes the reply the agent
-  drafted to the request's draft ref (§9) and prints the paste-ready human
-  command (§8) for that issue and request. It posts no comment.
+- **`draft`** runs once the human has decided. It builds the reply from an
+  items file shaped like `respond`'s: each item an ID, a security flag, and
+  for non-security items the decision in prose; a flagged item carries only
+  its ID and a decision. The drafted text is printable ASCII plus newline and
+  tab, and the tool refuses anything else. It pushes the reply to the
+  request's draft ref (§9) and prints the paste-ready human command (§8) for
+  that issue and request. It posts no comment.
 - **`read`** reads the reply to a given request ID, running every check in
   §5.1 to §5.4. It has three outcomes, each with its own exit code: a valid
   reply (printed), no reply yet, and a fatal check (naming the check and the
@@ -190,7 +193,10 @@ on the `agents` list (§3).
   only its ID and its outcome (for example `fixed` or `filed`); the tool
   refuses a flagged item carrying anything else. It re-runs `read`'s checks
   first, refuses unless the reply is still the latest trusted comment, and
-  records the request and reply comment IDs in the response.
+  records the request and reply comment IDs in the response. The one
+  exception is a re-run that finds its own well-formed response to that
+  request and reply already landed after the reply: it reports that
+  response's ID, posts nothing and succeeds (§10).
 
 The request and the response each carry a required hidden HTML marker that
 gives the comment's kind (`request` or `response`) and, for a response, the
@@ -212,7 +218,10 @@ shell carries the agent's identity and bypasses the hooks.
   being run in the wrong shell.
 - It takes the issue and the request's comment ID. By default the reply is the
   agent's draft, fetched from the request's draft ref (§9); with
-  `--response-text "<text>"` it is the human's own text instead.
+  `--response-text "<text>"` it is the human's own text instead. A reply is
+  printable ASCII plus newline and tab, whichever way it comes, because the
+  agent may have written a suggested `--response-text` command too; only
+  `--response-text` with `--allow-unicode` admits other printable text.
 - Before posting, it reads the issue and refuses when the request is not the
   latest trusted comment (it is already answered, or the turn has moved on).
   It shares the agent tool's comment-reading code.
@@ -258,7 +267,10 @@ equivalent), because a retried POST that had already landed would post a
 duplicate, and a duplicate request or reply is a fatal turn violation. After
 an uncertain failure (a timeout or a 5xx), the tool re-reads the issue: if
 its comment landed, it reports the comment's ID; if not, it fails with an
-error saying the post did not land, and posts nothing more.
+error saying the post did not land, and posts nothing more. A POST is
+bounded by a timeout, so a hung request takes the same path. A re-run of
+`respond` after such a failure finds its landed response and succeeds
+without posting (§7).
 
 A fatal check stops the run with a non-zero exit and a message naming the
 check and the comment. The human triages it. The recovery is to start over
@@ -272,7 +284,7 @@ vergil-tooling's docs gain:
 
 - the protocol: the round (§4), the checks (§5), security items (§6) and
   recovery (§10), written for the merge-review epic to cite;
-- the two tools' reference pages;
+- a reference page for each tool;
 - the `build/tmp/` convention: within the existing exception for ignored
   scratch in a main clone's `build/` (the worktree convention's rule 3),
   everything under `build/tmp/` is scratch, and a file there can be deleted
