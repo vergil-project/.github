@@ -315,9 +315,12 @@ The stop is one round of epic 889's protocol (its §4, and vergil-tooling's
 3. The human and the agent talk the items through in the terminal; the
    agent drafts the reply with `vrg-ruling draft`, and the human posts it
    from their own shell with `vrg-ruling-reply`.
-4. The run reads the reply with `vrg-ruling read`, carries out the rulings
-   (the fix and check of §6.1), and posts what it did with each item with
-   `vrg-ruling respond`.
+4. The run reads the reply with `vrg-ruling read` and at once posts
+   `vrg-ruling respond`, saying how it read each ruling and what it will
+   do. Only then does it carry out the rulings (the fix and check of
+   §6.1); the check's step comment records the outcome. Epic 889 requires
+   the response to be the next trusted comment after the reply, so the run
+   posts nothing else on the issue in between.
 
 The agent acts only on a reply that passes `vrg-ruling read`'s checks. A
 fatal check stops the run for the human, who recovers as epic 889's §10
@@ -388,7 +391,9 @@ reading this epic. It defines:
   `build/.vergil-state/` root is mode 700, and the caller checks that before
   writing anything below it, refusing if it does not hold. The human and the
   agents share one Unix user, so a private root makes everything below it
-  private, whatever the modes of the files;
+  private, whatever the modes of the files. The caller also checks that each
+  directory level down to its own is a real directory, not a symlink, and
+  mode 700, so no link can redirect a write out of the private root;
 - **a result**, returned by the reviewer as its reply, made of a structured
   block followed by free prose. The caller writes it as the result file in
   the same directory; the reviewer writes nothing (§8.4);
@@ -420,12 +425,16 @@ At least:
 
 The structured block holds at least:
 
-- the step and the request it answers (a hash of the request file);
+- the step and the request it answers (an ID the request carries, which the
+  reviewer copies, since it cannot compute a hash);
 - each finding: an ID, the question it answers (production safety or merge
   quality), its kind (defect, design question, out-of-scope addition,
   pre-existing), whether it is security, and its location;
-- in a check: each earlier finding's ID with `fixed` or `not fixed`, and any
-  breakage the fix caused.
+- in a check: `fixed` or `not fixed` for each earlier finding the
+  implementer was asked to change (every defect, and each ruling that calls
+  for a code change), and any breakage the fix caused. Pre-existing notes
+  and items ruled to stay as they are are not asked about; their rulings
+  and lookups record them.
 
 The result carries no verdict. The reviewer reports findings; the caller
 decides from the findings' kinds alone, by the rules of §6.1, so there is no
