@@ -173,7 +173,8 @@ the changed files:
 
 - **docs-only:** every change is an addition or an edit of a file that is
   documentation by an explicit allow-list. Any deletion or rename makes the
-  change code: the docs class is a narrow special case, and anything outside
+  change code, and so does any change to `vergil.toml`, where the allow-list
+  lives: the docs class is a narrow special case, and anything outside
   it gets the full review. The reviewer answers only the merge-quality question: accuracy
   against the code and the issue, and clarity. The fleet accepts that a
   documentation change does not break production.
@@ -313,8 +314,12 @@ The stop is one round of epic 889's protocol (its §4, and vergil-tooling's
 2. `vrg-ruling request` posts one request covering every item that needs
    the human, each with the implementer's recommendation.
 3. The human and the agent talk the items through in the terminal; the
-   agent drafts the reply with `vrg-ruling draft`, and the human posts it
-   from their own shell with `vrg-ruling-reply`.
+   agent drafts the reply with `vrg-ruling draft` once the human has
+   decided, and the human posts it from their own shell with
+   `vrg-ruling-reply`. The agent that drafts is the one the human is
+   talking to: `issue-implement` when the human runs it directly, or
+   `epic-implement` at its batch gate when it dispatched the run; a
+   dispatched run ends after the request without drafting.
 4. The run reads the reply with `vrg-ruling read` and at once posts
    `vrg-ruling respond`, saying how it read each ruling and what it will
    do. Only then does it carry out the rulings (the fix and check of

@@ -104,7 +104,7 @@ Sections:
 - **Files** in the caller's private directory: `request-<step>.json`,
   `diff-<step>.patch`, `fix-<step>.patch` (check only),
   `result-<step>.md`, and `security-<ID>.md` per security finding.
-  `<step>` is `review` or `check`.
+  `<step>` is `review`, `check` or `check-<k>`.
 - **The request** (JSON object):
   `schema` = `"merge-review-request/1"`, `request_id` (32 random hex
   characters from `secrets.token_hex(16)`, new for every request), `step`,
@@ -114,7 +114,9 @@ Sections:
   (`"docs-only"` or `"code"`), `design_sources` (list of absolute paths),
   `validate_stages` (list of stage names that passed), `epic_open_tasks`
   (list of `{"ref", "title"}`). A check adds `fix_base_sha`,
-  `fix_diff_path`, `earlier_result_path` and `earlier_finding_ids`: only
+  `fix_diff_path`, `earlier_result_paths` (every earlier step's result, in
+  order: `result-review.md`, then `result-check.md` for a `check-2`, and
+  so on) and `earlier_finding_ids`: only
   the earlier IDs the implementer was asked to change (every defect, and
   each ruling that calls for a code change). Pre-existing notes and items
   ruled keep, file, defer or wont-fix are not listed; their rulings and
@@ -128,7 +130,7 @@ Sections:
   the request's `earlier_finding_ids`).
   - `question`: `"production-safety"` or `"merge-quality"`.
   - `kind`: `"defect"`, `"design-question"`, `"out-of-scope"` or
-    `"pre-existing"`.
+    `"pre-existing"`; a check step never raises `"pre-existing"`.
   - `security`: boolean. `summary` is required when it is false and
     forbidden when it is true.
   - `status`: `"fixed"` or `"not-fixed"`.
@@ -202,6 +204,7 @@ def test_docs_only_production_safety_rejected(): ...  # change_class docs-only
 def test_check_missing_fix_status_rejected(): ...     # listed R2 absent
 def test_check_unlisted_fix_status_id_rejected(): ... # R3 raised but not listed; "R9" never raised
 def test_check_valid_with_new_finding(): ...          # C1 kind design-question
+def test_check_pre_existing_rejected(): ...           # C1 kind pre-existing in a check
 def test_cli_prints_counts(tmp_path, capsys): ...     # exit 0, counts["defect"] == 1
 def test_cli_invalid_exits_1(tmp_path, capsys): ...   # stderr starts "ERROR: "
 ```
@@ -276,6 +279,9 @@ def test_path_off_list_is_code():
 def test_prefix_needs_slash():
     assert classify([("M", "docs-extra/x.md", None)], ["docs"]) == "code"
 
+def test_vergil_toml_change_is_code():   # a branch cannot widen its own list
+    assert classify([("M", "vergil.toml", None)], ["vergil.toml", "src/"]) == "code"
+
 def test_mode_or_type_change_is_code(): ...   # status "T"
 def test_empty_change_is_code(): ...          # no files: any doubt is code
 def test_base_moved_after_cut(repo): ...      # code commit on base after the branch: docs-only, absent from the list
@@ -294,7 +300,8 @@ Expected: FAIL on the missing module and section.
 
 Add `merge-review` to the known sections and `_KNOWN_KEYS`, with a parser
 in the shape of `_parse_dependency_update`. Only `A` and `M` statuses can be
-docs-only. The CLI joins `BUILTIN_DOCS_PATHS` with the repo's `docs-paths`.
+docs-only. Any change to `vergil.toml` is code, whatever the list says.
+The CLI joins `BUILTIN_DOCS_PATHS` with the repo's `docs-paths`.
 
 - [ ] **Step 4: Run validation**
 
@@ -312,11 +319,13 @@ Expected: PASS.
 - Modify: `src/vergil_tooling/lib/progress.py` (`run_pipeline`),
   `src/vergil_tooling/bin/vrg_validate.py`
 - Create: `src/vergil_tooling/lib/validate_record.py`
-- Create: `src/vergil_tooling/lib/merge_review/state.py`,
+- Create: `src/vergil_tooling/lib/build_dir.py`,
+  `src/vergil_tooling/lib/merge_review/state.py`,
   `src/vergil_tooling/lib/merge_review/request.py`
 - Create: `src/vergil_tooling/bin/vrg_merge_review_request.py`
 - Modify: `pyproject.toml`, `docs/site/docs/reference/cli-tools-overview.md`
-- Test: `tests/vergil_tooling/test_validate_record.py`,
+- Test: `tests/vergil_tooling/test_build_dir.py`,
+  `tests/vergil_tooling/test_validate_record.py`,
   `tests/vergil_tooling/test_merge_review_request.py`
 
 **Interfaces:**
@@ -336,17 +345,27 @@ Expected: PASS.
     test stages, so it is full); `passed` holds stages ending `ok` or
     `warn`, `not_passed` every other status (`failed`, `skipped`,
     `interrupted`)
-  - `ensure_private_dir(main_clone: Path, issue: int) -> Path`: takes each
+  - `ensure_build_dir(repo_root: Path) -> Path` in `lib/build_dir.py`: the
+    one way any code reaches a repo's `build/`, since a fresh clone has
+    none (it is ignored). Creates `build` with a plain mkdir when absent
+    (no mode rule: it is ordinary scratch); raises `BuildDirError` naming
+    the path when `build` is a symlink or not a directory; returns it
+  - `ensure_private_dir(main_clone: Path, issue: int) -> Path`: calls
+    `ensure_build_dir(main_clone)` first, then takes each
     level below `build` in turn (`.vergil-state`, `issue-implement`,
     `<issue>`, `merge-review`); an existing level must be a real directory,
     not a symlink, and mode 700 (permission bits only); an absent one is
     created mode 700. Any other state raises `StateDirError` naming the
     level. Returns
     `build/.vergil-state/issue-implement/<issue>/merge-review/`
-  - `vrg-merge-review-request --issue <owner/name#N> --base <ref> --step review|check|check-<k> --issue-body-file <path> --epic-tasks-file <path> [--design-source <path>]... [--fix-base <sha> --earlier-result <path> --fix-id <ID>...]`:
-    `--fix-id` names each earlier ID asked to change and becomes
-    `earlier_finding_ids`; the builder refuses an ID the earlier result
-    does not hold, and a defect it does not name;
+  - `vrg-merge-review-request --issue <owner/name#N> --base <ref> --step review|check|check-<k> --issue-body-file <path> --epic-tasks-file <path> [--design-source <path>]... [--fix-base <sha> --earlier-result <path>... --fix-id <ID>...]`:
+    `--earlier-result` is repeatable, in step order, and becomes
+    `earlier_result_paths`; `--fix-id` names each earlier ID asked to change
+    and becomes `earlier_finding_ids`. The builder refuses an ID that no
+    earlier result raised, and a defect it does not name unless a later
+    earlier result marks it `fixed`. `--fix-base` is the HEAD the previous
+    step judged: the review's HEAD for `check`, the previous check's HEAD
+    for `check-<k>`;
     writes `request-<step>.json`, `diff-<step>.patch` and, for a check,
     `fix-<step>.patch`; prints the request path
 
@@ -369,12 +388,15 @@ def test_request_refuses_public_state_root(repo):   # build/.vergil-state mode 7
     assert main([...]) == 1  # stderr names the mode
 def test_private_dir_refuses_symlinked_level(tmp_path): ...  # issue-implement a symlink
 def test_private_dir_refuses_non_700_level(tmp_path): ...    # <issue> mode 750
+def test_build_dir_created_when_absent(tmp_path): ...        # fresh clone: build made, then the private dir
+def test_build_dir_refuses_symlink_or_file(tmp_path): ...    # build -> elsewhere; build a file
 def test_review_request_fields(repo): ...           # schema, change_class, validate_stages
 def test_check_request_fields(repo): ...            # fix_base_sha, earlier_finding_ids == ["R1", "R2"]
 def test_request_diffs_from_merge_base(repo): ...   # base moved after the cut: base_sha is the merge base, diff omits base's commit
 def test_check_request_omits_unlisted(repo): ...    # R3 pre-existing, R4 ruled keep: not listed
 def test_check_refuses_unknown_or_missing_fix_id(repo): ...  # "R9"; defect R1 not named
 def test_check_refuses_invalid_earlier_result(repo): ...
+def test_check_2_request_lists_review_and_check_ids(repo): ...  # R2 unfixed in check, C1 ruled fix: both listed, R1 fixed is not required
 ```
 
 `repo` is a fixture: a temporary git repo with a commit on a base branch, a
@@ -449,7 +471,8 @@ the reviewer prompt, covering:
   leave out pre-existing problems the epic's open tasks already cover;
 - in a check: judge each fix's quality across the whole branch and the fix
   diff, report new problems or added machinery as `C<n>` findings, and do
-  not hunt through code the fix did not touch (spec §6.1 step 4);
+  not hunt through code the fix did not touch (spec §6.1 step 4); a check
+  raises no pre-existing notes;
 - the reply format of Task 1, exactly, with a security finding's details
   only in the prose.
 
@@ -497,12 +520,19 @@ Sections, each carrying the spec's rule:
   untracked proposal or dispute goes into one `vrg-ruling request`. Write
   each security finding's details to `security-<ID>.md` first.
 - **The stop** (spec §6.2): every stop but `ruling-check-fatal` (whose
-  recovery is epic 889's §10) goes through one `vrg-ruling request`. For
+  recovery is epic 889's §10) goes through one `vrg-ruling request`. A
+  stopping step posts in this order: its step comment, then `vrg-ruling
+  request`, then nothing else on the issue until the human's reply (epic
+  889 §5.2 makes any other agent comment in between fatal). For
   `too-many-blockers`, `check-failed` and `result-malformed` its items are
   the findings, unfixed IDs or malformed step that need a ruling. Write
   `open-request.json` (`{"request": <id>, "step": <step>}`) to the private
-  directory, talk the items through in the terminal, then `vrg-ruling
-  draft` and hand the human the `vrg-ruling-reply` command; end the run.
+  directory. The task run never drafts the reply itself, since epic 889's
+  `draft` runs only once the human has decided. Run directly with the human
+  present, `issue-implement` talks the items through in the terminal, runs
+  `vrg-ruling draft` and hands the human the `vrg-ruling-reply` command.
+  Dispatched by `epic-implement`, it ends the run there and leaves the
+  conversation and the draft to `epic-implement` (Task 7).
   A resumed run reads the reply with `vrg-ruling read --request <id>`, then
   posts `vrg-ruling respond` at once, saying how it read each ruling and
   what it will do, before any fix or step comment: epic 889 makes any
@@ -517,6 +547,8 @@ Sections, each carrying the spec's rule:
   and each ruling that calls for a code change), dispatch, save as
   `result-check.md`, run the check. Every `fix_status` fixed and no `C<n>`
   findings: done. Anything else stops for the human with `check-failed`.
+  A `check-<k>` passes `--fix-base <previous check's HEAD>` and every
+  earlier result in step order.
 - **No unfinished business:** list the closing state of every item; refuse
   to hand off while one is open.
 - **Records** (spec §9): one comment per step, first line
@@ -565,10 +597,12 @@ names.
 - [ ] **Step 2: `epic-implement`**
 
 In "Batch at the gate", list tasks stopped at merge review with the request
-ID, show each item in the terminal (security details from the task's
-`security-<ID>.md`), and hand the human the drafted `vrg-ruling-reply`
-command. Once the human has replied, re-dispatch the task with only
-"human response available"; pass no ruling text in any prompt.
+ID, and talk each item through with the human in the terminal (security
+details from the task's `security-<ID>.md`). Once the human has decided,
+run `vrg-ruling draft` from the task's worktree, whose `origin` is the task
+repo as 889's `draft` requires, and hand the human the `vrg-ruling-reply`
+command it prints. Once the human has replied, re-dispatch the task with
+only "human response available"; pass no ruling text in any prompt.
 
 - [ ] **Step 3: The doctrine's `issue-implement` directory**
 
@@ -577,8 +611,12 @@ also holds `merge-review/`, written by `vrg-merge-review-request` and the
 `merge-review` skill (request, patch and result files, `security-<ID>.md`
 and `open-request.json`), kept across a stop and deleted at report-ready.
 It is not an "other entry". Its checks are `ensure_private_dir`'s: every
-level a real directory, mode 700. The hash rules do not apply to it,
-because its reviewer has only Read, Glob and Grep and cannot write there.
+level a real directory, mode 700. The hash rules, including the
+kept-details-file rule, do not apply to it, and the amendment states the
+threat this accepts: its reviewer has only Read, Glob and Grep and cannot
+write there, and every session of the shared Unix user is inside the trust
+boundary, since any of them could change the code, the worktree or the
+tools as easily. The mode-700 root protects it from other users only.
 
 - [ ] **Step 4: Run validation**
 
@@ -601,7 +639,8 @@ Expected: PASS.
   - a docs-only change reviewed for merge quality only, ending `eligible`;
   - a clean code change ending `eligible` with no fix step;
   - a seeded defect: one fix, a passing check, `eligible`;
-  - a seeded design question: one stop, a full `vrg-ruling` round from the
+  - a seeded design question: one stop, whose step comment comes before
+    the request with no agent comment after it, a full `vrg-ruling` round from the
     human's shell, a re-dispatch saying only "human response available",
     and `not-eligible` with reason `human-ruling`; the trusted comment
     after the reply is the `vrg-ruling respond`, and the check's step
