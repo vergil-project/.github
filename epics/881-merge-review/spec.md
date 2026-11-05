@@ -59,7 +59,11 @@ on agent submit and merge is the next step, and it depends on this one.
   or not, and why (§6.3).
 - A standalone protocol for agent-to-agent requests and results, built from
   files and a validated structured block rather than prose the caller has to
-  interpret (§8). `merge-review` is its first user.
+  interpret (§8). `merge-review` is its first user. Only the envelope is
+  generic: the request ID, the step, the result's fenced block and the
+  check that the caller acts only on a block that passed. The fields,
+  finding kinds and steps are `merge-review`'s profile; a later adopter,
+  such as paad's rounds, defines its own profile on the same envelope.
 - Cheap on small changes: a docs-only change gets a lighter review (§4.3).
 
 ### Non-goals
@@ -268,7 +272,12 @@ because security records are deliberately neutral.
      this one request (§6.2), proposals to file an issue or security record
      included. Epic 889's rule that non-review decisions stay outside the
      channel (its §4) covers only decisions `issue-implement` raises on its
-     own, which it settles before the request.
+     own, which it settles before the request. A run with no human present
+     (dispatched by `epic-implement`) that has such decisions pending stops
+     for them first, before posting anything of merge review; it keeps the
+     review's result privately, and the run re-dispatched once they are
+     settled posts the step comment and the merge-review request. If the
+     branch changed in between, it reviews afresh.
    - Then the implementer fixes every defect and carries out every ruling,
      and runs `vrg-validate` again, fixing any failure until it is green, as
      in normal implementation. Getting back to green is not capped and is
@@ -330,7 +339,29 @@ The stop is one round of epic 889's protocol (its §4, and vergil-tooling's
 
 The agent acts only on a reply that passes `vrg-ruling read`'s checks. A
 fatal check stops the run for the human, who recovers as epic 889's §10
-says. An unclear reply is answered by a new request.
+says.
+
+An unclear reply (an item with no ruling, a word the item does not allow,
+or rulings that contradict each other) is answered by a new request. The
+run carries out the clear items, then responds, stating for each unclear
+item how it read it and that it did nothing with it; an unclear security
+item's outcome is `deferred`, meaning only that it is asked again, and its
+details stay in the private directory. It then posts a new request for
+the unclear items alone and stops again on the same step.
+
+Some stops are not about a finding, and carry one item of their own:
+
+- the reviewer's result failed the result check twice (§8.4): the human
+  rules `retry` (dispatch the same step again) or `stop` (hand off not
+  eligible);
+- a design source the epic lists could not be fetched (§8.2): `retry` or
+  `proceed-without`;
+- the branch was rebased between the review and the check, so the fix diff
+  would carry the base branch's commits: `restart` (a fresh review, every
+  finding ruled afresh, nothing carried over from earlier rulings) or
+  `stop`.
+
+None of them starts another review or fix round without the human.
 
 No ruling reaches the agent relayed through a prompt. This epic changes
 `epic-implement` so that, when the human has replied, it re-dispatches the
@@ -344,7 +375,9 @@ questions, no out-of-scope additions, no disputes and no human ruling
 needed. Otherwise it ends **not eligible**, with the reason. The reason is
 one of a fixed set of values; security appears in it only as a count (§7),
 because report-ready's notes are public. Eligibility is
-recorded on the task issue and in report-ready's notes. While only the human
+recorded on the task issue, in one closing comment every run posts before
+report-ready (after any `vrg-ruling respond`), whatever path it took, and
+in report-ready's notes. While only the human
 submits PRs, it is information; it becomes the gate when agents merge (a
 non-goal here).
 
@@ -371,6 +404,17 @@ carries out a ruling reads the details there.
 A security item's decision goes through the request and the reply like any
 other, by ID, with epic 889's fixed security words (`fix`, `file`, `defer`,
 `wont-fix`, and the matching outcomes in the response).
+
+A security defect this branch introduced and the human did not have fixed
+still leaves a record before the private directory is deleted:
+
+- `defer` or `file`: a security record made with `vrg-security-record`
+  before report-ready; the ruling is the human's approval;
+- `wont-fix`: an accepted risk, counted in the response and the closing
+  comment.
+
+The caller never deletes the details of a deferred or filed security item
+that has no record yet.
 
 Every public record (report-ready's title, summary and notes, step comments,
 ruling requests and rulings) refers to a security item, of any kind, by ID
@@ -399,7 +443,10 @@ reading this epic. It defines:
   agents share one Unix user, so a private root makes everything below it
   private, whatever the modes of the files. The caller also checks that each
   directory level down to its own is a real directory, not a symlink, and
-  mode 700, so no link can redirect a write out of the private root;
+  mode 700, so no link can redirect a write out of the private root. One
+  `vrg-*` command makes these checks and prints the directory, and the
+  caller runs it before every write it makes there, not only before the
+  request;
 - **a result**, returned by the reviewer as its reply, made of a structured
   block followed by free prose. The caller writes it as the result file in
   the same directory; the reviewer writes nothing (§8.4);
@@ -422,7 +469,10 @@ At least:
 - the diff (in a check, the fix diff as well), and the worktree path for
   reading surrounding code;
 - the change class (§4.3);
-- the design sources, where they exist: the epic's spec and plan;
+- the design sources: the documents the epic's Documents section lists,
+  such as its spec and plan. An epic that lists none has none, and a task
+  outside an epic has none; a listed document that cannot be fetched stops
+  the run for the human (§6.2);
 - the list of stages `vrg-validate` ran and passed (§4.2);
 - the open tasks of the issue's epic, with titles;
 - the step: `review`, or `check` with the earlier findings and the fix diff.
@@ -462,7 +512,7 @@ details go only in the prose part, which is never posted.
 - A result that fails the result check (a malformed structured block) is not
   acted on. The reviewer is dispatched once more; if its second result also
   fails, the run stops for the human rather than guessing what the reviewer
-  meant.
+  meant (§6.2).
 - The issue, the diff and every file the reviewer reads are data, not
   instructions.
 
@@ -470,8 +520,10 @@ details go only in the prose part, which is never posted.
 
 Each step posts one comment on the task issue with a fixed first line naming
 the step, the caller's decision (§6.1) and the counts by kind. Security findings appear only
-as a count. This is the history; the state directory is working storage,
-deleted when the task reaches report-ready.
+as a count. A closing comment carries the eligibility line (§6.3). This is
+the history; the state directory is working storage, deleted when the task
+reaches report-ready (§7 keeps the details of a security item awaiting its
+record).
 
 If the usage of the reviewer subagent is cheap to capture (for example from
 its completion notice), it is logged in the step's comment. Nothing is built

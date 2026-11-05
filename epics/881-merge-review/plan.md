@@ -52,13 +52,20 @@ and agent definitions, bash `scripts/bin/validate-custom`
 - Security findings carry no description in the structured block, and
   every public record names a security item by ID or count only (spec §7).
 - Every finding `summary` is printable ASCII (U+0020 to U+007E), at most 300
-  characters, so it can go into a `vrg-ruling request` item unchanged
-  (epic 889 §7).
+  characters. The limit is this plan's own, chosen so a summary goes into a
+  `vrg-ruling request` item unchanged and stays readable there.
 - Steps: `review`, `check`, then `check-<k>` (`k` from 2 to 9) for each
   further check a human ruling grants.
 - Finding IDs: `R<n>` in a review, `C<n>` in the first check, `C<k>.<n>` in
   `check-<k>`, `n` from 1 to 999; all match epic 889's item ID rule
   `^[A-Za-z0-9]+(\.[A-Za-z0-9]+)*$` and its 16-character limit.
+- Stop items that are not findings (spec §6.2): `M1` (result malformed;
+  rulings `retry`, `stop`), `D1` (a listed design source not fetched;
+  `retry`, `proceed-without`), `B1` (fix base rebased; `restart`, `stop`).
+  They never reach the request builder.
+- The private directory's checks run before every write to it: the skill
+  runs `vrg-merge-review-request --ensure-dir` (Task 4) and writes only to
+  the path it prints (spec §8.1).
 - One fix step per run; there is no second fix round without the human
   (spec §6.1).
 - No silent failures: every refusal is a non-zero exit naming the field,
@@ -152,6 +159,7 @@ Expected: PASS.
 **Files:**
 
 - Create: `src/vergil_tooling/lib/merge_review/__init__.py`,
+  `src/vergil_tooling/lib/merge_review/schema.py`,
   `src/vergil_tooling/lib/merge_review/result.py`
 - Create: `src/vergil_tooling/bin/vrg_merge_review_check.py`
 - Modify: `pyproject.toml` (`[project.scripts]`),
@@ -162,6 +170,9 @@ Expected: PASS.
 
 - Consumes: the schemas of Task 1.
 - Produces:
+  - in `schema.py`, the constants Tasks 2 and 4 share: `REQUEST_SCHEMA`,
+    `RESULT_SCHEMA`, `QUESTIONS`, `KINDS`, `FIX_STATUSES`,
+    `STEP_RE` and `step_id_prefix(step: str) -> str`
   - `class ResultError(Exception)`
   - `@dataclass(frozen=True) class Finding: id: str; question: str; kind: str; security: bool; location: str; summary: str | None`
   - `@dataclass(frozen=True) class Result: step: str; request_id: str; findings: tuple[Finding, ...]; fix_status: dict[str, str]`
@@ -225,7 +236,12 @@ a rejection.
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Refactor**
+
+With the tests green, move any literal the parser repeats into `schema.py`
+and split rule checks that grew long; run validation again, expecting PASS.
+
+- [ ] **Step 6: Commit**
 
 `vrg-commit --type feat --scope merge-review --message "vrg-merge-review-check, the result check"`
 
@@ -255,7 +271,9 @@ Expected: PASS.
     `[merge-review]` `docs-paths = ["<path>", ...]`
   - `classify(changes: list[tuple[str, str, str | None]], docs_paths: Sequence[str]) -> str`,
     returning `"docs-only"` or `"code"`
-  - `vrg-change-class --base <ref> [--head <ref>]`: prints the class, exit 0
+  - `vrg-change-class --base <ref> [--head <ref>]`: prints the class, exit 0.
+    It is for humans and debugging; the skill gets the class through the
+    request builder, which calls `classify` itself
 
 A docs path ending in `/` matches everything below it; any other entry
 matches that file exactly.
@@ -308,7 +326,13 @@ The CLI joins `BUILTIN_DOCS_PATHS` with the repo's `docs-paths`.
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Refactor**
+
+With the tests green, make the two `git.py` helpers follow the module's
+existing wrappers (its run helper and error type) rather than calling
+`subprocess` directly; run validation again, expecting PASS.
+
+- [ ] **Step 6: Commit**
 
 `vrg-commit --type feat --scope merge-review --message "vrg-change-class and the merge-review docs-paths key"`
 
@@ -368,9 +392,13 @@ Expected: PASS.
     a later earlier result marks it `fixed`. `--fix-base` is the HEAD the previous
     step judged: the review's HEAD for `check`, the previous check's HEAD
     for `check-<k>`. It refuses a `--fix-base` that is not an ancestor of
-    `HEAD`, naming a rebase;
+    `HEAD` with exit 3 (not 1), naming the rebase, so the skill can tell
+    that stop (`B1`) from any other refusal;
     writes `request-<step>.json`, `diff-<step>.patch` and, for a check,
     `fix-<step>.patch`; prints the request path
+  - `vrg-merge-review-request --issue <owner/name#N> --ensure-dir`: runs
+    only `ensure_private_dir` and prints the directory, exit 0, or exit 1
+    naming the level; the skill runs it before each write it makes there
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -401,7 +429,10 @@ def test_check_refuses_unknown_or_missing_fix_id(repo): ...  # "R9"; defect R1 n
 def test_check_refuses_invalid_earlier_result(repo): ...
 def test_check_ruled_defect_not_listed(repo): ...  # disputed R1 ruled keep, security R2 ruled wont-fix: --ruled-id, absent from earlier_finding_ids
 def test_check_refuses_id_in_both_sets(repo): ...  # R1 in --fix-id and --ruled-id
-def test_check_refuses_rebased_fix_base(repo): ...  # fix base not an ancestor of HEAD: stderr names the rebase
+def test_check_refuses_rebased_fix_base(repo): ...  # fix base not an ancestor of HEAD: exit 3, stderr names the rebase
+def test_check_refuses_stop_item_ids(repo): ...  # "M1", "D1", "B1" as --fix-id or --ruled-id: no result raised them
+def test_ensure_dir_prints_path(repo): ...       # exit 0, prints the merge-review dir, creates it mode 700
+def test_ensure_dir_refuses_symlinked_level(repo): ...  # exit 1 naming the level, nothing written
 def test_check_2_request_lists_review_and_check_ids(repo): ...  # R2 unfixed in check, C1 ruled fix: both listed, R1 fixed is not required
 ```
 
@@ -423,15 +454,22 @@ naming the reason, unless the worktree is clean, the record's head is
 `HEAD`, the exit code is 0, the run was full, the tree was clean at its
 start and `not_passed` is empty; `validate_stages` is the record's `passed`.
 `base_sha` is `git.merge_base(<base>, HEAD)`, and `diff-<step>.patch` is
-`git diff <base_sha> HEAD`. The main clone is found from the worktree (`git rev-parse
---git-common-dir`'s parent).
+`git diff <base_sha> HEAD`. The main clone is found with the existing
+`git.main_worktree_root()`. Field names and step rules come from Task 2's
+`schema.py`.
 
 - [ ] **Step 4: Run validation**
 
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS, and `.vergil/vrg-validate-last.json` exists afterwards.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Refactor**
+
+With the tests green, check that no literal of the request schema is
+defined twice across `request.py` and `result.py`, and that the builder's
+refusals share one helper; run validation again, expecting PASS.
+
+- [ ] **Step 6: Commit**
 
 `vrg-commit --type feat --scope merge-review --message "validate record and vrg-merge-review-request"`
 
@@ -502,8 +540,8 @@ Expected: PASS.
 
 **Interfaces:**
 
-- Consumes: `vrg-merge-review-request`, `vrg-change-class`,
-  `vrg-merge-review-check` (Tasks 2 to 4), `vergil:merge-reviewer`
+- Consumes: `vrg-merge-review-request` (with `--ensure-dir`),
+  `vrg-merge-review-check` (Tasks 2 and 4), `vergil:merge-reviewer`
   (Task 5), `vrg-ruling` (epic 889), `vrg-security-record`.
 - Produces: the skill `issue-implement` runs after validate-to-green, which
   ends with one of the outcomes below and, on `eligible` or
@@ -513,17 +551,33 @@ Expected: PASS.
 
 Sections, each carrying the spec's rule:
 
+- **The private directory:** before each write session (the start of a
+  run, the design-source fetch, saving a result, a resume), run
+  `vrg-merge-review-request --issue <ref> --ensure-dir` and write only to
+  the path it prints; a non-zero exit stops the run (spec §8.1).
 - **Before the review:** gather the issue body and the epic's open tasks.
-  For a task under an epic, fetch the epic's spec and plan from
-  `origin/develop` of the epic's home repo with `vrg-gh api` (the contents
-  API) into the private directory as `design-spec.md` and `design-plan.md`,
-  and pass those paths as `--design-source`; if either cannot be fetched,
-  stop for the human. An ad-hoc task has no design sources. Then run
-  `vrg-merge-review-request --step review`.
+  For a task under an epic, read the epic's Documents section and fetch
+  each document it lists from `origin/develop` of the epic's home repo with
+  `vrg-gh api` (the contents API) into the private directory as
+  `design-<n>-<basename>`, passing each path as `--design-source`. An epic
+  whose Documents section lists nothing, and an ad-hoc task, have no design
+  sources. A listed document that cannot be fetched is a stop with item
+  `D1`: `retry` fetches again, `proceed-without` runs the review without
+  it. Then run `vrg-merge-review-request --step review`.
 - **Review:** dispatch `vergil:merge-reviewer` with the request path; save
   the reply as `result-review.md`; run `vrg-merge-review-check`. On a
-  failure, dispatch once more; a second failure stops for the human with
-  reason `result-malformed` (spec §8.4).
+  failure, dispatch once more; a second failure is a stop with item `M1`
+  (spec §8.4): `retry` dispatches the same step again with the same
+  request, `stop` hands off `not-eligible` with `result-malformed`.
+- **Non-review items first** (spec §6.1 step 3): with the human present,
+  `issue-implement` settles its own non-review items in the terminal
+  before posting anything of merge review. A dispatched run with any
+  pending posts them as §1.7's `Awaiting a ruling` and ends, keeping
+  `result-review.md` and writing no `open-request.json`. A re-dispatched
+  run whose private directory holds `result-review.md` and no
+  `open-request.json` continues from Decide with that result once the
+  rulings are in; if `HEAD` is no longer the request's `head_sha`, it
+  deletes the step files and reviews afresh.
 - **Decide** (spec §6.1 step 3), in this order: look up each pre-existing
   note (`vrg-gh issue list --search`, `vrg-security-record list --details`,
   by file and component); more than 5 findings other than pre-existing
@@ -531,59 +585,89 @@ Sections, each carrying the spec's rule:
   untracked proposal or dispute goes into one `vrg-ruling request`. Write
   each security finding's details to `security-<ID>.md` first.
 - **The stop** (spec §6.2): every stop but a fatal ruling check goes
-  through one `vrg-ruling request`. A fatal `vrg-ruling read` is a
-  terminal stop with no eligibility line: the task never reaches
-  report-ready, the human recovers on a new issue as epic 889's §10 says,
-  and that issue runs its own merge review. A
-  stopping step posts in this order: its step comment, then `vrg-ruling
-  request`, then nothing else on the issue until the human's reply (epic
-  889 §5.2 makes any other agent comment in between fatal). For
-  `too-many-blockers`, `check-failed` and `result-malformed` its items are
-  the findings or unfixed IDs that need a ruling; a `result-malformed`
-  stop has one item, ID `M1`. Write
-  `open-request.json` (`{"request": <id>, "step": <step>}`) to the private
-  directory. The task run never drafts the reply itself, since epic 889's
-  `draft` runs only once the human has decided. Run directly with the human
-  present, `issue-implement` talks the items through in the terminal, runs
-  `vrg-ruling draft` and hands the human the `vrg-ruling-reply` command.
-  Dispatched by `epic-implement`, it ends the run there and leaves the
-  conversation and the draft to `epic-implement` (Task 7).
-  A resumed run reads the reply with `vrg-ruling read --request <id>`,
-  then carries out each ruling and runs the fix and check below while
-  posting nothing on the issue. Only then does it post `vrg-ruling
-  respond`, with each item's real outcome (`fixed`, `filed`, `deferred`,
-  `wont-fix`; 889 accepts nothing else for a security item), and delete
-  `open-request.json`. After the response it posts the check's step
-  comment and runs anything that comments on the task issue. Epic 889
-  makes any other trusted comment between the reply and the response
-  fatal. A run that dies before the response posted nothing, so its
-  resume reads the same reply again. A ruling that
-  grants another fix runs the next check step (`check-2`, then `check-3`),
-  its files named by step (`request-check-2.json`, `result-check-2.md`).
-  Security decisions use `fix`, `file`, `defer`, `wont-fix`.
+  through one `vrg-ruling request --issue <ref> --items <file>`. A
+  stopping step posts in this order: its step comment, then the request,
+  then nothing else on the issue until the human's reply (epic 889 §5.2
+  makes any other agent comment in between fatal). For
+  `too-many-blockers` and `check-failed` its items are the findings or
+  unfixed IDs that need a ruling; `M1`, `D1` and `B1` are one item each.
+  Write `open-request.json` (`{"request": <id>, "step": <step>}`) to the
+  private directory. The task run never drafts the reply itself, since
+  epic 889's `draft` runs only once the human has decided. Run directly
+  with the human present, `issue-implement` talks the items through in
+  the terminal, runs `vrg-ruling draft --issue <ref> --request <id> --items
+  <file>` and hands the human the `vrg-ruling-reply` command. Dispatched by
+  `epic-implement`, it ends the run there and leaves the conversation and
+  the draft to `epic-implement` (Task 7).
+- **The resume:** `vrg-ruling read --issue <ref> --request <id>`:
+  - exit 0: carry out the rulings and run the fix and check below while
+    posting nothing on the issue;
+  - exit 3 (no reply yet): end with the open request's ID, nothing
+    changed;
+  - exit 4 (fatal): a terminal stop with no eligibility line. The task
+    never reaches report-ready, the human recovers on a new issue as epic
+    889's §10 says, and that issue runs its own merge review;
+  - exit 1 (any other error): end with the error shown, nothing changed.
+
+  Once the work is done, write the outcomes to `respond-<step>.json`,
+  then post `vrg-ruling respond --issue <ref> --request <id> --reply <reply
+  ID from read> --items respond-<step>.json`, with each item's real outcome
+  (`fixed`, `filed`, `deferred`, `wont-fix`; 889 accepts nothing else for a
+  security item), and delete `open-request.json` and `respond-<step>.json`.
+  If `respond` fails, keep both and end; a re-run that finds
+  `respond-<step>.json` retries only the `respond`. After the response it
+  posts the check's step comment and runs anything that comments on the
+  task issue. Epic 889 makes any other trusted comment between the reply
+  and the response fatal. A run that dies before writing
+  `respond-<step>.json` posted nothing, so its resume reads the same reply
+  again. A ruling that grants another fix runs the next check step
+  (`check-2`, then `check-3`), its files named by step
+  (`request-check-2.json`, `result-check-2.md`). Security decisions use
+  `fix`, `file`, `defer`, `wont-fix`.
+- **An unclear reply** (spec §6.2): an item with no ruling, a word it does
+  not allow, or contradictory rulings. Carry out the clear items, then
+  respond, stating for each unclear item how it was read and that nothing
+  was done with it (a security item's outcome is `deferred`, meaning only
+  that it is asked again; its `security-<ID>.md` stays). Then post a new
+  `vrg-ruling request` for the unclear items alone, rewrite
+  `open-request.json` with the new ID and the same step, and stop.
 - **Fix and check:** fix every defect and carry out every ruling, validate
-  to green, then `vrg-merge-review-request --step check --fix-base <review
-  HEAD> --earlier-result result-review.md --fix-id <ID>... --ruled-id
-  <ID>...` (`--fix-id`: each defect and each ruling that calls for a code
-  change; `--ruled-id`: each defect the human excused), dispatch, save as
-  `result-check.md`, run the check. Every `fix_status` fixed and no `C<n>`
-  findings: done. Anything else stops for the human with `check-failed`.
-  A `check-<k>` passes `--fix-base <previous check's HEAD>` and every
-  earlier result in step order. If the builder refuses because the branch
-  was rebased since the fix base, merge review starts over: delete the
-  step files, keeping `security-<ID>.md` files still needed, and run a
-  fresh `review` step. A finding the human already ruled on is matched to
-  that ruling on the issue and not asked again.
+  to green, then `vrg-merge-review-request --issue <ref> --base <ref>
+  --step check --issue-body-file <path> --epic-tasks-file <path>
+  [--design-source <path>]... --fix-base <review HEAD> --earlier-result
+  result-review.md --fix-id <ID>... --ruled-id <ID>...` (`--fix-id`: each
+  defect and each ruling that calls for a code change; `--ruled-id`: each
+  defect the human excused), dispatch, save as `result-check.md`, run the
+  check. Every `fix_status` fixed and no `C<n>` findings: done. Anything
+  else stops for the human with `check-failed`. A `check-<k>` passes
+  `--fix-base <previous check's HEAD>` and every earlier result in step
+  order. If the builder exits 3 (the branch was rebased since the fix
+  base), stop with item `B1`: `restart` deletes the step files (keeping
+  `security-<ID>.md` files whose records are still due) and runs a fresh
+  `review` step, every finding ruled afresh with nothing carried over;
+  `stop` hands off `not-eligible` with `fix-base-rebased`.
+- **Security records** (spec §7): for a security defect the branch
+  introduced and the human ruled `defer` or `file`, run
+  `vrg-security-record create` with its `security-<ID>.md` as the details
+  file during the work, before `respond` (the ruling is the human's
+  approval, and the command opens its own neutral issue, posting nothing
+  on the task issue), so the outcome is real. `wont-fix` is an accepted
+  risk, counted in the response and the closing comment. Refuse to delete
+  a `security-<ID>.md` whose item was ruled `defer` or `file` and has no
+  record.
 - **No unfinished business:** list the closing state of every item; refuse
   to hand off while one is open.
 - **Records** (spec §9): one comment per step, first line
   `Merge review: <step>: <decision>; defect <a>, design-question <b>, out-of-scope <c>, pre-existing <d>; security <s>`,
   security as a count only; reviewer usage when the completion notice
-  gives it. The last step's comment carries the eligibility line. Delete
-  the private directory at report-ready.
+  gives it. Every run that reaches report-ready ends with one closing
+  comment, after any `respond`, whose first line is
+  `Merge review: done: <eligible | not-eligible (<reason>)>; accepted-risk <w>`;
+  it is the one place the eligibility line lives on the issue. Delete the
+  private directory at report-ready.
 - **Eligibility** (spec §6.3): `eligible`, or `not-eligible` with one
   reason from `human-ruling`, `too-many-blockers`, `check-failed`,
-  `result-malformed`. Security appears only as a
+  `result-malformed`, `fix-base-rebased`. Security appears only as a
   count.
 - **Prior art:** credit the four sources of spec §3.
 
@@ -615,28 +699,32 @@ After validate-to-green and before "Record the PR metadata and hand off",
 run `merge-review`. Report-ready only once it ends `eligible` or
 `not-eligible`, with that line in `--notes`. A stop ends the run with the
 open request's ID. In Preflight, a task whose private merge-review
-directory holds `open-request.json` resumes from it: `vrg-ruling read
---request <id>`, then the rulings, fix and check with nothing posted,
-then `vrg-ruling respond`, then the check's step comment. If `read` reports
-no reply yet (exit 3), the run ends with the open request's ID and changes
-nothing; a fatal `read` is the terminal stop of Task 6.
+directory holds `open-request.json` (or `respond-<step>.json`, or a
+`result-review.md` waiting on non-review rulings) resumes as Task 6's
+"The resume" and "Non-review items first" say, every `vrg-ruling` command
+with its `--issue`.
 
 - [ ] **Step 2: `epic-implement`**
 
 In "Batch at the gate", list tasks stopped at merge review with the request
 ID, and talk each item through with the human in the terminal (security
 details from the task's `security-<ID>.md`). Once the human has decided,
-run `vrg-ruling draft` from the task's worktree, whose `origin` is the task
-repo as 889's `draft` requires, and hand the human the `vrg-ruling-reply`
+run `vrg-ruling draft --issue <ref> --request <id> --items <file>` from the
+task's worktree, whose `origin` is the task repo as 889's `draft` requires,
+and hand the human the `vrg-ruling-reply --issue <ref> --request <id>`
 command it prints. Once the human has replied, re-dispatch the task with
-only "human response available"; pass no ruling text in any prompt.
+only "human response available"; pass no ruling text in any prompt. A task
+that stopped on non-review items before merge review posted anything is
+relayed by §1.7 as today, and re-dispatched to continue merge review.
 
 - [ ] **Step 3: The doctrine's `issue-implement` directory**
 
 Amend §1.5's `issue-implement` row and bullet: the task's state directory
 also holds `merge-review/`, written by `vrg-merge-review-request` and the
-`merge-review` skill (request, patch and result files, `security-<ID>.md`
-and `open-request.json`), kept across a stop and deleted at report-ready.
+`merge-review` skill (request, patch and result files, design sources,
+`security-<ID>.md`, `open-request.json` and `respond-<step>.json`), kept
+across a stop and deleted at report-ready, except a deferred or filed
+security item's details until its record exists.
 It is not an "other entry". Its checks are `ensure_private_dir`'s: every
 level a real directory, mode 700. The hash rules, including the
 kept-details-file rule, do not apply to it, and the amendment states the
@@ -658,9 +746,11 @@ to this epic):
 - `issue-implement`'s own non-review items (follow-up issues, operational
   needs, problems it cannot resolve) keep §1.7's rules, but their comments
   are posted only before the review's step comment or after the
-  `vrg-ruling respond`, never while an exchange is open: a stopped run
-  settles them first, and a run with both kinds pending puts the
-  non-review items to the human before the merge-review request.
+  `vrg-ruling respond`, never while an exchange is open. A run with both
+  kinds pending settles the non-review items first: in the terminal when
+  the human is present, otherwise by stopping on them alone before merge
+  review posts anything, so the merge-review request comes only on the
+  re-dispatch.
 
 Make the same split in `skills/epic-implement/SKILL.md`'s ruling relay, so
 it applies only to non-review items.
@@ -695,7 +785,27 @@ Expected: PASS.
   - a seeded unfixable defect: `check-failed`, one `vrg-ruling` round, a
     re-dispatch that resumes from `open-request.json`, and a ruling that
     grants `check-2`, whose findings are numbered `C2.<n>`;
-  - a security finding whose details appear in no public comment or note.
+  - a security finding whose details appear in no public comment or note;
+    a seeded security defect ruled `defer` gets a security record before
+    report-ready, and its details survive until it has one;
+  - a seeded out-of-scope addition ruled revert: the check passes with
+    the addition gone;
+  - an untracked pre-existing problem: one proposal, ruled `file`, filed
+    before the run moves on;
+  - six seeded defects: `too-many-blockers`, one stop, no fix step;
+  - non-review items pending in a dispatched run: a §1.7 stop before any
+    merge-review comment, then a re-dispatch that posts the step comment
+    and the request;
+  - an unclear reply: a response stating the reading, a new request for
+    the unclear item alone, and `open-request.json` naming it;
+  - a rebase between the review and the check: a `B1` stop, ruled
+    `restart`, then a fresh review;
+  - every run that reaches report-ready ends with the closing comment,
+    including the clean code change with no check.
+
+  A malformed result (`M1`) and a failed design-source fetch (`D1`) are
+  covered by Task 2's and Task 4's tests and the skill's text, not seeded
+  here.
 - **Documentation review, vergil-project/vergil-tooling#3916,** then **the
   retrospective, vergil-project/.github#883.**
 
@@ -708,3 +818,4 @@ Each is retargeted to its task once the tasks are filed:
 | GHSA-2vqw-4gm8-8m8m, GHSA-6x52-hxv4-h3rh | Task 5 |
 | GHSA-phhr-rpxg-wg8p, GHSA-488v-h3h8-7r9r | Task 6 |
 | GHSA-x55j-x6j2-9m6p | Task 4 |
+| GHSA-q2h2-cr86-grjq | Task 3 |
