@@ -416,6 +416,11 @@ still leaves a record before the private directory is deleted:
 The caller never deletes the details of a deferred or filed security item
 that has no record yet.
 
+A security item the human ruled `fix` that the check then finds not fixed
+is reported `deferred` in the response, meaning only that it is asked
+again, as for an unclear reply (§6.2): it goes into the check's stop
+request, and its details stay in the private directory.
+
 Every public record (report-ready's title, summary and notes, step comments,
 ruling requests and rulings) refers to a security item, of any kind, by ID
 or count only.

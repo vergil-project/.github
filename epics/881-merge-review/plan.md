@@ -104,10 +104,17 @@ and agent definitions, bash `scripts/bin/validate-custom`
 - [ ] **Step 1: Write the spec**
 
 Standalone, citing no epic, so paad's rounds can adopt it later (spec §8.1).
-Sections:
+It has two parts. **The envelope** is what any adopter follows: a request
+carrying a `request_id` and a `step`, a reply whose first content is one
+fenced block naming its schema and copying both, and the rule that the
+caller acts only on a block that passed its check. **The merge-review
+profile** is everything below. The code stays merge-review-only until a
+second adopter needs the envelope (spec §2). Sections:
 
 - **Roles.** The caller owns all data; the reviewer reads only and returns
-  its result as its reply; the caller stores the reply and checks it.
+  its result as its reply; the caller stores the reply and checks it. The
+  merge-review profile's reviewer is the agent type `vergil:merge-reviewer`,
+  which has only Read, Glob and Grep, so it cannot write (spec §8.4).
 - **Files** in the caller's private directory: `request-<step>.json`,
   `diff-<step>.patch`, `fix-<step>.patch` (check only),
   `result-<step>.md`, and `security-<ID>.md` per security finding.
@@ -434,6 +441,7 @@ def test_check_refuses_stop_item_ids(repo): ...  # "M1", "D1", "B1" as --fix-id 
 def test_ensure_dir_prints_path(repo): ...       # exit 0, prints the merge-review dir, creates it mode 700
 def test_ensure_dir_refuses_symlinked_level(repo): ...  # exit 1 naming the level, nothing written
 def test_check_2_request_lists_review_and_check_ids(repo): ...  # R2 unfixed in check, C1 ruled fix: both listed, R1 fixed is not required
+def test_check_refuses_empty_fix_ids(repo): ...  # no --fix-id: nothing to check, stderr says so
 ```
 
 `repo` is a fixture: a temporary git repo with a commit on a base branch, a
@@ -525,7 +533,13 @@ the reviewer prompt, covering:
 Run: `vrg-container-run -- vrg-validate`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Refactor**
+
+Make `check_agent_tools` follow the shape of `check_skill_frontmatter`,
+reading the field with the shared `frontmatter_value` helper; run
+validation again, expecting PASS.
+
+- [ ] **Step 6: Commit**
 
 `vrg-commit --type feat --scope merge-review --message "merge-reviewer agent, read-only"`
 
@@ -542,7 +556,7 @@ Expected: PASS.
 
 - Consumes: `vrg-merge-review-request` (with `--ensure-dir`),
   `vrg-merge-review-check` (Tasks 2 and 4), `vergil:merge-reviewer`
-  (Task 5), `vrg-ruling` (epic 889), `vrg-security-record`.
+  (Task 5), `vrg-ruling` (epic 889), `vrg-security-record`, `vrg-issue-create`.
 - Produces: the skill `issue-implement` runs after validate-to-green, which
   ends with one of the outcomes below and, on `eligible` or
   `not-eligible`, the line for report-ready's notes.
@@ -551,8 +565,9 @@ Expected: PASS.
 
 Sections, each carrying the spec's rule:
 
-- **The private directory:** before each write session (the start of a
-  run, the design-source fetch, saving a result, a resume), run
+- **The private directory:** immediately before every write to it (each
+  design source, result, `security-<ID>.md`, items file,
+  `open-request.json` and `respond-<step>.json`), run
   `vrg-merge-review-request --issue <ref> --ensure-dir` and write only to
   the path it prints; a non-zero exit stops the run (spec §8.1).
 - **Before the review:** gather the issue body and the epic's open tasks.
@@ -613,7 +628,10 @@ Sections, each carrying the spec's rule:
   then post `vrg-ruling respond --issue <ref> --request <id> --reply <reply
   ID from read> --items respond-<step>.json`, with each item's real outcome
   (`fixed`, `filed`, `deferred`, `wont-fix`; 889 accepts nothing else for a
-  security item), and delete `open-request.json` and `respond-<step>.json`.
+  security item; a security item ruled `fix` that the check found not
+  fixed is `deferred`, meaning asked again, and goes into the
+  `check-failed` request), and delete `open-request.json` and
+  `respond-<step>.json`.
   If `respond` fails, keep both and end; a re-run that finds
   `respond-<step>.json` retries only the `respond`. After the response it
   posts the check's step comment and runs anything that comments on the
@@ -631,8 +649,11 @@ Sections, each carrying the spec's rule:
   that it is asked again; its `security-<ID>.md` stays). Then post a new
   `vrg-ruling request` for the unclear items alone, rewrite
   `open-request.json` with the new ID and the same step, and stop.
-- **Fix and check:** fix every defect and carry out every ruling, validate
-  to green, then `vrg-merge-review-request --issue <ref> --base <ref>
+- **Fix and check:** when no defect is to be fixed and no ruling calls for
+  a code change, there is no check: go straight to `respond` and the
+  closing comment (spec §6.1 step 3); the builder refuses an empty
+  `--fix-id` set. Otherwise fix every defect and carry out every ruling,
+  validate to green, then `vrg-merge-review-request --issue <ref> --base <ref>
   --step check --issue-body-file <path> --epic-tasks-file <path>
   [--design-source <path>]... --fix-base <review HEAD> --earlier-result
   result-review.md --fix-id <ID>... --ruled-id <ID>...` (`--fix-id`: each
@@ -646,15 +667,23 @@ Sections, each carrying the spec's rule:
   `security-<ID>.md` files whose records are still due) and runs a fresh
   `review` step, every finding ruled afresh with nothing carried over;
   `stop` hands off `not-eligible` with `fix-base-rebased`.
-- **Security records** (spec §7): for a security defect the branch
-  introduced and the human ruled `defer` or `file`, run
-  `vrg-security-record create` with its `security-<ID>.md` as the details
-  file during the work, before `respond` (the ruling is the human's
-  approval, and the command opens its own neutral issue, posting nothing
-  on the task issue), so the outcome is real. `wont-fix` is an accepted
-  risk, counted in the response and the closing comment. Refuse to delete
-  a `security-<ID>.md` whose item was ruled `defer` or `file` and has no
-  record.
+- **Filing** (spec §5.3, §5.4, §7): every filing happens during the work,
+  before `respond`, so `filed` and `deferred` are real outcomes; the
+  ruling is the human's approval, and neither command posts on the task
+  issue.
+  - An approved untracked pre-existing proposal, and an out-of-scope
+    addition ruled split: `vrg-issue-create` under the task's epic. A
+    split also reverts the addition, and lists that revert under
+    `--fix-id`.
+  - An approved pre-existing security proposal, and a security defect the
+    branch introduced that the human ruled `defer` or `file`:
+    `vrg-security-record create` with its `security-<ID>.md` as the
+    details file.
+  - `wont-fix` on a security item is an accepted risk, counted in the
+    response and the closing comment.
+
+  Refuse to delete a `security-<ID>.md` whose item was ruled `defer` or
+  `file` and has no record.
 - **No unfinished business:** list the closing state of every item; refuse
   to hand off while one is open.
 - **Records** (spec §9): one comment per step, first line
@@ -796,6 +825,13 @@ Expected: PASS.
   - non-review items pending in a dispatched run: a §1.7 stop before any
     merge-review comment, then a re-dispatch that posts the step comment
     and the request;
+  - a seeded design question ruled keep: no check, the response, then the
+    closing comment;
+  - a seeded security defect ruled `fix` that the check finds not fixed:
+    `deferred` in the response, and the item in the `check-failed`
+    request;
+  - an out-of-scope addition ruled split: a new issue filed before the
+    response, and the revert checked;
   - an unclear reply: a response stating the reading, a new request for
     the unclear item alone, and `open-request.json` naming it;
   - a rebase between the review and the check: a `B1` stop, ruled
