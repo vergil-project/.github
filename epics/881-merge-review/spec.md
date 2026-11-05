@@ -320,12 +320,13 @@ The stop is one round of epic 889's protocol (its §4, and vergil-tooling's
    talking to: `issue-implement` when the human runs it directly, or
    `epic-implement` at its batch gate when it dispatched the run; a
    dispatched run ends after the request without drafting.
-4. The run reads the reply with `vrg-ruling read` and at once posts
-   `vrg-ruling respond`, saying how it read each ruling and what it will
-   do. Only then does it carry out the rulings (the fix and check of
-   §6.1); the check's step comment records the outcome. Epic 889 requires
-   the response to be the next trusted comment after the reply, so the run
-   posts nothing else on the issue in between.
+4. The run reads the reply with `vrg-ruling read`, carries out the
+   rulings (the fix and check of §6.1) while posting nothing on the issue,
+   then posts `vrg-ruling respond` with what it did with each item, and
+   only then the check's step comment. Epic 889 requires the response to
+   be the next trusted comment after the reply, and accepts only a real
+   outcome for a security item, so the work comes first and every comment
+   after the response.
 
 The agent acts only on a reply that passes `vrg-ruling read`'s checks. A
 fatal check stops the run for the human, who recovers as epic 889's §10
