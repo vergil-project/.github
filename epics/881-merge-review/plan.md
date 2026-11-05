@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#881
 - **Planning issue:** vergil-project/.github#878 (review history is in its
   comments)
-- **Status:** draft, in design review
+- **Status:** draft
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -855,3 +855,4 @@ Each is retargeted to its task once the tasks are filed:
 | GHSA-phhr-rpxg-wg8p, GHSA-488v-h3h8-7r9r | Task 6 |
 | GHSA-x55j-x6j2-9m6p | Task 4 |
 | GHSA-q2h2-cr86-grjq | Task 3 |
+| GHSA-8j5v-w4pw-642r, GHSA-3wm4-5xp3-v7cv | Task 6 |
