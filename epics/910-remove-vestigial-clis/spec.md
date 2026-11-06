@@ -39,11 +39,10 @@ that the human runs by hand was kept whenever the human said so.
 | --- | --- | --- | --- |
 | `migrate-repo` skill | vergil-claude-plugin | One-time pass that brought each repo's old issue backlog into the epic/task framework | Every repo has been migrated, and new repos start inside the framework. The `vrg-epic-audit` orphan check and `intake-review` handle any issue that ends up outside the model. |
 | `vrg-adhoc-migrate` (and `lib/adhoc_migrate.py`) | vergil-tooling | One-shot move of per-repo standing epics into the org `.github` (epic #85) | The move is done. Nothing else uses the library. |
-| `vrg-wait-until-green` | vergil-tooling | Blocks until a PR's checks pass | Left over from an older PR workflow. `vrg-pr-await` and the merge and release code now do the waiting through `github.wait_for_checks`, which stays. |
+| `vrg-wait-until-green` | vergil-tooling | Blocks until a PR's checks pass | Left over from an older PR workflow. The merge and release code (`lib/pr_merge.py`, `lib/release/merge.py`) wait through `github.wait_for_checks`, which stays. |
 | `vrg-changelog` | vergil-tooling | Hand-run wrapper around git-cliff | `vrg-release` calls the changelog library directly. The library stays. |
 | `vrg-container-test` | vergil-tooling | Runs a repo's tests in a dev container, guessing the language | Replaced by `vrg-container-run -- vrg-validate`, the only sanctioned validation command. |
 | `vrg-resolve-tooling-version` | vergil-tooling | Reads the vergil-tooling install tag from `vergil.toml` | No workflow or action calls it any more. |
-| `vrg-audit-approve` | vergil-tooling | Posts the `vergil-audit/approved` check-run for the AUDIT agent | No branch protection, repo configuration, skill or workflow uses that check. |
 | `vrg-pr-fix-body` | vergil-tooling | Rebuilds a PR body through the validated body builder | `pr-watch` does not use it. The body builder (`lib/pr_body.py`) and `lib/linkage.py` stay, because `vrg-submit-pr` uses them. |
 | `vrg-epic-unlink` | vergil-tooling | Removes a task's sub-issue link to its epic | `vrg-epic-move` covers moving a task to another epic. Unlinking with no new parent is rare and `vrg-gh` can do it. |
 
@@ -52,14 +51,33 @@ that the human runs by hand was kept whenever the human said so.
 `vrg-repo-profile` checks `vergil.toml` and the README structure. `vrg-validate`
 runs it in process (`validate_common` imports the module and calls `main`), and
 nothing runs it as a command. The `vrg-repo-profile` entry point goes away. The
-module, the check and its tests stay. The docs then describe the check as part
-of `vrg-validate`, not as a command to run.
+module, the check and its tests stay.
+
+Its docs change as follows:
+
+- `docs/site/docs/reference/lint/repo-profile.md` stays, because it is the only
+  per-key reference for `vergil.toml` and other pages link to it. It loses its
+  "Installed as" line and its usage block, and describes the check as one step
+  of `vrg-validate`.
+- The guide pages that mention the command (`getting-started.md`, `index.md`,
+  `guides/ci-architecture.md`, `guides/consuming-repo-setup.md`,
+  `guides/validation-matrix.md`, `reference/index.md` and
+  `standards/repository-structure.md`) are reworded the same way.
+- Its `### vrg-repo-profile` entry leaves
+  `docs/site/docs/reference/cli-tools-overview.md`, which a test requires to
+  match `[project.scripts]` exactly.
 
 ### 3.3 Keep
 
 `vrg-reword` (the only sanctioned way to fix a commit message on a branch),
 `vrg-github-repo-init` (the human creates new repos with it),
 `vrg-adhoc-epic` and `vrg-ensure-label`.
+
+`vrg-audit-approve` also stays. It posts the `vergil-audit/approved`
+check-run for the AUDIT identity, whose use is on hold until the fleet starts
+building on the agentic APIs. It is kept as the placeholder for that work, and
+the plugin's AUDIT write guard and its docs, which name the check, are left
+unchanged.
 
 ### 3.4 Moved to other issues
 
@@ -76,10 +94,11 @@ Removing a command means removing all of the following:
 
 1. its `[project.scripts]` entry in `pyproject.toml`;
 2. its `src/vergil_tooling/bin/` module;
-3. any library module, function or constant whose only callers were removed
-   code, checked with a search after the removal (for example
-   `lib/adhoc_migrate.py`, and `vrg-container-test`'s default test commands in
-   `lib/container.py` if nothing else reads them);
+3. any library module, function or constant that no remaining source code
+   calls, checked with a search after the removal. Tests are not callers:
+   code that only tests still use is dead, and goes with those tests. For
+   example `lib/adhoc_migrate.py`, and `_DEFAULT_TEST_COMMANDS` and
+   `detect_language` in `lib/container.py`;
 4. the tests of everything removed. A test that covers shared code which stays
    is kept, and only its references to the removed command are changed;
 5. its entry in `docs/site/docs/reference/cli-tools-overview.md`, its own
