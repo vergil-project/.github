@@ -29,7 +29,7 @@ mkdocs build, and a search for the removed names.
 - Removed commands: `vrg-adhoc-migrate`, `vrg-wait-until-green`,
   `vrg-changelog`, `vrg-container-test`, `vrg-resolve-tooling-version`,
   `vrg-pr-fix-body`, `vrg-epic-unlink`. The `vrg-repo-profile` entry point is
-  removed, but its module and check stay. The `migrate-repo` skill is removed.
+  removed. Its check stays, with the module renamed to `bin/repo_profile.py`. The `migrate-repo` skill is removed.
 - Kept: `vrg-reword`, `vrg-github-repo-init`, `vrg-adhoc-epic`,
   `vrg-ensure-label`, `vrg-audit-approve`, the five sync tools, and
   `vrg-generate-commands`.
@@ -92,7 +92,8 @@ Repo: vergil-project/vergil-tooling.
   `bin/vrg_epic_create.py:10`, `bin/vrg_adhoc_epic.py:6`,
   `tests/vergil_tooling/test_github_stale_checks.py:551`
 - Modify: `docs/site/docs/reference/cli-tools-overview.md` (remove the seven
-  `### vrg-…` entries, and the `migrate-repo` mention at line 516)
+  `### vrg-…` entries, the `migrate-repo` mention at line 516, and the
+  `vrg-container-test` mention at line 2003)
 - Modify: `docs/site/docs/reference/index.md` (remove the rows for removed
   commands, for example line 31)
 - Modify: `docs/site/docs/reference/dev/finalize-pr.md:118`
@@ -105,9 +106,13 @@ Repo: vergil-project/vergil-tooling.
 - Produces: `pyproject.toml` and `cli-tools-overview.md` without the seven
   commands. Task 2 edits both files after this task merges.
 
-- [ ] **Step 1: Record the baseline.** Run `vrg-container-run -- vrg-validate`
-  on the untouched branch. From its log in `.vergil/`, note the pytest summary
-  line (passed count) and the test stage's wall-clock time.
+- [ ] **Step 1: Record the baseline.** On the untouched branch, run
+  `vrg-container-run -- vrg-validate` and note the pytest passed count from its
+  log in `.vergil/`. Then time the test stage with the repo's harness,
+  `vrg-container-run -- uv run python scripts/perf/measure_test_stage.py --emit-evidence --runs 5 --out build/perf/before.md`
+  (`build/` is ignored, so nothing is committed), and note the median of the
+  configuration that matches the current `vrg-validate` test gate. This only
+  measures time; `vrg-validate` remains the validation.
 - [ ] **Step 2: Remove the seven `[project.scripts]` entries** and their
   `cli-tools-overview.md` entries together, so `test_cli_tools_overview.py`
   stays green.
@@ -131,7 +136,8 @@ Repo: vergil-project/vergil-tooling.
   confirm that a remaining `src/` file still calls it. Delete any that has
   only test callers, together with those tests.
 - [ ] **Step 7: Validate.** `vrg-container-run -- vrg-validate` passes. Note
-  the new passed count and test-stage time.
+  the new passed count, then rerun the step 1 harness command with
+  `--out build/perf/after.md` and note the same configuration's new median.
 - [ ] **Step 8: Commit** with `vrg-commit --type refactor --scope cli
   --message "remove unused vrg commands"`. The PR notes give the before and
   after numbers from steps 1 and 7.
@@ -153,9 +159,19 @@ two files.
   `guides/ci-architecture.md`, `guides/consuming-repo-setup.md`,
   `guides/validation-matrix.md`, `reference/index.md`,
   `standards/repository-structure.md`
-- Keep: `src/vergil_tooling/bin/vrg_repo_profile.py`,
-  `tests/vergil_tooling/test_vrg_repo_profile.py`, and the
-  `validate_common.py` call
+- Rename: `src/vergil_tooling/bin/vrg_repo_profile.py` →
+  `src/vergil_tooling/bin/repo_profile.py`. The standard
+  (`docs/site/docs/standards/development/python/cli-entry-points.md`) says a
+  `bin/` module that is not a console script carries no command prefix, as
+  `validate_common.py` already does. Its argparse `prog` (line 48) becomes
+  `"repo-profile"`, so it no longer names a removed command.
+- Rename: `tests/vergil_tooling/test_vrg_repo_profile.py` →
+  `tests/vergil_tooling/test_repo_profile.py`
+- Modify: `src/vergil_tooling/bin/validate_common.py` (the import at line 32
+  and the call at line 44 use `repo_profile`)
+- Modify: `tests/vergil_tooling/test_validate_common.py` (every
+  `vergil_tooling.bin.validate_common.vrg_repo_profile.main` patch target
+  becomes `vergil_tooling.bin.validate_common.repo_profile.main`)
 
 **Interfaces:**
 
@@ -163,12 +179,16 @@ two files.
 - Produces: nothing later tasks use.
 
 - [ ] **Step 1: Remove the entry point and its overview entry together.**
+- [ ] **Step 1a: Rename the module and its test**, and update
+  `validate_common.py`, the patch targets in `test_validate_common.py`, and
+  `prog`. The check's behaviour and its tests' assertions are unchanged.
 - [ ] **Step 2: Rewrite `reference/lint/repo-profile.md`** as the reference
   for a `vrg-validate` check. Keep its per-key `vergil.toml` rules and its
   path, so existing links still resolve.
 - [ ] **Step 3: Reword the seven guide pages** so each one presents the check
   as part of `vrg-validate`, not as a command to run.
-- [ ] **Step 4: Search.** `grep -rn 'vrg-repo-profile' docs/site pyproject.toml`
+- [ ] **Step 4: Search.** `grep -rn 'vrg_repo_profile' src tests` returns
+  nothing, and `grep -rn 'vrg-repo-profile' docs/site pyproject.toml src`
   returns only text that names the check, never an instruction to run the
   command.
 - [ ] **Step 5: Validate.** `vrg-container-run -- vrg-validate` passes,
