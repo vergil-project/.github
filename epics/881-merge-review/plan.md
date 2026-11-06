@@ -54,6 +54,10 @@ and agent definitions, bash `scripts/bin/validate-custom`
 - Every finding `summary` is printable ASCII (U+0020 to U+007E), at most 300
   characters. The limit is this plan's own, chosen so a summary goes into a
   `vrg-ruling request` item unchanged and stays readable there.
+- Every `vrg-ruling` item's `text` and `recommendation` is one line of
+  plain text (epic 889 refuses anything else), and a recommendation is
+  never empty. Nothing from a review's result is copied word for word into
+  a response (epic 889 spec §6).
 - Steps: `review`, `check`, then `check-<k>` (`k` from 2 to 9) for each
   further check a human ruling grants.
 - Finding IDs: `R<n>` in a review, `C<n>` in the first check, `C<k>.<n>` in
@@ -606,17 +610,19 @@ Sections, each carrying the spec's rule:
   makes any other agent comment in between fatal). For
   `too-many-blockers` and `check-failed` its items are the findings or
   unfixed IDs that need a ruling; `M1`, `D1` and `B1` are one item each.
-  Write `open-request.json` (`{"request": <id>, "step": <step>}`) to the
-  private directory. The task run never drafts the reply itself, since
+  Write `open-request.json` (`{"request": <id>, "step": <step>}`, gaining
+  `"reply": <id>` once the reply is read) to the private directory. The task run never drafts the reply itself, since
   epic 889's `draft` runs only once the human has decided. Run directly
   with the human present, `issue-implement` talks the items through in
   the terminal, runs `vrg-ruling draft --issue <ref> --request <id> --items
   <file>` and hands the human the `vrg-ruling-reply` command. Dispatched by
   `epic-implement`, it ends the run there and leaves the conversation and
   the draft to `epic-implement` (Task 7).
-- **The resume:** `vrg-ruling read --issue <ref> --request <id>`:
-  - exit 0: carry out the rulings and run the fix and check below while
-    posting nothing on the issue;
+- **The resume:** `vrg-ruling read --issue <ref> --request <id> --json`:
+  - exit 0: stdout is one JSON object, `{"request", "reply", "body"}`.
+    Add the reply's comment ID to `open-request.json` as `"reply"` and
+    interpret `body`, then carry out the rulings and run the fix and check
+    below while posting nothing on the issue;
   - exit 3 (no reply yet): end with the open request's ID, nothing
     changed;
   - exit 4 (fatal): a terminal stop with no eligibility line. The task
@@ -624,16 +630,20 @@ Sections, each carrying the spec's rule:
     889's §10 says, and that issue runs its own merge review;
   - exit 1 (any other error): end with the error shown, nothing changed.
 
-  Once the work is done, write the outcomes to `respond-<step>.json`,
-  then post `vrg-ruling respond --issue <ref> --request <id> --reply <reply
-  ID from read> --items respond-<step>.json`, with each item's real outcome
+  Once the work is done, write the response items (889's items file, a
+  JSON array) to `respond-<step>.json`, then post `vrg-ruling respond
+  --issue <ref> --request <id> --reply <the reply ID in open-request.json>
+  --items respond-<step>.json`, with each item's real outcome
   (`fixed`, `filed`, `deferred`, `wont-fix`; 889 accepts nothing else for a
   security item; a security item ruled `fix` that the check found not
   fixed is `deferred`, meaning asked again, and goes into the
   `check-failed` request), and delete `open-request.json` and
   `respond-<step>.json`.
-  If `respond` fails, keep both and end; a re-run that finds
-  `respond-<step>.json` retries only the `respond`. After the response it
+  If `respond` exits 1, keep both and end; a re-run that finds
+  `respond-<step>.json` retries only the `respond` (889 makes that safe:
+  a landed response is reported, never posted twice). If it exits 4 (a
+  fatal check), it is the terminal stop of an exit 4 from `read`, and
+  nothing is retried. After the response it
   posts the check's step comment and runs anything that comments on the
   task issue. Epic 889 makes any other trusted comment between the reply
   and the response fatal. A run that dies before writing
@@ -679,8 +689,8 @@ Sections, each carrying the spec's rule:
     branch introduced that the human ruled `defer` or `file`:
     `vrg-security-record create` with its `security-<ID>.md` as the
     details file.
-  - `wont-fix` on a security item is an accepted risk, counted in the
-    response and the closing comment.
+  - `wont-fix` on a security item is an accepted risk: the response gives
+    only its outcome, and the closing comment counts it.
 
   Refuse to delete a `security-<ID>.md` whose item was ruled `defer` or
   `file` and has no record.
