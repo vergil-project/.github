@@ -410,8 +410,8 @@ still leaves a record before the private directory is deleted:
 
 - `defer` or `file`: a security record made with `vrg-security-record`
   before report-ready; the ruling is the human's approval;
-- `wont-fix`: an accepted risk, counted in the response and the closing
-  comment.
+- `wont-fix`: an accepted risk. The response gives only its outcome, as
+  epic 889 requires, and the closing comment counts it.
 
 The caller never deletes the details of a deferred or filed security item
 that has no record yet.
