@@ -116,7 +116,9 @@ existing gates are its tests: `test_cli_tools_overview.py`,
   `vrg-container-run -- uv run python scripts/perf/measure_test_stage.py --emit-evidence --runs 5 --out build/perf/before.md`
   (`build/` is ignored, so nothing is committed), and note the median of the
   configuration that matches the current `vrg-validate` test gate. This only
-  measures time; `vrg-validate` remains the validation.
+  measures time; `vrg-validate` remains the validation. Also note the line
+  counts of `src/` and `tests/`: `find src -name '*.py' | xargs wc -l | tail -1`,
+  and the same for `tests`.
 - [ ] **Step 2: Remove the seven `[project.scripts]` entries** and their
   `cli-tools-overview.md` entries together, so `test_cli_tools_overview.py`
   stays green.
@@ -141,7 +143,8 @@ existing gates are its tests: `test_cli_tools_overview.py`,
   only test callers, together with those tests.
 - [ ] **Step 7: Validate.** `vrg-container-run -- vrg-validate` passes. Note
   the new passed count, then rerun the step 1 harness command with
-  `--out build/perf/after.md` and note the same configuration's new median.
+  `--out build/perf/after.md` and note the same configuration's new median,
+  and the new `src/` and `tests/` line counts.
 - [ ] **Step 8: Commit** with `vrg-commit --type refactor --scope cli
   --message "remove unused vrg commands"`. The PR notes give the before and
   after numbers from steps 1 and 7.
@@ -259,5 +262,16 @@ Repo: vergil-project/docs. Independent of the other tasks.
 ## After the tasks
 
 The documentation-review bookend (vergil-project/vergil-tooling#3947) runs
-the spec §6 search across the fleet. The retrospective
-(vergil-project/.github#912) reports Task 1's before and after test numbers.
+the spec §6 search across the fleet.
+
+The retrospective (vergil-project/.github#912) quantifies the result, as spec
+§6 requires:
+
+- **Code removed:** total lines deleted across the epic's PRs, from each PR's
+  diff stat, split into source, tests and docs.
+- **Share of vergil-tooling:** Task 1's `src/` and `tests/` line counts before
+  and after (Task 2 is a rename and removes almost nothing), with the removal
+  as a percentage of each.
+- **Test overhead:** Task 1's test count and harness medians before and
+  after, and a rough estimate of the time saved per `vrg-validate` run,
+  labelled as an estimate.

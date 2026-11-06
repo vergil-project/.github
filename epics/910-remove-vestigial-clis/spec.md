@@ -142,8 +142,14 @@ the fleet and none calls them. Each repo bumps its version by its usual rules.
   search in §4 comes back with only history and recorded fixtures).
 - `vrg-container-run -- vrg-validate` passes in each changed repo.
 - The vergil-tooling task records the test count and the wall-clock time of
-  the test stage before and after the change in its PR. The retrospective
-  reports them.
+  the test stage before and after the change in its PR.
+- The retrospective quantifies the result:
+  - the total lines removed across all the epic's PRs (from their diff
+    stats), split into source, tests and docs;
+  - vergil-tooling's `src/` and `tests/` line counts before and after, with
+    the removal as a percentage of each;
+  - the test count and test-stage time before and after, with a rough
+    estimate of the overhead saved per validation run.
 
 ## 7. Out of scope
 
