@@ -97,8 +97,8 @@ Removing a command means removing all of the following:
 3. any library module, function or constant that no remaining source code
    calls, checked with a search after the removal. Tests are not callers:
    code that only tests still use is dead, and goes with those tests. For
-   example `lib/adhoc_migrate.py`, and `_DEFAULT_TEST_COMMANDS` and
-   `detect_language` in `lib/container.py`;
+   example `lib/adhoc_migrate.py`, and `_DEFAULT_TEST_COMMANDS` in
+   `lib/container.py`;
 4. the tests of everything removed. A test that covers shared code which stays
    is kept, and only its references to the removed command are changed;
 5. its entry in `docs/site/docs/reference/cli-tools-overview.md`, its own
