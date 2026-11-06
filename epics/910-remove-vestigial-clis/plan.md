@@ -106,6 +106,10 @@ Repo: vergil-project/vergil-tooling.
 - Produces: `pyproject.toml` and `cli-tools-overview.md` without the seven
   commands. Task 2 edits both files after this task merges.
 
+This task only deletes code, so it has no red/green/refactor cycle. The
+existing gates are its tests: `test_cli_tools_overview.py`,
+`test_cli_entry_points.py`, the strict mkdocs build, and the step 6 search.
+
 - [ ] **Step 1: Record the baseline.** On the untouched branch, run
   `vrg-container-run -- vrg-validate` and note the pytest passed count from its
   log in `.vergil/`. Then time the test stage with the repo's harness,
@@ -151,7 +155,9 @@ two files.
 
 - Modify: `pyproject.toml` (remove `vrg-repo-profile`)
 - Modify: `docs/site/docs/reference/cli-tools-overview.md` (remove
-  `### vrg-repo-profile`)
+  `### vrg-repo-profile`, and reword the "Exit code contract" line that says
+  exit 2 is "used by `vrg-repo-profile`" to name the `vrg-validate`
+  repo-profile check)
 - Modify: `docs/site/docs/reference/lint/repo-profile.md` (drop the
   "Installed as" line and the usage block; describe the check as a step of
   `vrg-validate`)
@@ -178,17 +184,25 @@ two files.
 - Consumes: Task 1's `pyproject.toml` and `cli-tools-overview.md`.
 - Produces: nothing later tasks use.
 
-- [ ] **Step 1: Remove the entry point and its overview entry together.**
-- [ ] **Step 1a: Rename the module and its test**, and update
-  `validate_common.py`, the patch targets in `test_validate_common.py`, and
-  `prog`. The check's behaviour and its tests' assertions are unchanged.
+- [ ] **Step 1 (red): Point the tests at the new name first.** Rename
+  `test_vrg_repo_profile.py` to `test_repo_profile.py` and change its import
+  to `vergil_tooling.bin.repo_profile`. Change every
+  `vergil_tooling.bin.validate_common.vrg_repo_profile.main` patch target in
+  `test_validate_common.py` to `vergil_tooling.bin.validate_common.repo_profile.main`.
+  `vrg-container-run -- vrg-validate` fails at the test stage, because
+  `vergil_tooling.bin.repo_profile` does not exist yet.
+- [ ] **Step 1a (green): Rename the module** to `bin/repo_profile.py`, update
+  the import and call in `validate_common.py`, set `prog` to `"repo-profile"`,
+  and remove the `[project.scripts]` entry and its overview entry together.
+  The check's behaviour and its tests' assertions are unchanged.
 - [ ] **Step 2: Rewrite `reference/lint/repo-profile.md`** as the reference
   for a `vrg-validate` check. Keep its per-key `vergil.toml` rules and its
   path, so existing links still resolve.
 - [ ] **Step 3: Reword the seven guide pages** so each one presents the check
   as part of `vrg-validate`, not as a command to run.
 - [ ] **Step 4: Search.** `grep -rn 'vrg_repo_profile' src tests` returns
-  nothing, and `grep -rn 'vrg-repo-profile' docs/site pyproject.toml src`
+  nothing outside the recorded fixtures under `tests/vergil_tooling/fixtures/`,
+  and `grep -rn 'vrg-repo-profile' docs/site pyproject.toml src`
   returns only text that names the check, never an instruction to run the
   command.
 - [ ] **Step 5: Validate.** `vrg-container-run -- vrg-validate` passes,

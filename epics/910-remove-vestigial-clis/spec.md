@@ -51,7 +51,10 @@ that the human runs by hand was kept whenever the human said so.
 `vrg-repo-profile` checks `vergil.toml` and the README structure. `vrg-validate`
 runs it in process (`validate_common` imports the module and calls `main`), and
 nothing runs it as a command. The `vrg-repo-profile` entry point goes away. The
-module, the check and its tests stay.
+check and its tests stay. Under vergil-tooling's CLI entry-point standard, a
+`bin/` module that is not a console script carries no command prefix, so the
+module becomes `bin/repo_profile.py` and its test `test_repo_profile.py`. Its
+argparse `prog` stops naming the removed command.
 
 Its docs change as follows:
 
@@ -65,7 +68,9 @@ Its docs change as follows:
   `standards/repository-structure.md`) are reworded the same way.
 - Its `### vrg-repo-profile` entry leaves
   `docs/site/docs/reference/cli-tools-overview.md`, which a test requires to
-  match `[project.scripts]` exactly.
+  match `[project.scripts]` exactly. The same page's "Exit code contract",
+  which says exit 2 is "used by `vrg-repo-profile`", is reworded to name the
+  `vrg-validate` repo-profile check.
 
 ### 3.3 Keep
 
