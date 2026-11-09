@@ -283,18 +283,39 @@ summarized by `scripts/summarize-trivy.py`). The directories:
 
 | | arm64 | amd64 |
 |---|---|---|
-| Result | Fixable HIGH/CRITICAL findings: core Node 22.23.4 (npm 10.9.9): 10, none in `.trivyignore`; `ts-node:22` (the same Node 22.23.4): the same 10; `ts-node:24` (Node 24.22.2, npm 11.19.1): 6, of which 3 are already in `.trivyignore`; `/opt/vergil/python/3.15` and python-build-standalone 3.12–3.15 (pip 26.2.2): 0. All 16 Node findings are in packages npm vendors under `lib/node_modules/npm/node_modules/`. None is in Node itself or in markdownlint-cli. No CRITICAL. Each node runtime is the newest release of its major, so no newer runtime pin exists. The per-CVE list is held in the task's security record, not here. | pending: needs an amd64 machine (human) |
+| Result | Fixable HIGH/CRITICAL findings: core Node 22.23.4 (npm 10.9.9): 10, none in `.trivyignore`; `ts-node:22` (the same Node 22.23.4): the same 10; `ts-node:24` (Node 24.22.2, npm 11.19.1): 6, of which 3 are already in `.trivyignore`; `/opt/vergil/python/3.15` and python-build-standalone 3.12–3.15 (pip 26.2.2): 0. All 16 Node findings are in packages npm vendors under `lib/node_modules/npm/node_modules/`. None is in Node itself or in markdownlint-cli. No CRITICAL. Each node runtime is the newest release of its major, so no newer runtime pin exists. The per-CVE list is below. | pending: needs an amd64 machine (human) |
 
 **Verdict: as planned.** Each task's remedy is a `.trivyignore` entry under
 that file's rules (a carrier group with its reason and removal condition).
 Spec §5.8 prescribes that while no fixed runtime exists. Never an in-place npm
 upgrade.
 
-- **Task 7 (`base`):** 10 entries for the core Node 22's npm. Moving the core
-  Node pin to 24 would cut that to 6, but a core move is a reviewed PR of its
-  own (spec §5.2.1), not this task's.
-- **Task 13 (`ts-node`):** the same 10 for `ts-node:22`, and 3 new ones for
-  `ts-node:24`.
+The arm64 findings, all public CVEs, all HIGH, all in npm's vendored
+packages. The Node 22 rows hold for both the core Node and `ts-node:22`:
+
+| CVE | Package (installed) | Fixed in | Carriers |
+|---|---|---|---|
+| CVE-2026-102276 | brace-expansion 2.0.2 (Node 22), 5.0.9 (Node 24) | 1.1.19, 2.1.5, 3.0.7, 5.0.10 | Node 22, Node 24 |
+| CVE-2026-102278 | brace-expansion 2.0.2 (Node 22), 5.0.9 (Node 24) | 1.1.20, 2.1.6, 3.0.8, 5.0.11 | Node 22, Node 24 |
+| CVE-2026-13149 | brace-expansion 2.0.2 | 1.1.16, 2.1.2, 5.0.7 | Node 22 |
+| CVE-2026-14257 | brace-expansion 2.0.2 | 1.1.17, 2.1.3, 3.0.3, 5.0.8 | Node 22 |
+| CVE-2026-69152 | brace-expansion 2.0.2 | 1.1.18, 2.1.4, 3.0.6, 5.0.9 | Node 22 |
+| CVE-2026-33671 | picomatch 4.0.3 | 2.3.2, 3.0.2, 4.0.4 | Node 22 |
+| CVE-2026-48815 | sigstore 3.1.0 | 4.1.1 | Node 22 |
+| CVE-2026-69192 | ip-address 10.1.0 | 10.3.1 | Node 22 |
+| CVE-2026-9496 | pacote 19.0.2 and 20.0.1 | 21.5.1 | Node 22 |
+| CVE-2026-19534 | undici 6.28.0 | 6.28.1, 7.29.1, 8.10.2 | Node 24 |
+| CVE-2026-87018, CVE-2026-109383, CVE-2026-109869 | undici 6.28.0 | 6.29.1, 7.30.1, 8.12.2 | Node 24 (already in `.trivyignore`) |
+
+The 10 Node 22 findings are 9 CVE IDs (pacote appears twice), and
+`.trivyignore` is one file keyed by ID, so:
+
+- **Task 7 (`base`):** 9 IDs for the core Node 22's npm, the first nine rows.
+  Moving the core Node pin to 24 would cut that to 3 (the two brace-expansion
+  IDs and CVE-2026-19534), but a core move is a reviewed PR of its own (spec
+  §5.2.1), not this task's.
+- **Task 13 (`ts-node`):** one new ID, CVE-2026-19534, for `ts-node:24`; the
+  carrier notes of Task 7's entries gain `ts-node:22` and `ts-node:24`.
 - **Task 8 (`python`):** none, as for every bundled pip.
 
 ## Summary
@@ -323,6 +344,13 @@ upgrade.
    `test_real_interpreter_requires_some_glibc` fails on python-build-standalone
    on arm64. The choice is fixing the function or the test, as a consumer fix
    ahead of Task 8.
+
+Human ruling (2026-11-09) on both: fix it in vergil-tooling. The cppcheck fix
+is vergil-project/vergil-tooling#4138, which blocks Tasks 11 and 12
+(vergil-project/vergil-containers#783, #785). The glibc fix is
+vergil-project/vergil-tooling#4139: `elf.glibc_requirements` counts only the
+version needs of glibc's own libraries, and it blocks Task 8
+(vergil-project/vergil-containers#780).
 
 ## amd64: the commands for the human
 
