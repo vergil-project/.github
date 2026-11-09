@@ -155,7 +155,9 @@ apt/dnf repository those packages are served from,
 [docs](https://github.com/vergil-project/docs) is the org's
 documentation site, and
 [.github](https://github.com/vergil-project/.github) holds this
-profile, the default community files and the org's planning.
+profile, the org-wide default files (contributing, support, security
+and issue templates) and the lab's planning: every epic's spec, plan
+and retrospective.
 
 ---
 
