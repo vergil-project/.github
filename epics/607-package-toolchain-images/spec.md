@@ -344,3 +344,10 @@ This epic's design stands; three points change or are confirmed:
 Matrix entries for the `pkg-*` images use today's `build-arg` shape. Epic
 213's T7b later turns every entry's `build-arg` into a `build-args` map,
 these included.
+
+> **Correction 2026-11-09:** T7b (vergil-project/vergil-containers#773,
+> merged as vergil-project/vergil-containers#775) had already landed before
+> this epic's Task 3 started, so the `pkg-*` entries never used the
+> `build-arg` shape. Task 3 (merged as vergil-project/vergil-containers#793)
+> shipped them with a `build-args` map plus `parent` and `depth`. See the
+> plan's "Evolution during execution", entry 8.

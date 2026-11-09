@@ -559,3 +559,14 @@ differ, the entry wins. The task list above is left as written.
    (vergil-project/vergil-containers#515, merged as
    vergil-project/vergil-containers#774) landed before Task 4 started, so
    Step 2's note that the arm64 build runs under QEMU no longer applies.
+8. **2026-11-09: Task 3's matrix entries use a `build-args` map, plus
+   `parent` and `depth`.** Epic #213's T7b
+   (vergil-project/vergil-containers#773, merged as
+   vergil-project/vergil-containers#775) changed the `matrix.json` entry
+   shape before Task 3 started, as the "develop moved" note on #727
+   records. So Task 3's `render_matrix_json` emits each toolchain version
+   as `{"language": t.key, "version": v, "build-args": {t.build_arg: v},
+   "parent": null, "depth": ...}`, not the single
+   `"build-arg": t.build_arg` that Task 3's interface and the Self-Review's
+   type-consistency note describe. Spec §8 carries the same correction as a
+   dated note.
