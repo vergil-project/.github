@@ -49,6 +49,7 @@ MkDocs sites.
   ```bash
   grep -rniE 'java|maven|mvn|jdk|temurin' . <same excludes> | grep -vi javascript
   ```
+
 - History is never edited: `docs/specs/`, `docs/plans/`, `docs/superpowers/`,
   `docs/reports/`, `paad/`, `releases/`, `CHANGELOG.md`, `epics/`.
 - GPG keys and secrets are never revoked, rotated or deleted. Package
