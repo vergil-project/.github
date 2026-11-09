@@ -106,7 +106,7 @@ vergil-vm.
 | R1 | vergil-actions | `ubuntu-latest` → `ubuntu-24.04` | — |
 | R2 | vergil-containers | `ubuntu-latest` → `ubuntu-24.04` | — |
 | R4 | each other repo that uses the label | `ubuntu-latest` → `ubuntu-24.04` | — |
-| 1 | vergil-tooling | The `ubuntu-latest` guard | R1, R2, every R4 |
+| 1 | vergil-tooling | The `ubuntu-latest` guard | R1, R2, the private repo's R4 |
 | 2 | .github | Spike and its report | — |
 | 3 | vergil-containers | Scripts declare pyyaml (PEP 723) | — |
 | 4 | vergil-tooling | Cache build chooses the vergil-tooling install | — |
@@ -148,7 +148,7 @@ run outside that order.
 ## Task dependency graph
 
 ```text
-R1, R2, R4… ──────────────────────────────────→ T1 (guard)
+R1, R2, R4 (private repo) ────────────────────→ T1 (guard)
 T15 (Lima) → D3 ──────────────────────→ V2 (also after D2, below)
 T3 (scripts) ─────────────────────────┐
 T4 (tooling install) ─┐               │
@@ -176,7 +176,14 @@ vergil-actions (42 lines in 19 files), vergil-containers (9 in 5),
 `logical-minds-foundry/mq-resiliency-lab-for-linux` and the other vergil-project
 repos have none, so they get no R task; Task 1's own run on vergil-tooling
 proves it. A repo outside vergil-project that cannot be linked under #649 files
-its R4 under its own ad-hoc epic; Task 1 lists it as Blocked-by either way.
+its R4 under its own ad-hoc epic.
+
+The mq-rest-admin repos are decoupled from this epic (a human decision on
+2026-11-09): their CI is broken for reasons unrelated to it and they are not in
+active development. Their R4 tasks stay open under each repo's ad-hoc epic but
+are not Blocked-by of Task 1, and `mq-rest-admin-java`, now archived, gets no
+R4. Task 1 is Blocked-by R1, R2 and the R4 of
+`wphillipmoore/the-infrastructure-mindset` only.
 
 **Files:** every `.github/workflows/*.yml` and doc page in the repo that names
 `ubuntu-latest`.
@@ -202,7 +209,8 @@ its R4 under its own ad-hoc epic; Task 1 lists it as Blocked-by either way.
 
 ### Task 1 (vergil-tooling): the `ubuntu-latest` guard
 
-Blocked-by R1, R2 and every R4.
+Blocked-by R1, R2 and the R4 of `wphillipmoore/the-infrastructure-mindset`;
+the mq-rest-admin repos are excluded (see Task R1–R4).
 
 **Files:**
 
@@ -239,12 +247,13 @@ Blocked-by R1, R2 and every R4.
   `ubuntu-latest` today).
 - [ ] **Step 5: Validate, commit, report-ready.**
   `vrg-commit --type feat --scope validate --message "refuse ubuntu-latest runner labels"`.
-  The release that ships it is the human's, after every R task has merged.
+  The release that ships it is the human's, after R1, R2 and the private
+  repo's R4 have merged.
   **Release precondition (human-attested):** right before that release, rerun
-  the recount with this task's rule over every repo with a `vergil.toml`, on
-  each default branch; any repo with a hit gets an R4 first, merged before the
-  release, since a label added after 2026-11-09 would otherwise turn that
-  repo's CI red.
+  the recount with this task's rule over every repo with a `vergil.toml`
+  except the mq-rest-admin repos, on each default branch; any repo with a hit
+  gets an R4 first, merged before the release, since a label added after
+  2026-11-09 would otherwise turn that repo's CI red.
 
 ---
 
@@ -891,11 +900,12 @@ Blocked-by Tasks 8–13.
    workflow calls, including one docs deploy dry run, in each of these. Their
    CI is green.
    - **Real consumers** (as of 2026-11-09; recheck, since a family may gain
-     one): vergil-tooling and `mq-rest-admin-python` (python),
-     `mq-rest-admin-go` (go), `mq-rest-admin-rust` (rust) and
-     `logical-minds-foundry/mq-protocol-gateway` (cpp-clang).
-   - **Fixtures, for what no consumer covers:** no repo consumes ts-node or
-     cpp-gcc, and none declares a non-empty `[container].system-packages`. So
+     one): vergil-tooling (python) and
+     `logical-minds-foundry/mq-protocol-gateway` (cpp-clang). The
+     mq-rest-admin repos are decoupled from this epic (see Task R1–R4).
+   - **Fixtures, for what no consumer covers:** no other repo consumes go,
+     rust, ts-node or cpp-gcc, and none declares a non-empty
+     `[container].system-packages`. So
      a scratch repo or branch per missing family builds and tests a minimal
      project on it, and a scratch branch of vergil-tooling sets
      `system-packages = ["<a package from noble's universe>"]` to exercise
@@ -943,7 +953,7 @@ break of `npm install -g` build-commands outside `ts-node`
 VMs). The procedure is spec §8's validation list:
 a no-cache rebuild of the full tree in tier order on both architectures; every
 image on Ubuntu 24.04 without the marker; every consuming repo's PR CI green on
-the new `prod-` images; a fresh `vrg-vm create` passing `tests/test_base.sh`
+the new `prod-` images, the mq-rest-admin repos excepted; a fresh `vrg-vm create` passing `tests/test_base.sh`
 (after D3); the OS-usage table matching what was observed. Record
 `Outcome: SUCCESS`.
 
