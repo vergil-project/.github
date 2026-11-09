@@ -579,6 +579,11 @@ parent-aware:
   previous images stay published, as #213 §4.5 already requires for any failure.
   T7 folds `base` into the matrix; once #649 gives it a parent, `base` is a
   depth-1 entry under `pkg-ubuntu`.
+- **T7b build arguments.** Today each matrix entry carries one build argument
+  (`build-arg` = version), and the publish, the PR build and `build.sh` pass
+  only that. T7b gives each entry a `build-args` map (`{NAME: value}`), `base`
+  included, and all three pass every entry in it, so the toolchain pins and
+  core series (§5.3) reach the build.
 - **Ledger.** #213 §9's item D2 is marked as taken up by #649. The §4.3 note
   ("inverting today's official-upstream-base model") is answered by this spec.
 - **Local parity.** `build.sh` builds in the same tier order, so
@@ -666,11 +671,13 @@ error.
 11. **VM pin** (§5.6): a vergil-vm release, then the `vrg-vm rebuild`
     deployment task. It is independent of steps 6–10 and can land any time in
     the window.
-12. **Remove the cutover scaffolding** (human decision, 2026-11-09). Once the
-    cutover has held, so a revert to the Debian images is no longer an option,
-    vergil-tooling and vergil-actions drop step 5's `uv tool install` branch
-    for released versions, which nothing can reach any more. The dev-ref path
-    stays.
+12. **Remove the cutover scaffolding, in a follow-on epic** (human decisions,
+    2026-11-09). Once the human judges that the cutover has held, so a revert
+    to the Debian images is no longer an option, vergil-tooling and
+    vergil-actions drop step 5's `uv tool install` branch for released
+    versions, which nothing can reach any more. The dev-ref path stays. This
+    epic ends at step 11 and seeds that follow-on epic as a brainstorm
+    bookend, so the branch and the revert path stay until the human's call.
 
 ## 8. Risks, spike and validation
 
@@ -774,8 +781,8 @@ Human decisions (2026-11-09):
   (PEP 723, plain `uv run`), and a one-liner gets the `python3` on `PATH`,
   standard library only (§5.2).
 - The vergil-tooling install chooses its path by checking the environment
-  across the cutover, and that branch is removed once the cutover has held
-  (§7, steps 5 and 12).
+  across the cutover, and a follow-on epic removes that branch once the human
+  judges the cutover has held (§7, steps 5 and 12).
 - `ubuntu-latest` already runs 26.04, so the runner-label PRs go first and
   cover every repo that consumes vergil-tooling; the guard follows them as an
   error, with no warning release (§5.7, §7).

@@ -106,7 +106,7 @@ vergil-vm.
 | 4 | vergil-tooling | Cache build chooses the vergil-tooling install | — |
 | 5 | vergil-actions | Setup action chooses the install; packaged on host runners; no pip | — |
 | D1 | vergil-tooling, vergil-actions | Release Tasks 4 and 5 | 4, 5 |
-| 6 | vergil-containers | Toolchain pins and their refresh | — |
+| 6 | vergil-containers | Toolchain pins, the manifest `core:` section, and the refresh | #213 T7b |
 | 7 | vergil-containers | `base` on `pkg-ubuntu:24.04` | #607 done, #213 T7b, 2, 3, 6, D1 |
 | 8 | vergil-containers | python family | 7 |
 | 9 | vergil-containers | go family | 7 |
@@ -120,15 +120,17 @@ vergil-vm.
 | V2 | vergil-containers | Cold-rebuild validation | D2 |
 | 15 | vergil-vm | Lima pinned to 24.04 | — |
 | D3 | vergil-vm | Release and `vrg-vm rebuild` (deployment) | 15 |
-| 16 | vergil-tooling | Remove the cutover install branch | V2 |
-| 17 | vergil-actions | Remove the cutover install branch | V2 |
 
 Epic #213's T7 (vergil-project/vergil-containers#515) is outside this table and
 must merge before #213 resumes (spec §7 step 3); T7b is filed under #213 by the
-Docs task. Task numbers here are plan-local; spec §7's numbered steps map to
-them as: step 1 Docs, step 2 #607, step 3 #213, step 4 Task 2, step 5 Tasks 3–5
-and D1, step 6 Tasks 7–13, step 7 Task 14, step 8 V1, step 9 D2, step 10 V2,
-step 11 Task 15 and D3, step 12 Tasks 16–17. The runner labels (R1–R4, Task 1)
+Docs task. T7b also gives each matrix entry a `build-args` map
+(`{NAME: value}`), which the publish workflow, the PR build and
+`docker/build.sh` pass in full, `base` included; today each passes the single
+`build-arg=version` pair. Task numbers here are plan-local; spec §7's numbered
+steps map to them as: step 1 Docs, step 2 #607, step 3 #213, step 4 Task 2,
+step 5 Tasks 3–5 and D1, step 6 Tasks 7–13, step 7 Task 14, step 8 V1, step 9
+D2, step 10 V2, step 11 Task 15 and D3. Step 12, removing the cutover install
+branch, is a follow-on epic (see Bookends). The runner labels (R1–R4, Task 1)
 run outside that order.
 
 ## Task dependency graph
@@ -139,12 +141,13 @@ T15 (Lima) → D3
 T3 (scripts) ─────────────────────────┐
 T4 (tooling install) ─┐               │
 T5 (setup action) ────┴→ D1 (release) ┤
-T6 (toolchain pins) ──────────────────┤
+#213 T7b → T6 (toolchain pins) ───────┤
 T2 (spike) ───────────────────────────┤
-#607 done, #213 T7b ──────────────────┴→ T7 (base) → T8…T13 (families) → T14 → V1 → D2 → V2 → T16, T17
+#607 done, #213 T7b ──────────────────┴→ T7 (base) → T8…T13 (families) → T14 → V1 → D2 → V2
 ```
 
-R1–R4, Tasks 2–6 and Task 15 can start at once.
+R1–R4, Tasks 2–5 and Task 15 can start at once; Task 6 once #213's T7b has
+merged.
 
 ---
 
@@ -164,14 +167,16 @@ lists it as Blocked-by either way.
 **Files:** every `.github/workflows/*.yml` and doc page in the repo that names
 `ubuntu-latest`.
 
-- [ ] **Step 1: Recount** in the repo: `grep -rn 'ubuntu-latest' .github docs README.md`
-  on a fresh checkout of the default branch. The task's file list is that
-  output.
-- [ ] **Step 2: Replace** every `runs-on: ubuntu-latest` with
-  `runs-on: ubuntu-24.04`, and every doc example the same way. Leave
-  `ubuntu-24.04-arm` and any other explicit label alone.
-- [ ] **Step 3: Check** `grep -rn 'ubuntu-latest' .github docs README.md`
-  prints nothing.
+- [ ] **Step 1: Recount** in the repo: `grep -rnE 'runs-on:.*ubuntu-latest' .github`
+  and the current doc examples that show a `runs-on` value, on a fresh
+  checkout of the default branch. The task's file list is that output.
+- [ ] **Step 2: Replace** every `runs-on` value `ubuntu-latest` with
+  `ubuntu-24.04`, and every current doc example the same way. Leave
+  `ubuntu-24.04-arm` and any other explicit label alone. Completed plans,
+  specs, release notes and comments that mention `ubuntu-latest` stay as
+  written.
+- [ ] **Step 3: Check** `grep -rnE 'runs-on:.*ubuntu-latest' .github` prints
+  nothing (the same rule as Task 1's guard).
 - [ ] **Step 4: Validate, commit, report-ready.**
   `vrg-commit --type ci --scope runners --message "pin GitHub-hosted runners to ubuntu-24.04"`.
   The workflow edits mean the human pushes.
@@ -235,9 +240,12 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
     `/usr/local/bin/python3` resolving, and `base`'s uv tools and vergil-tooling
     still running on the core Python in a `dev-python:3.12` trial;
   - the fingerprint check, `vergil-python3.15` and a pinned vergil-tooling from
-    the vergil apt repository, a dev-ref install with `uv tool install` on the
-    core Python, and Task 4's environment check choosing the packaged path in
-    an Ubuntu trial and the uv path in today's `prod-base`;
+    the vergil apt repository, and a dev-ref install with `uv tool install` on
+    the core Python; and, by hand, that the two probe paths Task 4 checks
+    (`/etc/apt/sources.list.d/vergil.sources`,
+    `/opt/vergil/python/*/bin/python3`) are both present in an Ubuntu trial and
+    both absent in today's `prod-base` (the check itself is proven by Task 4's
+    tests and D1);
   - markdownlint on the core Node with no default `node`, and in a
     `ts-node:24` trial with `npm root -g` = `/usr/lib/node_modules`;
   - the Go, Rust and LLVM sources and the nodejs.org tarballs for every series
@@ -245,7 +253,11 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
   - noble's cmake and cppcheck against what the C++ images ship today;
   - one `vrg-validate` run of vergil-tooling in a trial `dev-python`;
   - whether a vergil-tooling package venv needs pip inside vergil-python
-    (for spec §5.8 and vergil-project/.github#965).
+    (for spec §5.8 and vergil-project/.github#965);
+  - a Trivy scan of the trial core Node, `ts-node` and python-build-standalone
+    layers, recording each fixable HIGH or CRITICAL finding in the bundled
+    `npm` or `pip` (today `base` upgrades npm, pip and setuptools for such
+    findings), so that Tasks 7, 8 and 13 each state their remedy.
 - [ ] **Step 2: Write `spike.md`.** Any `decision needed` stops the task for
   the human before the report merges; the decision is recorded in the report.
 - [ ] **Step 3: Validate, commit, report-ready.**
@@ -257,27 +269,39 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
 
 **Files:**
 
-- Modify: `docker/pins/check_pins.py`, `docker/pins/generate_catalog.py`,
+- Modify the entry points, the scripts a caller runs:
+  `docker/pins/check_pins.py`, `docker/pins/generate_catalog.py`,
   `docker/pins/report_exposure.py`, `docker/versions/generate.py`,
-  `docker/versions/lifecycle/check.py`, `docker/versions/lifecycle/publish.py`
-  (and any other script under `docker/` that imports `yaml`)
-- Modify: `scripts/bin/validate-custom`, `docker/pins/upstream-refresh.sh`,
-  `.github/workflows/ops.yml`, and any other caller that runs these with
-  `python3`
+  `docker/versions/lifecycle/check.py`, `docker/versions/lifecycle/publish.py`.
+  Library modules they import (`manifest.py`, `adapters/go.py`, …) get no
+  block: PEP 723 applies only to the script `uv run` is given.
+- Modify the callers: `scripts/bin/validate-custom`,
+  `docker/pins/upstream-refresh.sh`, `.github/workflows/ops.yml` (including
+  line 42, `python3 report_exposure.py` under `working-directory: docker/pins`),
+  and any other caller of an entry point.
 
 **Interfaces:**
 
-- Produces: each script that imports a third-party module starts with a PEP 723
-  block naming it (`# dependencies = ["pyyaml"]`) and is invoked as
+- Produces: each entry point starts with a PEP 723 block naming every
+  third-party module in its full import closure, including what it reaches
+  through local modules: `pyyaml` for each, plus `packaging` for
+  `report_exposure.py` (it imports `packaging.version`). Each is invoked as
   `uv run <script>` with no `--python` and no `--with`.
 
-- [ ] **Step 1: List** `grep -rln '^import yaml\|^from yaml' docker scripts`
-  and every caller (`grep -rn 'python3 docker/' scripts docker .github`).
-- [ ] **Step 2: Add the PEP 723 block** to each script and change each caller
-  to `uv run`.
-- [ ] **Step 3: Check** in today's `prod-base`, with pyyaml absent from the
-  interpreter: `docker run --rm -v "$PWD":/w -w /w ghcr.io/vergil-project/prod-base:latest bash -c 'python3 -m pip uninstall -y pyyaml && scripts/bin/validate-custom'`
-  passes.
+- [ ] **Step 1: List** the entry points above and every caller of each, by
+  script name rather than path prefix (`grep -rnE 'check_pins|generate_catalog|report_exposure|generate\.py|lifecycle/check|publish\.py' scripts docker .github`).
+  For each entry point, record its third-party import closure in the PR
+  description.
+- [ ] **Step 2: Add the PEP 723 block** to each entry point and change each
+  caller to `uv run`.
+- [ ] **Step 3: Check** in today's `prod-base`, with pyyaml and packaging
+  absent from the interpreter, that `scripts/bin/validate-custom`,
+  `uv run docker/pins/report_exposure.py --no-probe` (from `docker/pins`, as
+  `ops.yml` runs it), `uv run docker/versions/lifecycle/check.py` and
+  `uv run docker/versions/lifecycle/publish.py --help` all pass:
+  `docker run --rm -v "$PWD":/w -w /w ghcr.io/vergil-project/prod-base:latest bash -c 'python3 -m pip uninstall -y pyyaml packaging && …'`.
+  The nightly `pin-exposure` job is `continue-on-error` (vergil-project/.github#972),
+  so this step is the only check that `report_exposure.py` still runs.
 - [ ] **Step 4: Validate, commit, report-ready.**
   `vrg-commit --type refactor --scope scripts --message "declare pyyaml in each script and run them with uv run"`.
   `ops.yml` means the human pushes.
@@ -297,8 +321,10 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
 **Interfaces:**
 
 - Consumes `vm_packages.classify_ref(ref) -> Literal["line", "exact", "dev"]`,
-  `vm_packages.apt_pin(ref) -> str` and the deb version helper (renamed
-  without its underscore).
+  `vm_packages.apt_pin(ref) -> str`, the deb version helper and
+  `_candidate_matches(ref, candidate)` (both renamed without their
+  underscore), and the candidate check `vm_packages.packaged_install` does
+  with `apt-cache policy` as the reference behaviour.
 - Produces `vergil_tooling_setup_command(tag: str) -> str` in
   `container_cache.py`, replacing the inline `uv_install`. For a `dev` ref it
   returns today's `uv tool install --quiet 'vergil-tooling @ git+…@<tag>'`
@@ -307,16 +333,22 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
      `/opt/vergil/python/*/bin/python3` exists: prints
      `vergil-tooling: packaged install (<tag>)` to stderr, writes
      `apt_pin(tag)` to `/etc/apt/preferences.d/vergil-tooling`, runs
-     `apt-get update` and `apt-get install -y vergil-tooling[=<deb version>]`,
-     then `vrg-whoami --version` (the cache-build check: `vrg-*` runs from the
+     `apt-get update`, reads the candidate from `apt-cache policy
+     vergil-tooling` and checks it against the tag as `packaged_install` does
+     (prefix `X.Y.` for a line, exactly `X.Y.Z-1` for an exact ref), exiting 1
+     with the VM path's message on a mismatch (a pin that matches nothing
+     leaves apt's normal candidate in place); then
+     `apt-get install -y vergil-tooling[=<deb version>]`, then
+     `vrg-whoami --version` (the cache-build check: `vrg-*` runs from the
      package);
   2. if neither exists: prints `vergil-tooling: uv tool install from git
      (image without the vergil apt repository)` and runs today's `uv tool
      install`;
   3. if exactly one exists: prints `vergil-tooling: the image has <one> but not
      <other>; refusing to guess` and exits 1.
-  The snippet runs under `set -e`, so a failure on the chosen path fails the
-  build.
+  `_compose_setup` joins fragments with `&&` into one `bash -c` and sets no
+  `-e`, so the snippet runs as its own `bash -euo pipefail -c '…'`, and a
+  failure on the chosen path fails the build.
 
 - [ ] **Step 1: Write the failing tests:**
   `test_setup_dev_ref_is_uv_install` (exact string as today),
@@ -326,6 +358,11 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
   `test_setup_half_environment_refuses` (run the snippet with `bash` against a
   temp root via a `VRG_CACHE_ROOT` prefix seam: source present, no runtime →
   exit 1 and the refusing message; the reverse → exit 1),
+  `test_setup_line_candidate_mismatch_refuses` (stub `apt-cache policy`
+  reports a `2.2.0-1` candidate for tag `v2.1` → exit 1, nothing installed),
+  `test_setup_exact_candidate_mismatch_refuses` (candidate `2.1.4-1` for tag
+  `v2.1.3` → exit 1), `test_setup_apt_update_failure_fails` (a failing
+  `apt-get update` stub → non-zero exit),
   `test_setup_self_repo_unchanged` (vergil-tooling's own repo installs
   nothing).
 - [ ] **Step 2: Run them and expect failures.**
@@ -345,27 +382,48 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
 - Create: `actions/shared/setup/vergil/install-tooling.sh`
 - Create: `actions/shared/setup/vergil/tests/install-tooling.test.sh`
 - Modify: `.github/workflows/smoke-setup-vergil.yml` (run the new harness)
+- Modify: `.github/workflows/publish-index.yml` (`build-index` sets
+  `install-source: git`)
 
 **Interfaces:**
 
 - Consumes `read-pin.sh` (unchanged) for the tag.
 - Produces `install-tooling.sh <tag>`, called by the "Install vergil-tooling"
-  step for non-self repos, replacing the "Check for uv" and "Install uv"
-  steps and the inline `uv tool install`. The self-repo branch is unchanged.
+  step, replacing the "Check for uv" and "Install uv" steps (today a
+  `pip install` of uv) and the inline `uv tool install`.
+  - **Pinned uv, wherever a path needs uv and it is absent:** install uv from
+    its release tarball for `UV_VERSION`, checked against `UV_SHA256_AMD64` /
+    `UV_SHA256_ARM64`, all three pinned at the top of `install-tooling.sh`,
+    into `$RUNNER_TEMP/uv/bin` added to `GITHUB_PATH`. Never `pip`. The
+    GitHub-hosted runner image ships no uv (ubuntu-24.04 image
+    `20261101.360.1`).
+  - **Self repo (vergil-tooling's own CI):** the pinned uv if absent, then
+    today's `UV_PYTHON_PREFERENCE=only-system uv sync --frozen --group dev`.
+    Its host jobs (`ci-test.yml` and `ci-audit.yml` `matrix`, `cd-release.yml`
+    `setup`, `package-matrix` and `package-sign`, `publish-index.yml`
+    `build-index`) run with no container, because they choose the image later
+    jobs use.
+  - **Index publisher:** `publish-index.yml`'s `build-index` never installs
+    from the vergil apt repository it rebuilds. It sets the action's new input
+    `install-source: git` (default `auto`), which makes `install-tooling.sh`
+    take the git path with the pinned uv whatever the tag, and log why; a
+    container is not an option, since every image is built with that
+    repository.
   - **Container job, line or exact tag:** the same three-way check as Task 4,
-    with the same log lines and the same refusal.
+    with the same log lines, the same refusal and the same `apt-cache policy`
+    candidate check.
   - **Host job** (`[ ! -f /.dockerenv ]`, the
     plan's test for "not in a container"), line or exact tag: download the key
-    from `https://vergil-project.github.io/packages`, compare its primary
-    fingerprint (`gpg --show-keys --with-colons`, the `fpr` line after `pub`)
-    with `B3A1D804DC03AB036566A4E367861822166ECABE`, fail on a mismatch, then
-    install `vergil-archive-keyring`, the pin and `vergil-tooling` with
-    `sudo apt-get`.
-  - **Dev tag, host or container without uv:** install uv from its release
-    tarball for `UV_VERSION`, checked against `UV_SHA256_AMD64` /
-    `UV_SHA256_ARM64`, all three pinned at the top of `install-tooling.sh`,
-    into `$RUNNER_TEMP/uv/bin` added to `GITHUB_PATH`; then today's
-    `uv tool install`. Never `pip`.
+    from `https://vergil-project.github.io/packages` and read it with
+    `gpg --show-keys --with-colons`. Refuse unless it holds exactly one primary
+    key (one `pub` record), then compare that key's fingerprint (the `fpr` line
+    after `pub`) with `B3A1D804DC03AB036566A4E367861822166ECABE`, and fail on a
+    mismatch. The reference behaviour is vergil-tooling's
+    `repo_setup.parse_primary_fingerprint`. Then install
+    `vergil-archive-keyring` and the pin, check the candidate as Task 4 does,
+    and install `vergil-tooling` with `sudo apt-get`.
+  - **Dev tag, host or container:** the pinned uv if absent, then today's
+    `uv tool install`.
   - Every path prints which one it took.
 
 - [ ] **Step 1: Write the harness** in the framework-free style of the action's
@@ -374,7 +432,13 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
   `container_uv`, `container_half_source_only` (exit 1),
   `container_half_runtime_only` (exit 1), `host_packaged`,
   `host_fingerprint_mismatch` (exit 1, nothing installed),
-  `dev_tag_installs_pinned_uv`, `dev_tag_uv_hash_mismatch` (exit 1).
+  `host_two_primary_keys_first_matches` (exit 1, nothing installed),
+  `host_no_primary_key` (exit 1), `host_candidate_mismatch` (exit 1),
+  `container_candidate_mismatch` (exit 1),
+  `self_repo_host_installs_pinned_uv`, `install_source_git_line_tag` (a line
+  tag with `install-source: git` takes the git path and never runs
+  `apt-get`), `dev_tag_installs_pinned_uv`,
+  `dev_tag_uv_hash_mismatch` (exit 1).
 - [ ] **Step 2: Run** `bash actions/shared/setup/vergil/tests/install-tooling.test.sh`
   and expect failures.
 - [ ] **Step 3: Implement** `install-tooling.sh` (`set -euo pipefail`,
@@ -416,8 +480,17 @@ vergil-actions released with Task 5 (the `v2.1` line moved).
   (`CATALOG.md` gains a toolchains table), `docker/pins/upstream-refresh.sh`
   (runs `uv run docker/pins/resolve_toolchains.py --write`)
 - Modify: `docker/versions/generate.py` (emits the pins as build args)
+- Modify: `docker/versions/manifest.yml` (a new `core:` section
+  `{python: "3.15", node: "22"}`), `docker/versions/manifest.py` (its loader)
+- Test: `docker/versions/test_manifest.py`
+
+Blocked-by #213's T7b for the `build-args` map it adds to each matrix entry.
 
 **Interfaces:**
+
+- Produces the manifest's `core:` section and its loader: `core.python` and
+  `core.node` are the core series, and each must be a series the manifest
+  knows. `check_pins.py` here and Task 7's generator both read it.
 
 - `toolchains.yml` (schema 1):
 
@@ -449,7 +522,7 @@ vergil-actions released with Task 5 (the `v2.1` line moved).
   series, or the core Node major, has no entry; when an entry exists for a
   series the manifest no longer lists; or when a `python`, `go`, `node` or
   `rustup-init` entry lacks either architecture's hash.
-- `generate.py` emits, into each matrix entry's build args,
+- `generate.py` emits, into each matrix entry's `build-args` map (T7b),
   `TOOLCHAIN_VERSION`, `TOOLCHAIN_SHA256_AMD64`, `TOOLCHAIN_SHA256_ARM64` (and
   `PBS_RELEASE` for python; `RUSTUP_INIT_VERSION` and its two hashes for rust).
   No template reads them until Tasks 7–13.
@@ -460,7 +533,10 @@ vergil-actions released with Task 5 (the `v2.1` line moved).
   `test_resolve_python_picks_install_only_both_arches` (fixture release list
   where the newest release lacks arm64 → the older one is chosen),
   `test_resolve_failure_exits_nonzero`, `test_write_round_trips` (load, write,
-  load is identical), `test_generate_emits_build_args`.
+  load is identical), `test_generate_emits_build_args` (each family entry's
+  `build-args` map holds its toolchain keys and values); and in
+  `test_manifest.py`, `test_manifest_core_section` (`core.python` and
+  `core.node` load and must be manifest-known series).
 - [ ] **Step 2: Run them and expect failures.**
 - [ ] **Step 3: Implement** the schema loader, the resolvers (each with an
   injectable `fetch`, as `resolve_latest.py` does), the checks and the
@@ -486,22 +562,25 @@ release freeze.
 - Create: `docker/common/core-node.dockerfile` (replaces
   `node-markdownlint.dockerfile` and `nodesource-node.dockerfile` for `base`)
 - Create: `docker/common/core-tools.dockerfile` (uv tools)
-- Create: `docker/base/checks.sh` (build checks, run as the last `RUN`)
+- Create: `docker/base/checks-invariants.sh` (the checks every image keeps,
+  copied into the image for the families to rerun) and `docker/base/checks.sh`
+  (runs the invariants, then `base`'s own defaults; the last `RUN`)
 - Modify: `docker/versions/manifest.yml` (`base` gets `parent: pkg-ubuntu
-  24.04`; a new `core:` section `{python: "3.15", node: "22"}`),
-  `docker/versions/manifest.py`, `docker/versions/generate.py` (emit
-  `CORE_PYTHON`, `CORE_NODE_VERSION`, `CORE_NODE_SHA256_AMD64`,
-  `CORE_NODE_SHA256_ARM64` for `base`)
+  24.04`), `docker/versions/generate.py` (emit `CORE_PYTHON`,
+  `CORE_NODE_VERSION`, `CORE_NODE_SHA256_AMD64`, `CORE_NODE_SHA256_ARM64`
+  into `base`'s `build-args` map, from Task 6's `core:` section)
 - Test: `docker/versions/test_manifest.py`, `docker/versions/test_generate.py`
 
 **Interfaces:**
 
 - `base` is `FROM ${PARENT_IMAGE}` (the build arg T7b sets) and its first
   layer is `rm -f /etc/vergil/package-toolchain`.
-- `vergil-apt.dockerfile`: downloads the key, checks the primary fingerprint
-  against `ARG VERGIL_APT_FINGERPRINT=B3A1D804DC03AB036566A4E367861822166ECABE`
-  and fails on a mismatch, installs `vergil-archive-keyring`, leaving
-  `/etc/apt/sources.list.d/vergil.sources`.
+- `vergil-apt.dockerfile`: downloads the key, refuses unless it holds exactly
+  one primary key, checks that key's fingerprint against
+  `ARG VERGIL_APT_FINGERPRINT=B3A1D804DC03AB036566A4E367861822166ECABE` and
+  fails on a mismatch (the same rule as Task 5 and vergil-tooling's
+  `repo_setup.parse_primary_fingerprint`), then installs
+  `vergil-archive-keyring`, leaving `/etc/apt/sources.list.d/vergil.sources`.
 - `core-python.dockerfile`: `apt-get install vergil-python${CORE_PYTHON}`;
   `ln -s /opt/vergil/python/${CORE_PYTHON}/bin/python${CORE_PYTHON} /usr/local/bin/python3`.
 - `core-node.dockerfile`: unpacks the pinned nodejs.org tarball for
@@ -509,28 +588,40 @@ release freeze.
   markdownlint-cli with that `npm` into `/opt/vergil/node/<major>`; writes
   `/usr/local/bin/markdownlint` as
   `exec /opt/vergil/node/<major>/bin/node /opt/vergil/node/<major>/lib/node_modules/markdownlint-cli/markdownlint.js "$@"`.
-  No `node`, `npm` or `npx` on `PATH`.
+  No `node`, `npm` or `npx` on `PATH`. If the spike (Task 2) found a fixable
+  HIGH or CRITICAL finding in the tarball's bundled `npm`, this fragment
+  applies the remedy the spike report decided, for example a pinned
+  `npm install -g npm@<version>` into `/opt/vergil/node/<major>` before
+  markdownlint, or a `.trivyignore` entry under that file's rules; the PR
+  names which.
 - `core-tools.dockerfile`: `uv tool install --python /opt/vergil/python/${CORE_PYTHON}/bin/python${CORE_PYTHON}`
   for `yamllint`, `ansible-lint`, `semgrep` (with build-essential installed and
-  purged in the same layer, as today), and `mkdocs --with mkdocs-material --with mike`,
-  with `UV_TOOL_BIN_DIR=/usr/local/bin`. No `pip install` anywhere in the
-  template or its fragments.
-- `checks.sh` asserts: marker absent; `/etc/os-release` `VERSION_ID="24.04"`;
-  `/usr/local/bin/python3 -c 'import sys; assert sys.version_info[:2] == (3, 15)'`
-  (from `CORE_PYTHON`); `python3 -c 'import tomllib'`; each uv tool's
-  `--version`; `mike --help`; a material-themed fixture `mkdocs build`;
-  `markdownlint --version`; `! command -v node`; `! command -v pip`
-  (no `pip` on `PATH` in `base`).
+  purged in the same layer, as today), and
+  `mkdocs --with mkdocs-material --with-executables-from mike` (`--with` alone
+  links no `mike` executable; the pinned uv must support the flag, as uv
+  0.13.7 does), with `UV_TOOL_BIN_DIR=/usr/local/bin`. No `pip install`
+  anywhere in the template or its fragments.
+- `checks-invariants.sh` asserts what every image keeps: marker absent;
+  `/etc/os-release` `VERSION_ID="24.04"`;
+  `/opt/vergil/python/${CORE_PYTHON}/bin/python${CORE_PYTHON}` is the core
+  series and imports `tomllib`; each uv tool's `--version`; `mike --help`; a
+  material-themed fixture `mkdocs build`; `markdownlint --version` (on the
+  core Node).
+- `checks.sh` runs `checks-invariants.sh`, then asserts `base`'s own defaults,
+  which a family may change: `/usr/local/bin/python3 -c 'import sys; assert sys.version_info[:2] == (3, 15)'`
+  (from `CORE_PYTHON`); `! command -v node`; `! command -v pip`.
 
-- [ ] **Step 1: Write the failing tests:** `test_manifest_core_section`
-  (`core.python` and `core.node` load and must be manifest-known series),
-  `test_generate_emits_core_args`, `test_base_parent_is_pkg_ubuntu`.
+- [ ] **Step 1: Write the failing tests:** `test_generate_emits_core_args`
+  (`base`'s `build-args` map holds the four core keys), and
+  `test_base_parent_is_pkg_ubuntu`.
 - [ ] **Step 2: Run them and expect failures; implement the manifest and
   generator changes; run them and expect passes.**
 - [ ] **Step 3: Write the fragments, template and `checks.sh`;** drop uv's pip
   install (uv comes from the parent) and `nfpm.dockerfile` from `base`.
 - [ ] **Step 4: Build** `docker/build.sh base` on amd64 and arm64 and expect
-  `checks.sh` to pass on both.
+  `checks.sh` to pass on both. Then build the `vergil-apt.dockerfile` stage
+  against two local key fixtures, one holding the pinned key plus a second
+  primary key and one with no primary key, and expect both to fail.
 - [ ] **Step 5: Validate, commit, report-ready.**
   `vrg-commit --type feat --scope base --message "build base on pkg-ubuntu 24.04 with vergil-python and a side-by-side Node"`.
 
@@ -543,8 +634,13 @@ Each Blocked-by Task 7, one PR per family. Each family's image becomes
 fragment `base` already installs and `python-support.dockerfile`, installs its
 toolchain from Task 6's build args (verifying the hash for `TARGETARCH`), moves
 its lifecycle adapter's probe (spec §5.4) with its tests and fixtures, and ends
-with a `checks.sh` asserting `/etc/os-release`, the marker's absence, its
-toolchain's version and that `base`'s `checks.sh` still passes in it.
+with a `checks.sh` that runs `base`'s `checks-invariants.sh` and asserts its
+toolchain's version and the family-specific check below. `base`'s defaults
+(`python3` at the core series, no `pip`, no `node`) are not rerun: the python
+and ts-node families change them on purpose. Tasks 8 and 13 also apply the
+remedy the spike report decided for any fixable HIGH or CRITICAL finding in
+the bundled `pip` (python-build-standalone) or `npm` (nodejs.org), or record
+that none was needed.
 
 | Task | Family | Toolchain install | Family-specific check | Adapter probe after |
 |---|---|---|---|---|
@@ -673,22 +769,7 @@ passes on each. Record `Outcome: SUCCESS`.
 
 ---
 
-### Tasks 16 and 17 (vergil-tooling, vergil-actions): remove the cutover install branch
-
-Blocked-by V2. Task 16 in vergil-tooling, Task 17 in vergil-actions.
-
-- [ ] **Step 1: Change the tests** so a line or exact ref always takes the
-  packaged path, and an image without the vergil apt repository fails with
-  `vergil-tooling: the image has no vergil apt repository`. Delete the uv-path
-  and half-environment cases for released refs; keep the dev-ref cases.
-- [ ] **Step 2: Run them and expect failures; remove the uv branch for
-  released refs; run them and expect passes.**
-- [ ] **Step 3: Validate, commit, report-ready.**
-  `vrg-commit --type refactor --scope <container|setup> --message "drop the pre-Ubuntu vergil-tooling install path"`.
-
----
-
-### Bookends (already filed)
+### Bookends (already filed, bar the scaffolding brainstorm)
 
 - Docs: vergil-project/.github#650 (this spec and plan). Its PR also carries
   the #213 and #607 amendment notes (spec §6), edits their affected task
@@ -697,6 +778,14 @@ Blocked-by V2. Task 16 in vergil-tooling, Task 17 in vergil-actions.
 - Retrospective: vergil-project/.github#652.
 - Follow-on brainstorms: vergil-project/.github#651 (Ubuntu 26.04) and
   vergil-project/.github#959 (Node runtime and TypeScript applications).
+- Follow-on brainstorm, filed with the tasks: remove the cutover install
+  branch (spec §7 step 12). It is a known enabling chain: once the human
+  judges that the cutover has held and a revert to the Debian images is off
+  the table, a follow-on epic removes the uv path for released refs from
+  vergil-tooling's cache build and vergil-actions' setup action. A line or
+  exact ref then always takes the packaged path, and an image without the
+  vergil apt repository fails with `vergil-tooling: the image has no vergil
+  apt repository`. Until then the branch stays, and so does the revert path.
 
 ## Self-Review
 
@@ -710,7 +799,7 @@ Blocked-by V2. Task 16 in vergil-tooling, Task 17 in vergil-actions.
 | §2 goal 4, §6.1 #213 amendments | Docs (T7b), 7 |
 | §2 goal 5, §5.4 adapters | 8–13, 7 (core entries) |
 | §2 goal 6, §5.9 table | 14 |
-| §4 revert and fail-forward | D2 notes, 16–17 wait for V2 |
+| §4 revert and fail-forward | D2 notes; the install branch stays until the follow-on epic |
 | §4 silent toolchain drift, §5.3 pins | 6, 8–13 |
 | §5.2 marker, vergil-python, key check, core tools, no pip, Node | 7 |
 | §5.2 packaged vergil-tooling, host jobs | 4, 5, D1 |
@@ -721,13 +810,15 @@ Blocked-by V2. Task 16 in vergil-tooling, Task 17 in vergil-actions.
 | §5.3.1 system Python, not `uv python install` | 8 |
 | §5.5 docs deploy `python3`, `npm root -g`, system-packages, melete | 7, 13, V1, D2 notes |
 | §5.8 CVE triage and ownership | 14 |
-| §7 freeze, steps 1–12 | Delivery table mapping |
+| §7 freeze, steps 1–11 | Delivery table mapping |
+| §7 step 12 | Follow-on brainstorm bookend |
 | §8 spike | 2 |
 | §8 pre-release check, cold rebuild | V1, V2 |
 
 **Type consistency:** the build args Task 6 emits (`TOOLCHAIN_VERSION`,
 `TOOLCHAIN_SHA256_AMD64`, `TOOLCHAIN_SHA256_ARM64`, `PBS_RELEASE`,
 `RUSTUP_INIT_*`) and Task 7's (`CORE_PYTHON`, `CORE_NODE_*`) are the names
-Tasks 7–13 read. The probes in Tasks 4, 5, 16 and 17 are the same two paths:
+Tasks 7–13 read, all carried in T7b's `build-args` map. The probes in Tasks 4
+and 5 are the same two paths:
 `/etc/apt/sources.list.d/vergil.sources` and `/opt/vergil/python/*/bin/python3`.
 The log lines are the same in Tasks 4, 5 and D1.
