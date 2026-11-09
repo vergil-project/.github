@@ -230,7 +230,7 @@ what I wanted never took long; going from "I know exactly what this
 should be" to "here it is, working" was the laborious part — months
 and years of it on the big systems. The other tax was human. My best
 work always depended on assembling a critical mass of people who could
-write the code the way I saw it in my head, and the hardest friction
+write the code, and the hardest friction
 in any project was never the machines — it was getting smart people
 aligned on how a thing should be done.
 
