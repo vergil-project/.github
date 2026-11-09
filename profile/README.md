@@ -104,7 +104,7 @@ pre-provisioned with restricted, role-specific GitHub identities
 through a purpose-built GitHub App, so the distinct functions an agent
 performs are segregated from one another, every action is attributable
 in GitHub, and all of it stays permissioned separately from the human,
-who keeps full control. That isolation is what makes it safe to run
+who keeps full control. That isolation is what makes it (relatively) safe to run
 the agent in bypass-permissions mode: the sandbox, not the harness, is
 the real boundary — which matters, because the harness's own controls
 are mostly soft gates that are easily bypassed. The VMs are
