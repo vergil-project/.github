@@ -63,7 +63,7 @@ looked — **VERGIL** is the original Latin. Call it the OG spelling.
 
 ## What is it?
 
-Concretely, VERGIL is five repositories. The principle behind the
+At its core, VERGIL is five repositories. The principle behind the
 split is simple: **keep the developer's machine thin.** Language
 toolchains, validation, and the agent itself run inside a VM or a
 container wherever possible, not directly on macOS. Local execution
@@ -88,11 +88,10 @@ deliberately ephemeral and stateless: we don't patch them, we rebuild
 them. The effort went into a reliable, reproducible build rather than
 a complex update path.
 
-**[VERGIL-Containers](https://github.com/vergil-project/vergil-docker)**
-*(currently `vergil-docker`; rename in progress)* — the language
-layer. It packages the toolchains for the five supported languages
-into container images, so none of it is installed or maintained on
-macOS. The real driver isn't just multiple languages but multiple
+**[VERGIL-Containers](https://github.com/vergil-project/vergil-containers)**
+— the language layer. It packages the toolchains for the five
+supported languages into container images, so none of it is installed
+or maintained on macOS. The real driver isn't just multiple languages but multiple
 *versions* of each: maintaining that two-dimensional matrix of
 toolchains locally on one platform was never practical. The new name
 reflects a deliberate move to stay container-runtime agnostic rather
@@ -123,6 +122,16 @@ the most recent version of each language; CI exercises the entire
 language-and-version matrix and adds the heavier passes, like the
 security audits. The workflows stay lightweight precisely because the
 logic they invoke lives in VERGIL-Tooling, not in the YAML.
+
+Four supporting repositories round out the org:
+[vergil-python](https://github.com/vergil-project/vergil-python)
+packages the pinned CPython runtime as `.deb` and `.rpm` packages,
+[packages](https://github.com/vergil-project/packages) is the signed
+apt/dnf repository those packages are served from,
+[docs](https://github.com/vergil-project/docs) is the org's
+documentation site, and
+[.github](https://github.com/vergil-project/.github) holds this
+profile, the default community files and the org's planning.
 
 ---
 
