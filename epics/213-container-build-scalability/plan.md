@@ -11,6 +11,10 @@
 > and T8 are closed: T1, T3 and most of T4 were delivered by epic #407; T4's
 > remainder is folded into T7; T0 and T8 were dropped (spec §0.3). T6 is
 > retargeted to PR CI as T6′.
+>
+> **Amended 2026-11-09 for epic #649** (spec §10, issue
+> vergil-project/.github#974): a new task T7b between T7 and T2, and
+> parent-aware T2, T5 and T6′. See "Amendment from epic #649" at the end.
 
 **Goal:** Remove QEMU emulation from the image publish by building each
 architecture on its native runner. Then make PR CI build and scan (without
@@ -352,3 +356,105 @@ selectivity.
 `selection.select_entries` (T5) consumes; the `matrix.json` entry shape
 (`language`, `version`, `build-arg`) is shared by T7, T5 and T6′; the per-arch
 expansion (`arch`, `runner`) is the same in T7 and T6′.
+
+## Amendment from epic #649 (2026-11-09)
+
+Spec §10 records why: epic vergil-project/.github#649 builds every image as
+one tree (`pkg-ubuntu` → `base` → each language image), so the machinery must
+know each image's parent. T7 is unchanged and merges first. T7b
+(vergil-project/vergil-containers#773) follows it, and T2, T5 and T6′ follow
+T7b. Where this section and a task above differ, this section wins.
+
+**Task dependency graph (replaces the one above):**
+
+```text
+T7 (#515) → T7b (#773, parent:, tiers, build-args) → T2 (#510) → T5 (#513) → T6′ (#514)
+Validation (#517) ── Blocked-by ── T7b, T6′
+Docs review (#497) → Retrospective (#215)
+```
+
+**Type consistency (replaces the matrix-entry shape above):** a `matrix.json`
+entry is `language`, `version`, `build-args` (a map, `{}` when empty),
+`parent` (`null` or `{language, version}`) and `depth`, shared by T7b, T5 and
+T6′.
+
+---
+
+### Task T7b (#773, Stage C): parent-aware manifest, tiered publish and per-entry build-args
+
+Blocked-by T7.
+
+**Files:**
+
+- Modify: `docker/versions/manifest.py`, `docker/versions/test_manifest.py`
+- Modify: `docker/versions/generate.py`, `docker/versions/test_generate.py`
+- Regenerate: `docker/versions/matrix.json`
+- Modify: `.github/workflows/cd-docker-publish.yml`, `docker/build.sh`
+
+**Interfaces:**
+
+- **Manifest.** A family, `base` or a toolchain entry (#607's `toolchains:`
+  section, if merged) takes an optional `parent: {name: <entry>, version:
+  <v>}`. `load_manifest` raises `ManifestError` naming the entry when the
+  parent does not exist, when the parents form a cycle, or when an entry's
+  depth exceeds `MAX_DEPTH = 2` (`pkg-ubuntu` 0, `base` 1, language images 2).
+  No `parent:` is depth 0.
+- **Matrix entry.** `{"language", "version", "build-args", "parent",
+  "depth"}`. `build-args` replaces `build-arg`: a family entry's map holds
+  today's single pair (`{"PYTHON_VERSION": "3.15"}`), and `base`'s is `{}`.
+  Entries are ordered by depth, then as today.
+- **Tiered publish.** The `versions` job emits one matrix and one
+  arch-matrix per depth (`matrix-0` … `matrix-2`, and the same for
+  `arch-matrix`). Each tier runs T7's build → stitch → scan → gate → attest →
+  promote, and tier N+1 `needs` tier N. A child gets
+  `PARENT_IMAGE=ghcr.io/vergil-project/<prefix>-<parent>@<digest>` from the
+  parent's stitched digest in the same run (passed by artifact, as T7 passes
+  per-arch digests), and every key in its `build-args` map as a
+  `--build-arg`. An empty tier is skipped cleanly. A failed parent fails its
+  descendants' jobs with an `::error::` naming the parent.
+- **`build.sh`.** Reads `matrix.json`, builds in depth order, passes
+  `build-args` and a locally built `PARENT_IMAGE`; `build.sh <family>` builds
+  or pulls that family's parents first.
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_parent_missing_refused`, `test_parent_cycle_refused`,
+  `test_depth_over_max_refused`, `test_no_parent_is_depth_zero`,
+  `test_parent_depth_emitted` (a synthetic fixture `base` → `pkg-ubuntu`,
+  `python` → `base` gives depths 0, 1 and 2),
+  `test_build_args_map_replaces_build_arg`, `test_base_build_args_empty`,
+  `test_matrix_ordered_by_depth`.
+- [ ] **Step 2: Run them and expect failures; implement the manifest and
+  generator changes; regenerate; run them and expect passes.**
+  `generate.py --check` passes.
+- [ ] **Step 3: Tier the publish and `build.sh`** as above.
+- [ ] **Step 4: Verify.** With no `parent:` in the real manifest, everything
+  is tier 0: a manual `workflow_dispatch` of CD publishes the same tag set as
+  after T7, every final tag is a two-platform index, and tiers 1 and 2 are
+  skipped. Record in the PR that the synthetic-parent tests are the only
+  exercise of tiers 1 and 2 until #649 sets a parent.
+- [ ] **Step 5: Validate, commit, report-ready.**
+  `vrg-commit --type feat --scope versions --message "build images in tiers from their manifest parents, with per-entry build args"`.
+  The workflow edit means the human pushes.
+
+---
+
+### Changes to T2, T5, T6′ and Validation
+
+- **T2 (#510), Blocked-by T7b.** `dependency_map` adds parent edges: an
+  entry's inputs include its parent's inputs, transitively, so a change under
+  `docker/pkg-ubuntu/**` reaches `base` and every language image once #649
+  sets the parents. Add `test_parent_inputs_are_inherited` on a synthetic
+  fixture. Java is gone (epic vergil-project/.github#952): the java test
+  becomes a fragment only one family includes, chosen from the current tree,
+  and `test_every_family_and_base_present` drops `"java"`.
+- **T5 (#513).** Selecting an entry selects all its descendants. Add
+  `test_selecting_parent_selects_descendants`. The fail-closed rule for
+  unclassified paths is unchanged.
+- **T6′ (#514).** When a PR selects a parent, it builds the parent and then
+  its selected descendants **in the same job, on the locally built parent**
+  (buildx `--build-context` or a local load, the implementer's choice),
+  because T6′ never pushes. When a PR selects only children, they build on
+  the published `dev-` parent. Every build passes the entry's `build-args`
+  map.
+- **Validation (#517).** Also Blocked-by T7b; step 1 confirms the publish ran
+  in tier order.
