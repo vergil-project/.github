@@ -46,7 +46,7 @@ The following components are in scope for security reports:
 - Vulnerabilities in upstream dependencies (report these to the
   upstream maintainer)
 - Vulnerabilities in GitHub, Docker, or other third-party platforms
-- Social engineering attacks against project contributors
+- Social engineering attacks against the project's owner
 
 ## Response Commitment
 
@@ -55,9 +55,9 @@ The following components are in scope for security reports:
 - **Resolution**: target fix or mitigation plan within 30 days of
   acknowledgment, depending on severity and complexity
 
-These timelines reflect the project's current scale as a small
-community project. Response times may vary, but every report will be
-acknowledged and investigated.
+These timelines reflect the project's scale: VERGIL is one person's
+lab, not a community project. Response times may vary, but every
+report will be acknowledged and investigated.
 
 ## Disclosure Policy
 

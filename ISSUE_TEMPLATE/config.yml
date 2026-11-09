@@ -1,1 +1,11 @@
 blank_issues_enabled: false
+contact_links:
+  - name: This is a personal lab, not a community project
+    url: https://github.com/vergil-project/.github/blob/develop/CONTRIBUTING.md
+    about: VERGIL accepts no outside issues or pull requests. Read why here.
+  - name: Argue with the design
+    url: https://github.com/orgs/vergil-project/discussions
+    about: Critique and discussion go in Discussions. Read occasionally; spam deleted.
+  - name: Report a security vulnerability
+    url: https://github.com/vergil-project/.github/security/advisories/new
+    about: Report privately. Never open a public issue for a vulnerability.
