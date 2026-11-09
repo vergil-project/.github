@@ -127,6 +127,14 @@ Each image contains, on top of the upstream image:
   baking them in leaves install-test as it is now. Every later apt call keeps
   the Azure-first mirror with failover and fail-fast timeouts. *(My call.)*
 
+  > **Correction 2026-11-09:** the fail-fast config is on every architecture,
+  > not amd64 only. `os-prereqs.sh` writes `80-vergil-fast-fail` on arm64
+  > too, so `pkg-ubuntu` writes it on amd64 and arm64, and only the mirror
+  > list and the sources rewrite are amd64-only. The same applies where §2
+  > goal 1 and §4 say "(amd64 Ubuntu)". Ruled on merge-review item R1 of
+  > vergil-project/vergil-containers#728; see the plan's "Evolution during
+  > execution", entry 5.
+
 **Package lists are not kept.** As every template does today, the image
 removes `/var/lib/apt/lists` after installing. Kept lists would go stale
 between nightly rebuilds and can 404. So `vrg-package install-test`
