@@ -9,7 +9,9 @@
 > vergil-project/.github#649** and implemented one PR each via
 > `vergil:issue-implement` (which runs its own TDD cycle). Operational tasks
 > (`deployment`, `validation`) run via `vergil:issue-deploy` /
-> `vergil:issue-validate`. Steps use checkbox (`- [ ]`) syntax.
+> `vergil:issue-validate`. Steps use checkbox (`- [ ]`) syntax. Each code
+> task lists its failing tests and its implementation; the refactor step is
+> `issue-implement`'s own and is not repeated per task.
 
 **Goal:** every image in vergil-containers builds on `pkg-ubuntu:24.04`, every
 agent VM and GitHub-hosted runner runs Ubuntu 24.04, and Debian is gone.
@@ -64,6 +66,9 @@ vergil-vm.
   failure.
 - **Release freeze:** no vergil-containers release from the `base` rebase
   (Task 7) until the cutover release (D2). Merges to `develop` continue.
+- **Cutover PRs stay revertible:** Tasks 7–13 carry no change unrelated to the
+  cutover, and each PR description says what reverting it restores, so the
+  revert release (spec §4) is a clean revert.
 - **Generated files stay generated:** edit `generate.py` or the manifest and
   regenerate; never hand-edit `matrix.json` or a `BEGIN generated` block.
 - **Workflow pushes are human:** a delta touching `.github/workflows/**` makes
@@ -100,15 +105,14 @@ vergil-vm.
 | Docs-607 | .github | #607's amendment notes (spec §6.2) | — (#975, filed) |
 | R1 | vergil-actions | `ubuntu-latest` → `ubuntu-24.04` | — |
 | R2 | vergil-containers | `ubuntu-latest` → `ubuntu-24.04` | — |
-| R3 | vergil-tooling | `ubuntu-latest` → `ubuntu-24.04` | — |
-| R4 | each other consuming repo | `ubuntu-latest` → `ubuntu-24.04` | — |
-| 1 | vergil-tooling | The `ubuntu-latest` guard | R1, R2, R3, every R4 |
+| R4 | each other repo that uses the label | `ubuntu-latest` → `ubuntu-24.04` | — |
+| 1 | vergil-tooling | The `ubuntu-latest` guard | R1, R2, every R4 |
 | 2 | .github | Spike and its report | — |
 | 3 | vergil-containers | Scripts declare pyyaml (PEP 723) | — |
 | 4 | vergil-tooling | Cache build chooses the vergil-tooling install | — |
 | 5 | vergil-actions | Setup action chooses the install; packaged on host runners; no pip | — |
 | D1 | vergil-tooling, vergil-actions | Release Tasks 4 and 5 | 4, 5 |
-| 6 | vergil-containers | Toolchain pins, the manifest `core:` section, and the refresh | #213 T7b |
+| 6 | vergil-containers | Toolchain pins, the manifest `core:` section, and the refresh | #213 T7b, 3 |
 | 7 | vergil-containers | `base` on `pkg-ubuntu:24.04` | #607 done, #213 T7b, 2, 3, 6, D1 |
 | 8 | vergil-containers | python family | 7 |
 | 9 | vergil-containers | go family | 7 |
@@ -130,41 +134,44 @@ vergil-project/vergil-containers#773, Blocked-by T7. T7b also gives each matrix 
 `docker/build.sh` pass in full, `base` included; today each passes the single
 `build-arg=version` pair. Task numbers here are plan-local; spec §7's numbered
 steps map to them as: step 1 Docs, step 2 #607, step 3 #213, step 4 Task 2,
-step 5 Tasks 3–5 and D1, step 6 Tasks 7–13, step 7 Task 14, step 8 V1, step 9
-D2, step 10 V2, step 11 Task 15 and D3. Step 12, removing the cutover install
+step 5 Tasks 3–5 and D1, step 6 Tasks 7–13, step 7 (the consumer fixes)
+Tasks 3–5, 13 and the D2 notes with no task of its own, step 8 V1, step 9 D2,
+step 10 V2, step 11 Task 15 and D3; Task 14 serves §5.9. Step 12, removing the cutover install
 branch, is a follow-on epic (see Bookends). The runner labels (R1–R4, Task 1)
 run outside that order.
 
 ## Task dependency graph
 
 ```text
-R1, R2, R3, R4… ──────────────────────────────→ T1 (guard)
+R1, R2, R4… ──────────────────────────────────→ T1 (guard)
 T15 (Lima) → D3 ──────────────────────→ V2 (also after D2, below)
 T3 (scripts) ─────────────────────────┐
 T4 (tooling install) ─┐               │
 T5 (setup action) ────┴→ D1 (release) ┤
-#213 T7b → T6 (toolchain pins) ───────┤
+#213 T7b, T3 → T6 (toolchain pins) ───┤
 T2 (spike) ───────────────────────────┤
 #607 done, #213 T7b ──────────────────┴→ T7 (base) → T8…T13 (families) → T14 → V1 → D2 → V2
 ```
 
-R1–R4, Tasks 2–5 and Task 15 can start at once; Task 6 once #213's T7b has
-merged.
+R1, R2, R4, Tasks 2–5 and Task 15 can start at once; Task 6 once #213's T7b
+and Task 3 have merged.
 
 ---
 
 ### Task R1–R4: runner labels
 
-One task per repo, filed now. R1 vergil-actions, R2 vergil-containers, R3
-vergil-tooling, and one R4 per other repo with the label. The recount on
-2026-11-09 over the local clones of every repo with a `vergil.toml` found it in
-vergil-actions (33 files), vergil-containers (7), vergil-tooling (1),
-`mq-rest-admin-project/mq-rest-admin-dev-environment` (5),
-`mq-rest-admin-{go,java,python,rust}` (1 each),
-`logical-minds-foundry/mq-resiliency-lab-for-linux` (2) and
-`wphillipmoore/the-infrastructure-mindset` (1). A repo outside vergil-project
-that cannot be linked under #649 files its R4 under its own ad-hoc epic; Task 1
-lists it as Blocked-by either way.
+One task per repo that uses the label, filed now: R1 vergil-actions, R2
+vergil-containers, and one R4 per other repo. The recount on 2026-11-09 counted
+non-comment `runs-on:` lines naming `ubuntu-latest` under `.github/`, on each
+repo's default branch, across every repo with a `vergil.toml`:
+vergil-actions (42 lines in 19 files), vergil-containers (9 in 5),
+`mq-rest-admin-project/mq-rest-admin-dev-environment` (2 in 2),
+`mq-rest-admin-{go,java,python}` (1 each), `mq-rest-admin-rust` (2 in 1) and
+`wphillipmoore/the-infrastructure-mindset` (1). vergil-tooling,
+`logical-minds-foundry/mq-resiliency-lab-for-linux` and the other vergil-project
+repos have none, so they get no R task; Task 1's own run on vergil-tooling
+proves it. A repo outside vergil-project that cannot be linked under #649 files
+its R4 under its own ad-hoc epic; Task 1 lists it as Blocked-by either way.
 
 **Files:** every `.github/workflows/*.yml` and doc page in the repo that names
 `ubuntu-latest`.
@@ -187,7 +194,7 @@ lists it as Blocked-by either way.
 
 ### Task 1 (vergil-tooling): the `ubuntu-latest` guard
 
-Blocked-by R1, R2, R3 and every R4.
+Blocked-by R1, R2 and every R4.
 
 **Files:**
 
@@ -198,10 +205,12 @@ Blocked-by R1, R2, R3 and every R4.
 
 - Produces `_check_runner_labels(repo_root: Path) -> int` in
   `validate_common.py`, run by `main` with the other common checks. It scans
-  every tracked `.github/workflows/*.yml` and `*.yaml`, and for each line
-  whose `runs-on` value (scalar, or an item of a list) is `ubuntu-latest`
-  prints `<path>:<line>: runs-on: ubuntu-latest is not allowed; use ubuntu-24.04`
-  and returns 1. No workflows directory returns 0.
+  every tracked `.github/workflows/*.yml` and `*.yaml`, and for each scalar
+  value anywhere in the parsed YAML that is exactly `ubuntu-latest` (a
+  `runs-on` value or list item, a `strategy.matrix` value, a `with:` input)
+  prints `<path>:<line>: ubuntu-latest is not allowed; use ubuntu-24.04` and
+  returns 1. Comments are ignored, because they are not in the parsed YAML. No
+  workflows directory returns 0.
 
 - [ ] **Step 1: Write the failing tests:**
   `test_runner_label_scalar_refused` (`runs-on: ubuntu-latest` → 1, message
@@ -209,13 +218,17 @@ Blocked-by R1, R2, R3 and every R4.
   (`runs-on: [self-hosted, ubuntu-latest]` → 1),
   `test_runner_label_pinned_passes` (`ubuntu-24.04`, `ubuntu-24.04-arm` → 0),
   `test_runner_label_comment_ignored` (`# runs-on: ubuntu-latest` → 0),
-  `test_runner_label_expression_passes` (`runs-on: ${{ matrix.os }}` → 0),
+  `test_runner_label_expression_passes` (`runs-on: ${{ matrix.os }}` with
+  `os: [ubuntu-24.04]` → 0), `test_runner_label_matrix_value_refused`
+  (`os: [ubuntu-latest]` with `runs-on: ${{ matrix.os }}` → 1),
+  `test_runner_label_with_input_refused` (`with: {runner: ubuntu-latest}` → 1),
   `test_runner_label_no_workflows` (→ 0).
 - [ ] **Step 2: Run them and expect failures.**
-- [ ] **Step 3: Implement** with `yaml.safe_load` per file to find `runs-on`
-  values, and the text for line numbers.
+- [ ] **Step 3: Implement** with a YAML loader that keeps line numbers (for
+  example `yaml.compose` nodes) to walk every scalar.
 - [ ] **Step 4: Run them and expect passes;** run `vrg-validate` on
-  vergil-tooling itself (R3 merged) and expect the check to pass.
+  vergil-tooling itself and expect the check to pass (it has no
+  `ubuntu-latest` today).
 - [ ] **Step 5: Validate, commit, report-ready.**
   `vrg-commit --type feat --scope validate --message "refuse ubuntu-latest runner labels"`.
   The release that ships it is the human's, after every R task has merged.
@@ -259,7 +272,10 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
   - a Trivy scan of the trial core Node, `ts-node` and python-build-standalone
     layers, recording each fixable HIGH or CRITICAL finding in the bundled
     `npm` or `pip` (today `base` upgrades npm, pip and setuptools for such
-    findings), so that Tasks 7, 8 and 13 each state their remedy.
+    findings), so that Tasks 7, 8 and 13 each state their remedy. A bundled
+    `npm` or `pip` changes only with its runtime (spec §5.2), so the remedy is
+    a newer runtime pin, or a `.trivyignore` entry under that file's rules;
+    never an in-place upgrade.
 - [ ] **Step 2: Write `spike.md`.** Any `decision needed` stops the task for
   the human before the report merges; the decision is recorded in the report.
 - [ ] **Step 3: Validate, commit, report-ready.**
@@ -281,6 +297,8 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
   `docker/pins/upstream-refresh.sh`, `.github/workflows/ops.yml` (including
   line 42, `python3 report_exposure.py` under `working-directory: docker/pins`),
   and any other caller of an entry point.
+- Create: `docker/versions/test_entry_points.py` (run by `validate-custom`'s
+  `docker/versions` pytest)
 
 **Interfaces:**
 
@@ -294,17 +312,27 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
   script name rather than path prefix (`grep -rnE 'check_pins|generate_catalog|report_exposure|generate\.py|lifecycle/check|publish\.py' scripts docker .github`).
   For each entry point, record its third-party import closure in the PR
   description.
-- [ ] **Step 2: Add the PEP 723 block** to each entry point and change each
-  caller to `uv run`.
-- [ ] **Step 3: Check** in today's `prod-base`, with pyyaml and packaging
+- [ ] **Step 2: Write the failing tests** in `test_entry_points.py`, over an
+  `ENTRY_POINTS` table (entry point → its declared dependencies, from Step 1):
+  `test_each_entry_point_has_a_pep723_block` (the block parses, and its
+  `dependencies` equal the table's), `test_declared_deps_cover_imports` (every
+  third-party top-level module the entry point imports, directly or through a
+  local module under `docker/`, found with `ast`, maps to a declared
+  dependency; `yaml` → `pyyaml`), and `test_no_caller_runs_an_entry_point_with_python3`
+  (no `python3 <entry point>` in `scripts/`, `docker/` or `.github/`). Run
+  them and expect failures.
+- [ ] **Step 3: Add the PEP 723 block** to each entry point and change each
+  caller to `uv run`; run the tests and expect passes.
+- [ ] **Step 4: Check** in today's `prod-base`, with pyyaml and packaging
   absent from the interpreter, that `scripts/bin/validate-custom`,
   `uv run docker/pins/report_exposure.py --no-probe` (from `docker/pins`, as
   `ops.yml` runs it), `uv run docker/versions/lifecycle/check.py` and
   `uv run docker/versions/lifecycle/publish.py --help` all pass:
   `docker run --rm -v "$PWD":/w -w /w ghcr.io/vergil-project/prod-base:latest bash -c 'python3 -m pip uninstall -y pyyaml packaging && …'`.
   The nightly `pin-exposure` job is `continue-on-error` (vergil-project/.github#972),
-  so this step is the only check that `report_exposure.py` still runs.
-- [ ] **Step 4: Validate, commit, report-ready.**
+  so this step is the only check that `report_exposure.py` still runs end to
+  end; Step 2's tests guard its declared dependencies in PR CI.
+- [ ] **Step 5: Validate, commit, report-ready.**
   `vrg-commit --type refactor --scope scripts --message "declare pyyaml in each script and run them with uv run"`.
   `ops.yml` means the human pushes.
 
@@ -516,15 +544,33 @@ vergil-actions released with Task 5 (the `v2.1` line moved).
   the loader, and `dump_manifest`, which emits `core:`),
   `docker/versions/lifecycle/apply.py` (`apply_change` keeps `core`; today it
   rebuilds the manifest from `families` alone)
-- Test: `docker/versions/test_manifest.py`, `docker/versions/lifecycle/test_apply.py`
+- Test: `docker/versions/test_manifest.py`, `docker/versions/test_apply.py`
 
-Blocked-by #213's T7b for the `build-args` map it adds to each matrix entry.
+Blocked-by #213's T7b for the `build-args` map it adds to each matrix entry,
+and Task 3, whose PEP 723 blocks make the refresh hook's plain `uv run` work
+(both tasks edit `upstream-refresh.sh`). `resolve_toolchains.py` is a new
+entry point, so it starts with its own PEP 723 block (`pyyaml`) and joins
+Task 3's `ENTRY_POINTS` table.
 
 **Interfaces:**
 
 - Produces the manifest's `core:` section and its loader: `core.python` and
-  `core.node` are the core series, and each must be a series the manifest
-  knows. `check_pins.py` here and Task 7's generator both read it.
+  `core.node` are the core series. They have their own pins, separate from
+  the family windows (spec §5.2.1): neither has to be a family series, and a
+  family dropping a series never forces a core move. The loader checks only
+  their shape (`X.Y` for Python, a major for Node). Each is checked against
+  its own source: `check_pins.py` requires a `toolchains.node` entry for the
+  core Node major, and the core Python needs no pin, because Task 7's build
+  installs `vergil-python<series>` from the vergil apt repository and fails if
+  vergil-python does not publish it. A core move is a reviewed PR that edits `core:`;
+  in this epic no lifecycle automation opens it (vergil-project/.github#978
+  covers that follow-on). `check_pins.py` here and Task 7's generator both
+  read the section.
+- **One resolver per upstream.** `resolve_toolchains.py` holds one fetcher
+  per upstream (python-build-standalone, go.dev, nodejs.org, the Rust channel
+  manifest, rustup), each taking an injectable `fetch`. Tasks 8–13's adapter
+  probes import these fetchers rather than writing their own, so each
+  upstream is fetched and parsed in one place (spec §5.4).
 
 - `toolchains.yml` (schema 1):
 
@@ -554,8 +600,10 @@ Blocked-by #213's T7b for the `build-args` map it adds to each matrix entry.
   non-zero, so the refresh pushes nothing.
 - `check_pins.py` fails when a `python`, `go`, `rust` or `ts-node` manifest
   series, or the core Node major, has no entry; when an entry exists for a
-  series the manifest no longer lists; or when a `python`, `go`, `node` or
-  `rustup-init` entry lacks either architecture's hash.
+  series that is neither a manifest family series nor the core Node major; or
+  when a `python`, `go`, `node` or `rustup-init` entry lacks either
+  architecture's hash. The core Node major counts as a listed series in its
+  own right, so its entry is never an orphan.
 - `generate.py` emits, into each matrix entry's `build-args` map (T7b),
   `TOOLCHAIN_VERSION`, `TOOLCHAIN_SHA256_AMD64`, `TOOLCHAIN_SHA256_ARM64` (and
   `PBS_RELEASE` for python; `RUSTUP_INIT_VERSION` and its two hashes for rust).
@@ -568,9 +616,10 @@ Blocked-by #213's T7b for the `build-args` map it adds to each matrix entry.
   where the newest release lacks arm64 → the older one is chosen),
   `test_resolve_failure_exits_nonzero`, `test_write_round_trips` (load, write,
   load is identical), `test_generate_emits_build_args` (each family entry's
-  `build-args` map holds its toolchain keys and values); and in
-  `test_manifest.py`, `test_manifest_core_section` (`core.python` and
-  `core.node` load and must be manifest-known series) and
+  `build-args` map holds its toolchain keys and values),
+  `test_core_node_pin_not_orphan` (core Node 22 with no family series 22: its
+  entry passes), `test_core_node_major_needs_pin`; in `test_manifest.py`, `test_manifest_core_section` (`core.python` and
+  `core.node` load; a core series outside every family window is accepted) and
   `test_dump_round_trips_core` (`load(dump(m)) == m` with `core` set); and in
   `test_apply.py`, `test_apply_change_keeps_core`.
 - [ ] **Step 2: Run them and expect failures.**
@@ -601,9 +650,11 @@ release freeze.
 - Create: `docker/common/core-node.dockerfile` (replaces
   `node-markdownlint.dockerfile` and `nodesource-node.dockerfile` for `base`)
 - Create: `docker/common/core-tools.dockerfile` (uv tools)
-- Create: `docker/base/checks-invariants.sh` (the checks every image keeps,
-  copied into the image for the families to rerun) and `docker/base/checks.sh`
-  (runs the invariants, then `base`'s own defaults; the last `RUN`)
+- Create: `docker/base/checks-invariants.sh` (the checks every image keeps),
+  `docker/base/checks-defaults.sh` (one function per `base` default, so a
+  family reruns the ones it does not change), both copied into the image, and
+  `docker/base/checks.sh` (runs the invariants and every default; the last
+  `RUN`)
 - Modify: `docker/versions/manifest.yml` (`base` gets `parent: pkg-ubuntu
   24.04`), `docker/versions/generate.py` (emit `CORE_PYTHON`,
   `CORE_NODE_VERSION`, `CORE_NODE_SHA256_AMD64`, `CORE_NODE_SHA256_ARM64`
@@ -630,11 +681,10 @@ release freeze.
   `/usr/local/bin/markdownlint` as
   `exec /opt/vergil/node/<major>/bin/node /opt/vergil/node/<major>/lib/node_modules/markdownlint-cli/markdownlint.js "$@"`.
   No `node`, `npm` or `npx` on `PATH`. If the spike (Task 2) found a fixable
-  HIGH or CRITICAL finding in the tarball's bundled `npm`, this fragment
-  applies the remedy the spike report decided, for example a pinned
-  `npm install -g npm@<version>` into `/opt/vergil/node/<major>` before
-  markdownlint, or a `.trivyignore` entry under that file's rules; the PR
-  names which.
+  HIGH or CRITICAL finding in the tarball's bundled `npm`, the remedy is the
+  one the spike report decided: a newer core Node pin, or a `.trivyignore`
+  entry under that file's rules. The bundled `npm` is never upgraded in
+  place; the PR names which remedy it took.
 - `core-tools.dockerfile`: `uv tool install --python /opt/vergil/python/${CORE_PYTHON}/bin/python${CORE_PYTHON}`
   for `yamllint`, `ansible-lint`, `semgrep` (with build-essential installed and
   purged in the same layer, as today), and
@@ -642,15 +692,25 @@ release freeze.
   links no `mike` executable; the pinned uv must support the flag, as uv
   0.13.7 does), with `UV_TOOL_BIN_DIR=/usr/local/bin`. No `pip install`
   anywhere in the template or its fragments.
-- `checks-invariants.sh` asserts what every image keeps: marker absent;
-  `/etc/os-release` `VERSION_ID="24.04"`;
-  `/opt/vergil/python/${CORE_PYTHON}/bin/python${CORE_PYTHON}` is the core
-  series and imports `tomllib`; each uv tool's `--version`; `mike --help`; a
-  material-themed fixture `mkdocs build`; `markdownlint --version` (on the
-  core Node).
-- `checks.sh` runs `checks-invariants.sh`, then asserts `base`'s own defaults,
-  which a family may change: `/usr/local/bin/python3 -c 'import sys; assert sys.version_info[:2] == (3, 15)'`
-  (from `CORE_PYTHON`); `! command -v node`; `! command -v pip`.
+- `checks-invariants.sh` asserts what every image keeps:
+  - marker absent; `/etc/os-release` `VERSION_ID="24.04"`;
+  - `/opt/vergil/python/${CORE_PYTHON}/bin/python${CORE_PYTHON}` is the core
+    series and imports `tomllib`;
+  - `/usr/local/bin/python3` exists and imports `tomllib` (docs deploy and
+    consumers call it in every image, spec §5.5);
+  - each uv tool's `--version`, `mike --help`, a material-themed fixture
+    `mkdocs build`, and `markdownlint --version`;
+  - each core tool runs on its core runtime: every uv tool environment's
+    interpreter (its `pyvenv.cfg` `home`, or the shebang of its
+    `/usr/local/bin` entry) is under `/opt/vergil/python/${CORE_PYTHON}/`, and
+    the `markdownlint` wrapper names `/opt/vergil/node/<core-major>/bin/node`.
+    This holds in `dev-python:3.15` too, where the family series equals the
+    core.
+- `checks-defaults.sh` holds `base`'s defaults, which a family may change:
+  `check_python3_is_core` (`/usr/local/bin/python3` is `CORE_PYTHON`'s
+  series), `check_no_node` (`! command -v node`) and `check_no_pip`
+  (`! command -v pip`).
+- `checks.sh` runs `checks-invariants.sh` and all three defaults.
 
 - [ ] **Step 1: Write the failing tests:** `test_generate_emits_core_args`
   (`base`'s `build-args` map holds the four core keys), and
@@ -679,13 +739,21 @@ Each Blocked-by Task 7, one PR per family. Each family's image becomes
 fragment `base` already installs and `python-support.dockerfile`, installs its
 toolchain from Task 6's build args (verifying the hash for `TARGETARCH`), moves
 its lifecycle adapter's probe (spec §5.4) with its tests and fixtures, and ends
-with a `checks.sh` that runs `base`'s `checks-invariants.sh` and asserts its
-toolchain's version and the family-specific check below. `base`'s defaults
-(`python3` at the core series, no `pip`, no `node`) are not rerun: the python
-and ts-node families change them on purpose. Tasks 8 and 13 also apply the
-remedy the spike report decided for any fixable HIGH or CRITICAL finding in
-the bundled `pip` (python-build-standalone) or `npm` (nodejs.org), or record
-that none was needed.
+with a `checks.sh` that runs `base`'s `checks-invariants.sh`, reruns each
+`checks-defaults.sh` default the family does not change, and asserts its
+toolchain's version and the family-specific check below. Only python changes
+`python3` and `pip`, and only ts-node changes `node`, so:
+
+| Family | Defaults rerun |
+|---|---|
+| python | `check_no_node` |
+| ts-node | `check_python3_is_core`, `check_no_pip` |
+| go, rust, cpp-clang, cpp-gcc | all three |
+
+Tasks 8 and 13 also apply the remedy the spike report decided for any fixable
+HIGH or CRITICAL finding in the bundled `pip` (python-build-standalone) or
+`npm` (nodejs.org): a newer series pin or a `.trivyignore` entry under that
+file's rules, never an in-place upgrade. Or they record that none was needed.
 
 | Task | Family | Toolchain install | Family-specific check | Adapter probe after |
 |---|---|---|---|---|
@@ -694,13 +762,17 @@ that none was needed.
 | 10 | rust | pinned `rustup-init` (hash checked), then `rustup toolchain install <version> --profile minimal` plus today's components | `rustc --version` is the pinned release | Rust channel manifest for the series |
 | 11 | cpp-clang | apt.llvm.org `llvm-toolchain-noble-<v>` | `clang-<v> --version`; the libstdc++ the spike chose; `clang-format-<t>` and `clang-tidy-<t>` at `CLANG_TOOLS_VERSION` | apt.llvm.org `noble` listing |
 | 12 | cpp-gcc | the spike's GCC 14 source | `gcc-14 --version` is a released 14.x; `clang-format-<t>` and `clang-tidy-<t>` at `CLANG_TOOLS_VERSION` | the spike's source has `gcc-<n>` for noble |
+| 13 | ts-node | nodejs.org tarball at `/opt/node/<major>`; `node`, `npm`, `npx` in `/usr/local/bin`; npm prefix `/usr` | `npm root -g` = `/usr/lib/node_modules`; `markdownlint --version` still runs on the core Node | nodejs.org index has the major with both tarballs |
 
 Both C++ families include `common/cpp-analysis.dockerfile`, whose apt.llvm.org
 source is hardcoded to Debian (`deb http://apt.llvm.org/trixie/
 llvm-toolchain-trixie-${CLANG_TOOLS_VERSION} main`). Whichever of Tasks 11 and
 12 merges first moves it to `apt.llvm.org/noble/`,
 `llvm-toolchain-noble-${CLANG_TOOLS_VERSION}`; the other rebases onto it.
-| 13 | ts-node | nodejs.org tarball at `/opt/node/<major>`; `node`, `npm`, `npx` in `/usr/local/bin`; npm prefix `/usr` | `npm root -g` = `/usr/lib/node_modules`; `markdownlint --version` still runs on the core Node | nodejs.org index has the major with both tarballs |
+
+Each adapter probe that reads an upstream Task 6 pins (python-build-standalone,
+go.dev, the Rust channel manifest, nodejs.org) imports that upstream's fetcher
+from `docker/pins/resolve_toolchains.py` instead of fetching it itself.
 
 Each task's steps:
 
@@ -759,7 +831,11 @@ Blocked-by Tasks 8–13.
    `uv run docker/versions/lifecycle/check.py` pass for vergil-containers.
 4. On an amd64 cloud VM, `apt-get install` of one package in `dev-base`
    succeeds through the inherited mirror config.
-5. Delete the throwaway branches.
+5. List the CI paths that do not pass `container-prefix` through (jobs that
+   name a `prod-` image directly), and run each one's commands by hand in a
+   `dev-base` container (`docker run --rm -v "$PWD":/w -w /w ghcr.io/vergil-project/dev-base:latest …`).
+   Record the list and each result.
+6. Delete the throwaway branches.
 
 **Acceptance:** every step passes. Record `Outcome: SUCCESS`.
 
@@ -800,13 +876,16 @@ the new `prod-` images; a fresh `vrg-vm create` passing `tests/test_base.sh`
 
 **Files:**
 
-- Modify: `templates/agent.yaml`, `templates/agent.yaml.skel`
-  (`template:_images/ubuntu-lts` → `template:_images/ubuntu-24.04`, header
-  comment made accurate)
+- Modify: `templates/agent.yaml.skel` (`template:_images/ubuntu-lts` →
+  `template:_images/ubuntu-24.04`, header comment made accurate)
 - Modify: `templates/provision/40-profile.sh` (a comment on the racc seed:
   it matters again on 26.04, #651)
+- Regenerate: `templates/agent.yaml`, which `scripts/build-template.sh` builds
+  from the skel and `templates/provision/*.sh`; `tests/check-template-generation.sh`
+  fails a hand edit
 
-- [ ] **Step 1: Edit both templates and the comment.**
+- [ ] **Step 1: Edit the skel and the comment, then run
+  `scripts/build-template.sh`.**
 - [ ] **Step 2: `vrg-vm create`** a scratch VM from the branch and run
   `tests/test_base.sh`; expect `VERSION_ID="24.04"` to pass.
 - [ ] **Step 3: Validate, commit, report-ready.**
@@ -827,7 +906,18 @@ passes on each. Record `Outcome: SUCCESS`.
 - Amendment docs: vergil-project/.github#974 (#213) and
   vergil-project/.github#975 (#607), each its own PR, with the affected task
   bodies pointing at them; #213's T7b is vergil-project/vergil-containers#773.
-- Docs review: vergil-project/vergil-containers#739.
+- Docs review: vergil-project/vergil-containers#739. Its sweep spawns the
+  per-repo doc tasks for the site pages that still describe the Debian images,
+  and adds a link to Task 14's OS-usage table from each repo's site docs (spec
+  §5.9: link, never copy). The pages known today:
+  - vergil-containers `docs/site/docs/`: `images/index.md`, `index.md`,
+    `configuration.md`, `languages/cpp-clang.md`, `languages/cpp-gcc.md`,
+    `languages/ts-node.md`;
+  - vergil-tooling `docs/site/docs/`: `guides/ci-architecture.md`,
+    `reference/container-config.md`, `reference/dependency-update-config.md`,
+    `standards/development/cpp/overview.md`;
+  - vergil-actions `docs/site/docs/`: `actions/package-setup.md`,
+    `actions/shared-setup-system-packages.md`.
 - Retrospective: vergil-project/.github#652.
 - Follow-on brainstorms: vergil-project/.github#651 (Ubuntu 26.04) and
   vergil-project/.github#959 (Node runtime and TypeScript applications).
@@ -850,7 +940,8 @@ passes on each. Record `Outcome: SUCCESS`.
 | §2 goal 2, §6.2 #607 amendments | Docs-607 |
 | §2 goal 3, §5.6, §5.7 | R1–R4, 1, 15, D3 |
 | §2 goal 4, §6.1 #213 amendments | Docs-213, T7b (vergil-containers#773), 7 |
-| §2 goal 5, §5.4 adapters | 8–13, 7 (core entries) |
+| §2 goal 5, §5.4 adapters | 8–13 (adapter probes, on Task 6's fetchers) |
+| §5.2.1 core entries, their own pins | 6 (`core:` section, `check_pins.py`), 7 (core args) |
 | §2 goal 6, §5.9 table | 14 |
 | §4 revert and fail-forward | D2 notes; the install branch stays until the follow-on epic |
 | §4 silent toolchain drift, §5.3 pins | 6, 8–13 |
@@ -862,7 +953,9 @@ passes on each. Record `Outcome: SUCCESS`.
 | §5.2.1 build checks | 7, 8–13 `checks.sh`; 4 (cache build) |
 | §5.3.1 system Python, not `uv python install` | 8 |
 | §5.5 docs deploy `python3`, `npm root -g`, system-packages, melete | 7, 13, V1, D2 notes |
-| §5.8 CVE triage and ownership | 14 |
+| §5.8 CVE triage and ownership | 14; remedies in 2, 7, 8, 13 |
+| §5.9 links from other repos' docs, Debian pages | Docs review bookend (#739) |
+| §4 revertible cutover PRs | Global Constraints |
 | §7 freeze, steps 1–11 | Delivery table mapping |
 | §7 step 12 | Follow-on brainstorm bookend |
 | §8 spike | 2 |

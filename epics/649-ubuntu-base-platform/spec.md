@@ -175,7 +175,9 @@ toolset, with these changes:
   changes both pinned values in reviewed PRs.
 - **The core series is pinned** (human decision, 2026-11-09). `<core>` is an
   entry in the version manifest, today 3.15, and moves to a new series only
-  through a reviewed PR, which the lifecycle automation may open. Within the
+  through a reviewed PR. In this epic that PR is opened by hand; having the
+  lifecycle automation open it is a follow-on (human decision, 2026-11-09;
+  vergil-project/.github#978). Within the
   series, the image takes the package vergil-python publishes. vergil-tooling's
   package declares its own `vergil-python<series>` dependency, so when
   vergil-tooling moves series first, the cache build installs that series
@@ -286,8 +288,9 @@ The rule:
 - **Core runtimes have their own pins**, separate from the family windows. A
   core runtime moves when core tooling needs it to, never because a language
   image moved, and only through a reviewed PR. The core Python's series and
-  the core Node's major are each an entry in the version manifest, under the
-  lifecycle automation like any series (§5.2).
+  the core Node's major are each an entry in the version manifest, moved by a
+  hand-opened reviewed PR in this epic (§5.2). Each is checked against its own
+  source, never against a family window.
 - **Only a language family's image sets a default command for its runtime.**
   The exception is `python3` in `base`, which consumers already rely on, and
   which promises the standard library only (§5.2, §5.5).
@@ -403,13 +406,14 @@ source:
 | ts-node | `deb.nodesource.com/setup_<major>.x` (stale: the image uses `nodistro`) | nodejs.org's release index has a release of the major with `linux-x64` and `linux-arm64` tarballs |
 
 The core Node and the core Python (§5.2.1) each get a manifest entry of their
-own. The core Node probes nodejs.org, as ts-node does. The core Python's
-series is installable once the python adapter's `runtime_published` records a
-vergil-python runtime for it; the move itself is the reviewed PR of §5.2.
+own. In this epic no adapter probes them: a core move is a reviewed PR opened
+by hand (§5.2), and the build fails if the chosen core series is not
+available. Wiring the core entries into the lifecycle automation is a
+follow-on (vergil-project/.github#978).
 
 The adapters say when a series is installable; the patch an image ships is
-the series' pin (§5.3), which the upstream refresh moves. The plan decides
-whether the adapter's resolution and the refresh hook share one resolver.
+the series' pin (§5.3), which the upstream refresh moves. The adapters and the
+refresh hook share one fetcher per upstream (the plan's Task 6).
 
 The adapters for a family change in the same PR as that family's image. The
 dates the adapters record (`ga`, `eol`) and their sources (endoflife.date,
@@ -514,12 +518,21 @@ Ubuntu images is triaged in the PR that introduces it, as today.
 `docs/site/docs/operations/trivy-triage.md`'s "Debian fix" wording is updated.
 
 **Findings inside a runtime belong to that runtime's owner** (human decision,
-2026-11-09). Anything under `/opt/vergil/` belongs to the vergil-python
-package, and is fixed by a vergil-python release, triaged in vergil-python;
-vergil-containers does not patch inside it. Anything bundled in a family
-runtime from python-build-standalone or nodejs.org is fixed by moving that
-series' pin (§5.3). How vergil-python keeps itself current is
-vergil-project/.github#965.
+2026-11-09). vergil-containers never patches or upgrades anything inside a
+runtime, including the `npm` or `pip` it bundles. Each path has one owner:
+
+- `/opt/vergil/python/<core>/` belongs to the vergil-python package: fixed by
+  a vergil-python release, triaged in vergil-python. How vergil-python keeps
+  itself current is vergil-project/.github#965.
+- `/opt/vergil/node/<core-major>/` is a pinned nodejs.org tarball: fixed by
+  moving the core Node pin (§5.2.1).
+- vergil-tooling's package venv belongs to vergil-tooling: fixed by a
+  vergil-tooling release.
+- A family runtime from python-build-standalone or nodejs.org is fixed by
+  moving that series' pin (§5.3).
+
+Where no fixed runtime exists yet, the finding gets a `.trivyignore` entry
+under that file's rules until one does.
 
 ### 5.9 The OS-usage table
 
