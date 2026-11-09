@@ -112,7 +112,7 @@ vergil-vm.
 | 4 | vergil-tooling | Cache build chooses the vergil-tooling install | — |
 | 5 | vergil-actions | Setup action chooses the install; packaged on host runners; no pip | — |
 | D1 | vergil-tooling, vergil-actions | Release Tasks 4 and 5 | 4, 5 |
-| 6 | vergil-containers | Toolchain pins, the manifest `core:` section, and the refresh | #213 T7b, 3 |
+| 6 | vergil-containers | Toolchain pins, the manifest `core:` section, and the refresh | #213 T7b, #607 T3 (#727), 3 |
 | 7 | vergil-containers | `base` on `pkg-ubuntu:24.04` | #607 done, #213 T7b, 2, 3, 6, D1 |
 | 8 | vergil-containers | python family | 7 |
 | 9 | vergil-containers | go family | 7 |
@@ -127,14 +127,19 @@ vergil-vm.
 | 15 | vergil-vm | Lima pinned to 24.04 | — |
 | D3 | vergil-vm | Release and `vrg-vm rebuild` (deployment) | 15 |
 
-Epic #213's T7 (vergil-project/vergil-containers#515) is outside this table and
-must merge before #213 resumes (spec §7 step 3); T7b is filed under #213 as
-vergil-project/vergil-containers#773, Blocked-by T7. T7b also gives each matrix entry a `build-args` map
-(`{NAME: value}`), which the publish workflow, the PR build and
-`docker/build.sh` pass in full, `base` included; today each passes the single
-`build-arg=version` pair. Task numbers here are plan-local; spec §7's numbered
-steps map to them as: step 1 Docs, step 2 #607, step 3 #213, step 4 Task 2,
-step 5 Tasks 3–5 and D1, step 6 Tasks 7–13, step 7 (the consumer fixes)
+Epic #213's T7 (vergil-project/vergil-containers#515) merged on 2026-11-09
+(vergil-containers#774): native per-arch builds, the stitch, and `base` as the
+matrix's last entry. T7b is filed under #213 as
+vergil-project/vergil-containers#773, Blocked-by T7. T7b gives each matrix
+entry a `build-args` map (`{NAME: value}`), which the publish workflow, the PR
+build and `docker/build.sh` pass in full, `base` included; today a family
+entry passes its single `build-arg=version` pair and `base` has a `null`
+`build-arg`. Of #213's remaining tasks, this epic waits only for T7b: PR CI
+builds no images until T6′, which comes after T2 and T5 with parent-aware
+selection, and T7b's publish builds every child on its parent from the same
+run (spec §7). Task numbers here are plan-local; spec §7's numbered steps map
+to them as: step 1 Docs, step 2 #607, step 3 #213, step 4 Task 2, step 5
+Tasks 3–6 and D1, step 6 Tasks 7–13, step 7 (the consumer fixes)
 Tasks 3–5, 13 and the D2 notes with no task of its own, step 8 V1, step 9 D2,
 step 10 V2, step 11 Task 15 and D3; Task 14 serves §5.9. Step 12, removing the cutover install
 branch, is a follow-on epic (see Bookends). The runner labels (R1–R4, Task 1)
@@ -148,13 +153,13 @@ T15 (Lima) → D3 ────────────────────�
 T3 (scripts) ─────────────────────────┐
 T4 (tooling install) ─┐               │
 T5 (setup action) ────┴→ D1 (release) ┤
-#213 T7b, T3 → T6 (toolchain pins) ───┤
+#213 T7b, #607 T3, T3 → T6 (pins) ────┤
 T2 (spike) ───────────────────────────┤
 #607 done, #213 T7b ──────────────────┴→ T7 (base) → T8…T13 (families) → T14 → V1 → D2 → V2
 ```
 
-R1, R2, R4, Tasks 2–5 and Task 15 can start at once; Task 6 once #213's T7b
-and Task 3 have merged.
+R1, R2, R4, Tasks 2–5 and Task 15 can start at once; Task 6 once Task 3, the
+T7b of #213 and the T3 of #607 have merged.
 
 ---
 
@@ -176,16 +181,19 @@ its R4 under its own ad-hoc epic; Task 1 lists it as Blocked-by either way.
 **Files:** every `.github/workflows/*.yml` and doc page in the repo that names
 `ubuntu-latest`.
 
-- [ ] **Step 1: Recount** in the repo: `grep -rnE 'runs-on:.*ubuntu-latest' .github`
-  and the current doc examples that show a `runs-on` value, on a fresh
+- [ ] **Step 1: Recount** in the repo: `grep -rnE '^[^#]*\bubuntu-latest\b' .github/workflows`
+  and the current doc examples that show a runner label, on a fresh
   checkout of the default branch. The task's file list is that output.
-- [ ] **Step 2: Replace** every `runs-on` value `ubuntu-latest` with
+- [ ] **Step 2: Replace** every `ubuntu-latest` value (a `runs-on`, a matrix
+  value or a `with:` input) with
   `ubuntu-24.04`, and every current doc example the same way. Leave
   `ubuntu-24.04-arm` and any other explicit label alone. Completed plans,
   specs, release notes and comments that mention `ubuntu-latest` stay as
   written.
-- [ ] **Step 3: Check** `grep -rnE 'runs-on:.*ubuntu-latest' .github` prints
-  nothing (the same rule as Task 1's guard).
+- [ ] **Step 3: Check** with Task 1's rule: no non-comment line in
+  `.github/workflows/` has `ubuntu-latest` as a value, whether a `runs-on`, a
+  matrix value or a `with:` input (`grep -rnE '^[^#]*\bubuntu-latest\b' .github/workflows`
+  prints nothing, or Task 1's check once it is released).
 - [ ] **Step 4: Validate, commit, report-ready.**
   `vrg-commit --type ci --scope runners --message "pin GitHub-hosted runners to ubuntu-24.04"`.
   The workflow edits mean the human pushes.
@@ -232,6 +240,11 @@ Blocked-by R1, R2 and every R4.
 - [ ] **Step 5: Validate, commit, report-ready.**
   `vrg-commit --type feat --scope validate --message "refuse ubuntu-latest runner labels"`.
   The release that ships it is the human's, after every R task has merged.
+  **Release precondition (human-attested):** right before that release, rerun
+  the recount with this task's rule over every repo with a `vergil.toml`, on
+  each default branch; any repo with a hit gets an R4 first, merged before the
+  release, since a label added after 2026-11-09 would otherwise turn that
+  repo's CI red.
 
 ---
 
@@ -357,8 +370,20 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
   with `apt-cache policy` as the reference behaviour.
 - Produces `vergil_tooling_setup_command(tag: str) -> str` in
   `container_cache.py`, replacing the inline `uv_install`. For a `dev` ref it
-  returns today's `uv tool install --quiet 'vergil-tooling @ git+…@<tag>'`
-  unchanged. For a line or exact ref it returns a shell snippet that:
+  returns a snippet with the same three-way check as below, so a dev ref also
+  runs on the core Python (spec §5.2):
+  1. both probes present: prints `vergil-tooling: uv tool install from git on
+     the core Python (<tag>)` and runs `uv tool install --quiet --python
+     <the one /opt/vergil/python/*/bin/python3> 'vergil-tooling @ git+…@<tag>'`.
+     The explicit `--python` overrides the family's `UV_PYTHON`, which
+     `_compose_setup` exports before this snippet. More than one core Python
+     under `/opt/vergil/python/` is refused, since the snippet cannot tell
+     which is core;
+  2. neither present: today's `uv tool install --quiet 'vergil-tooling @
+     git+…@<tag>'`, with today's log line;
+  3. exactly one present: the same refusal as below.
+
+  For a line or exact ref it returns a shell snippet that:
   1. if `/etc/apt/sources.list.d/vergil.sources` exists **and** a
      `/opt/vergil/python/*/bin/python3` exists: prints
      `vergil-tooling: packaged install (<tag>)` to stderr, writes
@@ -368,9 +393,11 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
      (prefix `X.Y.` for a line, exactly `X.Y.Z-1` for an exact ref), exiting 1
      with the VM path's message on a mismatch (a pin that matches nothing
      leaves apt's normal candidate in place); then
-     `apt-get install -y vergil-tooling[=<deb version>]`, then
-     `vrg-whoami --version` (the cache-build check: `vrg-*` runs from the
-     package);
+     `apt-get install -y vergil-tooling[=<deb version>]`, then the cache-build
+     check that `vrg-*` runs from the package on vergil-python: `command -v
+     vrg-whoami` is under `/usr/bin`, the interpreter it runs on (its
+     shebang, or the venv's `pyvenv.cfg` `home`) is under
+     `/opt/vergil/python/`, and `vrg-whoami --version` succeeds;
   2. if neither exists: prints `vergil-tooling: uv tool install from git
      (image without the vergil apt repository)` and runs today's `uv tool
      install`;
@@ -381,7 +408,12 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
   failure on the chosen path fails the build.
 
 - [ ] **Step 1: Write the failing tests:**
-  `test_setup_dev_ref_is_uv_install` (exact string as today),
+  `test_setup_dev_ref_without_core_is_todays_install` (no probes → today's
+  command), `test_setup_dev_ref_binds_core_python` (both probes → `--python`
+  names the core interpreter, run against a temp root through the seam
+  below), `test_setup_dev_ref_half_environment_refuses`,
+  `test_setup_packaged_check_refuses_wrong_vrg` (a `vrg-whoami` stub outside
+  `/usr/bin` → exit 1),
   `test_setup_line_ref_branches_on_environment` (the snippet contains both
   probes, both log lines and `apt-get install -y vergil-tooling`),
   `test_setup_exact_ref_pins_version` (`vergil-tooling=<deb version>`),
@@ -470,8 +502,11 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
        bootstrap source and key: left next to the keyring's own source, they
        make apt reject the source list (conflicting `Signed-By`);
     7. `apt-get update`, which must pass.
-  - **Dev tag, host or container:** the pinned uv if absent, then today's
-    `uv tool install`.
+  - **Dev tag, host or container:** the pinned uv if absent, then the same
+    three-way check as Task 4's dev-ref path: on the core Python with
+    `--python` when both probes are present, today's `uv tool install` when
+    neither is, and the refusal when only one is. (A host runner has neither,
+    so it takes today's command.)
   - Every path prints which one it took.
 
 - [ ] **Step 1: Write the harness** in the framework-free style of the action's
@@ -491,6 +526,8 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
   `self_repo_host_installs_pinned_uv`, `install_source_git_line_tag` (a line
   tag with `install-source: git` takes the git path and never runs
   `apt-get`), `dev_tag_installs_pinned_uv`,
+  `dev_tag_container_binds_core_python` (both probes → `--python` names the
+  core interpreter), `dev_tag_container_half_refused` (exit 1),
   `dev_tag_uv_hash_mismatch` (exit 1).
 - [ ] **Step 2: Run** `bash actions/shared/setup/vergil/tests/install-tooling.test.sh`
   and expect failures.
@@ -550,7 +587,10 @@ Blocked-by #213's T7b for the `build-args` map it adds to each matrix entry,
 and Task 3, whose PEP 723 blocks make the refresh hook's plain `uv run` work
 (both tasks edit `upstream-refresh.sh`). `resolve_toolchains.py` is a new
 entry point, so it starts with its own PEP 723 block (`pyyaml`) and joins
-Task 3's `ENTRY_POINTS` table.
+Task 3's `ENTRY_POINTS` table. Also Blocked-by #607's T3
+(vergil-project/vergil-containers#727), which adds the `toolchains:` section
+to the same `_TOP_KEYS`, loader and `dump_manifest` that this task extends
+with `core:`.
 
 **Interfaces:**
 
@@ -665,6 +705,11 @@ release freeze.
 
 - `base` is `FROM ${PARENT_IMAGE}` (the build arg T7b sets) and its first
   layer is `rm -f /etc/vergil/package-toolchain`.
+- `base` persists the core series for its children, since a build `ARG` does
+  not carry into a child image: `ENV VERGIL_CORE_PYTHON=${CORE_PYTHON}` and
+  `ENV VERGIL_CORE_NODE_MAJOR=<core-major>`. `checks-invariants.sh` and
+  `checks-defaults.sh` read these, never a build arg, so they run unchanged in
+  every family image.
 - `vergil-apt.dockerfile`: runs Task 5's host bootstrap steps 1–7 in one
   layer, without `sudo` (reference: vergil-tooling's `repo_setup.bootstrap`),
   with the pin as
@@ -694,7 +739,7 @@ release freeze.
   anywhere in the template or its fragments.
 - `checks-invariants.sh` asserts what every image keeps:
   - marker absent; `/etc/os-release` `VERSION_ID="24.04"`;
-  - `/opt/vergil/python/${CORE_PYTHON}/bin/python${CORE_PYTHON}` is the core
+  - `/opt/vergil/python/${VERGIL_CORE_PYTHON}/bin/python${VERGIL_CORE_PYTHON}` is the core
     series and imports `tomllib`;
   - `/usr/local/bin/python3` exists and imports `tomllib` (docs deploy and
     consumers call it in every image, spec §5.5);
@@ -702,12 +747,12 @@ release freeze.
     `mkdocs build`, and `markdownlint --version`;
   - each core tool runs on its core runtime: every uv tool environment's
     interpreter (its `pyvenv.cfg` `home`, or the shebang of its
-    `/usr/local/bin` entry) is under `/opt/vergil/python/${CORE_PYTHON}/`, and
-    the `markdownlint` wrapper names `/opt/vergil/node/<core-major>/bin/node`.
+    `/usr/local/bin` entry) is under `/opt/vergil/python/${VERGIL_CORE_PYTHON}/`, and
+    the `markdownlint` wrapper names `/opt/vergil/node/${VERGIL_CORE_NODE_MAJOR}/bin/node`.
     This holds in `dev-python:3.15` too, where the family series equals the
     core.
 - `checks-defaults.sh` holds `base`'s defaults, which a family may change:
-  `check_python3_is_core` (`/usr/local/bin/python3` is `CORE_PYTHON`'s
+  `check_python3_is_core` (`/usr/local/bin/python3` is `VERGIL_CORE_PYTHON`'s
   series), `check_no_node` (`! command -v node`) and `check_no_pip`
   (`! command -v pip`).
 - `checks.sh` runs `checks-invariants.sh` and all three defaults.
@@ -717,12 +762,19 @@ release freeze.
   `test_base_parent_is_pkg_ubuntu`.
 - [ ] **Step 2: Run them and expect failures; implement the manifest and
   generator changes; run them and expect passes.**
-- [ ] **Step 3: Write the fragments, template and `checks.sh`;** drop uv's pip
-  install (uv comes from the parent) and `nfpm.dockerfile` from `base`.
+- [ ] **Step 3a: Write the check scripts first** (`checks-invariants.sh`,
+  `checks-defaults.sh`, `checks.sh`), run them in today's `prod-base`, and
+  expect the named assertions to fail: marker present, `VERSION_ID` not
+  `24.04`, no `/opt/vergil/python/`. Record the failing output in the PR.
+- [ ] **Step 3b: Write the fragments and template;** drop uv's pip install
+  (uv comes from the parent) and `nfpm.dockerfile` from `base`.
 - [ ] **Step 4: Build** `docker/build.sh base` on amd64 and arm64 and expect
   `checks.sh` to pass on both. Then build the `vergil-apt.dockerfile` stage
   against two local key fixtures, one holding the pinned key plus a second
-  primary key and one with no primary key, and expect both to fail.
+  primary key and one with no primary key, and expect both to fail. Also
+  expect a build failure from a third fixture, one primary key with the wrong
+  fingerprint, and from a `core-node.dockerfile` build with a wrong
+  `CORE_NODE_SHA256_<ARCH>`.
   `checks-invariants.sh` also asserts that no
   `/etc/apt/sources.list.d/vergil-bootstrap.sources` or
   `/etc/apt/keyrings/vergil-bootstrap.asc` exists and that `apt-get update`
@@ -768,7 +820,10 @@ Both C++ families include `common/cpp-analysis.dockerfile`, whose apt.llvm.org
 source is hardcoded to Debian (`deb http://apt.llvm.org/trixie/
 llvm-toolchain-trixie-${CLANG_TOOLS_VERSION} main`). Whichever of Tasks 11 and
 12 merges first moves it to `apt.llvm.org/noble/`,
-`llvm-toolchain-noble-${CLANG_TOOLS_VERSION}`; the other rebases onto it.
+`llvm-toolchain-noble-${CLANG_TOOLS_VERSION}`; the other rebases onto it. The
+same PR applies the spike's cmake and cppcheck decision (noble's versions, or
+cmake from Kitware's apt channel, spec §5.3), and both families' `checks.sh`
+assert the chosen `cmake --version` and `cppcheck --version`.
 
 Each adapter probe that reads an upstream Task 6 pins (python-build-standalone,
 go.dev, the Rust channel manifest, nodejs.org) imports that upstream's fetcher
@@ -781,15 +836,26 @@ Each task's steps:
   `test_sources.py`, the trixie fixtures, `test_generate.py`'s base-image doc
   rows) to the new probe, and expect failures.
 - [ ] **Step 2: Implement the adapter change** and expect passes.
-- [ ] **Step 3: Rewrite the template and its `checks.sh`;** build every
-  manifest series of the family on amd64 and arm64 and expect the checks to
-  pass.
+- [ ] **Step 3a: Write the family's `checks.sh` first,** run it in today's
+  `prod-<family>` image, and expect it to fail on `VERSION_ID`, the missing
+  `/opt/vergil/` runtimes and the family-specific check where today's image
+  differs. Record the failing output in the PR.
+- [ ] **Step 3b: Rewrite the template;** build every manifest series of the
+  family on amd64 and arm64 and expect the checks to pass. The first family
+  task to merge also proves that `checks-invariants.sh` reads its core series
+  from `base`'s `ENV` in a child image. Then build one series with a wrong
+  `TOOLCHAIN_SHA256_<ARCH>` (rust: a wrong `RUSTUP_INIT` hash; cpp-clang and
+  cpp-gcc, whose toolchains come from apt, skip this) and expect the build to
+  fail.
 - [ ] **Step 4: Validate, commit, report-ready.**
   `vrg-commit --type feat --scope <family> --message "build <family> images on base, with a pinned toolchain"`.
 
 Task 8 also confirms, before dropping pytest-xdist, that every Python consumer
 declares it in its dev dependencies (`grep -l pytest-xdist */pyproject.toml`
-over the consuming repos), and lists any that does not in the PR.
+over the consuming repos). On 2026-11-09 `mnemosys-project/melete` and
+`mq-rest-admin-project/mq-rest-admin-python` do not; `vrg-validate` runs their
+tests serially when xdist is absent, which is accepted. The PR lists them and
+any other repo found.
 
 ---
 
@@ -821,10 +887,21 @@ Blocked-by Tasks 8–13.
 
 **Procedure:**
 
-1. In vergil-tooling and one consumer per family, including one that declares
-   `[container].system-packages`, push a throwaway branch setting
-   `container-prefix: dev` on the reusable workflow calls, including one docs
-   deploy dry run. Their CI is green.
+1. Push a throwaway branch setting `container-prefix: dev` on the reusable
+   workflow calls, including one docs deploy dry run, in each of these. Their
+   CI is green.
+   - **Real consumers** (as of 2026-11-09; recheck, since a family may gain
+     one): vergil-tooling and `mq-rest-admin-python` (python),
+     `mq-rest-admin-go` (go), `mq-rest-admin-rust` (rust) and
+     `logical-minds-foundry/mq-protocol-gateway` (cpp-clang).
+   - **Fixtures, for what no consumer covers:** no repo consumes ts-node or
+     cpp-gcc, and none declares a non-empty `[container].system-packages`. So
+     a scratch repo or branch per missing family builds and tests a minimal
+     project on it, and a scratch branch of vergil-tooling sets
+     `system-packages = ["<a package from noble's universe>"]` to exercise
+     the apt install of the new images.
+   - In one container job and in one `vrg-container-run` cache build on the
+     `dev-` images, the log shows `vergil-tooling: packaged install`.
 2. `DOCKER_DEV_IMAGE=ghcr.io/vergil-project/dev-<family>:<v> vrg-container-run -- vrg-validate`
    in each of those repos passes.
 3. In `dev-base`, `scripts/bin/validate-custom` and
@@ -835,7 +912,7 @@ Blocked-by Tasks 8–13.
    name a `prod-` image directly), and run each one's commands by hand in a
    `dev-base` container (`docker run --rm -v "$PWD":/w -w /w ghcr.io/vergil-project/dev-base:latest …`).
    Record the list and each result.
-6. Delete the throwaway branches.
+6. Delete the throwaway branches and fixtures.
 
 **Acceptance:** every step passes. Record `Outcome: SUCCESS`.
 

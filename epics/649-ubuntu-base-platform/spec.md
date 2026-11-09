@@ -225,7 +225,10 @@ toolset, with these changes:
   `container:`) install the same package on the runner, through the same
   fingerprint-checked apt source, so vergil-actions no longer pip-installs uv
   to install vergil-tooling there; the plan settles where a host job's dev-ref
-  install gets uv. How the install crosses the cutover is §7.
+  install gets uv. The one exception is the job that rebuilds and re-signs the
+  vergil apt index (vergil-actions' `publish-index.yml`): it always installs
+  vergil-tooling from git, never from the index it is about to repair. How the
+  install crosses the cutover is §7.
 - **Scripts declare their dependencies.** Nothing of ours relies on a package
   being present in an image's interpreter. A script that needs a third-party
   library carries inline script metadata (PEP 723) and runs with plain
@@ -639,7 +642,14 @@ Each step is safe on its own, and each epic's steps keep their own task
 boundaries. #213's T7 (#515) has no dependency on this epic: §6 does not
 amend it, so it starts at once. It is still on the critical path, because
 T7b reworks T7's publish and T2, T5 and T6′ follow T7b. So T7 must merge
-before step 3 starts.
+before step 3 starts. (T7 merged on 2026-11-09.)
+
+Step 6 needs only T7b of step 3, not T2, T5 and T6′ (human decision,
+2026-11-09). A child can be built on a stale parent only where something
+builds images, and until T6′ nothing in PR CI does: T6′ adds PR image builds,
+and it follows T2 and T5, so it arrives with parent-aware selection. Every
+publish, meanwhile, builds children on the parent built in the same run
+(T7b's tiers). The anti-goal of §4 cannot occur in that window.
 
 **Runner labels first, outside the numbered order** (human decision,
 2026-11-09). `ubuntu-latest` already runs 26.04 (§5.7), so the label PRs
@@ -720,7 +730,13 @@ amd64 and arm64:
 - the Go, Rust and LLVM sources and nodejs.org tarballs for every
   series in the manifest;
 - noble's cmake and cppcheck versions against what the C++ images ship today;
-- one `vrg-validate` run of vergil-tooling itself in a trial `dev-python`.
+- one `vrg-validate` run of vergil-tooling itself in a trial `dev-python`;
+- whether vergil-tooling's package venv needs pip inside vergil-python
+  (§5.8, vergil-project/.github#965);
+- a Trivy scan of the trial core Node, `ts-node` and python-build-standalone
+  layers, recording each fixable CRITICAL/HIGH finding in a bundled `npm` or
+  `pip`, so each affected task states its remedy in advance: a newer runtime
+  pin or a `.trivyignore` entry (§5.8), never an in-place upgrade.
 
 The spike's report goes into the plan. A failed item becomes a decision for the
 human, not a silent substitution.
@@ -735,8 +751,11 @@ deploy dry run, so the CI-only paths (§5.5: docs deploy, `system-packages`,
 Where a path does not pass the prefix through, check it by hand in a
 `dev-base` container. Also run `vrg-container-run -- vrg-validate` in
 those repos with `DOCKER_DEV_IMAGE` set to the new `dev-` image. Representative means at least
-vergil-tooling for python and `base`, plus each switched family's consumers,
-including one repo that declares `[container].system-packages`. In the new
+vergil-tooling for python and `base`, plus each switched family's consumers.
+Where no repo covers a case (today no repo consumes ts-node or cpp-gcc, and
+none declares a non-empty `[container].system-packages`), a throwaway fixture
+repo or branch stands in, so every family and the `system-packages` path run
+through real CI once. In the new
 `dev-base`, also run vergil-containers' `scripts/bin/validate-custom` and
 `lifecycle/check.py`, which run only in its own CI. This uses the override
 that exists today, with no new tooling.
