@@ -543,7 +543,7 @@ appended to that epic's `spec.md` and `plan.md`, in a docs PR of that epic's
 own (vergil-project/.github#974 for #213, vergil-project/.github#975 for #607;
 human decision, 2026-11-09, so both epics can resume before this epic's
 planning ends), plus an edit to the affected task's issue body pointing at it.
-#649's tasks then use the result. They do not rework it.
+This epic's tasks then use the result. They do not rework it.
 
 ### 6.1 #213 — parent-aware build machinery
 
