@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#649
 - **Planning issue:** vergil-project/.github#605 (review history is in its
   comments)
-- **Status:** draft, in design review
+- **Status:** design review complete (2026-11-09); ready for implementation
 
 > **For epic workers:** These tasks are filed as **GitHub issues under epic
 > vergil-project/.github#649** and implemented one PR each via

@@ -3,7 +3,8 @@
 - **Epic:** vergil-project/.github#649
 - **Planning issue:** vergil-project/.github#605 (review history is in its
   comments)
-- **Status:** approved by the human (2026-11-09); the plan is next
+- **Status:** approved by the human (2026-11-09); design review complete
+  (2026-11-09)
 - **Repos:** vergil-containers (the image tree, manifest, lifecycle adapters),
   vergil-vm (Lima template), vergil-actions (image-internals consumers),
   vergil-tooling (image-internals consumers, site docs)
