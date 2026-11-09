@@ -95,7 +95,9 @@ vergil-vm.
 
 | Task | Repo | What | Blocked-by |
 |---|---|---|---|
-| Docs | .github | This spec and plan, the #213 and #607 amendment notes (§6) | — (#650, filed) |
+| Docs | .github | This spec and plan | — (#650, filed) |
+| Docs-213 | .github | #213's amendment notes (spec §6.1) | — (#974, filed) |
+| Docs-607 | .github | #607's amendment notes (spec §6.2) | — (#975, filed) |
 | R1 | vergil-actions | `ubuntu-latest` → `ubuntu-24.04` | — |
 | R2 | vergil-containers | `ubuntu-latest` → `ubuntu-24.04` | — |
 | R3 | vergil-tooling | `ubuntu-latest` → `ubuntu-24.04` | — |
@@ -122,8 +124,8 @@ vergil-vm.
 | D3 | vergil-vm | Release and `vrg-vm rebuild` (deployment) | 15 |
 
 Epic #213's T7 (vergil-project/vergil-containers#515) is outside this table and
-must merge before #213 resumes (spec §7 step 3); T7b is filed under #213 by the
-Docs task. T7b also gives each matrix entry a `build-args` map
+must merge before #213 resumes (spec §7 step 3); T7b is filed under #213 as
+vergil-project/vergil-containers#773, Blocked-by T7. T7b also gives each matrix entry a `build-args` map
 (`{NAME: value}`), which the publish workflow, the PR build and
 `docker/build.sh` pass in full, `base` included; today each passes the single
 `build-arg=version` pair. Task numbers here are plan-local; spec §7's numbered
@@ -771,9 +773,10 @@ passes on each. Record `Outcome: SUCCESS`.
 
 ### Bookends (already filed, bar the scaffolding brainstorm)
 
-- Docs: vergil-project/.github#650 (this spec and plan). Its PR also carries
-  the #213 and #607 amendment notes (spec §6), edits their affected task
-  bodies, and files #213's T7b.
+- Docs: vergil-project/.github#650 (this spec and plan).
+- Amendment docs: vergil-project/.github#974 (#213) and
+  vergil-project/.github#975 (#607), each its own PR, with the affected task
+  bodies pointing at them; #213's T7b is vergil-project/vergil-containers#773.
 - Docs review: vergil-project/vergil-containers#739.
 - Retrospective: vergil-project/.github#652.
 - Follow-on brainstorms: vergil-project/.github#651 (Ubuntu 26.04) and
@@ -794,9 +797,9 @@ passes on each. Record `Outcome: SUCCESS`.
 | Spec section | Task(s) |
 |---|---|
 | §2 goal 1, §5.1 the tree | 7, 8–13 |
-| §2 goal 2, §6.2 #607 amendments | Docs |
+| §2 goal 2, §6.2 #607 amendments | Docs-607 |
 | §2 goal 3, §5.6, §5.7 | R1–R4, 1, 15, D3 |
-| §2 goal 4, §6.1 #213 amendments | Docs (T7b), 7 |
+| §2 goal 4, §6.1 #213 amendments | Docs-213, T7b (vergil-containers#773), 7 |
 | §2 goal 5, §5.4 adapters | 8–13, 7 (core entries) |
 | §2 goal 6, §5.9 table | 14 |
 | §4 revert and fail-forward | D2 notes; the install branch stays until the follow-on epic |

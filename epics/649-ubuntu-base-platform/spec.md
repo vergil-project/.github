@@ -539,9 +539,11 @@ it, not copy it. The documentation-review bookend
 ## 6. Amendments to #213 and #607
 
 These are applied before either epic resumes. Each is a correction note
-appended to that epic's `spec.md` and `plan.md` (in this epic's docs PR),
-plus an edit to the affected task's issue body pointing at it. #649's tasks
-then use the result. They do not rework it.
+appended to that epic's `spec.md` and `plan.md`, in a docs PR of that epic's
+own (vergil-project/.github#974 for #213, vergil-project/.github#975 for #607;
+human decision, 2026-11-09, so both epics can resume before this epic's
+planning ends), plus an edit to the affected task's issue body pointing at it.
+#649's tasks then use the result. They do not rework it.
 
 ### 6.1 #213 — parent-aware build machinery
 
@@ -634,8 +636,8 @@ start now, independent of every step below. They touch
 recount found the label, a vergil-tooling release ships the guard as an
 error.
 
-1. **Amend** #213 and #607 (§6): notes merged with this epic's docs PR; issue
-   bodies edited.
+1. **Amend** #213 and #607 (§6): notes merged in each epic's own docs PR
+   (#974, #975); issue bodies edited.
 2. **#607 completes** as amended: the `pkg-*` images are published and public,
    package jobs move onto them, and the release is cut. Its rollout (#607 §5.4)
    is unchanged.
