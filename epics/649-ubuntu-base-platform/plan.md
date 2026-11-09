@@ -119,7 +119,7 @@ vergil-vm.
 | 14 | vergil-containers | OS-usage table and triage docs | 8–13 |
 | V1 | vergil-containers | Pre-release consumer check (validation) | 8–14 |
 | D2 | vergil-containers | Cutover release (deployment) | V1 |
-| V2 | vergil-containers | Cold-rebuild validation | D2 |
+| V2 | vergil-containers | Cold-rebuild validation | D2, D3 |
 | 15 | vergil-vm | Lima pinned to 24.04 | — |
 | D3 | vergil-vm | Release and `vrg-vm rebuild` (deployment) | 15 |
 
@@ -139,7 +139,7 @@ run outside that order.
 
 ```text
 R1, R2, R3, R4… ──────────────────────────────→ T1 (guard)
-T15 (Lima) → D3
+T15 (Lima) → D3 ──────────────────────→ V2 (also after D2, below)
 T3 (scripts) ─────────────────────────┐
 T4 (tooling install) ─┐               │
 T5 (setup action) ────┴→ D1 (release) ┤
@@ -415,15 +415,33 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
     with the same log lines, the same refusal and the same `apt-cache policy`
     candidate check.
   - **Host job** (`[ ! -f /.dockerenv ]`, the
-    plan's test for "not in a container"), line or exact tag: download the key
-    from `https://vergil-project.github.io/packages` and read it with
-    `gpg --show-keys --with-colons`. Refuse unless it holds exactly one primary
-    key (one `pub` record), then compare that key's fingerprint (the `fpr` line
-    after `pub`) with `B3A1D804DC03AB036566A4E367861822166ECABE`, and fail on a
-    mismatch. The reference behaviour is vergil-tooling's
-    `repo_setup.parse_primary_fingerprint`. Then install
-    `vergil-archive-keyring` and the pin, check the candidate as Task 4 does,
-    and install `vergil-tooling` with `sudo apt-get`.
+    plan's test for "not in a container"), line or exact tag: set up the vergil
+    apt repository as vergil-tooling's `repo_setup.bootstrap` does (the
+    reference behaviour; this shell copy cannot call it), then install the pin,
+    check the candidate as Task 4 does, and install `vergil-tooling` with
+    `sudo apt-get`. The bootstrap steps, in order:
+    1. remove any `vergil-bootstrap.sources` and bootstrap key a broken earlier
+       run left, before any apt call;
+    2. if `vergil-archive-keyring` is installed with its source
+       (`/etc/apt/sources.list.d/vergil.sources`) and key in place, skip to
+       step 7, after checking the installed key as in step 4;
+    3. read `VERSION_CODENAME` from `/etc/os-release`, and refuse one that is
+       not a registered deb target (vergil-tooling `lib/package/targets.py`:
+       `noble` and `resolute` today);
+    4. download the key from `https://vergil-project.github.io/packages/keys/vergil.asc`
+       and read it with `gpg --show-keys --with-colons`. Refuse unless it holds
+       exactly one primary key (one `pub` record), then compare that key's
+       fingerprint (the `fpr` line after `pub`) with
+       `B3A1D804DC03AB036566A4E367861822166ECABE`, and fail on a mismatch (the
+       rule of `repo_setup.parse_primary_fingerprint`);
+    5. write the key to `/etc/apt/keyrings/vergil-bootstrap.asc` and
+       `/etc/apt/sources.list.d/vergil-bootstrap.sources` (`Types: deb`,
+       `URIs: https://vergil-project.github.io/packages/deb`,
+       `Suites: <codename>`, `Components: main`, `Signed-By:` that key);
+    6. `apt-get update`, install `vergil-archive-keyring`, then remove the
+       bootstrap source and key: left next to the keyring's own source, they
+       make apt reject the source list (conflicting `Signed-By`);
+    7. `apt-get update`, which must pass.
   - **Dev tag, host or container:** the pinned uv if absent, then today's
     `uv tool install`.
   - Every path prints which one it took.
@@ -436,6 +454,11 @@ The arm64 run is on a Lima VM; the amd64 run on one of the amd64 cloud VMs.
   `host_fingerprint_mismatch` (exit 1, nothing installed),
   `host_two_primary_keys_first_matches` (exit 1, nothing installed),
   `host_no_primary_key` (exit 1), `host_candidate_mismatch` (exit 1),
+  `host_packaged_leaves_no_bootstrap_source` (after `host_packaged`, no
+  `vergil-bootstrap.sources` or bootstrap key remains),
+  `host_stale_bootstrap_source_removed` (one left by an earlier run is gone
+  before the first `apt-get`), `host_keyring_already_installed` (no bootstrap;
+  the installed key is checked), `host_unregistered_codename` (exit 1),
   `container_candidate_mismatch` (exit 1),
   `self_repo_host_installs_pinned_uv`, `install_source_git_line_tag` (a line
   tag with `install-source: git` takes the git path and never runs
@@ -464,8 +487,11 @@ vergil-actions released with Task 5 (the `v2.1` line moved).
 1. In a consumer repo's next CI run, the container job's setup log shows
    `vergil-tooling: uv tool install from git (image without the vergil apt repository)`,
    and a host job's shows the packaged path.
-2. `vrg-container-run -- vrg-validate` in a consumer repo on the host passes,
-   and its cache-build log shows the uv path.
+2. In a consumer repo on the host, remove its cached image first (the cache
+   key covers neither the setup command nor the vergil-tooling version, so an
+   older cached image would skip the new code), then
+   `vrg-container-run -- vrg-validate` passes, and its cache-build log shows
+   the uv path.
 
 **Acceptance:** both pass. Record `Outcome: SUCCESS`.
 
@@ -480,11 +506,17 @@ vergil-actions released with Task 5 (the `v2.1` line moved).
 - Create: `docker/pins/test_toolchains.py`
 - Modify: `docker/pins/check_pins.py`, `docker/pins/generate_catalog.py`
   (`CATALOG.md` gains a toolchains table), `docker/pins/upstream-refresh.sh`
-  (runs `uv run docker/pins/resolve_toolchains.py --write`)
+  (runs `uv run docker/pins/resolve_toolchains.py --write`, then
+  `uv run docker/versions/generate.py`, then `generate_catalog.py`: the
+  matrix embeds the pins, and PR CI's `generate.py --check` fails on a stale
+  `matrix.json`)
 - Modify: `docker/versions/generate.py` (emits the pins as build args)
 - Modify: `docker/versions/manifest.yml` (a new `core:` section
-  `{python: "3.15", node: "22"}`), `docker/versions/manifest.py` (its loader)
-- Test: `docker/versions/test_manifest.py`
+  `{python: "3.15", node: "22"}`), `docker/versions/manifest.py` (`_TOP_KEYS`,
+  the loader, and `dump_manifest`, which emits `core:`),
+  `docker/versions/lifecycle/apply.py` (`apply_change` keeps `core`; today it
+  rebuilds the manifest from `families` alone)
+- Test: `docker/versions/test_manifest.py`, `docker/versions/lifecycle/test_apply.py`
 
 Blocked-by #213's T7b for the `build-args` map it adds to each matrix entry.
 
@@ -538,13 +570,21 @@ Blocked-by #213's T7b for the `build-args` map it adds to each matrix entry.
   load is identical), `test_generate_emits_build_args` (each family entry's
   `build-args` map holds its toolchain keys and values); and in
   `test_manifest.py`, `test_manifest_core_section` (`core.python` and
-  `core.node` load and must be manifest-known series).
+  `core.node` load and must be manifest-known series) and
+  `test_dump_round_trips_core` (`load(dump(m)) == m` with `core` set); and in
+  `test_apply.py`, `test_apply_change_keeps_core`.
 - [ ] **Step 2: Run them and expect failures.**
 - [ ] **Step 3: Implement** the schema loader, the resolvers (each with an
   injectable `fetch`, as `resolve_latest.py` does), the checks and the
   build-arg emission; seed `toolchains.yml` by running the resolver.
 - [ ] **Step 4: Run them and expect passes;** `uv run docker/pins/resolve_toolchains.py`
-  (no `--write`) prints no change right after seeding.
+  (no `--write`) prints no change right after seeding. Then, on a scratch
+  branch, hand-edit one pin back a patch release and run
+  `docker/pins/upstream-refresh.sh`: afterwards `generate.py --check` and
+  `generate_catalog.py --check` both pass.
+- Known gap, not fixed here: the lifecycle add and drop PRs write no
+  toolchain pin, so one opened during this epic fails `check_pins.py`
+  (vergil-project/.github#978, human decision 2026-11-09).
 - [ ] **Step 5: Validate, commit, report-ready.**
   `vrg-commit --type feat --scope pins --message "pin the language toolchains by version and hash, refreshed daily"`.
 
@@ -577,12 +617,14 @@ release freeze.
 
 - `base` is `FROM ${PARENT_IMAGE}` (the build arg T7b sets) and its first
   layer is `rm -f /etc/vergil/package-toolchain`.
-- `vergil-apt.dockerfile`: downloads the key, refuses unless it holds exactly
-  one primary key, checks that key's fingerprint against
+- `vergil-apt.dockerfile`: runs Task 5's host bootstrap steps 1–7 in one
+  layer, without `sudo` (reference: vergil-tooling's `repo_setup.bootstrap`),
+  with the pin as
   `ARG VERGIL_APT_FINGERPRINT=B3A1D804DC03AB036566A4E367861822166ECABE` and
-  fails on a mismatch (the same rule as Task 5 and vergil-tooling's
-  `repo_setup.parse_primary_fingerprint`), then installs
-  `vergil-archive-keyring`, leaving `/etc/apt/sources.list.d/vergil.sources`.
+  the codename from the image's `/etc/os-release` (`noble`). If the parent
+  already ships `vergil-archive-keyring`, step 2's installed-keyring case
+  applies. It leaves `/etc/apt/sources.list.d/vergil.sources` and no
+  bootstrap source or key.
 - `core-python.dockerfile`: `apt-get install vergil-python${CORE_PYTHON}`;
   `ln -s /opt/vergil/python/${CORE_PYTHON}/bin/python${CORE_PYTHON} /usr/local/bin/python3`.
 - `core-node.dockerfile`: unpacks the pinned nodejs.org tarball for
@@ -624,6 +666,10 @@ release freeze.
   `checks.sh` to pass on both. Then build the `vergil-apt.dockerfile` stage
   against two local key fixtures, one holding the pinned key plus a second
   primary key and one with no primary key, and expect both to fail.
+  `checks-invariants.sh` also asserts that no
+  `/etc/apt/sources.list.d/vergil-bootstrap.sources` or
+  `/etc/apt/keyrings/vergil-bootstrap.asc` exists and that `apt-get update`
+  passes.
 - [ ] **Step 5: Validate, commit, report-ready.**
   `vrg-commit --type feat --scope base --message "build base on pkg-ubuntu 24.04 with vergil-python and a side-by-side Node"`.
 
@@ -649,8 +695,14 @@ that none was needed.
 | 8 | python | python-build-standalone install-only tarball at `/opt/python/<v>`; `python3`, `python`, `pip` in `/usr/local/bin` → it | `python3 --version` is the series; `UV_PYTHON_PREFERENCE=only-system uv python find <v>` is `/opt/python/<v>/bin/python3`; no pytest-xdist in the image | python-build-standalone release with both arches; `runtime_published` unchanged |
 | 9 | go | `go<version>.linux-<arch>.tar.gz` at `/usr/local/go` | `go version` | go.dev listing has `go<v>.x` |
 | 10 | rust | pinned `rustup-init` (hash checked), then `rustup toolchain install <version> --profile minimal` plus today's components | `rustc --version` is the pinned release | Rust channel manifest for the series |
-| 11 | cpp-clang | apt.llvm.org `llvm-toolchain-noble-<v>` | `clang-<v> --version`; the libstdc++ the spike chose | apt.llvm.org `noble` listing |
-| 12 | cpp-gcc | the spike's GCC 14 source | `gcc-14 --version` is a released 14.x | the spike's source has `gcc-<n>` for noble |
+| 11 | cpp-clang | apt.llvm.org `llvm-toolchain-noble-<v>` | `clang-<v> --version`; the libstdc++ the spike chose; `clang-format-<t>` and `clang-tidy-<t>` at `CLANG_TOOLS_VERSION` | apt.llvm.org `noble` listing |
+| 12 | cpp-gcc | the spike's GCC 14 source | `gcc-14 --version` is a released 14.x; `clang-format-<t>` and `clang-tidy-<t>` at `CLANG_TOOLS_VERSION` | the spike's source has `gcc-<n>` for noble |
+
+Both C++ families include `common/cpp-analysis.dockerfile`, whose apt.llvm.org
+source is hardcoded to Debian (`deb http://apt.llvm.org/trixie/
+llvm-toolchain-trixie-${CLANG_TOOLS_VERSION} main`). Whichever of Tasks 11 and
+12 merges first moves it to `apt.llvm.org/noble/`,
+`llvm-toolchain-noble-${CLANG_TOOLS_VERSION}`; the other rebases onto it.
 | 13 | ts-node | nodejs.org tarball at `/opt/node/<major>`; `node`, `npm`, `npx` in `/usr/local/bin`; npm prefix `/usr` | `npm root -g` = `/usr/lib/node_modules`; `markdownlint --version` still runs on the core Node | nodejs.org index has the major with both tarballs |
 
 Each task's steps:
@@ -737,7 +789,8 @@ break of `npm install -g` build-commands outside `ts-node`
 
 ### Task V2 (validation, vergil-containers): cold rebuild
 
-`--kind validation`, Blocked-by D2. The procedure is spec §8's validation list:
+`--kind validation`, Blocked-by D2 and D3 (its VM check needs the rebuilt
+VMs). The procedure is spec §8's validation list:
 a no-cache rebuild of the full tree in tier order on both architectures; every
 image on Ubuntu 24.04 without the marker; every consuming repo's PR CI green on
 the new `prod-` images; a fresh `vrg-vm create` passing `tests/test_base.sh`
