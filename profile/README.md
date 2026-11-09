@@ -41,10 +41,7 @@ up at a much larger scale, even though only one person uses them.
 Having no other users to break is also what makes it a lab. It changes
 without ceremony: experiments, radical rewrites, whole subsystems torn
 out when a better idea arrives. If something here is useful to you,
-take it. Fork it, adapt it, build your own. If you're here to look
-closely, the parts I think are most worth your time are the sandboxing
-in VERGIL-VM, the container-based language layer, and the way one
-toolchain supports five languages.
+take it. Fork it, adapt it, build your own.
 
 ---
 
