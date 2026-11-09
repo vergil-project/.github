@@ -582,9 +582,6 @@ Blocked-by #213's T7b for the `build-args` map it adds to each matrix entry.
   branch, hand-edit one pin back a patch release and run
   `docker/pins/upstream-refresh.sh`: afterwards `generate.py --check` and
   `generate_catalog.py --check` both pass.
-- Known gap, not fixed here: the lifecycle add and drop PRs write no
-  toolchain pin, so one opened during this epic fails `check_pins.py`
-  (vergil-project/.github#978, human decision 2026-11-09).
 - [ ] **Step 5: Validate, commit, report-ready.**
   `vrg-commit --type feat --scope pins --message "pin the language toolchains by version and hash, refreshed daily"`.
 
