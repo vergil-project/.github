@@ -21,13 +21,12 @@ them are needed.
 |---|---|---|
 | `dev-python`, `dev-go`, `dev-rust`, `base` | Debian 13 (trixie) | Inherited from the upstream `python:`, `golang:` and `rust:` images |
 | `dev-cpp-clang`, `dev-cpp-gcc`, `dev-ts-node` | Debian 13 (trixie) | `FROM debian:trixie-slim`, chosen to match the images above (`docker/cpp-clang/README.md`) |
-| `dev-java` | Ubuntu 26.04 | Inherited from `eclipse-temurin:<v>-jdk` |
 | Package jobs (#607) | Ubuntu 24.04 and 26.04, UBI 9 and 10 | Required: the package targets |
 | Cloud agent VMs (Azure, GCP) | Ubuntu 24.04 | Pinned in the OpenTofu modules |
 | Local agent VMs (Lima) | Ubuntu 26.04 | `template:_images/ubuntu-lts` floats to the newest LTS, though the template header says 24.04 |
 
 Nobody chose Debian. Every Debian image either inherited it or copied it from a
-neighbour, and the one Ubuntu image inherited Ubuntu the same way. We package
+neighbour. We package
 for Ubuntu and RHEL, never Debian. So we develop on one OS, ship to another,
 and track CVEs, image updates and quirks for a third.
 
@@ -125,7 +124,6 @@ ubuntu:24.04
          ├─ python:<v>        toolchain per §5.3
          ├─ go:<v>
          ├─ rust:<v>
-         ├─ java:<v>
          ├─ cpp-clang:<v>
          ├─ cpp-gcc:<v>
          └─ ts-node:<v>
@@ -289,7 +287,6 @@ series at build time (§4).
 | python | python-build-standalone release for the series, downloaded checksum-verified and unpacked at `/opt/python/<series>` at image build, newest patch of the series (human decision, §5.3.1) | `python:<v>-slim` |
 | go | Official `go<v>.linux-<arch>.tar.gz` from go.dev, checksum-verified, newest patch of the series | `golang:<v>` |
 | rust | `rustup` with the series' newest stable, minimal profile plus the components the image has today | `rust:<v>-slim` |
-| java | Eclipse Temurin JDK from the Adoptium apt repository (`packages.adoptium.net`, which serves noble) | `eclipse-temurin:<v>-jdk` (Ubuntu 26.04) |
 | cpp-clang | apt.llvm.org `llvm-toolchain-noble-<v>` | `llvm-toolchain-trixie-<v>` |
 | cpp-gcc | **Spike (§8):** `gcc-14` from noble, or the Ubuntu Toolchain PPA, whichever gives a released 14.x | `gcc-14` from trixie main |
 | ts-node | nodejs.org prebuilt tarball, checksum-verified, at `/opt/node/<major>`, newest release of the major (human decision, §5.2.1). `node`, `npm` and `npx` link into `/usr/local/bin` | NodeSource `nodistro` channel |
@@ -350,7 +347,6 @@ source:
 | python | Docker Hub `python:<v>-slim` + vergil apt index | The newest python-build-standalone release has an install-only build of the series for both architectures; the adapter resolves that release and its checksums itself. The vergil apt index check stays: it records `runtime_published`, which serves packaging, not the image |
 | go | Docker Hub `golang:<v>` | go.dev download listing has a `go<v>.x` release |
 | rust | Docker Hub `rust:<v>-slim` | The Rust release channel manifest for the series |
-| java | Docker Hub `eclipse-temurin:<v>-jdk` | Adoptium apt index for noble has `temurin-<v>-jdk` |
 | cpp-clang | apt.llvm.org `trixie` listing | apt.llvm.org `noble` listing |
 | cpp-gcc | `debian_source_in_suite("gcc-<n>", "trixie")` | The §8 source has a released `gcc-<n>` for noble |
 | ts-node | `deb.nodesource.com/setup_<major>.x` (stale: the image uses `nodistro`) | nodejs.org's release index has a release of the major with `linux-x64` and `linux-arm64` tarballs |
@@ -440,10 +436,7 @@ look-ahead in #651.
 ### 5.8 CVE triage
 
 None of the entries in `.trivyignore` is a Debian package. They are bundled
-tool binaries, and they carry over unchanged. Temurin's `pebble` entries come
-from the `eclipse-temurin` image. They are
-removed if the new `java` image no longer carries pebble, and kept otherwise. The
-`linux-libc-dev` rego rule and `ignore-unfixed` stay. The publish gate's Trivy
+tool binaries, and they carry over unchanged. The `linux-libc-dev` rego rule and `ignore-unfixed` stay. The publish gate's Trivy
 scan of the new images is the check: any fixable CRITICAL/HIGH finding on the
 Ubuntu images is triaged in the PR that introduces it, as today.
 `docs/site/docs/operations/trivy-triage.md`'s "Debian fix" wording is updated.
@@ -596,7 +589,7 @@ amd64 and arm64:
 - Node side by side: markdownlint runs on the core Node in a trial with no
   default `node` and in a `ts-node:24` trial, and `npm root -g` is
   `/usr/lib/node_modules` there;
-- the Go, Rust, Temurin and LLVM sources and nodejs.org tarballs for every
+- the Go, Rust and LLVM sources and nodejs.org tarballs for every
   series in the manifest;
 - noble's cmake and cppcheck versions against what the C++ images ship today;
 - one `vrg-validate` run of vergil-tooling itself in a trial `dev-python`.
