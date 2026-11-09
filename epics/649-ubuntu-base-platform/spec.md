@@ -411,10 +411,13 @@ parent-aware:
   `pkg-ubuntu` `24.04`). No `parent:` means an upstream image, as today. The
   matrix generator emits each entry's parent and its depth in the tree.
   `generate.py` refuses a cycle or a parent that does not exist. This lands in
-  **T7 (#515)**, because #213 §0.3.1 orders T7 first and its tiered publish is
-  the first consumer (human decision, 2026-10-28). Today no entry
-  declares a parent, so it is a no-op until #649 sets one.
-- **T2 (#510) dependency map.** T2 consumes the `parent:` field T7 added.
+  a new #213 task, **T7b**, together with the tiered publish that is its first
+  consumer. T7 (#515) stays as #213's plan defines it (native per-arch builds,
+  the stitch, `base` folded into the matrix) and goes first, as #213 §0.3.1
+  orders; T7b follows it and comes before T2 (human decision, 2026-11-09:
+  T7 does not wait for this epic's planning). Today no entry declares a
+  parent, so it is a no-op until #649 sets one.
+- **T2 (#510) dependency map.** T2 consumes the `parent:` field T7b added.
   `dependency_map()` adds parent edges: an entry's
   inputs include its parent's inputs, transitively. A change under
   `docker/pkg-ubuntu/**` reaches `base` and every language image.
@@ -425,15 +428,15 @@ parent-aware:
   parent** (buildx `--build-context` or a local load, the builder's choice),
   because T6′ never pushes. When a PR selects only children, they build on the
   published `dev-` parent.
-- **T7 (#515) native arm64 and publish.** T7 introduces `parent:` (above).
-  Publishing runs in tiers by depth: a
+- **T7b tiered publish.** T7b introduces `parent:` (above) and reworks
+  T7's native per-arch publish into tiers. Publishing runs in tiers by depth: a
   tier's per-arch builds, stitch and promotion finish before the next tier
   starts, and children `FROM` their parent **by digest** from the same run. This
   holds for the `develop` publish, the release (`prod`) publish, and the nightly
   `no-cache` rebuild. A failed parent stops its descendants in that run. The
   previous images stay published, as #213 §4.5 already requires for any failure.
-  T7's "fold `base` into the matrix" makes `base` a depth-1 entry under
-  `pkg-ubuntu`.
+  T7 folds `base` into the matrix; once #649 gives it a parent, `base` is a
+  depth-1 entry under `pkg-ubuntu`.
 - **Ledger.** #213 §9's item D2 is marked as taken up by #649. The §4.3 note
   ("inverting today's official-upstream-base model") is answered by this spec.
 - **Local parity.** `build.sh` builds in the same tier order, so
@@ -462,14 +465,15 @@ pre-migration release. That makes the single cutover release in step 7
 possible.
 
 Each step is safe on its own, and each epic's steps keep their own task
-boundaries:
+boundaries. #213's T7 (#515) is outside this order: §6 does not amend it, so
+it proceeds at any time, before or alongside these steps.
 
 1. **Amend** #213 and #607 (§6): notes merged with this epic's docs PR; issue
    bodies edited.
 2. **#607 completes** as amended: the `pkg-*` images are published and public,
    package jobs move onto them, and the release is cut. Its rollout (#607 §5.4)
    is unchanged.
-3. **#213 resumes** with the parent-aware T2, T5, T6′ and T7. Until #649 sets
+3. **#213 resumes** with T7b and the parent-aware T2, T5 and T6′. Until #649 sets
    the first `parent:`, the new support is exercised only by tests with a
    synthetic parent fixture.
 4. **#649 spike** (§8) runs **in parallel with steps 2–3**. It needs no
@@ -555,8 +559,9 @@ Human decisions (2026-10-28):
 - The runtime rule: core tooling runs on its own side-by-side core runtime,
   never on the default runtime, and only a language family sets the default
   command. Node moves to nodejs.org tarballs for this (§5.2.1).
-- The `parent:` manifest field lands in #213's T7, which goes first, and T2
-  consumes it (§6.1).
+- The `parent:` manifest field and the tiered publish land in a new #213
+  task, T7b, after T7 and before T2, which consumes it. T7 proceeds as #213
+  planned it, without waiting for this epic (§6.1).
 
 My calls, open to correction: §5.1 (no removals from `base`), §5.2 (marker
 removed in `base`; amd64 apt-mirror config inherited; Python CLI tools as uv
