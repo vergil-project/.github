@@ -259,6 +259,8 @@ the mq-rest-admin repos are excluded (see Task R1–R4).
 
 ### Task 2 (.github): spike
 
+Report: [spike.md](spike.md) (arm64 recorded; amd64 pending).
+
 **Files:**
 
 - Create: `epics/649-ubuntu-base-platform/spike.md` (the report)
