@@ -325,11 +325,18 @@ is an upstream refresh, not a dependency update: these toolchains are what
 vergil-containers delivers, not something its own code is built on. The
 bundled pip of a python-build-standalone series moves with that series' pin.
 
+Rust is pinned the same way (human decision, 2026-11-09). Each series pins
+its exact Rust release (for example `1.91.1`, not `stable`), and `rustup-init`
+itself is pinned by version and per-architecture SHA-256. The image installs
+that exact release; rustup checks each component against the hashes in the
+release's channel manifest. The upstream refresh moves the release to the
+newest patch of the series.
+
 | Image | Source on Ubuntu 24.04 (my call unless noted) | Today |
 |---|---|---|
 | python | python-build-standalone release for the series, pinned per series (above) and unpacked at `/opt/python/<series>` at image build (human decision, §5.3.1) | `python:<v>-slim` |
 | go | Official `go<v>.linux-<arch>.tar.gz` from go.dev, pinned per series (above) | `golang:<v>` |
-| rust | `rustup` with the series' newest stable, minimal profile plus the components the image has today | `rust:<v>-slim` |
+| rust | `rustup` (pinned `rustup-init`) installing the series' pinned release (above), minimal profile plus the components the image has today | `rust:<v>-slim` |
 | cpp-clang | apt.llvm.org `llvm-toolchain-noble-<v>` | `llvm-toolchain-trixie-<v>` |
 | cpp-gcc | **Spike (§8):** `gcc-14` from noble, or the Ubuntu Toolchain PPA, whichever gives a released 14.x | `gcc-14` from trixie main |
 | ts-node | nodejs.org prebuilt tarball, pinned per major (above), at `/opt/node/<major>` (human decision, §5.2.1). `node`, `npm` and `npx` link into `/usr/local/bin` | NodeSource `nodistro` channel |
@@ -772,8 +779,9 @@ Human decisions (2026-11-09):
 - `ubuntu-latest` already runs 26.04, so the runner-label PRs go first and
   cover every repo that consumes vergil-tooling; the guard follows them as an
   error, with no warning release (§5.7, §7).
-- Downloaded toolchains are pinned in source with their hashes and moved by
-  the upstream refresh, as upstream inputs rather than dependencies (§5.3).
+- Downloaded toolchains, and Rust's exact release with a pinned
+  `rustup-init`, are pinned in source with their hashes and moved by the
+  upstream refresh, as upstream inputs rather than dependencies (§5.3).
 - No image runs `pip install` (§5.2).
 - Findings inside a runtime are fixed by its owner; vergil-python's own
   rebuild model is vergil-project/.github#965 (§5.8).
@@ -800,8 +808,7 @@ toolchain sources in §5.3 other than Python and Node.
   (§5.7).
 - Where a host job's dev-ref vergil-tooling install gets uv, other than pip
   (§5.2).
-- The pin format for the downloaded toolchains, and whether rustup's
-  toolchain is pinned the same way (§5.3).
+- The pin format for the downloaded toolchains and Rust (§5.3).
 - Whether the C++ and TypeScript READMEs keep their image-structure sections,
   once the "compose fragments, never FROM-chain" convention they record is
   gone.
