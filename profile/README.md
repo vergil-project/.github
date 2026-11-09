@@ -90,7 +90,7 @@ a complex update path.
 
 **[VERGIL-Containers](https://github.com/vergil-project/vergil-docker)**
 *(currently `vergil-docker`; rename in progress)* — the language
-layer. It packages the toolchains for the seven supported languages
+layer. It packages the toolchains for the five supported languages
 into container images, so none of it is installed or maintained on
 macOS. The real driver isn't just multiple languages but multiple
 *versions* of each: maintaining that two-dimensional matrix of
