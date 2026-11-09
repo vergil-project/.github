@@ -95,8 +95,7 @@ container wherever possible, not directly on macOS. Local execution
 on the laptop is the exception, not the rule.
 
 **[VERGIL-VM](https://github.com/vergil-project/vergil-vm)** — the
-primary sandbox for running Claude Code (and other AI harnesses), and
-the last piece of the puzzle to fall into place. The agent runs
+primary sandbox for running Claude Code (and other AI harnesses). The agent runs
 inside a virtual machine that can see only two things: the single
 directory tree where the Git projects live, and a set of credentials
 installed in the VM itself. Everything else on the laptop — personal
