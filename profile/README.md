@@ -250,8 +250,8 @@ with that? Here's what I do with it. I spend all of it where I've
 always added the most value: deriving the solution, iterating an idea
 through cycle after cycle until it's right. I can imagine a library, a
 framework, a tool, and build it nearly as fast as I can imagine it;
-the only thing left bounding me is the bandwidth between my head and
-the keyboard.
+the only thing left bounding me is the bandwidth between me and the
+computer.
 
 If you write code for a living, I understand why that threatens you —
 and if it sounds like a betrayal of the craft, I'd only say that the
