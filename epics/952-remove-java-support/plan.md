@@ -394,3 +394,31 @@ comment:
 - `mq-rest-admin-project/.github`: remove Java from the profile and
   community files, under its ad-hoc epic.
 - Edit mq-rest-admin-project/.github#18's body to drop Java.
+
+## Evolution during execution
+
+- **2026-11-09, Task 5 (#955).** Merge review found a second stale
+  language count at `profile/README.md:93`, which the plan's Files list
+  missed; it was fixed in the same PR. The human also ruled to retitle
+  #384 to drop Java and Ruby, and #384's body was edited to drop Ruby.
+- **2026-11-09, Task 3 (vergil-tooling#4112).** `vrg-validate` runs no
+  strict mkdocs build, contrary to the plan's assumption (Task 3 step 4,
+  Review focus 5), so broken links to the deleted Java pages were checked
+  by search instead.
+- **2026-11-09, Task 4 (vergil-actions#1106).** `vrg-validate` does not
+  run vergil-actions' shell tests; CI runs them.
+- **2026-11-09, Task 6 (vergil-containers#768).** The Maven Central
+  token had already expired (Sonatype showed none active), and
+  `CENTRAL_USERNAME` and `CENTRAL_TOKEN` existed only at repo level on
+  `mq-rest-admin-java`.
+- **2026-11-09, Documentation review (vergil-tooling#4107).**
+  vergil-tooling needed no change, so the review closed without a PR. It
+  spawned vergil-project/docs#91 and
+  vergil-project/vergil-claude-plugin#995; a human scope change widened
+  #995 to also remove the retired Ruby test commands from the same hook
+  regex.
+- **2026-11-09, #960 (added).** A follow-up task added to correct two
+  stale statements in the org profile found while checking the language
+  list: the repository count in "What is it?" (the org has nine
+  repositories, five of them the core) and the VERGIL-Containers link,
+  which still pointed at `vergil-docker`.
