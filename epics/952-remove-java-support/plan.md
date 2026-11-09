@@ -40,6 +40,15 @@ MkDocs sites.
 
   Word-bounded, so `javascript` never matches. Paths named `java` are
   removed by name (each task's Files list).
+- The review search runs beside it, with the same excludes, and is not a
+  zero-hit gate: every hit is read by hand and either removed or confirmed as
+  not Java (a `javascript` neighbour, a third-party fact). It catches what
+  the word boundary hides, such as snake_case identifiers
+  (`_JAVA_VERSION_RE`) and `temurin`:
+
+  ```bash
+  grep -rniE 'java|maven|mvn|jdk|temurin' . <same excludes> | grep -vi javascript
+  ```
 - History is never edited: `docs/specs/`, `docs/plans/`, `docs/superpowers/`,
   `docs/reports/`, `paad/`, `releases/`, `CHANGELOG.md`, `epics/`.
 - GPG keys and secrets are never revoked, rotated or deleted. Package
@@ -80,14 +89,16 @@ Repo: vergil-project/vergil-containers. Independent.
 
 - Delete: `docker/java/` (`Dockerfile.template`)
 - Delete: `docker/common/osv-scanner.dockerfile`
-- Delete: `docker/versions/lifecycle/adapters/java.py`
+- Delete: `docker/versions/lifecycle/adapters/java.py` and its fixture
+  `docker/versions/fixtures/endoflife-eclipse-temurin.json`
 - Modify: `docker/build.sh:72-73` (the two `build java JDK_VERSION` lines),
   `docker/generate.sh:53` (`java` from `langs`)
 - Modify: `docker/versions/lifecycle/adapters/__init__.py` (the `java`
   registration), `docker/versions/manifest.yml`, `matrix.json`,
   `window.json`, `testdata/manifest.yml` (the `java` entries)
 - Modify: `docker/pins/pins.yml:80`, `docker/pins/CATALOG.md:13`,
-  `docker/pins/resolve_latest.py:40,57` (the `osv-scanner` pin)
+  `docker/pins/resolve_latest.py:40,57` (the `osv-scanner` pin), and
+  `docker/pins/test_resolve.py:9` (`osv-scanner` from the `TOOLS` set)
 - Modify: `docker/pins/test_pins.py` (delete
   `test_osv_scanner_is_an_auto_managed_java_pin`; drop other Java cases),
   `docker/versions/test_adapters_report_only.py`, `test_lifecycle_core.py`,
@@ -95,10 +106,11 @@ Repo: vergil-project/vergil-containers. Independent.
 - Modify: `.github/workflows/package-cache-warm.yml:65,73`,
   `.github/workflows/package-cleanup.yml:88,96,183,199` (`dev-java`,
   `prod-java`)
-- Modify: `.trivyignore` (entries only the Java image matched)
+- Modify: `.trivyignore` (step 5, including the osv-scanner mention at :218)
 - Delete: `docs/site/docs/languages/java.md`; Modify: `docs/site/mkdocs.yml`
   (its nav entry), `docs/site/docs/images/index.md`,
-  `architecture/index.md`, `index.md`, `languages/lifecycle.md`, `README.md`
+  `architecture/index.md`, `index.md`, `languages/lifecycle.md`,
+  `operations/version-management.md:100` (osv-scanner), `README.md`
 
 **Interfaces:** none. The deployment task (Task 6) depends on this task's
 workflow change being on `develop`.
@@ -112,13 +124,17 @@ workflow change being on `develop`.
   Java cases from the adapter, lifecycle and manifest tests.
 - [ ] **Step 4: Remove `dev-java` and `prod-java`** from both package
   workflows.
-- [ ] **Step 5: Trim `.trivyignore`.** For each entry whose comment or
-  package names the Java image, Maven, a JDK or osv-scanner, remove it unless
-  another image still matches it.
+- [ ] **Step 5: Trim `.trivyignore`.** Java appears mostly as carrier
+  bullets inside CVE entries other images share (around :86-89, :147-149,
+  :206-207). Delete every Java, pebble and osv-scanner carrier bullet; strip
+  the temurin and pebble clause from every "Remove once" condition (around
+  :22, :117, :151); and delete a whole CVE entry only when the Java image was
+  its last carrier.
 - [ ] **Step 6: Edit the docs.** Delete `languages/java.md` and its nav entry;
   remove Java from the listed pages and the README.
 - [ ] **Step 7: Search.** The Global constraints search returns nothing, and
-  `grep -rn 'osv-scanner' docker docs/site .github README.md` returns nothing.
+  `grep -rn 'osv-scanner' .` with the Global constraints excludes returns
+  nothing. Then run the review search and resolve every hit.
 - [ ] **Step 8: Validate.** `vrg-container-run -- vrg-validate` passes.
 - [ ] **Step 9: Commit** with `vrg-commit --type refactor --scope images
   --message "remove the Java image, its lifecycle adapter and osv-scanner"`.
@@ -135,8 +151,10 @@ Repo: vergil-project/vergil-tooling. Independent.
   `primary-language` set) and `:55-57` (`_RETIRED_PRIMARY_LANGUAGES` gains
   `"java"` with the reason from Global constraints)
 - Modify: `src/vergil_tooling/lib/languages.py` (delete the `"java"` entry at
-  :452-491, `JAVA_SBOM` and `_JAVA_OSV_SCAN` at :161-180)
-- Modify: `src/vergil_tooling/lib/version.py:32,41,120,199`,
+  :452-491, `_MAVEN_LICENSES_ALLOWLIST` at :147, `JAVA_SBOM` and
+  `_JAVA_OSV_SCAN` at :161-180)
+- Modify: `src/vergil_tooling/lib/version.py:22` (`_JAVA_VERSION_RE`) and
+  `:32,41,120,199`,
   `lib/container.py:107-108`, `lib/container_cache.py:51,80`,
   `lib/dependabot.py:31-37`, `lib/github_config.py:282`,
   `lib/gitignore.py:83`, `lib/repo_init.py:550,559` and the `java` entry of
@@ -162,11 +180,18 @@ Repo: vergil-project/vergil-tooling. Independent.
       """Java is retired: it fails loudly instead of reading as unset."""
       toml = _VALID_TOML.replace('primary-language = "python"', 'primary-language = "java"')
       (tmp_path / "vergil.toml").write_text(toml)
-      with pytest.raises(ConfigError, match=r"primary-language 'java' is no longer supported"):
+      with pytest.raises(
+          ConfigError,
+          match=re.escape(
+              "primary-language 'java' is no longer supported"
+              " (Java support was removed in epic vergil-project/.github#952)"
+          ),
+      ):
           read_config(tmp_path)
   ```
 
-  `vrg-container-run -- vrg-validate` fails on it.
+  Add `import re` to the file's imports. `vrg-container-run -- vrg-validate`
+  fails on it.
 - [ ] **Step 2 (green): Retire `java` in `config.py`** (both edits under
   Files). The new test passes.
 - [ ] **Step 3: Remove Java from the language registry and every `lib/`
@@ -178,6 +203,7 @@ Repo: vergil-project/vergil-tooling. Independent.
   from the window fixture. Then search: the Global constraints search over
   `src tests` returns only the `_RETIRED_PRIMARY_LANGUAGES` entry and the
   step 1 test, and `grep -rn '"java"' src` returns only the retired entry.
+  Then run the review search over `src tests` and resolve every hit.
 - [ ] **Step 6: Validate.** `vrg-container-run -- vrg-validate` passes with
   100% branch coverage.
 - [ ] **Step 7: Commit** with `vrg-commit --type refactor --scope languages
@@ -206,7 +232,8 @@ Repo: vergil-project/vergil-tooling. Independent of Task 2 (no shared file).
   supported; `repo-profile.md` says "A retired language (`ruby`, `java`) is
   rejected outright."
 - [ ] **Step 3: Search.** The Global constraints search over `docs/site`
-  returns only the `repo-profile.md` retired sentence.
+  returns only the `repo-profile.md` retired sentence. Then run the review
+  search over `docs/site` and resolve every hit.
 - [ ] **Step 4: Validate.** `vrg-container-run -- vrg-validate` passes,
   including the strict mkdocs build.
 - [ ] **Step 5: Commit** with `vrg-commit --type docs --scope site
@@ -252,8 +279,13 @@ Repo: vergil-project/vergil-actions. Independent.
   `typescript->javascript-typescript`.
 - [ ] **Step 4: Check signing is intact.** `grep -n PACKAGE_SIGNING_KEY
   .github/workflows/cd-release.yml` shows the same lines as on `develop`.
-- [ ] **Step 5: Edit the script and docs** under Files.
+- [ ] **Step 5: Edit the script and docs** under Files. Two lines state
+  CodeQL facts, not vergil's: `ci-gates/security-scanning.md:87` (CodeQL's
+  language list) and `actions/ci-security-codeql.md:19` (`java` as an example
+  language). Reword both to name the languages vergil scans: `python`, `go`,
+  `rust`, `cpp`, `typescript`.
 - [ ] **Step 6: Search.** The Global constraints search returns nothing.
+  Then run the review search and resolve every hit.
 - [ ] **Step 7: Validate.** `vrg-container-run -- vrg-validate` passes.
 - [ ] **Step 8: Commit** with `vrg-commit --type refactor --scope release
   --message "remove the Maven Central publish path and Java branches"`.
