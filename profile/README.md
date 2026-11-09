@@ -257,8 +257,8 @@ If you write code for a living, I understand why that threatens you —
 and if it sounds like a betrayal of the craft, I'd only say that the
 code was always a means to an end, never the end itself. The end is
 what the code is *for*: durable, scalable systems that solve real
-problems and are built to outlast me. That is the work I spent four
-decades acquiring the skills to do, and the whole purpose of this
+problems and are built to outlast me. I acquired the skills to do
+this work over four decades, and the whole purpose of this
 tooling is to let me finally spend my time *there* — by trusting what
 it produces enough that I no longer need to read it. There is a real
 class of work that no longer demands the skills I spent a career
