@@ -5,6 +5,10 @@
 > `vergil:issue-implement` (which runs its own TDD cycle). Operational tasks
 > (`deployment`, `validation`) run via `vergil:issue-deploy` /
 > `vergil:issue-validate`. Steps use checkbox (`- [ ]`) syntax.
+>
+> **Amended 2026-11-09 for epic #649** (spec §8, issue
+> vergil-project/.github#975): additions to Tasks 3 and 4. See "Amendment
+> from epic #649" at the end.
 
 **Goal:** CI package jobs run in managed toolchain images built by
 vergil-containers, so no package job installs its toolchain at run time.
@@ -478,3 +482,29 @@ release (checked by reading each repo's `vergil.toml`).
 tools) is written by Task 4 and read by Task 1 and Task 6. The image name
 `prod-pkg-<distro>:<version>` is the same in Global Constraints, Task 4, D1 and
 Task 5.
+
+## Amendment from epic #649 (2026-11-09)
+
+Spec §8 records why: epic vergil-project/.github#649 builds `base` and every
+language image on `pkg-ubuntu:24.04`. Where this section and a task above
+differ, this section wins. Nothing else in the plan changes.
+
+- **Task 3 (vergil-project/vergil-containers#727).** Toolchain keys share one
+  namespace with family keys and `base` (the existing collision rule), and
+  that namespace is what epic #213's T7b resolves `parent:` against. Task 3
+  adds no rule that would stop a toolchain entry being a parent. Add
+  `test_toolchain_keys_share_the_family_namespace`: `load_manifest` exposes
+  every toolchain key alongside the family keys, so a later `parent:` lookup
+  finds `pkg-ubuntu`.
+- **Task 4 (vergil-project/vergil-containers#728).** Neither template contains
+  an `ENTRYPOINT`, `CMD`, `USER` or `WORKDIR` instruction, so a child image
+  inherits only what the upstream image sets (`ubuntu:<v>` sets
+  `CMD ["/bin/bash"]`). Two checks prove it:
+  - `test_pkg_templates_set_no_inherited_config` in
+    `docker/versions/test_generate.py` reads both templates and fails on any of
+    the four instructions;
+  - Step 2 adds: after each local build,
+    `docker image inspect --format '{{json .Config.Entrypoint}} {{json .Config.Cmd}} {{json .Config.User}} {{json .Config.WorkingDir}}'`
+    on the built image prints the same as on its upstream image. Record both
+    outputs in the PR.
+- **The marker** is unchanged: #649 removes it in its own `base` image.

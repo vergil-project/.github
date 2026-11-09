@@ -315,3 +315,24 @@ step.
   script with tests (`actions/package/setup/tests/` already exists).
 - Package-cleanup retention for the new images (follow the dev images'
   existing rules).
+
+## 8. Amendment from epic #649 (2026-11-09)
+
+Epic vergil-project/.github#649 makes `pkg-ubuntu:24.04` the root of one image
+tree: `base` and every language image are built on it (#649's spec §6.2).
+This epic's design stands; three points change or are confirmed:
+
+- **A toolchain entry may be a parent.** Epic #213's T7b adds a `parent:`
+  field to manifest entries, and #649 names `pkg-ubuntu` `24.04` as `base`'s
+  parent. Nothing in the `toolchains:` section may forbid that.
+  `pkg-ubuntu` itself has no parent.
+- **No inherited image settings.** `pkg-ubuntu` sets no `ENTRYPOINT`, `CMD`,
+  `USER` or `WORKDIR` of its own, so a child inherits only what `ubuntu:<v>`
+  sets. A build check proves it. The image's contents are unchanged.
+- **The marker stays as designed.** #649 removes `/etc/vergil/package-toolchain`
+  in `base`'s first layer, so the setup action and the marker format need no
+  change.
+
+Matrix entries for the `pkg-*` images use today's `build-arg` shape. Epic
+213's T7b later turns every entry's `build-arg` into a `build-args` map,
+these included.
