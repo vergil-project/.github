@@ -515,3 +515,44 @@ only by unit checks — this is an infrastructure epic. A `validation`-kind task
 - **First "add a language" proof**: adding a new language (e.g. the long-mooted
   Perl, or Swift per the C++ epic's LLVM setup) is the natural validation that the
   manifest achieved its goal — a *follow-on*, not scoped here.
+
+## 10. Amendment from epic #649 (2026-11-09)
+
+Epic vergil-project/.github#649 (Ubuntu 24.04 as the shared base platform)
+rebuilds every image as one tree, `ubuntu:24.04` → `pkg-ubuntu:24.04` (from
+epic #607) → `base` → each language image. That needs this epic's build machinery
+to be parent-aware. The design is #649's spec §6.1; this section records what
+it changes here. T7 is unchanged and goes first (§0.3.1); the rest resumes
+after it.
+
+- **Manifest `parent:`.** A family, `base` or a toolchain entry may name a
+  parent: another manifest entry plus version (for example `base` →
+  `pkg-ubuntu` `24.04`). No `parent:` means an upstream image, as today. The
+  generator emits each entry's parent and its depth in the tree, and refuses a
+  cycle or a parent that does not exist. Until #649 sets the first parent, this
+  is a no-op, exercised only by tests with a synthetic parent fixture.
+- **Tiered publish.** The publish runs in tiers by depth. A tier's per-arch
+  builds, stitch and promotion finish before the next tier starts, and children
+  build `FROM` their parent **by digest** from the same run. This holds for the
+  `develop` publish, the release (`prod`) publish and the nightly `no-cache`
+  rebuild. A failed parent stops its descendants in that run, and the previous
+  images stay published (§4.5).
+- **Per-entry build arguments.** Each matrix entry's single `build-arg` name
+  becomes a `build-args` map (`{NAME: value}`), `base` included. The publish,
+  the PR build and `build.sh` pass every entry in it. Today's families carry
+  their one `<NAME>: <version>` pair, so the build is unchanged; #649 adds its
+  toolchain pins and core series there.
+- **Selection follows the tree.** The dependency map (T2) adds parent edges:
+  an entry's inputs include its parent's, transitively. The selector (T5)
+  selects every descendant of a selected entry. The PR build (T6′) builds a
+  selected parent and then its selected descendants in the same job, on the
+  locally built parent, because PR CI never pushes; a PR that selects only
+  children builds them on the published `dev-` parent.
+- **Local parity.** `build.sh` builds in the same tier order, so
+  `build.sh python` builds or pulls its parents first.
+- **Ledger.** §9's item D2 (a shared runtime base, inverting the
+  official-upstream-base model of §4.3) is taken up by #649, which answers it.
+- **Corrections.** GitHub's `ubuntu-latest` has run Ubuntu 26.04 since early
+  November 2026, so §4.4's amd64 runner is `ubuntu-24.04`, as the plan's
+  Global Constraints already say. Epic vergil-project/.github#952 removed Java
+  support, so the family set has no `java`.
