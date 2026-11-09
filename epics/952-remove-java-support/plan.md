@@ -115,6 +115,9 @@ Repo: vergil-project/vergil-containers. Independent.
 **Interfaces:** none. The deployment task (Task 6) depends on this task's
 workflow change being on `develop`.
 
+This task only deletes, so it has no red/green cycle: the existing tests,
+the leftover and review searches and `vrg-validate` stand in for red.
+
 - [ ] **Step 1: Delete the image, `osv-scanner.dockerfile` and the adapter**,
   and remove `java` from `build.sh`, `generate.sh` and the adapter registry.
 - [ ] **Step 2: Remove the `java` entries** from the versions manifest,
@@ -138,8 +141,8 @@ workflow change being on `develop`.
 - [ ] **Step 8: Validate.** `vrg-container-run -- vrg-validate` passes.
 - [ ] **Step 9: Commit** with `vrg-commit --type refactor --scope images
   --message "remove the Java image, its lifecycle adapter and osv-scanner"`.
-  After merge, close vergil-project/vergil-containers#639 as not planned,
-  citing this task.
+  vergil-project/vergil-containers#639 is closed by Task 6, after this task
+  merges.
 
 ### Task 2: vergil-tooling: retire `java` and remove its code
 
@@ -157,8 +160,9 @@ Repo: vergil-project/vergil-tooling. Independent.
   `:32,41,120,199`,
   `lib/container.py:107-108`, `lib/container_cache.py:51,80`,
   `lib/dependabot.py:31-37`, `lib/github_config.py:282`,
-  `lib/gitignore.py:83`, `lib/repo_init.py:550,559` and the `java` entry of
-  `_CODEQL_LANGUAGES` (:562), `lib/semgrep.py:15`
+  `lib/gitignore.py:83`, `lib/repo_init.py:550` (the `java` secrets-map
+  entry) and `:559` (the `java` entry of `_CODEQL_LANGUAGES`; `"javascript"`
+  at `:562` stays), `lib/semgrep.py:15`
 - Delete: `src/vergil_tooling/data/gitignore/java`
 - Modify: `src/vergil_tooling/bin/vrg_generate_commands.py` (delete the Java
   generator, :276-360, and its entries at :4, :593, :597, :612, :628),
@@ -204,6 +208,11 @@ Repo: vergil-project/vergil-tooling. Independent.
   `src tests` returns only the `_RETIRED_PRIMARY_LANGUAGES` entry and the
   step 1 test, and `grep -rn '"java"' src` returns only the retired entry.
   Then run the review search over `src tests` and resolve every hit.
+- [ ] **Step 5a (refactor): Tidy what the removal trimmed.** Re-read
+  `_ENUMS` in `config.py`, `_CODEQL_LANGUAGES` in `repo_init.py` and
+  `_CODEQL_SUPPORTED_LANGUAGES` in `github_config.py`, and the comments that
+  keep the CodeQL lists aligned, so each still reads correctly without Java.
+  Remove any helper left with no caller.
 - [ ] **Step 6: Validate.** `vrg-container-run -- vrg-validate` passes with
   100% branch coverage.
 - [ ] **Step 7: Commit** with `vrg-commit --type refactor --scope languages
@@ -269,6 +278,11 @@ Repo: vergil-project/vergil-actions. Independent.
 **Interfaces:** none. No major version: the removed inputs' only caller is
 `mq-rest-admin-java`.
 
+This task only deletes, so it has no red/green cycle: the existing shell
+tests, the leftover and review searches and `vrg-validate` stand in for red.
+`resolve-language.test.sh`'s `typescript->javascript-typescript` case stays
+as the regression guard for Review focus 1.
+
 - [ ] **Step 1: Remove the Maven path from registry-publish**: the four
   inputs, the credential and deploy steps, the `publish.sh` mapping and the
   Java test cases.
@@ -277,8 +291,10 @@ Repo: vergil-project/vergil-actions. Independent.
 - [ ] **Step 3: Remove the Java cases** from validate-inputs, the codeql
   test and the semgrep description; `resolve-language.test.sh` still asserts
   `typescript->javascript-typescript`.
-- [ ] **Step 4: Check signing is intact.** `grep -n PACKAGE_SIGNING_KEY
-  .github/workflows/cd-release.yml` shows the same lines as on `develop`.
+- [ ] **Step 4: Check signing is intact.** Compare content, not line
+  numbers: `grep PACKAGE_SIGNING .github/workflows/cd-release.yml` (no `-n`)
+  prints the same output as on `develop`, and the package-sign step block is
+  unchanged.
 - [ ] **Step 5: Edit the script and docs** under Files. Two lines state
   CodeQL facts, not vergil's: `ci-gates/security-scanning.md:87` (CodeQL's
   language list) and `actions/ci-security-codeql.md:19` (`java` as an example
@@ -326,8 +342,14 @@ secret value:
   `CENTRAL_TOKEN` are deleted wherever set in mq-rest-admin-project (org and
   repo level). GPG keys and secrets are untouched.
 
-Agent steps: confirm both 404 outputs name both packages and the credential
-statement is present; record `Outcome: SUCCESS` with that evidence.
+Agent steps:
+
+- confirm both 404 outputs name both packages and the credential statement
+  is present;
+- close vergil-project/vergil-containers#639 ("language lifecycle: java add
+  25") as not planned, with a comment citing Task 1's merged PR (the Java
+  lifecycle adapter that files such issues is gone);
+- record `Outcome: SUCCESS` with that evidence and the closure.
 
 ### Bookends
 
@@ -335,7 +357,10 @@ statement is present; record `Outcome: SUCCESS` with that evidence.
   Tasks 1–5). Sweeps the `docs` repo's `docs/site/docs/languages.md` and
   `index.md`, and `vergil-claude-plugin`'s
   `hooks/scripts/detect-deprecation-warnings.sh`, filing a same-repo sibling
-  task for each. vergil-python's JVM example stays.
+  task for each. vergil-python's JVM example stays. It also runs the
+  Global constraints leftover search over the whole vergil-tooling repo,
+  which must return exactly the three allowed hits (spec §5), since Tasks 2
+  and 3 each search only part of it.
 - Retrospective: vergil-project/.github#954 (terminal).
 
 ## Delivery

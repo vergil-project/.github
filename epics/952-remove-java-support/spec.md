@@ -79,8 +79,8 @@ anything the inventory missed is still in scope.
   the images, architecture, index and lifecycle pages, plus the README.
 
 The lifecycle bot's open Java issue (vergil-project/vergil-containers#639,
-"java add 25") is closed as not planned, since the adapter that files such
-issues is gone.
+"java add 25") is closed as not planned by the deployment task (§7), once
+this task has merged, since the adapter that files such issues is gone.
 
 ### 4.2 vergil-tooling code
 
