@@ -226,8 +226,10 @@ The rule:
 Why: tooling choices (how we lint Markdown) must not be forced to move with an
 unrelated language toolchain (Node 24 in `ts-node:24`), and a language image
 must not inherit a runtime the family never chose. Products that happen to be
-Node applications, installed on a real host, are a separate question:
-vergil-project/.github#674.
+Node applications, installed on a real host, are a separate question and are
+out of scope: no deployed product needs a non-system Node, so
+vergil-project/.github#674 was dropped. A product that needs one starts its
+own item.
 
 ### 5.3 Language images — toolchain sources
 
