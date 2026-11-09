@@ -23,7 +23,7 @@ are where VERGIL stands today, not where it intends to stay.
 ## A lab, not a product
 
 VERGIL is my personal laboratory. It's the stack I use every day for
-engineering-led, AI-assisted engineering, and the place I work out how
+engineer-led, AI-assisted engineering, and the place I work out how
 to do it better. I publish it the way a scientist publishes results,
 or the way a racing team shares its build log and blueprints: so the
 ideas can be seen, examined and borrowed. I don't publish it to be
