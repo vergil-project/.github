@@ -18,10 +18,10 @@ organization.
 | `profile/README.md` | Org profile page — renders on the [vergil-project landing page](https://github.com/vergil-project) |
 | `ISSUE_TEMPLATE/` | Default issue templates inherited by all repos |
 | `pull_request_template.md` | Default PR template inherited by all repos |
-| `CONTRIBUTING.md` | Contributor guidelines |
+| `CONTRIBUTING.md` | Why VERGIL accepts no contributions, and what you can do instead |
 | `CODE_OF_CONDUCT.md` | Contributor Covenant v2.1 |
 | `SECURITY.md` | Vulnerability reporting policy |
-| `SUPPORT.md` | Where to get help |
+| `SUPPORT.md` | Why there is no support, and where critique goes |
 | `epics/<N>-<slug>/` | Each epic's spec, plan and retrospective (`epics/archive/` is a record of abandoned attempts) |
 | `docs/` | Older specs and plans (`docs/specs/`, `docs/plans/`) and security snapshots (`docs/security/`) |
 | `.github/workflows/ci.yml` | CI for this repo |
@@ -59,4 +59,4 @@ mistake.
 ## Related
 
 - [Org profile README](profile/README.md)
-- [Contributing guidelines](CONTRIBUTING.md)
+- [Contributing (or rather, not)](CONTRIBUTING.md)

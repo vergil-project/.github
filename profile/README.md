@@ -20,6 +20,31 @@ are where VERGIL stands today, not where it intends to stay.
 
 ---
 
+## A lab, not a product
+
+VERGIL is my personal laboratory. It's the stack I use every day for
+engineer-led, AI-assisted engineering, and the place I work out how
+to do it better. I publish it the way a scientist publishes results,
+or the way a racing team shares its build log and blueprints: so the
+ideas can be seen, examined and borrowed. I don't publish it to be
+installed. Nobody else is expected to run VERGIL the way I do, and it
+isn't designed so that anyone can.
+
+There are no contributors, by design. The point is to show what one
+person working with AI can build, integrate, run and grow over time: a
+serious body of software and infrastructure, held to the standards of
+an enterprise engineering organization and scaled down to a team of
+one. That's why it has enforced workflows, real validation, security
+review and nothing hard-coded to my name. The ideas are meant to hold
+up at a much larger scale, even though only one person uses them.
+
+Having no other users to break is also what makes it a lab. It changes
+without ceremony: experiments, radical rewrites, whole subsystems torn
+out when a better idea arrives. If something here is useful to you,
+take it. Fork it, adapt it, build your own.
+
+---
+
 ## Who are VERGIL and MIMIR?
 
 VERGIL is the **Validation Engine for Repository Governance,
@@ -70,8 +95,7 @@ container wherever possible, not directly on macOS. Local execution
 on the laptop is the exception, not the rule.
 
 **[VERGIL-VM](https://github.com/vergil-project/vergil-vm)** — the
-primary sandbox for running Claude Code (and other AI harnesses), and
-the last piece of the puzzle to fall into place. The agent runs
+primary sandbox for running Claude Code (and other AI harnesses). The agent runs
 inside a virtual machine that can see only two things: the single
 directory tree where the Git projects live, and a set of credentials
 installed in the VM itself. Everything else on the laptop — personal
@@ -80,7 +104,7 @@ pre-provisioned with restricted, role-specific GitHub identities
 through a purpose-built GitHub App, so the distinct functions an agent
 performs are segregated from one another, every action is attributable
 in GitHub, and all of it stays permissioned separately from the human,
-who keeps full control. That isolation is what makes it safe to run
+who keeps full control. That isolation is what makes it (relatively) safe to run
 the agent in bypass-permissions mode: the sandbox, not the harness, is
 the real boundary — which matters, because the harness's own controls
 are mostly soft gates that are easily bypassed. The VMs are
@@ -131,15 +155,18 @@ apt/dnf repository those packages are served from,
 [docs](https://github.com/vergil-project/docs) is the org's
 documentation site, and
 [.github](https://github.com/vergil-project/.github) holds this
-profile, the default community files and the org's planning.
+profile, the org-wide default files (contributing, support, security
+and issue templates) and the lab's planning: every epic's spec, plan
+and retrospective.
 
 ---
 
-## Where this is headed
+## What's next in the lab
 
 The three couplings named at the top — GitHub, Claude Code, macOS —
 are deliberate starting points, not articles of faith. Here's where
-each stands, in the order we expect to loosen them.
+each stands, in the order I expect to loosen them, followed by the
+experiment I'm most looking forward to.
 
 **GitHub is the first to go.** It's the weakest of the three
 commitments and the one I'm most motivated to break: the plan is to
@@ -154,8 +181,15 @@ outlast any single harness. It will happen — just not soon.
 **macOS is the one we're keeping.** It's my platform, and it will be
 supported for the long haul. That said, the boundary is drawn cleanly
 enough that a port to Windows or a Linux desktop is entirely
-feasible — it's simply not on my roadmap. If someone wants it badly
-enough to build it, I'm glad to help.
+feasible. It's simply not on my roadmap, and since nobody else runs
+this, it never needs to be.
+
+**MIMIR stops being a metaphor.** A second workstation is on its way,
+and it will be MIMIR's home: a separate identity with its own tooling
+and automation, whose only job is to attack VERGIL from the outside
+and find the holes. The audits, gates and reports already show that
+the code VERGIL produces is sound. An adversary actively trying to
+break in is how I intend to show that the *architecture* is.
 
 ---
 
@@ -168,9 +202,11 @@ Full documentation is available at the VERGIL docs site:
 
 ## Contributing
 
-Contributions are welcome. See the
-[contributing guidelines](https://github.com/vergil-project/.github/blob/develop/CONTRIBUTING.md)
-for development setup, workflow, and the AI contributor identity model.
+There are no contributors, and there won't be. You're welcome to read
+it, fork it, and argue with it in
+[Discussions](https://github.com/orgs/vergil-project/discussions). The
+[contributing guide](https://github.com/vergil-project/.github/blob/develop/CONTRIBUTING.md)
+explains why, with more jokes.
 
 ---
 
@@ -194,7 +230,7 @@ what I wanted never took long; going from "I know exactly what this
 should be" to "here it is, working" was the laborious part — months
 and years of it on the big systems. The other tax was human. My best
 work always depended on assembling a critical mass of people who could
-write the code the way I saw it in my head, and the hardest friction
+write the code, and the hardest friction
 in any project was never the machines — it was getting smart people
 aligned on how a thing should be done.
 
@@ -214,15 +250,15 @@ with that? Here's what I do with it. I spend all of it where I've
 always added the most value: deriving the solution, iterating an idea
 through cycle after cycle until it's right. I can imagine a library, a
 framework, a tool, and build it nearly as fast as I can imagine it;
-the only thing left bounding me is the bandwidth between my head and
-the keyboard.
+the only thing left bounding me is the bandwidth between me and the
+computer.
 
 If you write code for a living, I understand why that threatens you —
 and if it sounds like a betrayal of the craft, I'd only say that the
 code was always a means to an end, never the end itself. The end is
 what the code is *for*: durable, scalable systems that solve real
-problems and are built to outlast me. That is the work I spent four
-decades acquiring the skills to do, and the whole purpose of this
+problems and are built to outlast me. I acquired the skills to do
+this work over four decades, and the whole purpose of this
 tooling is to let me finally spend my time *there* — by trusting what
 it produces enough that I no longer need to read it. There is a real
 class of work that no longer demands the skills I spent a career
