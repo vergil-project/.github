@@ -8,8 +8,8 @@
 
 VERGIL is a developer platform for AI-assisted engineering of
 **high-quality, secure, standards-compliant** Linux applications,
-developed on macOS across seven supported languages — Python first,
-then Ruby, Rust, Go, Java, C++, and TypeScript. It is deliberately opinionated about
+developed on macOS across five supported languages — Python first,
+then Rust, Go, C++, and TypeScript. It is deliberately opinionated about
 its foundation: code lives on **GitHub**, agents run in **Claude
 Code**, and development happens on **macOS**. These three couplings
 are where VERGIL stands today, not where it intends to stay.
