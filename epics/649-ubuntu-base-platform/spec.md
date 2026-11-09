@@ -326,7 +326,7 @@ vergil-containers delivers, not something its own code is built on. The
 bundled pip of a python-build-standalone series moves with that series' pin.
 
 Rust is pinned the same way (human decision, 2026-11-09). Each series pins
-its exact Rust release (for example `1.91.1`, not `stable`), and `rustup-init`
+its exact Rust release (`x.y.z`, never a channel such as `stable`), and `rustup-init`
 itself is pinned by version and per-architecture SHA-256. The image installs
 that exact release; rustup checks each component against the hashes in the
 release's channel manifest. The upstream refresh moves the release to the
