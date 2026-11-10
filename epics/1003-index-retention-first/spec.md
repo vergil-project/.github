@@ -47,14 +47,11 @@ The order comes from epic vergil-project/.github#356's spec (§4.2 data flow and
 
 ## 3. Goals
 
-- **G1.** The index build downloads and verifies only the artifacts the index
-  publishes: the retained releases and the dependency providers the closure
-  adds.
-- **G2.** GitHub API calls to choose them are a small, fixed number per
+- **G1.** The index build downloads and verifies only the releases it
+  publishes.
+- **G2.** Choosing them takes a small, fixed number of GitHub API calls per
   product, about one per 100 releases.
-- **G3.** For the same release history and `packages.toml`, the published index
-  has the same packages as the full-scan algorithm, except as §5 states.
-- **G4.** The `build-index` job takes **under 5 minutes** on the first live
+- **G3.** The `build-index` job takes **under 5 minutes** on the first live
   `publish-index` run after the fix is released.
 
 ## 4. Non-goals and anti-goals
@@ -62,81 +59,58 @@ The order comes from epic vergil-project/.github#356's spec (§4.2 data flow and
 - **Non-goals:** the Pages deployment that reports success but never goes live
   (vergil-project/packages#46); a pruning policy for old releases, artifacts and
   evidence; the full release scan in `published.py`.
-- **Anti-goal:** weakening any trust check on what is published. Every
+- **Anti-goal:** weakening the trust checks on what is published. Every
   published package is still attestation-verified pinned to the release
-  workflow on `main`, every published `.rpm` is still signature-checked, and
-  every failure is still a hard error. Nothing is skipped to save time.
-- **Anti-goal:** a silent cap. If a listing could be truncated, the build fails;
-  it never indexes from a partial history.
+  workflow on `main`, and every published `.rpm` is still signature-checked.
 
 ## 5. Design
 
 ### 5.1 Inventory
 
-For each product, list every release with its asset names in a small number of
-calls: `gh api --paginate "repos/<product>/releases?per_page=100"` (judgment:
-the REST listing returns each release's `tag_name`, `draft`, `prerelease` and
-`assets[].name`). The listing replaces `stable_tags()` and the per-tag
-`release_view` calls for the index. Like every other `gh` call in the index,
-it goes through `_invoke`, so it gets the shared transient-error retry.
+For each product, list its releases with their asset names in one paginated
+call: `gh api --paginate --slurp "repos/<product>/releases?per_page=100"`.
+`--paginate` alone prints each page as its own JSON array, back to back, which
+one `json.loads` cannot parse. `--slurp` wraps the pages in one outer array,
+which the code flattens. The REST listing gives each release's `tag_name`,
+`draft`, `prerelease` and `assets[].name`. It replaces `stable_tags()` and the
+per-tag `gh release view` calls for the index, and goes through `_invoke` like
+every other `gh` call. Its test uses a listing of more than one page.
 
 A release is a **packaged stable release** when its tag matches `vX.Y.Z`, it is
 not a draft or prerelease, and its assets include `packages-manifest.json`.
-Only those count anywhere below. A stable release without the manifest is
-pre-packaging history and is skipped silently: no per-release line, since there
-are hundreds. One summary line per product gives the counts.
+Other releases are ignored, with no log line.
 
-Each `.deb`/`.rpm` asset name of a packaged release gives its identity with
-`published.parse_filename`. A name that does not parse is a hard error, as in
-`published.py`.
+### 5.2 Selection
 
-### 5.2 Selection by name
+For each product, group its packaged stable releases by major.minor, take the
+newest `lines` lines, and in each the newest `keep` releases. This is today's
+`retention._by_lines`, run on the inventory instead of on downloaded artifacts.
 
-On the inventory, with no downloads:
+### 5.3 Download, verify, index
 
-1. **Retire typo check:** every `[retention].retire` name must be carried by
-   some packaged release in the inventory, anywhere in history. This keeps
-   today's check and its meaning. `vergil-python3.14.8` still matches
-   vergil-python v1.0.0.
-2. **Per-line retention:** for each product, group packaged releases by
-   major.minor, take the newest `lines` lines that have one, and in each the
-   newest `keep`. This matches `retention._by_lines` today: it already counts
-   only collected, packaged releases.
+1. Download, manifest-match and read the metadata of the selected releases
+   only, with the existing `_release_artifacts`.
+2. Drop every artifact whose package name is in `[retention].retire`.
+3. Verify what remains with the existing `collect.verify`.
+4. Write, sign and size-check the index from it, as today.
 
-### 5.3 Download, verify, close
+### 5.4 What is removed
 
-1. Download, manifest-match and read the metadata of the retained releases only,
-   reusing `_release_artifacts` (manifest match and metadata checks unchanged).
-2. **Dependency closure:** for each dependency name of a kept artifact, find the
-   providers in the inventory: same format, same name, arch equal or `all`, from
-   any packaged release of any product. Take the newest by `version_key`. If it
-   is not already kept, download and check its release's artifact through the
-   same path and repeat. A dependency no inventory entry provides is an OS
-   package, as today. Retired names are excluded from retention, and a kept
-   artifact that depends on one is still a hard error (`_check_retired`).
-3. **Verify** every downloaded artifact with the existing `collect.verify`.
-4. **Duplicate-bytes check** over every downloaded artifact. Identical duplicates
-   collapse, as today.
+These parts of `retention.py` only made sense when the index held every
+release, and are deleted with their tests:
 
-### 5.4 Intended behaviour changes
+- **The dependency closure** (`_close`). Every provider it could add is already
+  selected: the vergil-tooling package depends on the vergil-python runtime,
+  and the selected vergil-python release ships it.
+- **The duplicate-bytes check** (`_check_conflicts`). With one release per line,
+  two selected releases cannot share a package version, and the `vrg-release`
+  preflight (#3311) refuses a re-published version before release.
+- **The retire checks** (`_check_retire_matches`, `_check_retired`). `retire`
+  stays as a plain filter.
 
-- A duplicate-bytes clash, or a manifest mismatch, in a release the index does
-  not publish no longer fails the index. Judgment: it cannot reach apt or dnf.
-  The `vrg-release` preflight (#3311) still refuses a re-published identity
-  before release.
-- The per-release `no packages-manifest.json … skipped` lines become one summary
-  line per product.
-- `RELEASE_LIST_LIMIT` (1000) no longer applies to the index, because the
-  paginated listing has no cap. Judgment: `gh api --paginate` follows `Link`
-  headers to the last page, so a listing cut short surfaces as a `gh` error,
-  which is already a hard failure. Output that does not parse as the expected
-  list of releases is also a hard error.
-
-### 5.5 Observability
-
-`build_site` prints the elapsed time of each phase (inventory, download, verify,
-index, sign) and `indexing <kept> of <inventory> packaged release(s)`, so a
-future slowdown is visible in the log.
+`collect.collect`'s full scan is replaced. `collect.stable_tags`,
+`collect.release_packages` and `published.py` stay as they are for the
+`vrg-release` preflight.
 
 ## 6. Delivery
 
@@ -144,17 +118,17 @@ future slowdown is visible in the log.
 |---|---|---|---|---|
 | 1 | Retention-first index build, with tests | vergil-tooling | implementation | — |
 | 2 | Release vergil-tooling with the fix | vergil-tooling | deployment | 1 |
-| 3 | Live `publish-index` run meets G3 and G4 | packages | validation | 2 |
+| 3 | Live `publish-index` run meets G3 | packages | validation | 2 |
 
-Deployment (judgment, from the pins): packages calls
+Deployment: packages calls
 `vergil-actions/.github/workflows/publish-index.yml@v2.1` and pins
 `[dependencies] vergil = "v2.1"`, and `build-index` installs vergil-tooling
 from git at that pin. So the next vergil-tooling `v2.1.x` release is picked up
 with no pin change. The release itself is a human action.
 
-The validation compares the new index with the last full-scan index: the
-noble `Packages` and the dnf `primary` package lists must name the same
-packages and versions.
+The validation checks the `publish-index` run that the release triggers: its
+`build-index` job takes under 5 minutes, and the new vergil-tooling version is
+in the published noble `Packages` file.
 
 Bookends: the documentation task (this spec and the plan), the
 documentation-review sweep, which also corrects the order in epic #356's spec,
@@ -162,7 +136,7 @@ and the retrospective.
 
 ## 7. Left to the builder
 
-- How the inventory is shaped in code (a dataclass per release, or a mapping).
-- How the existing `collect`/`retention` functions are split or reused, provided
-  `published.py`'s public functions keep their behaviour.
+- How the inventory is shaped in code.
+- How `collect` and `retention` are split or reused, provided `published.py`'s
+  public functions keep their behaviour.
 - Test structure, using the existing `Run` injection and fixtures.
