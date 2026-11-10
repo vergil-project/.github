@@ -598,3 +598,22 @@ differ, the entry wins. The task list above is left as written.
    PR CI on `ccab1fc` then built all four toolchain images on amd64 and
    arm64, and every check passed. That was the first real amd64 build of
    `pkg-ubuntu`'s mirror setup: the local builds ran on arm64 only.
+10. **2026-11-10: D2's consumer check and Task 6's precondition assumed
+    exact patch pins, which the fleet never uses.** By human ruling on D2's
+    item N0.1 (vergil-project/vergil-tooling#3766), the check is replaced.
+    D2's procedure asks that each consumer with `[package]` "has a
+    `dependency-update` PR raising its vergil pin to that release, or has
+    merged one". Task 6's precondition asks that every such repo "pins a
+    vergil-tooling at or past D2's release (checked by reading each repo's
+    `vergil.toml`)". Every repo in the fleet pins the rolling minor tag
+    (`vergil = "v2.1"`, as vergil-python and packages both do on `develop`
+    and `main`), never a patch release. So no pin-raising PR ever exists,
+    and reading `vergil.toml` shows nothing about which release a repo runs.
+
+    The check that holds is that the rolling tag resolves to the release's
+    commit or a later one: `vrg-git ls-remote` on vergil-tooling shows
+    `refs/tags/v2.1^{}` at the release's commit or a descendant of it. D2
+    checked exactly that on 2026-11-10: `refs/tags/v2.1^{}` and
+    `refs/tags/v2.1.297^{}` both pointed at `de501a7`, the commit the
+    release's `cd-release` run built. D2's `Outcome: SUCCESS` stands on that
+    basis, not on the PR check. Task 6's precondition is read the same way.
