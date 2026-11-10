@@ -259,6 +259,8 @@ the mq-rest-admin repos are excluded (see Task R1–R4).
 
 ### Task 2 (.github): spike
 
+Report: [spike.md](spike.md) (arm64 and amd64 recorded).
+
 **Files:**
 
 - Create: `epics/649-ubuntu-base-platform/spike.md` (the report)
@@ -1055,3 +1057,41 @@ Tasks 7–13 read, all carried in T7b's `build-args` map. The probes in Tasks 4
 and 5 are the same two paths:
 `/etc/apt/sources.list.d/vergil.sources` and `/opt/vergil/python/*/bin/python3`.
 The log lines are the same in Tasks 4, 5 and D1.
+
+## Evolution during execution
+
+### 2026-11-09: what Tasks 4 and 5 changed in landing
+
+- **Tasks 4 and 5** check the packaged vergil-tooling with `vrg-whoami
+  --mode`, not `vrg-whoami --version`.
+- **Task 5** checks the runner's Ubuntu codename before anything else, so a
+  runner on any other release fails at once with that reason.
+- **Task 5** guarantees that every install path, the packaged one included,
+  leaves uv on `PATH`, never installed with pip. The packaged path first left
+  uv off `PATH`, which broke the harness fixtures that need it
+  (vergil-project/vergil-actions#1117).
+
+### 2026-11-09: two vergil-tooling fixes from the spike
+
+The arm64 half of the spike (Task 2, `spike.md`) raised two decisions, and the
+human ruled to fix both in vergil-tooling, ahead of the family tasks that hit
+them:
+
+- **vergil-project/vergil-tooling#4138:** noble's cppcheck 2.13.0 rejects the
+  comment lines of the packaged `cppcheck-suppressions.txt`, so the file
+  becomes comment-free. It blocks Tasks 11 and 12
+  (vergil-project/vergil-containers#783, #785).
+- **vergil-project/vergil-tooling#4139:** `elf.glibc_requirements` counted
+  libgcc_s's `GLIBC_2.0` version need as a glibc requirement, so it now counts
+  only glibc's own libraries. It blocks Task 8
+  (vergil-project/vergil-containers#780).
+
+Each must also be in a released vergil-tooling before the task it blocks can
+validate against the packaged tooling.
+
+The spike also settled details within the tasks, recorded on their issues:
+Tasks 11 and 12 install `g++-14` (noble's default `g++` is 13); Task 7's
+semgrep build on Python 3.15 needs `CC=gcc` beside the temporary
+`build-essential`; Task 10's Rust image installs `gcc` and `libc6-dev` as its
+linker; and the `.trivyignore` work is 9 CVE IDs in Task 7 and one more in
+Task 13, not the 10 and 13 entries the spike first counted.
