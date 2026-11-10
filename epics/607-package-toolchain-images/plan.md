@@ -617,3 +617,15 @@ differ, the entry wins. The task list above is left as written.
     `refs/tags/v2.1.297^{}` both pointed at `de501a7`, the commit the
     release's `cd-release` run built. D2's `Outcome: SUCCESS` stands on that
     basis, not on the PR check. Task 6's precondition is read the same way.
+11. **2026-11-10: V1 ran on 19 PR runs, not the plan's "at least 20".** By
+    human ruling on V1's item N0.1 (vergil-project/vergil-tooling#3767,
+    **dismiss**), V1 used every completed vergil-tooling `pull_request` CI
+    run created after Task 5 merged. Those were runs 42826712249 to
+    42896118351, consecutive with none skipped; a run still in progress at
+    the time was left out. The plan gives no reason for 20. In the baseline
+    (vergil-project/.github#606), about 55% of runs were slow, so even 10
+    consecutive fast runs would have only about a 0.03% chance if nothing
+    had been fixed. And the images no longer run apt at all. All three V1
+    checks passed: setup took 3 to 8 s across 94 package jobs, no
+    `apt-get install` or `dnf install` appeared, and no package gate
+    finished more than 33 s after the last non-package job.
