@@ -508,3 +508,65 @@ differ, this section wins. Nothing else in the plan changes.
     on the built image prints the same as on its upstream image. Record both
     outputs in the PR.
 - **The marker** is unchanged: #649 removes it in its own `base` image.
+
+## Evolution during execution
+
+The plan is frozen once its first tasks ship. These dated entries record
+how it changed during execution, and why. Where an entry and a task above
+differ, the entry wins. The task list above is left as written.
+
+1. **2026-11-09: Task 3 (vergil-project/vergil-containers#727) took on the
+   `dependency_map` work.** Step 5 asked epic #213's T2
+   (vergil-project/vergil-containers#510) to add the toolchain keys to
+   `dependency_map`. T2 had already merged, so #727 added them to
+   `docker/versions/includes.py` itself, with tests, following the
+   "develop moved" note on that issue. The coordination comment on #510
+   records this. Task 3 merged as vergil-project/vergil-containers#793.
+2. **2026-11-09: Task 3 also fixed a lifecycle bug.**
+   `docker/versions/lifecycle/apply.py` rebuilt the manifest from the
+   families alone, so a lifecycle PR would have deleted the `toolchains:`
+   section and `base`'s parent. `apply_change` now keeps every section it
+   does not change (Review Focus 1).
+3. **2026-11-09: Task 4 (vergil-project/vergil-containers#728) gained the
+   pins exposure report.** By human ruling (N0.2 on the epic, made a scope
+   change on #728), `docker/pins/report_exposure.py` builds its image matrix
+   from every `manifest.toolchains` entry, key and versions, as well as the
+   families and `base`. Without this, the report would have left
+   `pkg-ubuntu` and `pkg-rhel` out without warning.
+4. **2026-11-09: Task 6 (vergil-project/vergil-actions#1090) gained a check
+   for the full tool set.** By human ruling (N0.1 on the epic, made a scope
+   change on #1090), `check-toolchain.sh` must print an `::error::` for each
+   of `uv`, `curl`, `git`, `gpg`, `tar` and `gzip` that the marker leaves
+   out, and exit 1. `nfpm` stays required only with `--nfpm`. Before this,
+   the script checked only the tools a marker listed.
+5. **2026-11-09: the fail-fast apt config is on every architecture, not
+   amd64 only.** By human ruling on merge-review item R1 of #728:
+   `os-prereqs.sh` writes `/etc/apt/apt.conf.d/80-vergil-fast-fail` on every
+   architecture, so the spec and plan wording was wrong. In `pkg-ubuntu`,
+   `docker/common/apt-mirror.dockerfile` now writes the fast-fail config on
+   amd64 and arm64, and only the mirror list and the sources rewrite stay
+   amd64-only. The build-time check requires the fast-fail file on both
+   architectures. This corrects the Global Constraints "Image contents" item
+   and the `apt-mirror` line in Task 4's file list. Spec §5.1 carries the
+   same correction as a dated note.
+6. **2026-11-09: Task 4's "no python3" check is relaxed on `pkg-rhel`.**
+   UBI's dnf runs on the distro's `/usr/bin/python3`, so `pkg-rhel` instead
+   checks that the `python3` on `PATH` is that one file, owned by the
+   distro's `python3` RPM, and that there is no Python in `/usr/local/bin`.
+   `pkg-ubuntu` keeps the strict check. The merge review of #728 raised no
+   item on it.
+7. **2026-11-09: Task 4's arm64 build is native.** Epic #213's T7
+   (vergil-project/vergil-containers#515, merged as
+   vergil-project/vergil-containers#774) landed before Task 4 started, so
+   Step 2's note that the arm64 build runs under QEMU no longer applies.
+8. **2026-11-09: Task 3's matrix entries use a `build-args` map, plus
+   `parent` and `depth`.** Epic #213's T7b
+   (vergil-project/vergil-containers#773, merged as
+   vergil-project/vergil-containers#775) changed the `matrix.json` entry
+   shape before Task 3 started, as the "develop moved" note on #727
+   records. So Task 3's `render_matrix_json` emits each toolchain version
+   as `{"language": t.key, "version": v, "build-args": {t.build_arg: v},
+   "parent": null, "depth": ...}`, not the single
+   `"build-arg": t.build_arg` that Task 3's interface and the Self-Review's
+   type-consistency note describe. Spec §8 carries the same correction as a
+   dated note.
