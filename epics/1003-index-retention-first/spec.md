@@ -89,7 +89,8 @@ newest `lines` lines, and in each the newest `keep` releases. This is today's
 ### 5.3 Download, verify, index
 
 1. Download, manifest-match and read the metadata of the selected releases
-   only, with the existing `_release_artifacts`.
+   only, with `_release_artifacts`, given each release's asset names from the
+   listing.
 2. Drop every artifact whose package name is in `[retention].retire`.
 3. Verify what remains with the existing `collect.verify`.
 4. Write, sign and size-check the index from it, as today.
@@ -131,8 +132,11 @@ The validation checks the `publish-index` run that the release triggers: its
 in the published noble `Packages` file.
 
 Bookends: the documentation task (this spec and the plan), the
-documentation-review sweep, which also corrects the order in epic #356's spec,
-and the retrospective.
+documentation-review sweep, and the retrospective. The sweep also corrects
+the old collect, verify, retention order where it is still written down: epic
+#356's spec, the header comment of vergil-actions
+`.github/workflows/publish-index.yml`, and the comment at the top of packages
+`packages.toml`.
 
 ## 7. Left to the builder
 

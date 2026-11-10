@@ -27,7 +27,7 @@
 - A product with more than 100 releases: the listing spans pages, and every page's releases are read. Pinned by `test_packaged_tags_reads_every_page` (Task 1).
 - A line whose newest release is unpackaged: the newest *packaged* release in that line is selected. Pinned by `test_collect_selects_newest_packaged_release_in_a_line` (Task 1).
 - Lines compared numerically (`v2.10` newer than `v2.9`). Pinned by `test_select_tags_lines_compare_numerically` (Task 1).
-- Retired names dropped before verification, so a retired package is never verified or indexed. Pinned by `test_build_site_runs_every_step_in_order` (Task 1).
+- `build_site` calls `drop_retired` before `verify` and indexing. Pinned by `test_build_site_runs_every_step_in_order` (Task 1); the filter itself by `test_drop_retired_removes_every_fmt_and_arch`.
 - A release outside the selection is never viewed or downloaded. Pinned by `test_collect_downloads_only_selected_releases` (Task 1).
 
 ---
@@ -35,7 +35,10 @@
 ### Task 1: Retention-first index build
 
 **Files:**
-- Modify: `src/vergil_tooling/lib/package/index/collect.py` (add `packaged_tags`; `collect` downloads selected tags only; remove the no-manifest branch of `_release_artifacts` and `collect`; module docstring)
+- Modify: `src/vergil_tooling/lib/package/index/collect.py` (add `packaged_tags`; `collect` downloads selected tags only; `_release_artifacts` takes the listing's asset names instead of calling `release_packages`; module and `Identity` docstrings)
+- Modify: `src/vergil_tooling/lib/package/index/published.py` (module docstring only: drop the reference to the deleted duplicate check)
+- Modify: `src/vergil_tooling/lib/package/index/__init__.py` (docstring)
+- Modify: `src/vergil_tooling/bin/vrg_package.py` (`index` help text: select, download, verify)
 - Modify: `src/vergil_tooling/lib/package/index/retention.py` (replace `select` with `select_tags` and `drop_retired`; delete `_check_conflicts`, `_close`, `_check_retire_matches`, `_check_retired`; keep `version_key`, which `apt.py` uses; module docstring)
 - Modify: `src/vergil_tooling/lib/package/index/site.py:155-160` (new call order; module docstring)
 - Modify: `docs/site/docs/reference/package-config.md` (the `[retention]` section: selection, download, retire filter, verify; no closure, no retire failures)
@@ -43,10 +46,11 @@
 
 **Interfaces:**
 - Produces:
-  - `collect.packaged_tags(product: str, gh: Run = local_run) -> list[str]`: the packaged stable release tags of `product`, from the paginated listing (`--slurp` output is a list of pages; flatten it).
+  - `collect.packaged_tags(product: str, gh: Run = local_run) -> dict[str, list[str]]`: each packaged stable release tag of `product` mapped to its asset names, in listing order, from the paginated listing (`--slurp` output is a list of pages; flatten it).
+  - `collect._release_artifacts(product: str, tag: str, assets: list[str], workdir: Path, gh: Run) -> list[Artifact]`: as today, but its package names come from `assets` (the `.deb`/`.rpm` names), so it makes no `gh release view` call.
   - `retention.select_tags(tags: list[str], keep: int, lines: int) -> list[str]`: the newest `lines` major.minor lines among `tags`, the newest `keep` in each, newest first. A non-`vX.Y.Z` tag raises `PackageError`.
   - `retention.drop_retired(artifacts: list[Artifact], retire: frozenset[str]) -> list[Artifact]`: `artifacts` without any whose `name` is in `retire`, in input order.
-  - `collect.collect(cfg: IndexConfig, workdir: Path, gh: Run = local_run) -> list[Artifact]`: unchanged signature; for each product, `_release_artifacts` for each tag in `select_tags(packaged_tags(product), cfg.keep, cfg.lines)` only.
+  - `collect.collect(cfg: IndexConfig, workdir: Path, gh: Run = local_run) -> list[Artifact]`: unchanged signature; for each product, `rels = packaged_tags(product, gh)`, then `_release_artifacts(product, tag, rels[tag], workdir, gh)` for each tag in `select_tags(list(rels), cfg.keep, cfg.lines)` only.
   - `site.build_site` order: `collect.collect` → `retention.drop_retired` → `collect.verify` → apt/rpm write → sign → size guard.
 
 - [ ] **Step 1: Write the failing tests**
@@ -57,7 +61,7 @@ In `test_package_index_collect.py`, teach `_FakeGh` to answer `gh api --paginate
 def test_packaged_tags_reads_every_page() -> None:
     rel = [(f"v1.0.{i}", ["packages-manifest.json", f"p_1.0.{i}-1_amd64.deb"]) for i in range(5)]
     gh = _fake_gh({"o/p": rel}, page_size=2)
-    assert collect.packaged_tags("o/p", gh) == [f"v1.0.{i}" for i in range(5)]
+    assert list(collect.packaged_tags("o/p", gh)) == [f"v1.0.{i}" for i in range(5)]
 
 def test_packaged_tags_skips_unpackaged_draft_prerelease_and_unstable() -> None:
     gh = _fake_gh(
@@ -65,11 +69,11 @@ def test_packaged_tags_skips_unpackaged_draft_prerelease_and_unstable() -> None:
                  ("v1.0.3", [MANIFEST]), ("develop-1", [MANIFEST])]},
         drafts=("v1.0.2",), prereleases=("v1.0.3",),
     )
-    assert collect.packaged_tags("o/p", gh) == ["v1.0.1"]
+    assert list(collect.packaged_tags("o/p", gh)) == ["v1.0.1"]
 
 def test_collect_downloads_only_selected_releases(tmp_path: Path) -> None:
     # keep=1, lines=1 over v2.0.1, v2.1.0, v2.1.1 (all packaged)
-    # assert every "gh release view"/"gh release download" call names v2.1.1 only
+    # assert no "gh release view" call is made, and every "gh release download" names v2.1.1
 
 def test_collect_selects_newest_packaged_release_in_a_line(tmp_path: Path) -> None:
     # keep=1, lines=1: v2.1.0 packaged, v2.1.1 without a manifest
@@ -79,7 +83,7 @@ def test_collect_selects_newest_packaged_release_in_a_line(tmp_path: Path) -> No
 Change these existing collect tests:
 
 - `test_release_without_manifest_is_ignored`: becomes a `packaged_tags` test that a release without the manifest is not returned (no log line is asserted).
-- The three retry tests (`test_transient_gh_release_blip_is_retried_then_succeeds`, `test_persistent_transient_gh_release_failure_is_fatal_after_budget`, `test_answer_type_gh_release_failure_is_not_retried`): the `"gh release list"` fault-injection prefix becomes `"gh api"`, so the transient-error retry is tested on the new listing call.
+- The three retry tests (`test_transient_gh_release_blip_is_retried_then_succeeds`, `test_persistent_transient_gh_release_failure_is_fatal_after_budget`, `test_answer_type_gh_release_failure_is_not_retried`): the `"gh release list"` fault-injection prefix becomes `"gh api"`, so the transient-error retry is tested on the new listing call, and their `"gh release view"` cases are removed, since the index no longer makes that call.
 
 In `test_package_index_retention.py`, replace the `select` tests with:
 
@@ -115,7 +119,7 @@ Expected: FAIL on the new tests (`packaged_tags`, `select_tags`, `drop_retired` 
 
 - [ ] **Step 3: Implement**
 
-`collect.packaged_tags`: `_json` on the listing, flatten the pages, keep packaged stable releases in listing order. `collect.collect`: per product, `retention.select_tags(packaged_tags(product, gh), cfg.keep, cfg.lines)`, then `_release_artifacts` for each. `retention.select_tags`: today's `_by_lines` logic on tags. `retention.drop_retired`: a list filter. `site.build_site`: the new order above. Delete the removed functions and any import they leave unused. Only packaged tags reach `_release_artifacts` now, so it returns `list[Artifact]` and its no-manifest branch, and `collect`'s `is not None` check, are removed. Rewrite the three module docstrings and the `[retention]` section of `package-config.md` to describe selection, download, the retire filter and verification.
+`collect.packaged_tags`: `_json` on the listing, flatten the pages, keep packaged stable releases in listing order. `collect.collect`: per product, `retention.select_tags(packaged_tags(product, gh), cfg.keep, cfg.lines)`, then `_release_artifacts` for each. `retention.select_tags`: today's `_by_lines` logic on tags. `retention.drop_retired`: a list filter. `site.build_site`: the new order above. Delete the removed functions and any import they leave unused. `_release_artifacts` takes the listing's asset names, so it no longer calls `release_packages`, has no no-manifest case, and returns `list[Artifact]`; `collect`'s `is not None` check goes with it. `release_packages` and `stable_tags` stay for `published.py`. Rewrite the docstrings and help text listed under Files, and the `[retention]` section of `package-config.md`, to describe selection, download, the retire filter and verification.
 
 - [ ] **Step 4: Run validation**
 
