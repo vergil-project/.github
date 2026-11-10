@@ -570,3 +570,31 @@ differ, the entry wins. The task list above is left as written.
    `"build-arg": t.build_arg` that Task 3's interface and the Self-Review's
    type-consistency note describe. Spec §8 carries the same correction as a
    dated note.
+9. **2026-11-10: Task 4 extended the PR image pipeline to the toolchain
+   images.** Epic #213's T6′ (vergil-project/vergil-containers#514, merged
+   as vergil-project/vergil-containers#795) added PR-time selective image
+   build and scan while Task 4 (vergil-project/vergil-containers#728) was in
+   progress, and its job planner knew manifest families only.
+   `pr_jobs.smoke_dirs` left out the toolchain entries, so after the rebase
+   PR CI's `images / select` failed on the first one with
+   `no manifest entry 'pkg-ubuntu'`, and
+   `test_pr_jobs.py::test_smoke_dirs_follow_the_manifest` failed in
+   `quality / custom`. Task 4's PR (vergil-project/vergil-containers#797)
+   fixed both in commit `ccab1fc`: `smoke_dirs` now covers every
+   `manifest.toolchains` entry, and the test expects `pkg-ubuntu` and
+   `pkg-rhel`, with no smoke test of their own. The same commit cleared two
+   hadolint warnings that had failed `quality / hadolint`. `vrg-validate`
+   runs hadolint only on `Dockerfile*` at the repository root, so the
+   generated `docker/*/Dockerfile` files are linted only in CI, and the run
+   did not catch them before handoff. Both are ignored inline, each with its
+   reason:
+   - SC3054, in the shared marker fragment
+     (`docker/common/package-toolchain-marker.dockerfile`), flagged in both
+     generated Dockerfiles: the step runs under the template's bash `SHELL`,
+     and it must use the same bash regex as `check-toolchain.sh`.
+   - DL3006, on the UBI `FROM` in `pkg-rhel`: the RHEL version is in the
+     repository name (`ubi<v>/ubi`).
+
+   PR CI on `ccab1fc` then built all four toolchain images on amd64 and
+   arm64, and every check passed. That was the first real amd64 build of
+   `pkg-ubuntu`'s mirror setup: the local builds ran on arm64 only.
