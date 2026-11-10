@@ -486,11 +486,12 @@ the live task list.
      with `uv run`, and `pr_jobs.py` declares its `pyyaml` dependency in a
      PEP 723 header that is registered in `test_entry_points.py`.
 3. **2026-11-09: added three tasks to make `images / evidence` a required
-   gate.** T6′ adds `images / evidence` as the single aggregating gate, but the
-   plan never made it required. Required checks come from vergil-tooling's
-   generated "CI gates" ruleset, which the daily config audit converges, so
-   adding the check by hand would be reported as drift and removed. By human
-   ruling, three tasks were added:
+   gate.** T6′ adds `images / evidence` as the single aggregating gate, and its
+   Step 2 asks for the check to be added to the ruleset's required checks by
+   hand. That step could not work. Required checks come from vergil-tooling's
+   generated "CI gates" ruleset, which the daily config audit converges, so a
+   hand edit would be reported as drift and removed. By human ruling, Step 2
+   was replaced by three tasks:
    - vergil-project/vergil-tooling#4132 makes the gate required for repos that
      set `[ci].images = true`, adds it to the producible-gate catalog, and makes
      releases harvest its evidence. It merged as
