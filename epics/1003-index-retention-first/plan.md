@@ -35,6 +35,7 @@
 ### Task 1: Retention-first index build
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/package/index/collect.py` (add `packaged_tags`; `collect` downloads selected tags only; `_release_artifacts` takes the listing's asset names instead of calling `release_packages`; module and `Identity` docstrings)
 - Modify: `src/vergil_tooling/lib/package/index/published.py` (module docstring only: drop the reference to the deleted duplicate check)
 - Modify: `src/vergil_tooling/lib/package/index/__init__.py` (docstring)
@@ -45,6 +46,7 @@
 - Test: `tests/vergil_tooling/test_package_index_collect.py`, `tests/vergil_tooling/test_package_index_retention.py`, `tests/vergil_tooling/test_package_index_site.py`
 
 **Interfaces:**
+
 - Produces:
   - `collect.packaged_tags(product: str, gh: Run = local_run) -> dict[str, list[str]]`: each packaged stable release tag of `product` mapped to its asset names, in listing order, from the paginated listing (`--slurp` output is a list of pages; flatten it).
   - `collect._release_artifacts(product: str, tag: str, assets: list[str], workdir: Path, gh: Run) -> list[Artifact]`: as today, but its package names come from `assets` (the `.deb`/`.rpm` names), so it makes no `gh release view` call.

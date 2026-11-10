@@ -133,8 +133,8 @@ in the published noble `Packages` file.
 
 Bookends: the documentation task (this spec and the plan), the
 documentation-review sweep, and the retrospective. The sweep also corrects
-the old collect, verify, retention order where it is still written down: epic
-#356's spec, the header comment of vergil-actions
+the old collect, verify, retention order where it is still written down:
+epic #356's spec, the header comment of vergil-actions
 `.github/workflows/publish-index.yml`, and the comment at the top of packages
 `packages.toml`.
 
