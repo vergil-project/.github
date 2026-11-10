@@ -150,12 +150,14 @@ largest saving per PR is in vergil-containers.
 and again at submit:
 
 1. Every issue is in the PR's own repository.
-2. Every issue is a managed task: its parent is an epic (a finite epic or
-   the repo's ad-hoc epic), and it is not an epic, a queue item, or an
-   operational (validation or deployment) task. These refusals already exist
-   per issue and now run on every issue in the list. Because every batch
-   issue is a managed task, every one is linked with `Closes`; an issue with
-   no epic parent cannot be batched.
+2. Every issue has the **same parent epic**, and that epic is either a
+   planned (finite) epic or the repo's ad-hoc epic. Nothing else qualifies:
+   no unparented issue, no queue item (intake, planning or deferred), and no
+   mix of epics. Same-repo (rule 1) is still checked separately, since a
+   finite epic's tasks can span repositories. Each issue must also not be an
+   operational (validation or deployment) task. The existing per-issue
+   refusals run on every issue in the list. Every batch issue is a task
+   under an epic, so every one is linked with `Closes`.
 3. No issue is directly Blocked-by an **open** deployment task, since the
    batch lands all at once. A closed deployment task means its change is
    already deployed, so it does not block. This is read from the issues'
@@ -214,7 +216,7 @@ Each issue is reviewed on its own commit range, with `--issue` set to that
 issue and `--base` set to the previous issue's collapsed commit (the batch's
 base for the first issue). Its rulings, its closing comment and its
 eligibility line stay on that issue, judged against its own acceptance
-criteria and its own epic's design sources.
+criteria and the design sources of the batch's one epic (§5.1).
 
 A ruling pause is not a batch stop. A run that ends `stopped: request <id>`
 resumes the batch at the same issue once the human has replied, as a
@@ -275,8 +277,8 @@ prompt.
 ### 5.6 Submission
 
 `vrg-submit-pr` runs its per-issue checks on every issue and writes a PR body
-with one `Closes` line per issue (every batch issue is a managed task,
-§5.1). It re-checks the hard rules and the commit-per-issue invariant before
+with one `Closes` line per issue (every batch issue is a task under the
+batch's epic, §5.1). It re-checks the hard rules and the commit-per-issue invariant before
 `gh pr create`, along with its existing reported-head checks. A batch branch is one branch, so the template, named-branch and
 serial batch modes carry it unchanged.
 
