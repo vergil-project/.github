@@ -5,15 +5,17 @@ item of [spec.md](spec.md) §8's spike list, built as throwaway trial images and
 checked on each architecture. Each section gives the command, the result per
 architecture and a verdict: `as planned`, or `decision needed: <what>`.
 
-**Status: arm64 recorded, amd64 pending.** The arm64 half ran on 2026-11-09.
-The amd64 half needs an amd64 machine, run as vergil-project/.github#988; its
-column reads `pending: #988` until then. The task is
-not complete until it is recorded.
+**Status: complete.** The arm64 half ran on 2026-11-09, and the amd64 half on
+2026-11-10, as the validation task vergil-project/.github#988, whose comments
+hold its full logs.
 
 ## Setup
 
 - **arm64 host:** aarch64 Linux, rootless `nerdctl` 2.4.1 with buildkit
   0.33.1 (no `docker`).
+- **amd64 host:** an x86_64 GCP cloud VM, rootless `nerdctl` 2.4.2 with
+  buildkit 0.34.1 on its containerd worker (vergil-project/vergil-vm#400; the
+  OCI worker cannot build `FROM` a local image).
 - **Root:** `ubuntu:24.04`
   (`sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852`,
   Ubuntu 24.04.5 LTS).
@@ -78,7 +80,7 @@ and again with only the unversioned `g++`.
 
 | | arm64 | amd64 |
 |---|---|---|
-| Result | noble ships `gcc-14`/`g++-14` 14.2.0-4ubuntu2~24.04.1 in `noble-updates` (`universe`), a released 14.2.0. The `noble` release pocket alone has `14-20240412-0ubuntu1`, a pre-release snapshot. The PPA has 14.3.0-12ubuntu1~24~ppa1. Unversioned `g++` is 13.2.0 (`g++-13` 13.3.0). `libstdc++6` is 14.2.0 (from the gcc-14 source). The `cpp-gcc:14` build gives `gcc (Ubuntu 14.2.0-4ubuntu2~24.04.1) 14.2.0`. Clang 19 and 20 with `g++-14` select `/usr/lib/gcc/aarch64-linux-gnu/14`; with only `g++` they select `.../13`. All three smoke tests pass (`SMOKE PASS`). Today's trixie images ship gcc and libstdc++ 14.2.0-19. | pending: #988 |
+| Result | noble ships `gcc-14`/`g++-14` 14.2.0-4ubuntu2~24.04.1 in `noble-updates` (`universe`), a released 14.2.0. The `noble` release pocket alone has `14-20240412-0ubuntu1`, a pre-release snapshot. The PPA has 14.3.0-12ubuntu1~24~ppa1. Unversioned `g++` is 13.2.0 (`g++-13` 13.3.0). `libstdc++6` is 14.2.0 (from the gcc-14 source). The `cpp-gcc:14` build gives `gcc (Ubuntu 14.2.0-4ubuntu2~24.04.1) 14.2.0`. Clang 19 and 20 with `g++-14` select `/usr/lib/gcc/aarch64-linux-gnu/14`; with only `g++` they select `.../13`. All three smoke tests pass (`SMOKE PASS`). Today's trixie images ship gcc and libstdc++ 14.2.0-19. | The same as arm64: `gcc-14`/`g++-14` 14.2.0-4ubuntu2~24.04.1 from `noble-updates` (and `noble-security`), `universe`; the PPA has 14.3.0-12ubuntu1~24~ppa1; unversioned `g++` is 13.2.0; `libstdc++6` is 14.2.0; `cpp-gcc:14` gives `gcc` 14.2.0. Clang 19 and 20 select `/usr/lib/gcc/x86_64-linux-gnu/14` with `g++-14`, and `.../13` with only `g++` (GCC 14's compiler and dev packages purged). All three smoke tests pass (`SMOKE PASS`). |
 
 **Verdict: as planned.** The source is noble's own `gcc-14` (a released
 14.2.0, from `noble-updates`, which `ubuntu:24.04` enables), not the PPA. The
@@ -108,7 +110,7 @@ installs `vergil-tooling=2.1.293-1` from the apt repository and runs
 
 | | arm64 | amd64 |
 |---|---|---|
-| Result | All four series unpack at `/opt/python/<v>`. In each image `uv python find` returns `/usr/local/bin/python`, which resolves to `/opt/python/<v>/bin/python<v>`, and `uv run` reports `<v>` with `sys.base_prefix` `/opt/python/<v>`. No uv-managed interpreter exists. `python3`, `python` and `pip` resolve to the series, and `pip` is 26.2.2 in every series. yamllint, ansible-lint, semgrep, `mkdocs` and `mike` all run on `/opt/vergil/python/3.15` in every series, and `markdownlint` runs with no `node` on `PATH`. In `python:3.12`, the packaged `vrg-*` run from `/opt/vergil/vergil-tooling/venv`, whose `sys.base_prefix` is `/opt/vergil/python/3.15`. | pending: #988 |
+| Result | All four series unpack at `/opt/python/<v>`. In each image `uv python find` returns `/usr/local/bin/python`, which resolves to `/opt/python/<v>/bin/python<v>`, and `uv run` reports `<v>` with `sys.base_prefix` `/opt/python/<v>`. No uv-managed interpreter exists. `python3`, `python` and `pip` resolve to the series, and `pip` is 26.2.2 in every series. yamllint, ansible-lint, semgrep, `mkdocs` and `mike` all run on `/opt/vergil/python/3.15` in every series, and `markdownlint` runs with no `node` on `PATH`. In `python:3.12`, the packaged `vrg-*` run from `/opt/vergil/vergil-tooling/venv`, whose `sys.base_prefix` is `/opt/vergil/python/3.15`. | The same as arm64: all four series at `/opt/python/<v>`; `uv python find` returns `/usr/local/bin/python` → the series; `uv run` has base prefix `/opt/python/<v>`; no uv-managed interpreter; pip 26.2.2; yamllint, ansible-lint, semgrep, `mkdocs` and `mike` run on `/opt/vergil/python/3.15`; `markdownlint` runs with no `node` on `PATH`. |
 
 **Verdict: as planned.**
 
@@ -143,7 +145,7 @@ in today's `ghcr.io/vergil-project/prod-base:latest`
 
 | | arm64 | amd64 |
 |---|---|---|
-| Result | The downloaded key holds 1 primary key with fingerprint `B3A1D804DC03AB036566A4E367861822166ECABE`, and so does the installed `/usr/share/keyrings/vergil-archive-keyring.asc`. `vergil-archive-keyring` 1.1.1-1 writes `/etc/apt/sources.list.d/vergil.sources` (suite `noble`). `vergil-python3.15` 3.15.1+20261021.1.0.4-1 installs at `/opt/vergil/python/3.15`. `vergil-tooling` 2.1.293-1 installs. Its `/usr/bin/vrg-*` link into `/opt/vergil/vergil-tooling/venv/bin` (shebang `#!/opt/vergil/vergil-tooling/venv/bin/python`, base prefix `/opt/vergil/python/3.15`), and `vrg-whoami --help` and `vrg-validate --help` run. The dev-ref install puts `vrg-validate` at `/root/.local/bin`, on a uv tool venv whose base prefix is `/opt/vergil/python/3.15`, and it runs. Probes: the trial `base` (Ubuntu 24.04.5) has both paths; `prod-base` (Debian 13 trixie) has neither. | pending: #988 |
+| Result | The downloaded key holds 1 primary key with fingerprint `B3A1D804DC03AB036566A4E367861822166ECABE`, and so does the installed `/usr/share/keyrings/vergil-archive-keyring.asc`. `vergil-archive-keyring` 1.1.1-1 writes `/etc/apt/sources.list.d/vergil.sources` (suite `noble`). `vergil-python3.15` 3.15.1+20261021.1.0.4-1 installs at `/opt/vergil/python/3.15`. `vergil-tooling` 2.1.293-1 installs. Its `/usr/bin/vrg-*` link into `/opt/vergil/vergil-tooling/venv/bin` (shebang `#!/opt/vergil/vergil-tooling/venv/bin/python`, base prefix `/opt/vergil/python/3.15`), and `vrg-whoami --help` and `vrg-validate --help` run. The dev-ref install puts `vrg-validate` at `/root/.local/bin`, on a uv tool venv whose base prefix is `/opt/vergil/python/3.15`, and it runs. Probes: the trial `base` (Ubuntu 24.04.5) has both paths; `prod-base` (Debian 13 trixie) has neither. | The same as arm64: 1 primary key with fingerprint `B3A1D804DC03AB036566A4E367861822166ECABE`; suite `noble`; `vergil-python3.15` 3.15.1+20261021.1.0.4-1 at `/opt/vergil/python/3.15`; the packaged `vrg-*` (vergil-tooling **2.1.296-1**, the newest the repository then held) and the dev-ref `vrg-*` both run on the core Python. Probes: the trial `base` has both paths, `prod-base` neither. The amd64-only mirror config is in place: `os-prereqs.sh` wrote `/etc/apt/apt-mirrors.txt`, `ubuntu.sources` uses `mirror+file:/etc/apt/apt-mirrors.txt`, and every later `apt-get` of the tree ran through it. |
 
 **Verdict: as planned.** The environment check itself is Task 4's tests and
 D1. This shows only that its two probes tell the generations apart.
@@ -161,7 +163,7 @@ and `prettier` from the `typescript-analysis` fragment.
 
 | | arm64 | amd64 |
 |---|---|---|
-| Result | `base`: no `node`; `markdownlint` 0.50.0 (the wrapper, running `/opt/vergil/node/22/bin/node`) passes the clean file and reports `MD022` on the failing one. `ts-node:24`: `node` v24.22.2 from `/usr/local/bin`; `markdownlint` is still the core wrapper, with the same results; `npm root -g` = `/usr/lib/node_modules`, `npm prefix -g` = `/usr`, npm 11.19.1. `ts-node:22`: the same, with `node` v22.23.4 and npm 10.9.9. | pending: #988 |
+| Result | `base`: no `node`; `markdownlint` 0.50.0 (the wrapper, running `/opt/vergil/node/22/bin/node`) passes the clean file and reports `MD022` on the failing one. `ts-node:24`: `node` v24.22.2 from `/usr/local/bin`; `markdownlint` is still the core wrapper, with the same results; `npm root -g` = `/usr/lib/node_modules`, `npm prefix -g` = `/usr`, npm 11.19.1. `ts-node:22`: the same, with `node` v22.23.4 and npm 10.9.9. | The same as arm64: `base` has no `node`, and `markdownlint` 0.50.0 passes the clean file and reports `MD022`; `ts-node:24` node v24.22.2, npm 11.19.1; `ts-node:22` node v22.23.4, npm 10.9.9; both `npm root -g` `/usr/lib/node_modules`, prefix `/usr`. |
 
 **Verdict: as planned.** A builder note: the core Node's `npm` is itself an
 `#!/usr/bin/env node` script, so the `RUN` that installs `markdownlint-cli`
@@ -180,7 +182,7 @@ two `ts-node` trials (item 4).
 
 | | arm64 | amd64 |
 |---|---|---|
-| Result | Go: `go1.26.10 linux/arm64` and `go1.27.3 linux/arm64`; govulncheck v1.9.0 builds and the program runs on both. Rust: `rustc 1.92.0` and `rustc 1.93.1`, each with exactly cargo, clippy, llvm-tools, rust-std, rustc and rustfmt; both crates build, run and pass clippy. LLVM: `Ubuntu clang version 19.1.7` and `20.1.8` install with `lld`, `llvm` and `libclang-rt-<v>-dev`, and the smoke test passes (item 1); today's trixie channel ships the same 20.1.8. Node: 22.23.4 and 24.22.2 (item 4). Every amd64 download (go.dev, `rustup-init`, nodejs.org, python-build-standalone) is listed with its own hash, but none was fetched or built here. | pending: #988 |
+| Result | Go: `go1.26.10 linux/arm64` and `go1.27.3 linux/arm64`; govulncheck v1.9.0 builds and the program runs on both. Rust: `rustc 1.92.0` and `rustc 1.93.1`, each with exactly cargo, clippy, llvm-tools, rust-std, rustc and rustfmt; both crates build, run and pass clippy. LLVM: `Ubuntu clang version 19.1.7` and `20.1.8` install with `lld`, `llvm` and `libclang-rt-<v>-dev`, and the smoke test passes (item 1); today's trixie channel ships the same 20.1.8. Node: 22.23.4 and 24.22.2 (item 4). Every amd64 download (go.dev, `rustup-init`, nodejs.org, python-build-standalone) is listed with its own hash, but none was fetched or built here. | The same as arm64: `go1.26.10` and `go1.27.3` `linux/amd64`, govulncheck v1.9.0 builds; `rustc 1.92.0` and `1.93.1` with exactly cargo, clippy, llvm-tools, rust-std, rustc and rustfmt, a new crate runs and passes clippy; clang 19.1.7 and 20.1.8. Every amd64 download was fetched and matched its pinned hash. |
 
 **Verdict: as planned.** A builder note for Task 10 (rust): the image needs a
 C linker. `rust:<v>-slim` ships `gcc`, so the trial installs `gcc`,
@@ -208,7 +210,7 @@ C linker. `rust:<v>-slim` ships `gcc`, so the trial installs `gcc`,
 
 | | arm64 | amd64 |
 |---|---|---|
-| Result | noble: cmake 3.28.3, cppcheck 2.13.0. Today (trixie): cmake 3.31.6, cppcheck 2.17.1. In the consumer run, `common`, `install`, `typecheck` (cmake configure and build), `test` and `audit` pass on cmake 3.28.3, and `lint` fails. clang-format and run-clang-tidy pass, but cppcheck 2.13.0 exits with `cppcheck: error: Failed to add suppression. No id.` cppcheck 2.13.0 rejects the comment (`#`) lines of vergil-tooling's `configs/cpp/cppcheck-suppressions.txt`: the same file minus its comments passes (exit 0), and cppcheck 2.17.1 accepts it as it is. `googletest.cfg` is present on noble, and `--std=c++20` and `--std=c++23` are accepted. | pending: #988 |
+| Result | noble: cmake 3.28.3, cppcheck 2.13.0. Today (trixie): cmake 3.31.6, cppcheck 2.17.1. In the consumer run, `common`, `install`, `typecheck` (cmake configure and build), `test` and `audit` pass on cmake 3.28.3, and `lint` fails. clang-format and run-clang-tidy pass, but cppcheck 2.13.0 exits with `cppcheck: error: Failed to add suppression. No id.` cppcheck 2.13.0 rejects the comment (`#`) lines of vergil-tooling's `configs/cpp/cppcheck-suppressions.txt`: the same file minus its comments passes (exit 0), and cppcheck 2.17.1 accepts it as it is. `googletest.cfg` is present on noble, and `--std=c++20` and `--std=c++23` are accepted. | The same as arm64: noble cmake 3.28.3, cppcheck 2.13.0; `prod-cpp-gcc:14` and `prod-cpp-clang:20` cmake 3.31.6, cppcheck 2.17.1. cppcheck 2.13.0 fails the packaged suppressions file (`Failed to add suppression. No id.`) in all three trial C++ images and passes it minus comments; 2.17.1 passes both; `--std=c++23` passes; `googletest.cfg` is present. Consumer: `common`, `install`, `typecheck`, `test` and `audit` pass; `lint` fails on that cppcheck error alone. |
 
 **Verdict.**
 
@@ -236,7 +238,7 @@ own `lib/package/elf.glibc_requirements` and with
 
 | | arm64 | amd64 |
 |---|---|---|
-| Result | `common`, `install`, `lint`, `typecheck` and `audit` pass. `test` fails: 11409 passed, 1 skipped, 1 failed, coverage 100%. The failure is `tests/vergil_tooling/test_package_elf.py::test_real_interpreter_requires_some_glibc`, which asserts every glibc requirement of the running interpreter is at least 2.2. `glibc_requirements` returns `[(2, 0), (2, 17)]` for python-build-standalone 3.15.2 and for vergil-python 3.15.1, against `[(2, 17), (2, 34)]` for today's `prod-python:3.15`. The `GLIBC_2.0` is not a libc requirement: `readelf` shows it as the version need of `libgcc_s.so.1`, for `__register_frame@GLIBC_2.0` and `__deregister_frame@GLIBC_2.0`, which is how aarch64's libgcc_s names those symbols. | pending: #988 |
+| Result | `common`, `install`, `lint`, `typecheck` and `audit` pass. `test` fails: 11409 passed, 1 skipped, 1 failed, coverage 100%. The failure is `tests/vergil_tooling/test_package_elf.py::test_real_interpreter_requires_some_glibc`, which asserts every glibc requirement of the running interpreter is at least 2.2. `glibc_requirements` returns `[(2, 0), (2, 17)]` for python-build-standalone 3.15.2 and for vergil-python 3.15.1, against `[(2, 17), (2, 34)]` for today's `prod-python:3.15`. The `GLIBC_2.0` is not a libc requirement: `readelf` shows it as the version need of `libgcc_s.so.1`, for `__register_frame@GLIBC_2.0` and `__deregister_frame@GLIBC_2.0`, which is how aarch64's libgcc_s names those symbols. | **Differs from arm64.** Every stage passes, `test` included: 11410 passed, 1 skipped, 0 failed, coverage 100%. `glibc_requirements` gives every minor from `(2, 2)` to `(2, 17)` for both trial 3.15 interpreters, with no `GLIBC_2.0` need, and `[(2, 2), (2, 34)]` for `prod-python:3.15`, so the test's `>= (2, 2)` holds. |
 
 **Verdict: decision needed:** vergil-tooling's `elf.glibc_requirements`
 counts version needs of non-libc libraries (here libgcc_s's `GLIBC_2.0`) as
@@ -245,7 +247,12 @@ vergil-python interpreter on arm64. The packaged glibc floor, which takes the
 highest requirement, is unaffected here. The decision is whether to fix the
 function (count only libc and the dynamic loader's version needs) or the
 test, and to land it in vergil-tooling as a consumer fix ahead of the python
-family PR (Task 8). Whether amd64 shows it too is the amd64 half's question.
+family PR (Task 8). amd64 does not show it: x86-64's oldest glibc symbol
+version is 2.2.5, so no interpreter there needs a `GLIBC_2.0`, and the test
+passes. The failure is arm64's alone (aarch64's oldest is 2.17, and its
+libgcc_s names two symbols `GLIBC_2.0`), and the fix stands as ruled, since
+the function is wrong on any architecture where it happens. That reading of
+the per-architecture floors is judgment, not a result of either run.
 
 ## 8. Does vergil-tooling's package venv need pip inside vergil-python?
 
@@ -260,7 +267,7 @@ family PR (Task 8). Whether amd64 shows it too is the amd64 half's question.
 
 | | arm64 | amd64 |
 |---|---|---|
-| Result | No. The venv holds no `pip` or `setuptools`. `pyvenv.cfg` records `uv = 0.12.23` and `home = /opt/vergil/python/3.15/bin`, since the builder makes it with `uv venv --python <interpreter>` at package build. Neither `vergil-tooling` nor `vergil-python3.15` has a `postinst`, so nothing runs pip at install time either. vergil-python itself bundles pip 26.2.2 in its `site-packages`, and `ensurepip`. | pending: #988 |
+| Result | No. The venv holds no `pip` or `setuptools`. `pyvenv.cfg` records `uv = 0.12.23` and `home = /opt/vergil/python/3.15/bin`, since the builder makes it with `uv venv --python <interpreter>` at package build. Neither `vergil-tooling` nor `vergil-python3.15` has a `postinst`, so nothing runs pip at install time either. vergil-python itself bundles pip 26.2.2 in its `site-packages`, and `ensurepip`. | The same as arm64: no `pip` or `setuptools` in the venv; `pyvenv.cfg` `home = /opt/vergil/python/3.15/bin`, `uv = 0.12.23`; no vergil-tooling or vergil-python maintainer scripts (only `vergil-archive-keyring`'s `postinst` and `postrm`); vergil-python bundles pip 26.2.2 and `ensurepip`. |
 
 **Verdict: as planned.** Nothing in the design needs pip inside
 vergil-python, which is vergil-project/.github#965's question 4. The bundled
@@ -283,7 +290,7 @@ summarized by `scripts/summarize-trivy.py`). The directories:
 
 | | arm64 | amd64 |
 |---|---|---|
-| Result | Fixable HIGH/CRITICAL findings: core Node 22.23.4 (npm 10.9.9): 10, none in `.trivyignore`; `ts-node:22` (the same Node 22.23.4): the same 10; `ts-node:24` (Node 24.22.2, npm 11.19.1): 6, of which 3 are already in `.trivyignore`; `/opt/vergil/python/3.15` and python-build-standalone 3.12–3.15 (pip 26.2.2): 0. All 16 Node findings are in packages npm vendors under `lib/node_modules/npm/node_modules/`. None is in Node itself or in markdownlint-cli. No CRITICAL. Each node runtime is the newest release of its major, so no newer runtime pin exists. The per-CVE list is below. | pending: #988 |
+| Result | Fixable HIGH/CRITICAL findings: core Node 22.23.4 (npm 10.9.9): 10, none in `.trivyignore`; `ts-node:22` (the same Node 22.23.4): the same 10; `ts-node:24` (Node 24.22.2, npm 11.19.1): 6, of which 3 are already in `.trivyignore`; `/opt/vergil/python/3.15` and python-build-standalone 3.12–3.15 (pip 26.2.2): 0. All 16 Node findings are in packages npm vendors under `lib/node_modules/npm/node_modules/`. None is in Node itself or in markdownlint-cli. No CRITICAL. Each node runtime is the newest release of its major, so no newer runtime pin exists. The per-CVE list is below. | The same as arm64: core Node 22 and `ts-node:22` 10 findings each (9 CVE IDs), none in `.trivyignore`; `ts-node:24` 6, of which 3 in `.trivyignore`; every Python 0; no CRITICAL; all in npm's vendored packages. The findings are exactly the IDs, versions and fixed versions in the table below. |
 
 **Verdict: as planned.** Each task's remedy is a `.trivyignore` entry under
 that file's rules (a carrier group with its reason and removal condition).
@@ -322,15 +329,15 @@ The 10 Node 22 findings are 9 CVE IDs (pacote appears twice), and
 
 | # | Item | arm64 | amd64 |
 |---|---|---|---|
-| 1 | GCC 14 source and libstdc++ | as planned | pending: #988 |
-| 2 | python-build-standalone, uv, the core Python | as planned | pending: #988 |
-| 3 | vergil-python, vergil-tooling, probes | as planned | pending: #988 |
-| 4 | Node side by side | as planned | pending: #988 |
-| 5 | Go, Rust, LLVM, nodejs.org sources | as planned | pending: #988 |
-| 6 | cmake and cppcheck | cmake as planned; cppcheck decision needed | pending: #988 |
-| 7 | `vrg-validate` of vergil-tooling | decision needed | pending: #988 |
-| 8 | pip in vergil-python for the package venv | as planned | pending: #988 |
-| 9 | Trivy of the bundled npm and pip | as planned | pending: #988 |
+| 1 | GCC 14 source and libstdc++ | as planned | as planned |
+| 2 | python-build-standalone, uv, the core Python | as planned | as planned |
+| 3 | vergil-python, vergil-tooling, probes | as planned | as planned |
+| 4 | Node side by side | as planned | as planned |
+| 5 | Go, Rust, LLVM, nodejs.org sources | as planned | as planned |
+| 6 | cmake and cppcheck | cmake as planned; cppcheck decision needed | the same as arm64 |
+| 7 | `vrg-validate` of vergil-tooling | decision needed | all green: the glibc test passes |
+| 8 | pip in vergil-python for the package venv | as planned | as planned |
+| 9 | Trivy of the bundled npm and pip | as planned | as planned |
 
 ### Decisions needed
 
@@ -352,24 +359,18 @@ vergil-project/vergil-tooling#4139: `elf.glibc_requirements` counts only the
 version needs of glibc's own libraries, and it blocks Task 8
 (vergil-project/vergil-containers#780).
 
-## amd64: the validation task
+## amd64: how it ran
 
-The amd64 half runs as the validation task vergil-project/.github#988, on an
-amd64 cloud VM, through `issue-validate`. That VM is also where the amd64-only
-mirror config is exercised: the trial `pkg-ubuntu` writes it through
-`os-prereqs.sh`, and every later `apt-get` in the tree runs through it.
+The amd64 half ran as the validation task vergil-project/.github#988, on an
+amd64 cloud VM, through `issue-validate`. The issue is self-contained: it
+embeds the trial's scripts, Dockerfiles and fixtures with a sha256 each,
+fetches the verbatim upstream files at pinned commits, and checks the whole
+kit (43 files) before anything runs. It also scripts the checks the arm64
+half ran by hand (`scripts/extras.sh`: items 1, 6, 7 and 8 and the tree
+summary), and pins item 7's vergil-tooling (`c82f189`) and item 6's consumer
+(`20fd409`) to the commits validated on arm64.
 
-The issue is self-contained. It embeds the trial's scripts, Dockerfiles and
-fixtures with a sha256 each, fetches the verbatim upstream files (the
-vergil-containers fragments, the C++ smoke project and `.trivyignore` at
-`e94ec88`, vergil-actions' `os-prereqs.sh` and vergil-tooling's
-`cppcheck-suppressions.txt`) at pinned commits, and checks the whole kit
-before anything runs. It also scripts the checks this half ran by hand
-(`scripts/extras.sh`: items 1, 6, 7 and 8 and the tree summary), and pins
-item 7's vergil-tooling and item 6's consumer to the commits validated here.
-
-One input moved after the arm64 run: the vergil apt repository keeps only its
-newest `vergil-tooling`, which is now 2.1.294-1, so 2.1.293-1 can no longer
-be installed. `run-all.sh` now resolves the newest version and logs it, and
-the amd64 results record which one ran. Its results come back as comments on the
-issue, to be recorded in this file's amd64 column.
+Two inputs moved between the halves. The vergil apt repository keeps only its
+newest `vergil-tooling`, so `run-all.sh` resolves it at run time: amd64 ran
+2.1.296-1, against arm64's 2.1.293-1. And the amd64 host's tool versions are
+newer (above). Neither changed a verdict.
