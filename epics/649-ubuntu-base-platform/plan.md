@@ -259,7 +259,7 @@ the mq-rest-admin repos are excluded (see Task R1–R4).
 
 ### Task 2 (.github): spike
 
-Report: [spike.md](spike.md) (arm64 recorded; amd64 pending).
+Report: [spike.md](spike.md) (arm64 and amd64 recorded).
 
 **Files:**
 
