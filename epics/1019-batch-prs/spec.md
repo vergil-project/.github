@@ -100,9 +100,13 @@ largest saving per PR is in vergil-containers.
   `## Issue Linkage` line (`lib/pr_body.py`). The same-repo, task-only,
   operational and queue refusals in `report-ready` and `vrg-submit-pr`, and
   the `Closes` upgrade (`_task_linkage`), each take one ref.
-- **Closing several issues at merge already works.** `vrg-finalize-pr`
-  closes every closing-reference issue of the merged PR that GitHub left open
-  (#4002).
+- **GitHub closes the issues; finalize only backstops it.** A PR body's
+  `Closes` lines make GitHub auto-close those issues on merge, and that works
+  for any number of them. GitHub occasionally skips an auto-close (#4002:
+  #3921 stayed open after PR #3928 merged). So `vrg-finalize-pr` waits
+  briefly, re-reads the merged PR's closing references, and closes only those
+  GitHub left open, with a comment saying so. Neither step assumes a single
+  issue.
 - **Feature PRs squash.** `_resolve_strategy` in `bin/vrg_finalize_pr.py`
   merges `release/*` branches with a merge commit and squashes everything
   else, unless `--strategy` overrides it. The org's branch ruleset allows
