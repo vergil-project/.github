@@ -318,6 +318,12 @@ precisely by the include-graph. This is the guarantee behind the determinism
 concern: nothing that changes image bytes is missed, and nothing that only changes
 gating triggers a wasteful rebuild.
 
+> **Correction (2026-11-10):** what shipped differs for `.trivyignore` and
+> `trivy.yaml`. The plan's T5 puts both in the selector's full set, so in PR CI
+> a scan-config change rebuilds and scans every image. By human ruling that
+> behaviour stands: a suppression change is tested before merge. See the plan's
+> "Evolution during execution", entry 4.
+
 **Edge cases handled explicitly:** an empty matrix (a push that touched no image
 inputs — e.g. docs only) must make the build job **skip cleanly**, not error; and a
 single aggregating **build-gate** job depends on the dynamic matrix and passes when
@@ -486,6 +492,9 @@ only by unit checks — this is an infrastructure epic. A `validation`-kind task
    `languages.yml` change, and **no rebuild** for a `.trivyignore` / `.hadolint.yaml`
    / `pins.yml` change (the existing `hadolint`/`pins` PR jobs still run; no image
    build is scheduled).
+
+   > **Correction (2026-11-10):** a `.trivyignore` change selects every image
+   > (see the §4.2 correction), and validation checks against that.
 4. Record `Outcome: SUCCESS` as a comment; the task closes only on success.
 
 ## 9. Deferred / open questions (ledger — nothing falls out silently)

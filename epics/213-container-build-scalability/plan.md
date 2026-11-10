@@ -458,3 +458,82 @@ Blocked-by T7.
   map.
 - **Validation (#517).** Also Blocked-by T7b; step 1 confirms the publish ran
   in tier order.
+
+## Evolution during execution
+
+The plan froze when T7 (vergil-project/vergil-containers#515) shipped. These
+entries record each change since then and its reason. The epic's sub-issues stay
+the live task list.
+
+1. **2026-11-09: added task #794, a bounded retry of the per-arch push by
+   digest.** After T7, the CD per-arch jobs push by digest in a burst of about 36
+   parallel pushes. GHCR sporadically refused some of them with
+   `denied: permission_denied: write_package`, which a re-run cleared. This
+   failed CD runs 42706419639, 42707902917 and 42709501709. By human ruling,
+   vergil-project/vergil-containers#794 added a jittered retry of at most three
+   attempts to that push, with no unbounded retry (merged as
+   vergil-project/vergil-containers#796).
+2. **2026-11-09: T6′ needed two CI fixes before it went green.** PR
+   vergil-project/vergil-containers#795 failed twice, and commit `a679a80` fixed
+   both:
+   - `images / select` failed on every PR. GitHub runs a container job's `run:`
+     steps with `sh -e`, and the select step's `[[ =~ ]]` SHA check is not an
+     `sh` command. `ci-images.yml` now sets `defaults.run.shell: bash` at
+     workflow level, and `test_every_run_step_is_bash` holds it.
+   - `quality / custom` failed on vergil-project/vergil-containers#777's
+     `test_no_caller_runs_an_entry_point_with_python3`, which landed while T6′
+     was in progress. The workflow now calls `selection.py` and `pr_jobs.py`
+     with `uv run`, and `pr_jobs.py` declares its `pyyaml` dependency in a
+     PEP 723 header that is registered in `test_entry_points.py`.
+3. **2026-11-09: added three tasks to make `images / evidence` a required
+   gate.** T6′ adds `images / evidence` as the single aggregating gate, but the
+   plan never made it required. Required checks come from vergil-tooling's
+   generated "CI gates" ruleset, which the daily config audit converges, so
+   adding the check by hand would be reported as drift and removed. By human
+   ruling, three tasks were added:
+   - vergil-project/vergil-tooling#4132 makes the gate required for repos that
+     set `[ci].images = true`, adds it to the producible-gate catalog, and makes
+     releases harvest its evidence. It merged as
+     vergil-project/vergil-tooling#4147 and shipped in vergil-tooling v2.1.296.
+   - vergil-project/vergil-containers#798 uploads `ci-evidence-images` from the
+     `evidence` job and sets `[ci].images = true`, in one PR so any release head
+     that asks for the evidence also carries the upload. It merged as
+     vergil-project/vergil-containers#805.
+   - Deployment task vergil-project/vergil-containers#799 applied the ruleset.
+     The agent identity cannot run `vrg-github-repo-config apply`, so a human
+     ran it. #799 then confirmed that the live "CI gates" ruleset requires
+     `images / evidence`, and that vergil-containers v2.1.37 harvested the
+     `images` gate (selected 18, jobs 36, `missing_gates: []`).
+4. **2026-11-10: a `.trivyignore` change rebuilds and scans every image, which
+   differs from the spec.** Spec §4.2's table and §8 step 3 say a
+   `.trivyignore`, `trivy.yaml` or `.trivy/` change schedules no image build.
+   The plan's T5 puts `.trivyignore` and `trivy.yaml` in `FULL_GLOBS`, so in PR
+   CI a scan-config change is re-checked by scanning every image, and that is
+   what shipped. By human ruling, the shipped behaviour stands: a suppression
+   change is tested before merge, at the cost of a full PR build on a rare
+   `.trivyignore`-only PR. Validation checks against the plan. The spec carries
+   a dated note at both places.
+5. **2026-11-10: Validation rulings on tier order and the published name/tag
+   set.**
+   - *Tier order.* No matrix entry declares a `parent:` yet, so a cold publish
+     runs tier 0 only and skips tiers 1 and 2. By human ruling,
+     vergil-project/vergil-containers#517 stays open until epic
+     vergil-project/.github#649 adds parents, so the cold publish can show a
+     real parent-before-child order.
+   - *"Unchanged" names and tags (spec §4.6).* This means no consumer-facing
+     name or tag changed because of this epic, not that the set matches the
+     2026-10-26 baseline. Since then, java images were removed by epic
+     vergil-project/.github#952, and `pkg-ubuntu` and `pkg-rhel` were added by
+     epic vergil-project/.github#607. The human accepted this reading.
+6. **2026-11-10: added task #809 to carry Validation's throwaway PRs.** A
+   validation task cannot have PRs, and `vrg-pr-workflow report-ready` refuses
+   one. So the six throwaway branches for Validation step 4 were reported ready
+   against task vergil-project/vergil-containers#809 instead: five selection
+   cases, plus one change that breaks a build and must turn `images / evidence`
+   red. They were opened as PRs #810 to #815, are never merged, and are closed
+   once their results are recorded on #517.
+7. **2026-11-10: a follow-up found during Validation was routed to intake, not
+   this epic.** The release and nightly prod publishes share the concurrency
+   group `docker-publish-prod`, with `cancel-in-progress: true`. On 2026-11-10
+   the v2.1.37 release cancelled the nightly's `prod-ts-node:22` publish. This
+   is captured as vergil-project/.github#1009.
