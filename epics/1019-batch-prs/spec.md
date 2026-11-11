@@ -180,6 +180,8 @@ submit as backstops:
    already deployed, so it does not block. This is read from the issues'
    `Blocked-by:` reflinks and the operational kind labels.
 4. A batch has at least 2 and at most 8 issues.
+5. Every issue was opened by an author `vrg-trusted-authors` lists. The
+   check fails closed if that command fails.
 
 **Guidelines.** These are judgment for `epic-implement` and the human, written
 into the `epic-implement` and `issue-implement` skills:
@@ -203,10 +205,16 @@ Substantial issues keep today's shape: one agent and one PR each.
 
 ### 5.2 Implementing a batch
 
-`issue-implement` given a list first runs the hard-rule check (§5.1), the
-same code report-ready runs, and starts nothing if the list breaks a rule.
+`issue-implement` given a list first runs its per-issue preflight on every
+listed issue, the trusted-author check included, then the hard-rule check
+(§5.1), the same code report-ready runs. It starts nothing if any issue
+fails either.
 It then writes the batch marker (below) and works on one worktree and one
-branch for the whole batch. For each issue, in order:
+branch for the whole batch, started at a fixed base: the `origin/develop`
+commit when the batch starts, recorded in the marker as `base_sha`. A batch
+does not rebase onto `develop` before handoff, so finished issues are never
+rewritten. A conflict with a moved `develop` is resolved at submit or by
+pr-watch. For each issue, in order:
 
 1. Implement it. The issue's first commit is an ordinary `vrg-commit` with a
    conventional subject ending in the issue's ref, for example
@@ -226,21 +234,25 @@ Validation and merge review run once per issue, which is what N separate
 agents would run today. The saving is in GitHub's gates, not local work.
 
 **The batch marker.** When a batch starts, `issue-implement` writes the
-batch's ordered issue list to `build/.vergil-state/issue-implement/<N>/batch`
-in the main clone, for every member N. That is the per-issue directory
-`epic-implement` already scans for stopped runs. `issue-implement` writes it,
-not `epic-implement`, because a human can call `issue-implement` with a list
-directly. A resumed run reads the list there and continues at the first issue
-without its one commit. The marker is removed when report-ready succeeds,
+batch's ordered issue list and its `base_sha` to
+`build/.vergil-state/issue-implement/<N>/batch` in the main clone, for every
+member N. That is the per-issue directory `epic-implement` already scans for
+stopped runs. `issue-implement` writes it, not `epic-implement`, because a
+human can call `issue-implement` with a list directly. A resumed run reads
+the list there and continues at the first issue that is not finished. An
+issue is finished only when its merge review has closed (its closing
+merge-review comment is on the issue) and its commit is folded; a commit's
+shape alone never counts. The marker is removed when report-ready succeeds,
 together with the `merge-review/` directory. When an item is extracted, its
 state directory is removed (§5.4) and every remaining member's list is
-rewritten without it.
+rewritten without it. A marker always means a batch of two or more, so when
+only one issue remains, its marker is removed too.
 
 ### 5.3 Merge review per issue
 
 Each issue is reviewed on its own commit range, with `--issue` set to that
-issue and `--base` set to the previous issue's collapsed commit (the batch's
-base for the first issue). Its rulings, its closing comment and its
+issue and `--base` set to the previous issue's collapsed commit (the
+marker's `base_sha` for the first issue). Its rulings, its closing comment and its
 eligibility line stay on that issue, judged against its own acceptance
 criteria and the design sources of the batch's one epic (§5.1).
 
@@ -264,9 +276,13 @@ by extracting it: it lands later as its own PR, on top of the batch. Its
 extraction adds a `Blocked-by:` link from it to the batch issue it collided
 with, so `epic-implement` does not dispatch it until the batch has merged.
 
-The run ends with a new stop status naming the item and the reason. Under
-`epic-implement` it is presented at the gate with the other stops; when the
-human ran `issue-implement` directly, it is reported in the terminal. The
+A batch stop is a **non-review item** (review doctrine §1.7). The agent lists
+it under `Awaiting a ruling`, marked as a batch item and naming the item,
+the reason and the choices (extract, continue, hand off what is done,
+unbatch), and the run ends with the existing `waiting: non-review items`.
+Under `epic-implement` it is presented at the gate with the other stops;
+when the human ran `issue-implement` directly, it is settled in the
+terminal. The
 agent never removes an item from the batch itself.
 
 The human decides. When the human extracts an item:
@@ -288,9 +304,10 @@ under today's rules, squash merge included. A batch branch keeps working
 when the issue it is named for has been extracted: the tooling reads the
 batch's issues from the workflow state, never from the branch name.
 
-The resumed run learns of the decision the way it learns of rulings today:
-it is told a response is available, never given the decision text in its
-prompt.
+The resumed run learns of the decision the way it learns of any non-review
+ruling today: from the human in the session, or in `epic-implement`'s
+dispatch prompt. (Merge-review rulings are different: they are read from
+the issue, never passed in a prompt.)
 
 ### 5.5 Handoff
 
@@ -322,17 +339,25 @@ and checks each issue, so a batch PR is never skipped.
 pr-watch keeps one commit per issue on a multi-issue PR. A CI or review fix
 is committed as a fixup of the issue commit it belongs to and folded in with
 a non-interactive autosquash rebase (§5.10), then force-pushed with a lease. It is never added as a new commit.
-Rebasing onto `develop` when the PR conflicts is unchanged. Single-issue PRs
-keep today's add-a-commit behaviour.
+Rebasing onto `develop` when the PR conflicts is unchanged. A fold that
+conflicts, or a fix that belongs to no single issue, is a stop for the
+human. Single-issue PRs keep today's add-a-commit behaviour.
 
 ### 5.8 Finalize
 
-A PR whose body closes more than one issue is a batch PR. For a batch PR,
+A PR whose body has more than one `Closes` line is a batch PR. Manual links
+in GitHub's Development sidebar never make a PR a batch. For a batch PR,
 `vrg-finalize-pr`:
 
-- re-checks the commit-per-issue invariant on the PR's commits immediately
-  before merging, and refuses with the reason if it fails, never falling back
-  to squash;
+- cross-checks the body's `Closes` issues against GitHub's closing
+  references, and refuses if any is missing;
+- updates a batch PR that is behind `develop` by rebase, never by merging
+  `develop` in, which would add a merge commit;
+- re-checks the commit-per-issue invariant on the PR's head after every
+  update and immediately before merging, refuses with the reason if it
+  fails, and never falls back to squash;
+- merges only at the head it last checked (`--match-head-commit`), so a
+  push after the check is re-checked, never merged unchecked;
 - merges with `rebase`, so `develop` receives the N issue commits and the
   changelog gets N entries.
 
@@ -362,7 +387,8 @@ that `squash` on a multi-issue PR is refused (the anti-goal in §3).
   its whole batch, never dispatched on its own.
 - **`merge-review`** reviews one issue of a batch against the previous issue's
   commit (§5.3). In a batch, both of its `--base` uses (the review and each
-  check) take the previous issue's commit, not `origin/develop`, and its fix
+  check) take the previous issue's commit (the marker's `base_sha` for the
+  first issue), never a moving `origin/develop`, and its fix
   is committed as `vrg-commit --fixup <the issue's first commit>`, not a
   plain `vrg-commit`.
 - **`pr-watch`** follows §5.7.
@@ -377,12 +403,16 @@ that a batch runs into are lifted:
 - **`vrg-git reset`** (every mode, `--hard` included) and **`vrg-git
   clean`** are allowed on any branch that is not protected, and refused on
   `develop`, `main` and release branches by the same `_is_protected_branch`
-  check `push` uses. So is **`vrg-git checkout -- .`** / `*`.
-- **The freeze still holds.** `reset`, `clean`, `checkout -- .` / `*` and
-  `rebase -i --autosquash` are refused on a frozen (reported-ready) branch,
-  with the same freeze check and wording as `vrg-commit`, the `vrg-git` push
-  path and `vrg-reword`. The freeze lifts at submit, so pr-watch's folds
-  (§5.7) are unaffected.
+  check `push` uses. So is every **`vrg-git checkout`** that takes a
+  pathspec without switching branch (`checkout .`, `checkout -- <path>`,
+  `checkout -- .` / `*`), since each one discards local changes.
+- **The freeze still holds.** These commands and `rebase -i --autosquash`
+  are refused on a frozen (reported-ready) branch, with the same freeze
+  check and wording as `vrg-commit`, the `vrg-git` push path and
+  `vrg-reword`. Unlike commit and push, which warn and proceed, they **fail
+  closed** when the state file exists but cannot be read, because they
+  throw work away. The freeze lifts at submit, so pr-watch's folds (§5.7)
+  are unaffected.
 - **`vrg-commit --fixup <commit>`** creates a fixup commit of an earlier
   commit on the current branch. It is the only way an agent adds a commit to
   an issue that already has its first commit.
@@ -419,7 +449,6 @@ submit and finalize.
 - The state schema change (a new version, or a list field beside `issue`), and
   how `report-ready` and `vrg-submit-pr` take the list on the command line.
 - The batch marker's file format.
-- The name of the batch stop status.
 - How the commit-per-issue check is shared between report-ready, submit and
   finalize.
 - The batch PR's title and summary format.

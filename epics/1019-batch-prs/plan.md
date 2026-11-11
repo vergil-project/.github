@@ -83,14 +83,22 @@ feedback, vergil-project/.github#1028 (no blocker); documentation review,
 vergil-project/vergil-tooling#4198 (blocked by 9); retrospective,
 vergil-project/.github#1021 (last).
 
-GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
+When the tasks are filed, these advisories are retargeted to the tasks
+that fix them. The task's merge review checks each against that task's
+tests.
+
+| Task | Advisories |
+| --- | --- |
+| 1a | GHSA-mrc8-6fmh-mxvw, GHSA-p76r-qxvq-xcr2, GHSA-72jp-cp9w-xrc4 |
+| 2a | GHSA-x56h-m46c-crjh |
+| 2b | GHSA-f9wp-49wg-ff36 |
 
 ---
 
 ### Task 1a: vrg-git lifts its local-only denials on unfrozen feature branches
 
 **Files:**
-- Modify: `src/vergil_tooling/bin/vrg_git.py` (`_ALLOWED`, `_DENIED`,
+- Modify: `src/vergil_tooling/bin/vrg_git.py` (`_ALLOWED_SIMPLE`, `_DENIED`,
   `_FLAG_DENY`, `_check_denied_flags`, `_run`)
 - Test: `tests/vergil_tooling/test_vrg_git.py`
 
@@ -121,7 +129,7 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
     `rebase -i --autosquash` exit 1, naming the read error.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement.** Move `reset` and `clean` from `_DENIED` into
-  `_ALLOWED`. Add `_check_local_rewrite(subcmd: str, args: list[str]) -> str |
+  `_ALLOWED_SIMPLE`. Add `_check_local_rewrite(subcmd: str, args: list[str]) -> str |
   None`, called from `_run` for `reset`, `clean`, every `checkout` that
   takes a pathspec without switching branch (`checkout .`, `checkout --
   <path>`, `checkout -- .`/`*`), and `rebase -i`. It refuses on `_is_protected_branch()`, and on a frozen
@@ -152,7 +160,8 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
   - `test_fixup_creates_fixup_commit`: the subject is `fixup! ` plus the
     target's subject.
   - `test_fixup_refuses_commit_not_on_branch`: the target must be reachable
-    from HEAD and not from the base. Otherwise exit 1, naming the commit.
+    from HEAD and not from `origin/develop`. Otherwise exit 1, naming the
+    commit.
   - `test_fixup_refuses_with_type_or_message`.
   - `test_fixup_refused_on_frozen_branch`, through the existing freeze check.
 - [ ] **Step 2: Run the tests and see them fail.**
@@ -176,7 +185,11 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
   - `MAX_BATCH = 8`, `MIN_BATCH = 2`.
   - `check_hard_rules(issues: list[str], *, repo: str) -> None`. `issues` are
     canonical `#N` refs in order. It checks: count 2–8; no duplicate; each in
-    `repo`; one shared `epics.parent_of` that `epics.is_epic` and whose
+    `repo`; each a task, not an epic or archive (`epics.non_task_kind`) and
+    not a queue item (`epics.queue_item_kind`), the same per-issue refusals
+    report-ready and submit run; each opened by an author that
+    `vrg-trusted-authors` lists (a leading `app/` stripped), failing closed
+    if that command fails; one shared `epics.parent_of` that `epics.is_epic` and whose
     `epics.queue_kind` is `None` (finite or ad-hoc); not
     `epics.is_operational`; no `epics.blockers_of` entry that is open and has
     `epics.operational_kind == "deployment"`.
@@ -194,6 +207,11 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
   - `test_hard_rules_refuse_mixed_parents`, `…_queue_parent`,
     `…_unparented`, `…_other_repo`
   - `test_hard_rules_refuse_operational_issue`
+  - `test_hard_rules_refuse_non_task_issue` and
+    `test_hard_rules_refuse_queue_item`
+  - `test_hard_rules_refuse_untrusted_author` and
+    `test_hard_rules_refuse_when_trusted_authors_fails`
+  - `test_hard_rules_refuse_on_read_failure`
   - `test_hard_rules_refuse_open_deployment_blocker` and
     `test_hard_rules_accept_closed_deployment_blocker`
   - `test_commits_accept_one_per_issue_in_order`
@@ -204,6 +222,9 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement** the three functions with the signatures above,
   reusing the `epics` helpers named and `lib.git` for the git reads.
+  `check_hard_rules` fails closed: a GitHub read that fails (a parent, a
+  label, a blocker, the trusted-author list) refuses, naming what could not
+  be read. It never skips a rule.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope pr-workflow`).
 
@@ -232,7 +253,9 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
     naming each file and the record step, while any
     `issue-implement/<N>/merge-review/security-*.md` exists. Otherwise it
     removes the issue's whole `issue-implement/<N>/` directory, rewrites each remaining
-    member's list without it, and returns the remaining list.
+    member's list without it, and returns the remaining list. When fewer
+    than 2 members remain, it removes the last member's marker too, so a
+    marker always means a batch of 2 or more.
   - `remove_markers(root: Path, issues: list[str]) -> None`.
   - CLI: `vrg-pr-workflow batch-start --issue N --issue M …` runs
     `check_hard_rules` and then `write_markers`, refusing before writing
@@ -255,6 +278,7 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
     `merge-review/` subdirectory present.
   - `test_extract_refuses_while_a_security_details_file_exists`: the file
     survives, and the message names the record step.
+  - `test_extract_to_one_member_removes_last_marker`
   - `test_batch_show_exits_1_without_marker`
   - `test_batch_show_exits_2_in_another_repos_clone`
 - [ ] **Step 2: Run the tests and see them fail.**
@@ -410,20 +434,25 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
     is re-checked, never merged unchecked.
   - `test_behind_single_issue_pr_still_uses_update_branch` (Review focus 5)
   - `test_single_issue_pr_still_squashes` (Review focus 5)
-  - `test_batch_pr_rebase_merges`: GitHub reports 2 closing references.
+  - `test_batch_pr_rebase_merges`: the body has 2 `Closes` lines.
   - `test_pr_with_one_close_and_one_ref_is_not_a_batch`
+  - `test_single_close_pr_with_manual_development_link_still_squashes`
   - `test_batch_pr_refuses_squash_override`
+  - `test_rebase_merged_batch_records_the_tip_for_the_cd_check`: the SHA
+    `_stage_merge` records is the new tip of `develop`, which the CD run is
+    keyed on.
   - `test_batch_pr_refuses_commit_mismatch_before_merge`, with no merge call.
   - `test_batch_pr_refuses_merge_commit_naming_rebase` (Review focus 4)
   - `test_batch_conflict_message_says_rebase_not_merge`
 - [ ] **Step 2: Run the tests and see them fail.**
-- [ ] **Step 3: Implement.** In `_stage_merge`, decide "batch" from
-  `github.pr_closing_references(pr)`, GitHub's own closing references
-  (already used by `_stage_close_refs`). A batch is more than one closing
-  issue. The ordered list for the commit check is the body's `Closes`
-  lines, in body order, from `linkage.extract_tracking_refs` (Task 6).
-  Refuse, naming both, when that set differs from GitHub's closing
-  references. For a batch, run
+- [ ] **Step 3: Implement.** In `_stage_merge`, decide "batch" from the PR
+  body (`github.read_json("pr", "view", pr, "--json", "body")`): a batch has
+  more than one `Closes` line, read with `linkage.extract_tracking_refs`
+  (Task 6). Those lines, in body order, are the list for the commit check.
+  Only for a batch, cross-check them against
+  `github.pr_closing_references(pr)`, and refuse, naming both, when a
+  `Closes` issue is missing from it. Manual Development links never make a
+  PR a batch. For a batch, run
   `check_commit_per_issue(issues, base=origin/<base>, head=origin/<head>)`
   after fetching. Pass it to `wait_and_merge` as `batch_check`, with
   `strategy="rebase"`. `_conflict_resolution_msg` takes
@@ -480,8 +509,13 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
 - Modify: `skills/issue-implement/SKILL.md` (Preflight, Implement, Merge
   review, Record the PR metadata and hand off)
 
-- [ ] **Step 1:** Add a "Batch mode" section, written as steps:
-  1. Run `vrg-pr-workflow batch-start --issue …`, and stop on refusal.
+- [ ] **Step 1:** Add a "Batch mode" section. It opens with the spec §5.1
+  guidelines: what to batch, what never to batch, the cap of 4 (up to 8
+  when every item is tiny), and the Order rule, which applies to a list a
+  human hands over directly. Then the steps:
+  1. Run Preflight steps 2–5 on **every** listed issue, the trusted-author
+     check included, and start nothing if any issue fails. Then run
+     `vrg-pr-workflow batch-start --issue …`, and stop on refusal.
   2. Use one batch worktree, created at the marker's `base_sha`. **No
      rebase onto `develop` mid-batch:** in batch mode, the "Resolving
      conflicts with the base branch" section does not apply until handoff.
@@ -585,9 +619,9 @@ Kind `validation`, filed in vergil-tooling and blocked by D1. Procedure: pick
   (Task 7). After a ruling on a batch item, it re-dispatches the list that
   `batch-show` prints for the first remaining member, never a list it holds
   in memory (an extraction may have shortened it).
-  When it rebuilds state in a new session, it runs `vrg-pr-workflow
-  batch-show --issue <owner/repo#N>` in the task repo's main clone (as its
-  merge-review lookup does) before dispatching any task, and a task with a
+  Before **every** code-task dispatch, not only when it rebuilds state in a
+  new session, it runs `vrg-pr-workflow batch-show --issue <owner/repo#N>` in
+  the task repo's main clone (as its merge-review lookup does). A task with a
   marker is re-dispatched as its whole batch, never alone.
 - [ ] **Step 2:** In §4, present a batch stop with the run's other
   non-review items. The human extracts the item, continues, hands off what
