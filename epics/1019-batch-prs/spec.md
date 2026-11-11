@@ -107,6 +107,12 @@ largest saving per PR is in vergil-containers.
   briefly, re-reads the merged PR's closing references, and closes only those
   GitHub left open, with a comment saying so. Neither step assumes a single
   issue.
+- **The daily epic sweep does assume a single issue.** `vrg-epic-audit
+  --close` (run by `epic-sweep.yml`) is the backstop for a task its merged PR
+  did not close. `task_drift` (`lib/epic_audit.py`) finds each PR's task
+  with `linkage.extract_tracking_ref`, which raises `ValueError` on more
+  than one linkage line, and it skips that PR silently
+  (`except ValueError: continue`).
 - **Feature PRs squash.** `_resolve_strategy` in `bin/vrg_finalize_pr.py`
   merges `release/*` branches with a merge commit and squashes everything
   else, unless `--strategy` overrides it. The org's branch ruleset allows
@@ -136,8 +142,12 @@ largest saving per PR is in vergil-containers.
 - **Agents cannot rewrite or discard local work.** `vrg-git` denies `reset`,
   `clean`, `checkout -- .` / `*` and `rebase -i` / `--interactive`
   (`bin/vrg_git.py`, `_DENIED` and `_FLAG_DENY`). These have been there
-  since the wrapper was first written, with no recorded incident. Raw
-  `git commit` is refused, and `vrg-commit` builds only new
+  since the wrapper was first written, with no recorded incident. The one
+  sanctioned rewrite is `vrg-reword` (`bin/vrg_reword.py`), which rewords a
+  branch-local commit through a scripted rebase. It is bounded to the
+  branch's own commits and the agent's own identity, and it refuses a frozen
+  branch with the same freeze check as `vrg-commit` and the `vrg-git` push
+  path. Raw `git commit` is refused, and `vrg-commit` builds only new
   `type(scope): message` commits, with no `--fixup` or `--amend`. What
   protects origin is separate: `push --force` is denied, `push
   --force-with-lease` is denied on protected branches, pushes to a frozen
@@ -152,8 +162,9 @@ largest saving per PR is in vergil-containers.
 
 ### 5.1 What may be batched
 
-**Hard rules.** The tooling refuses a batch that breaks one, at report-ready
-and again at submit:
+**Hard rules.** The tooling refuses a batch that breaks one: first when the
+batch starts, before any work (§5.2), and again at report-ready and at
+submit as backstops:
 
 1. Every issue is in the PR's own repository.
 2. Every issue has the **same parent epic**, and that epic is either a
@@ -184,14 +195,18 @@ into the `epic-implement` and `issue-implement` skills:
 - **Cap.** 4 issues by default. Up to 8 only when every item is tiny (a typo,
   a one-line config value, a wording fix; about ≤30 lines and ≤3 files).
 - **Order.** Respect any Blocked-by links between batch items, then the
-  plan's order.
+  plan's order. `epic-implement` batches only ready tasks that are
+  independent of each other, so this applies to lists a human hands to
+  `issue-implement` directly.
 
 Substantial issues keep today's shape: one agent and one PR each.
 
 ### 5.2 Implementing a batch
 
-`issue-implement` given a list works on one worktree and one branch for the
-whole batch. For each issue, in order:
+`issue-implement` given a list first runs the hard-rule check (§5.1), the
+same code report-ready runs, and starts nothing if the list breaks a rule.
+It then writes the batch marker (below) and works on one worktree and one
+branch for the whole batch. For each issue, in order:
 
 1. Implement it. The issue's first commit is an ordinary `vrg-commit` with a
    conventional subject ending in the issue's ref, for example
@@ -218,8 +233,8 @@ not `epic-implement`, because a human can call `issue-implement` with a list
 directly. A resumed run reads the list there and continues at the first issue
 without its one commit. The marker is removed when report-ready succeeds,
 together with the `merge-review/` directory. When an item is extracted, its
-own marker is removed and every remaining member's list is rewritten without
-it.
+state directory is removed (§5.4) and every remaining member's list is
+rewritten without it.
 
 ### 5.3 Merge review per issue
 
@@ -245,7 +260,9 @@ The agent stops at an issue boundary and asks the human when an item:
   commit reworked.
 
 Commits already finished are never reopened. A colliding item is resolved
-by extracting it: it lands later as its own PR, on top of the batch.
+by extracting it: it lands later as its own PR, on top of the batch. Its
+extraction adds a `Blocked-by:` link from it to the batch issue it collided
+with, so `epic-implement` does not dispatch it until the batch has merged.
 
 The run ends with a new stop status naming the item and the reason. Under
 `epic-implement` it is presented at the gate with the other stops; when the
@@ -256,7 +273,10 @@ The human decides. When the human extracts an item:
 
 - the agent discards the item's work, committed or not, with
   `vrg-git reset --hard <previous issue's commit>` and `vrg-git clean -fd`
-  (§5.10), so the branch holds only the finished issues;
+  (§5.10), so the branch holds only the finished issues, and removes the
+  item's whole `build/.vergil-state/issue-implement/<N>/` directory (its
+  batch marker and any `merge-review/` state), so nothing resumes the
+  discarded work;
 - the item gets a comment, approved by the human, saying why it was pulled;
 - it returns to its epic as an ordinary open task, to be picked up later on
   its own;
@@ -294,6 +314,9 @@ batch's epic, §5.1). It re-checks the hard rules and the commit-per-issue invar
 `gh pr create`, along with its existing reported-head checks. A batch branch is one branch, so the template, named-branch and
 serial batch modes carry it unchanged.
 
+The daily epic sweep's `task_drift` reads every linkage line of a PR body
+and checks each issue, so a batch PR is never skipped.
+
 ### 5.7 After the PR is open
 
 pr-watch keeps one commit per issue on a multi-issue PR. A CI or review fix
@@ -326,13 +349,22 @@ that `squash` on a multi-issue PR is refused (the anti-goal in §3).
 - **`epic-implement`** may batch ready tasks on its own judgment, under the
   §5.1 guidelines. There is no batch-specific approval step: a batch is
   simply part of the plan it already shows after rebuilding the epic's
-  state, named as a batch with its issues in order. A batch that goes wrong
-  is unbatched: its work is discarded and its issues are redone one PR
-  each. It presents a batch stop (§5.4) at its gate. Before dispatching any task, it
+  state, named as a batch with its issues in order. It presents a batch stop
+  (§5.4) at its gate. A batch stop means something found while working the
+  batch shows that the decision to batch these issues would not have been
+  made had it been known up front. Revisiting that decision is the human's
+  call, never the agent's. The human extracts the one item, or **unbatches**:
+  extraction (§5.4) applied to every item, each then redone as its own PR.
+  While the batching guidelines are new, each such stop is also the
+  evidence for refining them: the human asks why the issues were batched
+  together, and the answer sharpens §5.1. Before dispatching any task, it
   checks the task's batch marker (§5.2). A task that has one is resumed as
   its whole batch, never dispatched on its own.
 - **`merge-review`** reviews one issue of a batch against the previous issue's
-  commit (§5.3).
+  commit (§5.3). In a batch, both of its `--base` uses (the review and each
+  check) take the previous issue's commit, not `origin/develop`, and its fix
+  is committed as `vrg-commit --fixup <the issue's first commit>`, not a
+  plain `vrg-commit`.
 - **`pr-watch`** follows §5.7.
 
 ### 5.10 History rewriting for agents
@@ -346,6 +378,11 @@ that a batch runs into are lifted:
   clean`** are allowed on any branch that is not protected, and refused on
   `develop`, `main` and release branches by the same `_is_protected_branch`
   check `push` uses. So is **`vrg-git checkout -- .`** / `*`.
+- **The freeze still holds.** `reset`, `clean`, `checkout -- .` / `*` and
+  `rebase -i --autosquash` are refused on a frozen (reported-ready) branch,
+  with the same freeze check and wording as `vrg-commit`, the `vrg-git` push
+  path and `vrg-reword`. The freeze lifts at submit, so pr-watch's folds
+  (§5.7) are unaffected.
 - **`vrg-commit --fixup <commit>`** creates a fixup commit of an earlier
   commit on the current branch. It is the only way an agent adds a commit to
   an issue that already has its first commit.
