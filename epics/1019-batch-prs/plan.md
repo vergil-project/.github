@@ -115,13 +115,19 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
     `GIT_SEQUENCE_EDITOR=true`; `rebase -i origin/develop` exits 1 naming
     `--autosquash`.
   - `test_rebase_autosquash_refused_on_frozen_branch`.
+  - `test_reset_refused_on_unreadable_state`: a malformed
+    `.vergil/pr-workflow.json` makes `reset`, `clean`, `checkout -- .` and
+    `rebase -i --autosquash` exit 1, naming the read error.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement.** Move `reset` and `clean` from `_DENIED` into
   `_ALLOWED`. Add `_check_local_rewrite(subcmd: str, args: list[str]) -> str |
   None`, called from `_run` for `reset`, `clean`, `checkout -- .`/`*` and
   `rebase -i`. It refuses on `_is_protected_branch()`, and on a frozen
-  worktree with `freeze.check_worktree(root, action="rewrite this branch")`,
-  handling a state read error exactly as `_check_frozen_push` does. In
+  worktree with `freeze.check_worktree(root, action="rewrite this branch")`.
+  It fails closed: when the state file exists but `check.read_error` is set,
+  it refuses, naming the read error and the recovery (fix or remove
+  `.vergil/pr-workflow.json`, then re-run report-ready). Commit and push
+  keep their existing warn-and-proceed. In
   `_check_denied_flags`, allow `-i`/`--interactive` only when `--autosquash`
   is also present, and drop the `checkout` `.`/`*` denial in favour of
   `_check_local_rewrite`. Update `_print_help` and the module docstring to
@@ -223,16 +229,24 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
   - `remove_markers(root: Path, issues: list[str]) -> None`.
   - CLI: `vrg-pr-workflow batch-start --issue N --issue M …` runs
     `check_hard_rules` and then `write_markers`, refusing before writing
-    anything. `vrg-pr-workflow batch-extract --issue N` runs `extract`.
+    anything. If any member already has a marker, it succeeds without
+    writing only when every member's marker holds exactly this list (a
+    resume), and refuses otherwise, naming the conflicting issue. `vrg-pr-workflow batch-extract --issue N` runs `extract`.
     `vrg-pr-workflow batch-show --issue N` prints the marker's list, or
-    exits 1 when there is none.
+    exits 1 when there is none. All three also take a fully qualified
+    `--issue owner/repo#N`, and exit 2 when the current clone is not that
+    repo's, so "wrong clone" is never read as "no marker".
 
 - [ ] **Step 1: Write the failing tests**
   - `test_batch_start_writes_marker_for_every_member`
   - `test_batch_start_refuses_and_writes_nothing_on_rule_break`
+  - `test_batch_start_accepts_identical_existing_batch`: a resume, so
+    nothing changes.
+  - `test_batch_start_refuses_different_list_over_existing_markers`
   - `test_extract_removes_whole_state_dir_and_rewrites_lists`, including a
     `merge-review/` subdirectory present.
   - `test_batch_show_exits_1_without_marker`
+  - `test_batch_show_exits_2_in_another_repos_clone`
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement** the module and the three subcommands.
 - [ ] **Step 4: Run the tests and see them pass.**
@@ -251,19 +265,23 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
 
 **Interfaces:**
 - Produces:
-  - `SCHEMA_VERSION = 3`, and `WorkflowState.issues: list[str]` (required,
-    ordered). `WorkflowState.issue` stays, equal to `issues[0]`, so existing
-    single-issue readers are unchanged. A version-2 record is refused by the
-    existing `from_dict` check, and the fix is to re-run report-ready.
+  - `SCHEMA_VERSION` stays `2`. `WorkflowState` gains an optional `issues:
+    list[str] | None`, ordered, written to the JSON only for a batch, and a
+    property `all_issues -> list[str]` that returns `issues` or `[issue]`.
+    `WorkflowState.issue` stays the first issue. A single-issue record is
+    byte-for-byte unchanged, and existing records read as they do today.
   - `engine.init_state(*, issues: list[str], …)`.
-  - `read_pr_fields(...)` also returns `"issues"`, a comma-joined list.
+  - `read_pr_fields(...)` also returns `"issues"`, the comma-joined
+    `all_issues`, so it is always present (one issue for a single-issue
+    record).
   - `report-ready --issue` repeats (`action="append"`).
 - Consumes: `batch_rules.check_hard_rules`, `check_commit_per_issue`,
   `is_batch`, and `batch_marker.remove_markers` (Task 2b).
 
 - [ ] **Step 1: Write the failing tests**
-  - `test_state_round_trips_issue_list` and
-    `test_state_refuses_schema_version_2`
+  - `test_state_round_trips_issue_list`
+  - `test_state_single_issue_json_unchanged`: no `issues` key is written.
+  - `test_state_without_issues_reads_as_single`: `all_issues == [issue]`.
   - `test_report_ready_single_issue_unchanged` (Review focus 5)
   - `test_report_ready_batch_records_ordered_issues`
   - `test_report_ready_batch_refuses_rule_break` and
@@ -271,14 +289,16 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
     and pushes nothing.
   - `test_report_ready_runs_existing_per_issue_refusals_on_every_issue`
     (cross-repo, non-task, operational, queue).
-  - `test_report_ready_batch_removes_markers_on_success`, and
+  - `test_report_ready_batch_removes_markers_on_success`,
+    `test_report_ready_batch_removes_markers_when_relay_push_warns`, and
     `test_report_ready_batch_keeps_markers_on_refusal`.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement.** In `cmd_report_ready`, normalise each `--issue`
   and run the four `_reject_*` checks on each. When `is_batch`, run
   `check_hard_rules` and `check_commit_per_issue(base=state.base,
   head="HEAD")` before any push. Record `issues` in the state and the relay
-  record. Once the relay push succeeds, call
+  record. Once the local state write succeeds (report-ready's point of no
+  return, whatever the relay push does), call
   `batch_marker.remove_markers(git.main_worktree_root(), issues)`.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope pr-workflow`).
@@ -288,7 +308,8 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
 **Files:**
 - Modify: `src/vergil_tooling/lib/pr_body.py` (`build_pr_body`),
   `src/vergil_tooling/bin/vrg_submit_pr.py` (the three body build sites:
-  `_run_cli_mode`, `_open_pr`, the template mode)
+  `_run_cli_mode`, `_open_pr`, the template mode; and
+  `_metadata_from_state`, the relay and named-branch path's metadata)
 - Test: `tests/vergil_tooling/test_pr_body.py`,
   `tests/vergil_tooling/test_vrg_submit_pr.py`
 
@@ -307,14 +328,27 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
   - `test_submit_batch_rechecks_rules_and_commits_before_create`: on a
     mismatch, no `gh pr create` is called.
   - `test_submit_cli_mode_stays_single_issue`
+  - `test_relay_submit_batch_closes_every_issue`: the named-branch path
+    (`_relay_open`) writes one `Closes` line per issue.
+  - `test_relay_submit_batch_rechecks_after_fetch`: on the relay path, the
+    branch and base are fetched before the commit check, and a mismatch
+    opens no PR.
+  - `test_open_pr_requires_issues`: metadata without `issues` raises.
+  - `test_serial_batch_checks_the_rebased_head`: after the `--select`
+    rebase, the check runs on the head the PR opens at, and a commit that
+    went empty in the rebase is refused.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement.** Add `_checked_links(issue_refs: list[str],
   requested: str) -> list[tuple[str, str]]`, which runs the four
   `_reject_if_*` checks and `_resolve_linkage` per issue. Use it at the
-  template and relay build sites. For a batch, call `check_hard_rules` and
-  `check_commit_per_issue` (base `origin/<target>`, head the recorded
-  `head_sha`) before `_create_pr`. The CLI emergency mode keeps one
-  `--issue`.
+  template and relay build sites. `_metadata_from_state` returns `issues`
+  from `state.all_issues`, as `read_pr_fields` does, and `_open_pr` reads
+  `metadata["issues"]` with no fallback to `issue`. On the relay path, run
+  `vrg-git fetch origin <branch> <target>` before the commit check. For a batch, call `check_hard_rules` and
+  `check_commit_per_issue` before `_create_pr`, on the head the PR opens at
+  (`expected_head` in `_open_pr` and `_push_create_record`, which is the
+  rebased head in the serial batch mode), against `origin/<target>` after a
+  fetch of the target. The CLI emergency mode keeps one `--issue`.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope submit-pr`).
 
@@ -322,8 +356,11 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
 
 **Files:**
 - Modify: `src/vergil_tooling/bin/vrg_finalize_pr.py` (`_resolve_strategy`,
-  `_stage_merge`, `_conflict_resolution_msg`)
-- Test: `tests/vergil_tooling/test_vrg_finalize_pr.py`
+  `_stage_merge`, `_conflict_resolution_msg`), `src/vergil_tooling/lib/pr_merge.py`
+  (`wait_and_merge`, `_update_or_abort`), `src/vergil_tooling/lib/github.py`
+  (new `update_branch_rebase`)
+- Test: `tests/vergil_tooling/test_vrg_finalize_pr.py`,
+  `tests/vergil_tooling/test_pr_merge.py`
 
 **Interfaces:**
 - Consumes: `linkage.extract_tracking_refs` (Task 6),
@@ -331,8 +368,23 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
 - Produces: `_resolve_strategy(branch: str, override: str | None, *,
   batch: bool) -> str`. `batch` gives `"rebase"`, and a `squash` override on
   a batch exits non-zero naming the anti-goal.
+- Produces: `github.update_branch_rebase(pr: str, *, expected_head: str) ->
+  None`, which calls GraphQL `updatePullRequestBranch` with `updateMethod:
+  REBASE` and `expectedHeadOid`. Also `pr_merge.wait_and_merge(pr, *,
+  strategy, batch_check: Callable[[], None] | None = None)`. With
+  `batch_check`, a `BEHIND` PR is updated with `update_branch_rebase`, never
+  `update_branch`, and `batch_check` runs after every update and immediately
+  before the merge call.
 
+- [ ] **Step 0: Confirm the API.** Check GitHub's GraphQL docs that
+  `updatePullRequestBranch` accepts `updateMethod: REBASE`. If it does not,
+  stop and ask the human. The fallback is to refuse a `BEHIND` batch PR and
+  print the rebase and force-with-lease commands.
 - [ ] **Step 1: Write the failing tests**
+  - `test_behind_batch_pr_updates_by_rebase_not_merge`: `update_branch` is
+    never called, and `update_branch_rebase` is.
+  - `test_batch_check_runs_after_each_update_and_before_merge`
+  - `test_behind_single_issue_pr_still_uses_update_branch` (Review focus 5)
   - `test_single_issue_pr_still_squashes` (Review focus 5)
   - `test_batch_pr_rebase_merges`: the body has 2 `Closes` lines.
   - `test_batch_pr_refuses_squash_override`
@@ -344,7 +396,8 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
   `github.read_json("pr", "view", pr, "--json", "body")` and take its refs
   with `extract_tracking_refs`. A batch is more than one ref. For a batch, run
   `check_commit_per_issue(issues, base=origin/<base>, head=origin/<head>)`
-  after fetching, then merge with `rebase`. `_conflict_resolution_msg` takes
+  after fetching. Pass it to `wait_and_merge` as `batch_check`, with
+  `strategy="rebase"`. `_conflict_resolution_msg` takes
   `batch: bool` and, for a batch, prints `git rebase origin/<base>` and
   `git push --force-with-lease origin <head>` in place of the merge steps.
 - [ ] **Step 4: Run the tests and see them pass.**
@@ -395,17 +448,34 @@ GHSA-mrc8-6fmh-mxvw is retargeted to Task 1a when the tasks are filed.
 
 - [ ] **Step 1:** Add a "Batch mode" section, written as steps:
   1. Run `vrg-pr-workflow batch-start --issue …`, and stop on refusal.
-  2. Use one batch worktree.
+  2. Use one batch worktree. **Resume:** when the batch already exists
+     (`batch-start` accepted an identical list, or the batch worktree is
+     present), enter the existing batch worktree and continue at the first
+     issue that has no finished commit (subject ending ` (#N)`, with no
+     `fixup!` left for it), with that issue's merge-review state. Make
+     Preflight step 6's merge-review resume batch-aware: for an issue with a
+     batch marker, it resumes the batch in the batch worktree, never the
+     single issue.
   3. For each issue: first commit with its ref, later work as `vrg-commit
      --fixup <first>`, validate, merge-review (Task 8b), then fold with
      `vrg-git rebase -i --autosquash <previous issue's commit>`.
-  4. Stop at an issue boundary on the §5.4 conditions, with stop status
-     `stopped: batch item <ref> (<reason>)`.
+  4. Stop at an issue boundary on the §5.4 conditions. A batch stop is a
+     **non-review item** (review doctrine §1.7): list it under `Awaiting a
+     ruling`, naming the item, the reason and the choices (extract,
+     continue, hand off what is done, unbatch), and end with the existing
+     `waiting: non-review items`. The ruling arrives the way non-review
+     rulings do: from the human in the session, or in epic-implement's
+     dispatch prompt.
   5. On a human extraction: `vrg-git reset --hard <prev>`, `vrg-git clean
      -fd`, `vrg-pr-workflow batch-extract --issue <N>`, the approved
      comment, and a `Blocked-by:` link for a collision.
   6. A batch left with one issue hands off as a single issue.
-  7. Hand off with `report-ready` and every `--issue`, in order. The notes
+  7. Restate the Merge review section's rule "Every `report-ready` follows a
+     merge review that ended `eligible` or `not-eligible` at the `HEAD` it
+     reports" for a batch: each issue's merge review ends at that issue's
+     unfolded head, and the fold that follows only combines that issue's
+     own commits, so no review is re-run after a fold.
+  8. Hand off with `report-ready` and every `--issue`, in order. The notes
      carry each issue's merge-review eligibility line, prefixed with its
      ref. report-ready removes the markers (Task 3), and the skill deletes
      each issue's `merge-review/` as it does today.
@@ -468,10 +538,16 @@ Kind `validation`, filed in vergil-tooling and blocked by D1. Procedure: pick
   under the spec §5.1 guidelines. It names each batch, with its issues in
   order, in the plan it already shows; there is no separate approval step.
   It dispatches a batch with the batch form of the Agent prompt contract
-  (Task 7). Before dispatching any task, it runs `vrg-pr-workflow batch-show
-  --issue <N>`, and a task with a marker resumes as its whole batch.
-- [ ] **Step 2:** In §4, present a `stopped: batch item` stop. The human
-  extracts the item or unbatches (extraction for every item). The human asks
-  why the issues were batched, to refine the guidelines.
+  (Task 7). After a ruling on a batch item, it re-dispatches the same list.
+  When it rebuilds state in a new session, it runs `vrg-pr-workflow
+  batch-show --issue <owner/repo#N>` in the task repo's main clone (as its
+  merge-review lookup does) before dispatching any task, and a task with a
+  marker is re-dispatched as its whole batch, never alone.
+- [ ] **Step 2:** In §4, present a batch stop with the run's other
+  non-review items. The human extracts the item, continues, hands off what
+  is done, or unbatches (extraction for every item), and asks why the issues
+  were batched, to refine the guidelines. Relay the ruling in the dispatch
+  prompt of one new run of the same list, as §1.7 already does for
+  non-review rulings.
 - [ ] **Step 3:** Validate, then commit (`vrg-commit --type feat --scope
   epic-implement`).
