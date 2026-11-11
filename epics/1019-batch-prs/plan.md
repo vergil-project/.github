@@ -2,7 +2,7 @@
 
 - **Epic:** vergil-project/.github#1019
 - **Planning issue:** vergil-project/.github#1017 (review history is in its comments)
-- **Status:** draft, in design review
+- **Status:** approved
 
 > **For agentic workers:** each task is one PR, implemented with the
 > `issue-implement` skill (operational tasks with `issue-deploy` or
@@ -32,7 +32,7 @@ skills change last, in the spec's delivery order.
   finite epic or the repo's ad-hoc epic), is not operational, and is not
   directly Blocked-by an open deployment task.
 - Commit-per-issue invariant: counting from the base, exactly one commit per
-  issue, in the listed order, each subject ending in ` (#<N>)` for its issue,
+  issue, in the listed order, each subject ending in a space and `(#<N>)` for its issue,
   and no merge commits.
 - No silent fallback: every failed check refuses and names the reason.
 - vrg-git protects origin, not the local checkout. The push guards and
@@ -98,11 +98,13 @@ tests.
 ### Task 1a: vrg-git lifts its local-only denials on unfrozen feature branches
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_git.py` (`_ALLOWED_SIMPLE`, `_DENIED`,
   `_FLAG_DENY`, `_check_denied_flags`, `_run`)
 - Test: `tests/vergil_tooling/test_vrg_git.py`
 
 **Interfaces:**
+
 - Produces: `vrg-git reset …`, `vrg-git clean …`, `vrg-git checkout -- .`
   and `vrg-git rebase -i --autosquash <base>`, allowed on a branch that is
   neither protected nor frozen.
@@ -148,16 +150,18 @@ tests.
 ### Task 1b: vrg-commit `--fixup`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_commit.py`
 - Test: `tests/vergil_tooling/test_vrg_commit.py`
 
 **Interfaces:**
+
 - Produces: `vrg-commit --fixup <commit>`, which makes a `fixup! <subject>`
   commit of `<commit>`. `--type`, `--scope` and `--message` are not required
   with it, and are refused alongside it.
 
 - [ ] **Step 1: Write the failing tests**
-  - `test_fixup_creates_fixup_commit`: the subject is `fixup! ` plus the
+  - `test_fixup_creates_fixup_commit`: the subject is `fixup!`, a space, then the
     target's subject.
   - `test_fixup_refuses_commit_not_on_branch`: the target must be reachable
     from HEAD and not from `origin/develop`. Otherwise exit 1, naming the
@@ -175,10 +179,12 @@ tests.
 ### Task 2a: Batch rules module
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/pr_workflow/batch_rules.py`
 - Test: `tests/vergil_tooling/pr_workflow/test_batch_rules.py`
 
 **Interfaces:**
+
 - Produces:
   - `class BatchRuleError(WorkflowError)`, with a message naming the rule and
     the issue or commit.
@@ -196,7 +202,7 @@ tests.
   - `check_commit_per_issue(issues: list[str], *, base: str, head: str) ->
     None`. It reads `git rev-list --reverse <base>..<head>` and the subjects,
     and checks: no merge commits, `len == len(issues)`, and commit *i*'s
-    subject ends with ` (#<issues[i] number>)`.
+    subject ends with a space and `(#<issues[i] number>)`.
   - `is_batch(issues: list[str]) -> bool`, which is `len(issues) > 1`.
 
 - [ ] **Step 1: Write the failing tests.** GitHub reads are mocked at
@@ -231,6 +237,7 @@ tests.
 ### Task 2b: The batch marker, through `vrg-pr-workflow`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_pr_workflow.py` (`parse_args`, new
   `cmd_batch_start`, `cmd_batch_extract`)
 - Create: `src/vergil_tooling/lib/pr_workflow/batch_marker.py`
@@ -238,6 +245,7 @@ tests.
   `tests/vergil_tooling/test_vrg_pr_workflow.py`
 
 **Interfaces:**
+
 - Consumes: `batch_rules.check_hard_rules`, and `git.main_worktree_root()`.
 - Produces:
   - `marker_path(root: Path, issue: str) -> Path`, which is
@@ -289,6 +297,7 @@ tests.
 ### Task 3: Workflow state and report-ready carry an issue list
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/pr_workflow/state.py`,
   `src/vergil_tooling/lib/pr_workflow/engine.py`,
   `src/vergil_tooling/lib/pr_workflow/submission.py` (`read_pr_fields`),
@@ -298,6 +307,7 @@ tests.
   `tests/vergil_tooling/test_vrg_pr_workflow.py`
 
 **Interfaces:**
+
 - Produces:
   - `SCHEMA_VERSION` stays `2`. `WorkflowState` gains an optional `issues:
     list[str] | None`, ordered, written to the JSON only for a batch, and a
@@ -346,6 +356,7 @@ tests.
 ### Task 4: Submit runs per-issue checks and writes one `Closes` line per issue
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/pr_body.py` (`build_pr_body`),
   `src/vergil_tooling/bin/vrg_submit_pr.py` (the three body build sites:
   `_run_cli_mode`, `_open_pr`, the template mode; and
@@ -354,6 +365,7 @@ tests.
   `tests/vergil_tooling/test_vrg_submit_pr.py`
 
 **Interfaces:**
+
 - Produces: `build_pr_body(*, summary: str, links: list[tuple[str, str]],
   notes: str) -> str`, where `links` is `[(linkage, issue_ref), …]`, one `-
   <linkage> <ref>` line each under `## Issue Linkage`. A single-element list
@@ -395,6 +407,7 @@ tests.
 ### Task 5: Finalize detects a batch PR, re-checks it and rebase-merges
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_finalize_pr.py` (`_resolve_strategy`,
   `_stage_merge`, `_conflict_resolution_msg`), `src/vergil_tooling/lib/pr_merge.py`
   (`wait_and_merge`, `_update_or_abort`), `src/vergil_tooling/lib/github.py`
@@ -403,6 +416,7 @@ tests.
   `tests/vergil_tooling/test_pr_merge.py`
 
 **Interfaces:**
+
 - Consumes: `github.pr_closing_references` (existing),
   `linkage.extract_tracking_refs` (Task 6),
   `batch_rules.check_commit_per_issue`.
@@ -464,12 +478,14 @@ tests.
 ### Task 6: The epic sweep reads every linkage line
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/linkage.py`,
   `src/vergil_tooling/lib/epic_audit.py` (`task_drift`)
 - Test: `tests/vergil_tooling/test_linkage.py`,
   `tests/vergil_tooling/test_epic_audit.py`
 
 **Interfaces:**
+
 - Produces: `extract_tracking_refs(text: str) -> list[tuple[str, str]]`,
   every linkage as `(keyword, ref)`, with `keyword` either `"Ref"` or
   `"Closes"` and `ref` either `"#N"` or `"owner/repo#N"`, in body order. `extract_tracking_ref` keeps
@@ -492,6 +508,7 @@ tests.
 ### Task 7: Worktree convention, the batch form
 
 **Files:**
+
 - Modify: `docs/specs/worktree-convention.md`
 
 - [ ] **Step 1:** Add the batch rule: one worktree and one branch per batch,
@@ -506,6 +523,7 @@ tests.
 ### Task 8a: issue-implement accepts a list
 
 **Files:**
+
 - Modify: `skills/issue-implement/SKILL.md` (Preflight, Implement, Merge
   review, Record the PR metadata and hand off)
 
@@ -562,6 +580,7 @@ tests.
 ### Task 8b: merge-review in a batch
 
 **Files:**
+
 - Modify: `skills/merge-review/SKILL.md` (the review request, the fix step,
   the check request)
 
@@ -575,6 +594,7 @@ tests.
 ### Task 8c: pr-watch folds fixups on a batch PR
 
 **Files:**
+
 - Modify: `skills/pr-watch/SKILL.md` (Monitor & reconcile)
 
 - [ ] **Step 1:** On a PR that closes more than one issue, a CI or review fix
@@ -609,6 +629,7 @@ Kind `validation`, filed in vergil-tooling and blocked by D1. Procedure: pick
 ### Task 9: epic-implement batches and resumes batches
 
 **Files:**
+
 - Modify: `skills/epic-implement/SKILL.md` (§3 Work the runnable frontier,
   §4 Batch at the gate)
 

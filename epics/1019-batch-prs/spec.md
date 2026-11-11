@@ -2,7 +2,7 @@
 
 - **Epic:** vergil-project/.github#1019
 - **Planning issue:** vergil-project/.github#1017 (review history is in its comments)
-- **Status:** draft, in design review
+- **Status:** approved
 
 ## 1. Intent
 
@@ -57,7 +57,7 @@ largest saving per PR is in vergil-containers.
 
 ## 3. Goals, non-goals, anti-goals
 
-**Goals**
+### Goals
 
 - `issue-implement` accepts a list of issues from one repository and delivers
   them as one PR that closes all of them.
@@ -68,7 +68,7 @@ largest saving per PR is in vergil-containers.
 - When a batch item proves bigger than expected, the human decides what
   happens to it.
 
-**Non-goals**
+### Non-goals
 
 - Combining branches that were already implemented and handed off separately.
   The batch is formed before implementation starts.
