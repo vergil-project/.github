@@ -133,10 +133,16 @@ largest saving per PR is in vergil-containers.
   non-review items`). `epic-implement` presents every stop at its gate, and
   once the human has responded, dispatches a new run told only that a
   response is available.
-- **Agents cannot rewrite history.** `vrg-git` denies `reset` outright and
-  `rebase -i` / `--interactive` (`bin/vrg_git.py`), raw `git commit` is
-  refused, and `vrg-commit` builds only new `type(scope): message` commits,
-  with no `--fixup` or `--amend`.
+- **Agents cannot rewrite or discard local work.** `vrg-git` denies `reset`,
+  `clean`, `checkout -- .` / `*` and `rebase -i` / `--interactive`
+  (`bin/vrg_git.py`, `_DENIED` and `_FLAG_DENY`). These have been there
+  since the wrapper was first written, with no recorded incident. Raw
+  `git commit` is refused, and `vrg-commit` builds only new
+  `type(scope): message` commits, with no `--fixup` or `--amend`. What
+  protects origin is separate: `push --force` is denied, `push
+  --force-with-lease` is denied on protected branches, pushes to a frozen
+  branch are refused, and GitHub's rulesets block force-pushes and deletion
+  on `develop` and `main`.
 - **One worktree per issue.** The worktree convention
   (`docs/specs/worktree-convention.md`) names `.worktrees/issue-<N>-<slug>/`
   on `feature/<N>-<slug>`, and its Agent prompt contract gives each agent one
@@ -198,17 +204,22 @@ whole batch. For each issue, in order:
 3. Merge-review it (§5.3).
 4. Fold its fixups into its first commit with a non-interactive autosquash
    rebase onto the previous issue's commit (§5.10), leaving **exactly one
-   commit** for the issue. The folded commit's tree must equal the tree that
-   was validated and reviewed, so neither is invalidated. The tooling checks
-   this, not the agent.
+   commit** for the issue.
 5. Move on to the next issue, on top of this commit.
 
 Validation and merge review run once per issue, which is what N separate
 agents would run today. The saving is in GitHub's gates, not local work.
 
-The batch's membership, order and per-issue progress are recorded where a
-resumed run can read them, alongside the worktree's workflow state, so a run
-stopped for a ruling or a decision resumes at the right issue.
+**The batch marker.** When a batch starts, `issue-implement` writes the
+batch's ordered issue list to `build/.vergil-state/issue-implement/<N>/batch`
+in the main clone, for every member N. That is the per-issue directory
+`epic-implement` already scans for stopped runs. `issue-implement` writes it,
+not `epic-implement`, because a human can call `issue-implement` with a list
+directly. A resumed run reads the list there and continues at the first issue
+without its one commit. The marker is removed when report-ready succeeds,
+together with the `merge-review/` directory. When an item is extracted, its
+own marker is removed and every remaining member's list is rewritten without
+it.
 
 ### 5.3 Merge review per issue
 
@@ -243,8 +254,9 @@ agent never removes an item from the batch itself.
 
 The human decides. When the human extracts an item:
 
-- the item's work in progress is discarded, and the branch returns to the
-  previous issue's commit (§5.10);
+- the agent discards the item's work, committed or not, with
+  `vrg-git reset --hard <previous issue's commit>` and `vrg-git clean -fd`
+  (§5.10), so the branch holds only the finished issues;
 - the item gets a comment, approved by the human, saying why it was pulled;
 - it returns to its epic as an ordinary open task, to be picked up later on
   its own;
@@ -311,62 +323,68 @@ that `squash` on a multi-issue PR is refused (the anti-goal in §3).
   `feature/<N>-batch-<slug>`. The Agent prompt contract gains a batch form
   that names every issue in order.
 - **`issue-implement`** accepts a list and follows §5.2–§5.5.
-- **`epic-implement`** looks for batching opportunities by default, under
-  the §5.1 guidelines. Before dispatching anything, it shows the human its
-  **dispatch strategy** and waits for approval. The strategy states which
-  tasks run in parallel (one subagent and one PR each) and which are
-  batched (one subagent and one PR per batch, with its issues in order and
-  why each qualifies). These are different things and are always shown
-  separately. This applies to every dispatch, not only to batches. It
-  presents a batch stop (§5.4) at its gate.
+- **`epic-implement`** may batch ready tasks on its own judgment, under the
+  §5.1 guidelines. There is no batch-specific approval step: a batch is
+  simply part of the plan it already shows after rebuilding the epic's
+  state, named as a batch with its issues in order. A batch that goes wrong
+  is unbatched: its work is discarded and its issues are redone one PR
+  each. It presents a batch stop (§5.4) at its gate. Before dispatching any task, it
+  checks the task's batch marker (§5.2). A task that has one is resumed as
+  its whole batch, never dispatched on its own.
 - **`merge-review`** reviews one issue of a batch against the previous issue's
   commit (§5.3).
 - **`pr-watch`** follows §5.7.
 
 ### 5.10 History rewriting for agents
 
-The three rewrites a batch needs use `--fixup` commits and a plain
-autosquash rebase, through the existing wrappers. No new rewrite command is
-introduced. The guard is widened only as far as these need:
+**Principle: vrg-git protects origin, not the local checkout.** Rewriting or
+discarding local work on a feature branch cannot harm origin. The guards
+that protect origin (§4) stay exactly as they are. The local-only denials
+that a batch runs into are lifted:
 
+- **`vrg-git reset`** (every mode, `--hard` included) and **`vrg-git
+  clean`** are allowed on any branch that is not protected, and refused on
+  `develop`, `main` and release branches by the same `_is_protected_branch`
+  check `push` uses. So is **`vrg-git checkout -- .`** / `*`.
 - **`vrg-commit --fixup <commit>`** creates a fixup commit of an earlier
   commit on the current branch. It is the only way an agent adds a commit to
   an issue that already has its first commit.
-- **`vrg-git rebase --autosquash <base>`**, non-interactive, folds the
-  fixups into their targets. `rebase -i` / `--interactive` stays denied.
-  This needs a git that supports `--autosquash` without `--interactive`;
-  the builder confirms the version on the host, the VMs and the dev images.
-- **Dropping an extracted item** (§5.4) returns the branch to the previous
-  issue's commit. This is the one rewrite a fixup cannot express. The
-  builder picks the narrowest wrapper allowance for it: limited to a commit
-  that is an ancestor of HEAD on the current feature branch, never `develop`
-  or another branch, and refusing a dirty or frozen worktree.
+- **`vrg-git rebase -i --autosquash <base>`** folds the fixups into their
+  targets. vrg-git allows `-i` / `--interactive` only together with
+  `--autosquash`, and refuses it otherwise. Its existing no-op editors
+  (`GIT_SEQUENCE_EDITOR=true`, `GIT_EDITOR=true`) keep the rebase
+  non-interactive, and this works on every git in the fleet, including
+  2.43. Plain `--autosquash` without `-i` needs git 2.44, which the Ubuntu
+  24.04 VMs and images do not have. This allowance is technical debt, to be
+  removed once git 2.44 or later is guaranteed everywhere
+  (vergil-project/.github#1023).
+- **Dropping an extracted item** (§5.4) is `vrg-git reset --hard` to the
+  previous issue's commit, then `vrg-git clean -fd` for any untracked files
+  the item created.
 
-The checks (tree equality after a fold, and one commit per issue) run inside
-the tooling: in report-ready, submit and finalize, and after each fold. They
-never depend on the agent having run the rewrite correctly.
+The one-commit-per-issue check runs inside the tooling, in report-ready,
+submit and finalize.
 
 ## 6. Constraints
 
 - Single-issue PRs behave exactly as they do today.
+- **Delivery order.** The tooling, `issue-implement`, `merge-review` and
+  `pr-watch` changes land first and are proved on a live batch (§8). The
+  `epic-implement` change lands last.
 - No silent fallback. Every check that fails refuses with its reason: the
-  hard rules, the commit-per-issue invariant, and the tree-equality check.
+  hard rules and the commit-per-issue invariant.
 - A batch's commit subjects carry `(#issue)` rather than `(#PR)`. GitHub's
   rebase merge does not append the PR number. **Judgment:** acceptable, since
   both render as links.
-- Relay records written by older tooling still have one `issue`; the new
-  tooling must read them, or refuse them by name. It must never misread them.
 
 ## 7. Left to the builder
 
 - The state schema change (a new version, or a list field beside `issue`), and
   how `report-ready` and `vrg-submit-pr` take the list on the command line.
-- Where the batch progress record lives and its format.
+- The batch marker's file format.
 - The name of the batch stop status.
-- How the commit-per-issue and tree-equality checks are shared between
-  report-ready, submit and finalize.
-- The exact wrapper allowance for dropping an extracted item, within the
-  limits in §5.10.
+- How the commit-per-issue check is shared between report-ready, submit and
+  finalize.
 - The batch PR's title and summary format.
 - Which repo carries each change. Most tooling changes are in vergil-tooling
   and the skill changes in vergil-claude-plugin.
