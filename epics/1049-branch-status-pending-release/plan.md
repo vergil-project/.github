@@ -79,6 +79,7 @@ section once a release ships it.
 ### Task 1: Rename `vrg-worktree-status` to `vrg-repo-status`
 
 **Files:**
+
 - Modify: `pyproject.toml` (the console-script entry: `vrg-repo-status =
   "vergil_tooling.bin.vrg_repo_status:main"`, replacing the
   `vrg-worktree-status` line)
@@ -100,6 +101,7 @@ section once a release ships it.
   `docs/site/docs/reference/index.md`
 
 **Interfaces:**
+
 - Produces: module `vergil_tooling.bin.vrg_repo_status` with `main(argv:
   list[str] | None = None) -> int` and `parse_args`, unchanged in behaviour.
   The test module's `_MOD = "vergil_tooling.bin.vrg_repo_status"`.
@@ -131,10 +133,12 @@ tests passing unchanged, plus the grep in Step 4, are its proof.
 ### Task 2: `lib/pending_release.py`, the data layer
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/pending_release.py`
 - Test: `tests/vergil_tooling/test_pending_release.py`
 
 **Interfaces:**
+
 - Produces (all in `vergil_tooling.lib.pending_release`):
 
   ```python
@@ -317,6 +321,7 @@ tests passing unchanged, plus the grep in Step 4, are its proof.
 ### Task 3: The Pending release section in `vrg-repo-status`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_repo_status.py`
 - Test: `tests/vergil_tooling/test_vrg_repo_status.py`
 - Modify: `docs/site/docs/reference/cli-tools-overview.md` (the
@@ -324,6 +329,7 @@ tests passing unchanged, plus the grep in Step 4, are its proof.
   publish gate and the non-zero exit on a lookup error)
 
 **Interfaces:**
+
 - Consumes: Task 1's module; Task 2's `gather_pending_release`,
   `PendingRelease`, `PendingChange`, `ReleaseTags`, `ChangeKind`,
   `PendingReleaseError`; `config.read_config`,
@@ -337,13 +343,14 @@ tests passing unchanged, plus the grep in Step 4, are its proof.
   `_print_pending(integration: str, now: float) -> bool`, which returns False
   only on an error.
 
-**Exact copy** (spec §5.3, §5.5):
+**Exact copy** (spec §5.3, §5.5). Lines marked *indented* start with two
+spaces.
 
 - Heading: `Pending release (develop → main)`, with the configured
   integration branch in place of `develop`.
-- Release line: `  latest release: <latest | no release yet>, main moved
-  <age>; rolling tag <rolling> → <target>`, or `; no rolling tag`. The suffix
-  ` (lags <latest>)` is added only when `target` is a `vX.Y.Z` tag, `latest`
+- Release line (*indented*): `latest release: <latest | no release yet>, main
+  moved <age>; rolling tag <rolling> → <target>`, or `; no rolling tag`. The
+  suffix `(lags <latest>)`, after one space, is added only when `target` is a `vX.Y.Z` tag, `latest`
   is not `None`, and the two differ. A target that is a short SHA gets no
   suffix.
 - Nothing pending: `Nothing pending release: <integration> and main are level.`
@@ -353,11 +360,12 @@ tests passing unchanged, plus the grep in Step 4, are its proof.
   each bucket on its count (`1 change pending release`, `1 dependency
   update`, `2 dependency updates`).
 - A NO_PR row has `PR` set to `PROBLEM` and `BRANCH` set to `-`, and a note
-  after the table: `  PROBLEM: <sha7> reached <integration> without a PR`.
+  after the table (*indented*): `PROBLEM: <sha7> reached <integration>
+  without a PR`.
 - Error: `ERROR: pending release: <reason>`, printed under the heading with
   nothing else in the section.
-- No `vergil.toml`: `  note: no vergil.toml; pending-release section skipped`,
-  printed right after the existing integration-branch note.
+- No `vergil.toml` (*indented*): `note: no vergil.toml; pending-release
+  section skipped`, printed right after the existing integration-branch note.
 - Titles longer than `_TITLE_WIDTH` are cut to `_TITLE_WIDTH - 1` characters
   plus `…`.
 
