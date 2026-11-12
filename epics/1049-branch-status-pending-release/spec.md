@@ -15,8 +15,8 @@ pipeline: what has merged to `develop` but has not yet been released to `main`.
 This epic adds that stage. At any point, the command should show what the next
 `vrg-release` will carry to `main`. That is the list of PRs in `develop` but not
 in `main`, which by definition is the state of `main`. It should also show the
-current release: the latest release tag on `main`, and where the rolling minor
-tag points. With it, one command covers the whole path a change takes: in a
+current release: the latest release tag, and where the rolling minor tag
+points. With it, one command covers the whole path a change takes: in a
 worktree, then merged to `develop`, then released to `main`.
 
 The command now reports on the whole repository clone (its worktrees, its
@@ -28,8 +28,8 @@ branches and its release tags), not only its worktrees, so it is renamed
 1. Rename `vrg-worktree-status` to `vrg-repo-status`.
 2. Add a **Pending release** section listing every change merged to `develop`
    that `main` does not yet contain.
-3. Show the current release in that section: the highest `vX.Y.Z` tag on
-   `main`, and the `vX.Y.Z` that the highest rolling `vX.Y` tag points to.
+3. Show the current release in that section: the highest `vX.Y.Z` tag, and
+   the `vX.Y.Z` that the highest rolling `vX.Y` tag points to.
 4. Show automated PRs as ordinary rows: the release back-merge
    (`release/post-<v>`) and dependency updates (`vrg-update-deps`). Rows are in
    plain merge order, so the back-merge is always the first pending row after a
@@ -54,8 +54,8 @@ branches and its release tags), not only its worktrees, so it is renamed
 - **A silently incomplete list.** Omitting a change that is in `develop` but
   not `main` is the worst failure here: the view would claim the release is
   smaller than it is. Every first-parent commit in the range is accounted for
-  in a row, whether or not it maps to a PR, and every failed or truncated
-  lookup is reported.
+  in a row, and a lookup that fails or cannot give a complete answer is an
+  error, never a partial list.
 - **Hiding automated PRs.** The back-merge and dependency updates are real
   differences between `develop` and `main`. A list that shows one automated PR
   but suppresses the other would itself be a red flag.
@@ -96,9 +96,14 @@ PRs whose base is `develop`. This one mechanism covers every way a PR lands:
 - a rebase merge, including a batch PR rebase-merged as one commit per issue,
   whose subjects carry issue numbers, not the PR number.
 
-All the commits of one PR form **one row**. A commit no PR is associated with
-(a direct push) gets a row of its own (PR `-`, its commit subject as the
-title), so nothing in the range is dropped.
+All the commits of one PR form **one row**.
+
+`develop` is protected, so every change reaches it through a PR, the
+automated back-merge and dependency updates included. A commit with no
+associated PR means protection was bypassed, so it is shown as an exception:
+a row of its own with `PROBLEM` in the `PR` column and its commit subject as
+the title, plus a `PROBLEM:` note naming the commit's short SHA and saying it
+reached `develop` without a PR. Nothing in the range is dropped.
 
 ### 5.3 The section
 
@@ -108,22 +113,25 @@ when nothing is pending.
 
 ```text
 Pending release (develop → main)
-  latest release: v2.1.303 on main, 4h ago; rolling tag v2.1 → v2.1.303
+  latest release: v2.1.303, main moved 4h ago; rolling tag v2.1 → v2.1.303
 PR     BRANCH                         TYPE     MERGED  TITLE
 #4251  release/post-2.1.303           release  4h ago  chore(release): back-merge 2.1.303 and bump to 2.1.304
 #4258  deps/update-2.1.304            deps     4h ago  chore(deps): dependency update for 2.1.304
 #4252  feature/4249-refuse-ubuntu     feat     1h ago  feat(validate): refuse ubuntu-latest runner labels
 #4255  feature/4253-batch-docs        docs     0h ago  docs(batch): document batched same-repo PRs…
-4 changes pending release: 1 dependency update, 1 release back-merge, 2 other PRs, 0 commits with no PR.
+4 changes pending release: 1 dependency update, 1 release back-merge, 2 other PRs.
 ```
 
 (The PR numbers, branch names and timings above are illustrative.)
 
 - **Release line.** It shows:
   - the **latest release**: the highest `vX.Y.Z` tag (exactly three numeric
-    parts) whose commit is on `main`, compared by version, and how long ago
-    `main` last moved. If no such tag is on `main`, it names `main`'s tip
-    commit instead;
+    parts) on the remote, compared by version, and how long ago `main` last
+    moved. A `vX.Y.Z` tag is only ever created by the release flow, so the
+    highest one is the latest release; whether its commit is an ancestor of
+    `main` is not checked (some repos, such as vergil-actions, tag a freeze
+    commit made on top of `main`). If no `vX.Y.Z` tag exists, the line says
+    `no release yet`;
   - the **rolling tag**: the highest `vX.Y` tag (exactly two numeric parts),
     compared by version, and the `vX.Y.Z` tag on the same commit. Normally that
     is the latest release. When it is not (for example, `v2.1` moved back to
@@ -136,8 +144,8 @@ PR     BRANCH                         TYPE     MERGED  TITLE
 - **Rows** come in plain merge order, oldest first, with no special placement
   for any kind of PR.
 - **Columns:**
-  - `PR`: `#N`, or `-` for a commit with no PR.
-  - `BRANCH`: the PR's head branch, or `-`.
+  - `PR`: `#N`, or `PROBLEM` for a commit with no PR (§5.2).
+  - `BRANCH`: the PR's head branch, or `-` for a commit with no PR.
   - `TYPE`: the conventional-commit type from the PR title (`feat`, `fix`,
     `docs`, `chore`, …), with two overrides. A dependency update (a
     `deps/update-*` head branch or a `dependency-update` label) shows `deps`,
@@ -152,8 +160,10 @@ PR     BRANCH                         TYPE     MERGED  TITLE
   table.
 - **Summary line.** The section ends with its own count, of rows as
   *changes*, broken down as in the mock-up above: dependency updates, release
-  back-merges, other PRs, and commits with no PR, every bucket always listed.
-  The existing final summary line, which counts worktrees, is unchanged.
+  back-merges and other PRs, each bucket always listed. When any commit has no
+  PR, the line adds `, <n> PROBLEM: commits with no PR`; otherwise it says
+  nothing about them. The existing final summary line, which counts
+  worktrees, is unchanged.
 
 ### 5.4 Data sources and failure handling
 
@@ -168,26 +178,25 @@ existing `lib/git.py` and `lib/github.py` helpers:
 2. **Pending commits.** The first-parent commits of `main..develop` at those
    SHAs, with their subjects and commit dates, come from the GitHub compare
    API, or from a local `git log` when both SHAs are already present locally.
-   Whether a release tag's commit is on `main` is decided the same way.
+   The answer must be complete: page through the API as needed.
 3. **PR metadata.** One batched GraphQL query, keyed by the commit SHAs from
    step 2, returns each commit's associated merged PRs into `develop`, with
    number, title, head branch, labels and merge time.
 
 Failure rules (the no-silent-failures principle):
 
-- A failed lookup, or one the API truncates (for example, a compare capped at
-  its commit limit), prints a `note:` line with the reason. The section never
-  appears complete when it is not.
-- If step 1 or step 2 fails, the section prints its heading and the note, with
-  no table. If only the tag part of step 1 fails, the table still prints and
-  the release line carries the note.
-- If step 3 fails, each pending commit prints as its own row from the commit
-  data alone (PR `?`, BRANCH `-`, TYPE from the subject, the commit date, the
-  commit subject), with a note that PR details are unavailable. A PR number is
-  never guessed from a subject, since a rebase-merged commit's subject carries
-  an issue number.
-- The existing worktree sections are unaffected by any failure here. The
-  command still exits 0, as it does today when a worktree's PR lookup fails.
+- Retrying transient failures is the helpers' job: every call goes through
+  the existing `lib/git.py` and `lib/github.py` wrappers and their retry
+  handling, with no new retry logic in the command.
+- A lookup that still fails, or that cannot give a complete answer, is an
+  **error**, not a degraded view. The command cannot say what is pending, so
+  it says so: the section prints its heading and an `ERROR:` line with the
+  reason, and no table, release line or summary. There are no fallback rows
+  built from partial data, and a PR number is never guessed from a commit
+  subject.
+- The rest of the output (the main checkout and the worktree sections) still
+  prints, and the command then **exits non-zero**. An existing worktree's PR
+  lookup failure keeps its current handling (`unknown`, with a note).
 
 ### 5.5 Repos that don't publish
 
