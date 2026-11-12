@@ -106,7 +106,7 @@ v2.1.39 carried the last two onto `main` before the cold rebuild.
 
 ## §2 Lessons learned
 
-- **Spike first.** The spike cost a day and found real defects in shared tooling before eleven family tasks could hit them one by one. Do this again for any change that rebuilds a tree of images.
+- **Spike first.** The spike cost a day and found real defects in shared tooling before the six family tasks could hit them one by one. Do this again for any change that rebuilds a tree of images.
 - **Plan for the infrastructure failing, not only the code.** The largest unplanned cost was external: Canonical's outage, then GitHub Pages' caching. Fallback mirrors and by-hash indexes are now permanent, but the lesson is to ask at planning time what happens when each upstream (package mirrors, registries, the Pages CDN) is down or stale, and to treat that as design, not incident response.
 - **Some defects only exist after a release.** The publish race, the arm64 archive host on 26.04 and the stale upgrade layer passed every PR gate and appeared only in published releases and nightly builds. A cold rebuild and a look at develop's CD after each merge belong in the plan as gates, not as afterthoughts.
 - **The evolution log fell behind.** It records three entries. Execution changed far more: the outage work, the dev-prefix detour, by-hash, the semgrep wrapper, both validation narrowings, and #844 and #845. The record survived on the issues and in their rulings, so this retrospective could be written, but the plan alone no longer explains the epic. Write a log entry when the plan's assumptions change, not only when its task list does.
