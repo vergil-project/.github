@@ -652,3 +652,14 @@ Kind `validation`, filed in vergil-tooling and blocked by D1. Procedure: pick
   non-review rulings.
 - [ ] **Step 3:** Validate, then commit (`vrg-commit --type feat --scope
   epic-implement`).
+
+## Evolution during execution
+
+- **2026-11-12: Task D1's preconditions blocked by the release gate.** vergil-tooling#4194 (outside this epic) made `vrg-release` refuse any repo without `[publish].release = true`. vergil-claude-plugin had no such key, so the plugin could not be released for D1. Added vergil-project/vergil-claude-plugin#1016 to set the key. The key's naming went to intake as .github#1041. A stale dependency-update PR (vergil-tooling#4229, failed on a transient apt error) also blocked the tooling release until it was merged; its fix task #4231 was closed with no code change.
+- **2026-11-12: D1 and V1 bodies filled by scope change.** Both were filed as unfilled scaffolds. Their preconditions, steps and acceptance were posted by the human as scope changes taken from this plan. V1's batch was set to vergil-tooling#4186 then #4103.
+- **2026-11-12: Task 9 started before V1 closed.** The human started vergil-claude-plugin#1012 once V1 had shown the batch path end to end, with only the changelog and single-issue-squash checks still pending. Both later passed, the second on Task 9's own PR.
+- **2026-11-12: collapsed-batch resume added.** Task 9's run found that an issue left alone after an extraction keeps its work in the batch worktree, which single-issue resume does not look in. The human ruled it fixed in this epic, because a two-issue batch makes it common. Added vergil-claude-plugin#1022, plus its live validation vergil-claude-plugin#1024 (blocked by #1022). The remaining no-commit gap went to intake as .github#1046.
+- **2026-11-12: batch-stop ruling words added.** #1024 found that doctrine §1.7's ruling words do not cover the batch-stop choices. Added vergil-claude-plugin#1030.
+- **2026-11-12: follow-ups from the documentation review.** vergil-tooling#4198 spawned per-repo doc tasks vergil-claude-plugin#1028 and vergil-project/docs#99. On the human's rulings it also filed vergil-tooling#4253 (finalize's conflict message calls a submitted PR frozen to agents) and #4254 (the CLAUDE.md consumer template lacks the batch form). epic-implement ran those two as one batch.
+- **2026-11-12: finalize cleanup added.** That batch's run found the same frozen claim in the batch merge-commit refusal, and doc prose that #4253 made stale. Added vergil-tooling#4257, blocked by #4253.
+- **Also outside the task list:** vergil-project/.github#1028 (the paad feedback note), filed at the human's request during planning.
