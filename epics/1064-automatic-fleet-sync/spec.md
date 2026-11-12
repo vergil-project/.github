@@ -201,13 +201,18 @@ administration (§6.4).
   installation token belongs to, or comparing a configured App ID) is left
   to the builder. It must not depend on a flag or environment variable
   that any process could set.
-- **Rights.** Tools that gate on identity grant `automation` the operations
-  this epic needs (§3). They also grant it **exactly what the jobs that
-  already run as the automation App do today** (§5: epic-sweep, epic-rollup,
-  upstream-refresh, branch-sweep, dependabot-audit), so those jobs keep
-  working. Every identity gate in vergil-tooling is reviewed and states
-  explicitly what it does with `automation`. A gate that is silent about
-  `automation` is a defect. Beyond those, `automation` gets nothing by
+- **Rights in the tooling's own checks.** Some `vrg-*` tools check the mode
+  themselves ("refuse unless human", "refuse if agent"). These are separate
+  from GitHub's permissions: GitHub grants permissions per App and per
+  token (§6.4), and the tooling cannot widen or narrow them. The tooling's
+  checks admit `automation` for the operations this epic needs (§3). They
+  also keep admitting **the jobs that already run as the automation App**
+  (§5: epic-sweep, epic-rollup, upstream-refresh, branch-sweep,
+  dependabot-audit). Those jobs resolve as `human` today, and they must
+  not start being refused once they resolve as `automation`. Every identity
+  check in vergil-tooling is reviewed and states explicitly what it does
+  with `automation`; a check that is silent about `automation` is a defect.
+  Beyond those, the tooling's checks admit `automation` to nothing by
   default.
 - The `human` fall-through stays as it is (§4 non-goals).
 
@@ -316,13 +321,23 @@ source to draw on. The follow-on brainstorm moves the other jobs onto it.
   the new permission. vergil-actions'
   `configuration.md` drops its "Administration stays read-only" policy and
   documents the new permissions and why, citing §3.
+- **Token scoping (rule).** GitHub grants an App's permissions to every
+  token minted from it unless the token asks for less, so once the App holds
+  Administration write, any job minting an unscoped token holds it too.
+  Therefore **every workflow that mints an automation App token requests
+  only the permissions that job needs** (the `permission-*` inputs of
+  `actions/create-github-app-token`), as `branch-sweep` and
+  `dependabot-audit` already do. Only the `github-config` job that runs
+  `update` requests Administration write. The epic inventories every place
+  in the fleet that mints an automation token (vergil-actions' reusable
+  workflows and any repo-local workflow) and scopes each one before the App
+  is granted Administration write (§6.7, step 2).
 - **Auto-merge.** The repo config desired state sets
   `allow_auto_merge=True`. The first `update` after the release turns it on
   fleet-wide. Agents still cannot turn on auto-merge for a PR, because
   `vrg-gh` and the plugin hooks block it, so the agent boundary holds.
 - **Ops runs `update`.** `ops-github-config.yml`'s `github-config` job runs
-  `vrg-github-repo-config update` and mints a token with the permissions it
-  needs.
+  `vrg-github-repo-config update`, with a token scoped by the rule above.
 - **The trust note in `_resolve_config`.** Its claim that only a human runs
   `apply` does not hold for `update`, so it is rewritten. In an ops run, the
   config comes from `develop` (merged, CI-gated content). The local-copy
@@ -358,7 +373,9 @@ keeps each step inert until the next one switches it on:
 1. **Tooling.** vergil-tooling releases the `automation` mode, the building
    block, and `update`. Ops still runs `audit`, so nothing changes in the
    fleet.
-2. **App permissions** (a human action). The human grants Administration
+2. **App permissions** (a human action), once every automation token in
+   the fleet is scoped (§6.4) and those workflow changes are released. The
+   human grants Administration
    write to the automation App in each org, and each installation accepts
    it.
 3. **Prove it on one repo.** Run `update` as the automation App on one
@@ -421,5 +438,5 @@ easy to alert on as a red run. Alerting itself is out of scope (§4).
   long as the branch prefix is fixed and recorded (§6.2).
 - The commit author identity for sync commits, and whether commits are
   made deterministic (the lifecycle job's pattern).
-- The token permissions requested in `ops-github-config.yml`.
+- The exact permission set each scoped token requests, within the §6.4 rule.
 - How the code tasks are split within each rollout step (§6.7).
