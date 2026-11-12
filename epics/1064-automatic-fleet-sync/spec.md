@@ -74,7 +74,7 @@ grants the automation identity rests on this invariant.
 The automation identity's rights are expected to grow toward the human's
 over time (releases and other administrative work come later). This epic
 grants the first set: pushing branches, changing workflow files, opening
-and refreshing PRs, turning on auto-merge, and converging repo
+and replacing PRs, turning on auto-merge, and converging repo
 administration (§6.4).
 
 ## 4. Goals, non-goals, anti-goals
@@ -87,10 +87,12 @@ administration (§6.4).
   automation identity, and its file fixes arrive as one auto-merging PR.
 - G3. A new `automation` identity mode exists in the tooling, detected from
   the automation App's credential, with explicit rights.
-- G4. The mechanized-PR flow is a reusable building block that later
-  mechanized jobs can use.
+- G4. The mechanized-PR flow is a reusable building block and the fleet
+  standard for every automated job that opens a PR (§6.2).
 - G5. The ad-hoc sync tools and their engine are removed, along with their
   tests.
+- G6. The repo-status tool (from epic vergil-project/.github#1049) shows PRs
+  on the automation prefix as automated (§9).
 
 **Non-goals**
 
@@ -150,8 +152,10 @@ administration (§6.4).
 - **Managed-file checks read the working tree** (`audit_local_config(Path.cwd())`)
   and are skipped when the cwd is not a checkout of `--repo`.
 - **App tokens cannot read ruleset `bypass_actors`** at today's permissions.
-  `compute_desired_state(app_mode=True)` skips that comparison and reports it
-  as not checked.
+  `compute_desired_state(app_mode=True)` sets the desired field to `None`, so
+  it is skipped: printed, but with no effect on the exit code. Separately, a
+  setting that cannot be read (`NotChecked`) makes `audit` exit 2 and makes
+  `apply` refuse to converge anything.
 - **vergil-tooling's own CI and ops** install vergil-tooling from its own
   checkout (`uv sync`), not from a release.
 - **Rulesets** (`lib/github_config.py`): `develop` requires 0 approvals and
@@ -189,17 +193,25 @@ administration (§6.4).
   automation App resolves to `automation`. Every other credential resolves
   exactly as it does today: an explicit agent signal resolves to the agent
   mode, and anything else, including `GITHUB_TOKEN` in release and docs
-  CI, falls through to `human`. The lookup runs only when an App
-  installation token is present and no explicit mode signal is set, so
-  ordinary human and agent calls make no extra network request.
-- **Fail loudly** when an App installation token is present but the lookup
-  that identifies its App fails. The resolver never guesses. An explicit
+  CI, falls through to `human`.
+- **Where the lookup runs.** Every workflow that mints an automation App
+  token also sets a marker in the job's environment saying the job holds
+  that token. The lookup runs only when the marker is present, and it
+  verifies that the credential really belongs to the automation App. The
+  marker alone grants nothing: a marker without the App's credential fails
+  the verification, and the run fails. Jobs that use `GITHUB_TOKEN`, and
+  ordinary human and agent calls, never set the marker, so they make no
+  extra network request and gain no new way to fail. The lookup retries
+  transient errors before it fails.
+- **Fail loudly** when the marker is present but the lookup that
+  identifies the App fails, or identifies a different App. The resolver never guesses. An explicit
   mode signal (the environment variable or the mode file) that contradicts
   a credential identified as the automation App is an error too; neither
   side wins.
 - How the check works (for example, asking GitHub which App the
   installation token belongs to, or comparing a configured App ID) is left
-  to the builder. It must not depend on a flag or environment variable
+  to the builder. The marker only decides whether the verification runs.
+  The verification itself must not depend on a flag or environment variable
   that any process could set.
 - **Rights in the tooling's own checks.** Some `vrg-*` tools check the mode
   themselves ("refuse unless human", "refuse if agent"). These are separate
@@ -221,36 +233,51 @@ administration (§6.4).
 This is a library module in vergil-tooling for mechanized jobs. It does
 not use the agent PR workflow: no issue, no `vrg-pr-workflow` state, no
 relay ref, no `vrg-submit-pr`, no `vrg-finalize-pr`. It is called with
-the job's identity (its branch name), the target base (`develop`), the
-change (the files to write), and the PR title and body. It then:
+the job's name, the target base (`develop`), the change (the files to
+write), and the PR title and body. It then:
 
-1. Computes the change against the current tip of the base. If there is no
-   change, it closes any open PR the job has on its branch (the drift went
-   away), deletes the branch, and reports "in sync".
-2. If there is a change, it commits it on the job's fixed branch, built
-   fresh from the current base tip each run, and force-pushes only when the
-   resulting tree differs from what the branch already holds. If an
-   identical branch is already open, the run does nothing.
-3. Opens the PR if none is open on that branch; otherwise updates its title
-   and body.
-4. Turns on GitHub auto-merge for the PR, using the repo's squash method.
-5. Returns. It does not wait for CI or for the merge.
+1. Computes the change against the current tip of the base.
+2. Closes any open PR the job left from an earlier run and deletes its
+   branch. A new run always replaces it, never builds on it.
+3. If there is no change, reports "in sync" and stops.
+4. If there is a change, creates a **new branch for this run** from the
+   current base tip, named with the automation prefix, the job name and a
+   unique run identifier (for example `automation/repo-config-sync/<run-id>`),
+   commits the change there, and opens the PR.
+5. Turns on GitHub auto-merge for the PR, using the repo's squash method.
+6. Returns. It does not wait for CI or for the merge.
 
-Exactly one PR is open per job per repo. Rebuilding from the base tip each
-night also handles a PR that has fallen behind `develop`. GitHub auto-merge
-does not update a branch that is behind, and `develop` requires branches
-to be up to date, so such a PR waits until the next night's rebuild. A
-one-day delay is accepted.
+At most one PR is open per job per repo. The branch is deleted when the
+PR merges, by the repo's delete-on-merge setting, or when a later run
+closes the PR. Because every run starts from the current base tip, a PR
+that has fallen behind `develop` is replaced by the next night's run.
+GitHub auto-merge does not update a branch that is behind, and `develop`
+requires branches to be up to date, so such a change waits a day. That
+delay is accepted.
+
+**Only the automation App writes automation branches.** The desired state
+gains a branch ruleset on the automation prefix (`refs/heads/automation/**`).
+It allows only the automation App, as the ruleset's sole bypass actor, to
+create, update or delete those branches. Every other identity, human and
+agent alike, is refused. So the content of an automation PR is exactly
+what the automation pushed. The ruleset's bypass actor is converged like
+every other `bypass_actors` field (§6.3).
 
 **Branch naming is a shared interface.** Every mechanized job's branch
-uses a prefix that marks it as automation (for this job, a name of the
-shape `automation/<job>`, e.g. `automation/repo-config-sync`). The
-repo-status work (§9) relies on the prefix to tell automated PRs from agent
-development PRs. The exact name is fixed in the plan and recorded so both
-epics use it.
+uses the automation prefix, and the ruleset above protects that prefix.
+The repo-status tool uses it to tell automated PRs from agent
+development PRs (§9). The exact prefix and naming scheme are fixed in the
+plan.
 
-This is the reusable building block (G4). The prior art in §5 is the
-source to draw on. The follow-on brainstorm moves the other jobs onto it.
+**This is the fleet standard for mechanized PRs** (G4). Every automated job
+that opens a PR, now and in the future, uses it: a fresh branch per run
+under the protected automation prefix, one PR at a time, auto-merge, and
+deletion on merge. That includes `vrg-update-deps` and its dependency
+branches, upstream-refresh, and the vergil-containers lifecycle job. This
+epic defines the standard and its first user. Moving the existing jobs
+onto it is the follow-on brainstorm (vergil-project/.github#1067). No new
+automated job opens a PR any other way. The prior art in §5 is the source
+to draw on.
 
 ### 6.3 The new `update` command fixes managed files
 
@@ -266,8 +293,9 @@ source to draw on. The follow-on brainstorm moves the other jobs onto it.
   auto-merge), because that is a change to the desired state, not to the
   command.
 - Because a new command carries the new behavior, releasing the tooling
-  changes nothing in the fleet. The fleet switches only when ops is changed
-  to call `update` (§6.4, §6.7).
+  opens no PRs and syncs no files. The fleet switches only when ops is
+  changed to call `update` (§6.4, §6.7). The one fleet-visible change is the
+  auto-merge setting, which a human sweep handles (§6.7, step 1).
 - Each local check that has a fixer gains an applicator, in the same module
   family as the check. The applicator writes the file to match the released
   master copy:
@@ -279,7 +307,11 @@ source to draw on. The follow-on brainstorm moves the other jobs onto it.
   - the `vergil-*` workflow ref pins.
 
   The check and its applicator share one definition of "correct", so they
-  cannot disagree.
+  cannot disagree. "Correct" covers the git file mode as well as the bytes.
+  The file tree the checks read, and the change handed to the building block,
+  carry each file's mode. The hook-guard shim must be mode 100755: its check
+  treats any other mode as drift, and its applicator writes 100755, as the
+  retired `vrg-hook-guard-shim-sync` did.
 - **The checks evaluate the `develop` tip on GitHub, not the working tree.**
   The fixable checks and the ones with no fixer both read the base the
   PR targets. That makes `audit`, `update` and the PR agree, and lets
@@ -289,12 +321,15 @@ source to draw on. The follow-on brainstorm moves the other jobs onto it.
   drift on `develop`.
 - **Identity.** `update` refuses to run in the agent modes (`user`, `audit`)
   and says why. It runs for `human` and `automation`.
-- **`bypass_actors`.** Once the App holds Administration write, the plan
-  first checks whether it can read ruleset `bypass_actors`. If it can, an
-  App-run `update` audits and converges them like every other field. If it
-  cannot, an App-run `update` does not write that field, because it never
-  writes what it cannot verify, and reports it as not checked, as
-  `audit` does today. That one field stays converged by a human `update`.
+- **`bypass_actors`.** The automation App holds Administration write on
+  every repo in its org, so an App-run `update` reads, audits and converges
+  ruleset `bypass_actors` like every other field, including the
+  automation-prefix ruleset's (§6.2). The `app_mode` skip of that field
+  (§5) does not apply to the automation identity. If the field cannot be
+  read, that is a fatal error: the run fails and converges nothing. It is
+  never skipped. Whether GitHub exposes `bypass_actors` to an App token with
+  Administration write is confirmed in the live validation (§6.7, step 4).
+  If it does not, the epic stops there for a human decision.
 - `update` runs the GitHub-side convergence as it does today. It then
   collects every file fix for the repo into **one change** and hands it to
   the building block (§6.2), giving one PR per repo however many files
@@ -304,7 +339,8 @@ source to draw on. The follow-on brainstorm moves the other jobs onto it.
   shouldn't exist, missing required workflows. A file fix that cannot be
   computed fails the run too.
 - `update` exits 0 when the GitHub side converged and the file state is
-  in sync, or a sync PR is open with auto-merge on. It exits non-zero
+  in sync, or a sync PR was opened this run and auto-merge is confirmed on
+  for it. It exits non-zero
   when anything could not be converged, fixed or audited.
 - `audit` and `diff` keep their read-only meaning.
 - The applicators port what is still useful from the per-target sync
@@ -333,8 +369,8 @@ source to draw on. The follow-on brainstorm moves the other jobs onto it.
   workflows and any repo-local workflow) and scopes each one before the App
   is granted Administration write (§6.7, step 2).
 - **Auto-merge.** The repo config desired state sets
-  `allow_auto_merge=True`. The first `update` after the release turns it on
-  fleet-wide. Agents still cannot turn on auto-merge for a PR, because
+  `allow_auto_merge=True`. The human's sweep right after the tooling
+  release turns it on fleet-wide (§6.7, step 1). Agents still cannot turn on auto-merge for a PR, because
   `vrg-gh` and the plugin hooks block it, so the agent boundary holds.
 - **Ops runs `update`.** `ops-github-config.yml`'s `github-config` job runs
   `vrg-github-repo-config update`, with a token scoped by the rule above.
@@ -370,24 +406,38 @@ target they handled, except the `ci.yml` matrix stripping (§6.3).
 The rollout ships as patch releases in the current line. The new command
 keeps each step inert until the next one switches it on:
 
-1. **Tooling.** vergil-tooling releases the `automation` mode, the building
-   block, and `update`. Ops still runs `audit`, so nothing changes in the
-   fleet.
+1. **Tooling, then a human sweep the same day.** vergil-tooling releases the
+   `automation` mode, the building block, and `update`. Ops still runs
+   `audit`. The release also carries the desired-state change
+   `allow_auto_merge=True` (§6.4), which `audit` and `vrg-release`'s preflight
+   read too. So from the release on, every repo whose auto-merge setting is
+   still off fails `audit`. Right after the release, the human runs `update`
+   (or `apply`) across the fleet, which turns the setting on everywhere.
+   Allowing auto-merge as a repo setting is harmless by itself: nothing turns
+   it on for a PR until the ops switch (step 3), and agents cannot. The red
+   window is limited to the hours between the release and the sweep.
 2. **App permissions** (a human action), once every automation token in
    the fleet is scoped (§6.4) and those workflow changes are released. The
-   human grants Administration
-   write to the automation App in each org, and each installation accepts
-   it.
-3. **Prove it on one repo.** Run `update` as the automation App on one
-   repo, by a manual dispatch, and confirm that its sync PR opens with
-   auto-merge on and merges once CI is green. Also settle the
-   `bypass_actors` check (§6.3).
-4. **Ops switch.** vergil-actions releases the change that makes ops run
-   `update` instead of `audit`. From the next night on, every repo on that
-   line syncs.
+   human grants Administration write to the automation App in each org,
+   and each installation accepts it.
+3. **Ops switch.** vergil-actions releases the change that makes ops run
+   `update` instead of `audit`. This switches the whole fleet at once.
+   There is no canary mechanism: the fleet is small, and a failed sync
+   breaks nothing; at worst a repo fails to update.
+4. **Validate it live.** On the day of the switch, the human dispatches one
+   repo's ops workflow and confirms that:
+   - the run is green;
+   - its sync PR, if there is drift, opens on an automation branch with
+     auto-merge on, and merges once CI is green;
+   - the App reads and converges `bypass_actors` (§6.3), including the
+     automation-prefix ruleset's.
+
+   Then the human dispatches ops for every repo, or lets the night's runs
+   go, and triages what breaks. A failure is either fixed forward or the
+   ops switch is reverted to `audit` while it is fixed.
 5. **Retirement** (§6.6) follows once `update` is live.
 
-Steps 2 and 3 are operational tasks (deployment and validation), not code
+Steps 2 and 4 are operational tasks (deployment and validation), not code
 PRs. Nothing runs `update` as the automation App before step 2 is done.
 
 ## 7. Failure model
@@ -396,7 +446,7 @@ PRs. Nothing runs `update` as the automation App before step 2 is done.
 |---|---|
 | `update` cannot converge the GitHub side, audit a setting, or compute a fix | The nightly ops run goes red. |
 | A check with no fixer fails | The nightly ops run goes red. |
-| The sync PR's CI fails, conflicts, or is refused | The PR stays open and unmerged. The next night refreshes it. |
+| The sync PR's CI fails, conflicts, or is refused | The PR stays open and unmerged. The next night closes it and opens a fresh one. |
 | An App token is present but its App cannot be identified, or the mode signals contradict it | The run goes red; it never guesses (§6.1). |
 
 No issues are filed for any of these. An open, unmerged automation PR is as
@@ -419,10 +469,17 @@ easy to alert on as a red run. Alerting itself is out of scope (§4).
 
 ## 9. Related work
 
-- **Repo-status planning (in parallel).** A generic repo-status tool will
-  replace `vrg-worktree-status`. It shows what has merged to `develop`
-  and is waiting for `main`, and it keeps automated PRs apart from agent
-  development PRs. It relies on the automation branch prefix in §6.2.
+- **Repo-status (epic vergil-project/.github#1049) comes first.** Its
+  repo-status tool replaces `vrg-worktree-status`. It shows what has
+  merged to `develop` and is waiting for `main`, and it gives each row a
+  type, with branch-based types today only for `deps/update-*` and
+  `release/post-*`. That epic is implemented before this one starts, so
+  this epic builds on it as shipped. This epic adds a small change to the
+  repo-status tool: it recognizes the automation prefix (§6.2) and shows
+  those PRs as automated, apart from agent development PRs. When the
+  follow-on (vergil-project/.github#1067) moves other jobs, such as
+  `vrg-update-deps`, onto the automation prefix, their branch-based types
+  move with them.
 - vergil-project/.github#471: noticing automation PRs and red ops runs.
 - vergil-project/.github#593: identity-mode resolution across the gated
   tools.
