@@ -1095,3 +1095,28 @@ semgrep build on Python 3.15 needs `CC=gcc` beside the temporary
 `build-essential`; Task 10's Rust image installs `gcc` and `libc6-dev` as its
 linker; and the `.trivyignore` work is 9 CVE IDs in Task 7 and one more in
 Task 13, not the 10 and 13 entries the spike first counted.
+
+### 2026-11-12: scope decisions at the end of execution
+
+The documentation review (vergil-project/vergil-containers#739) surfaced two
+human decisions not yet recorded here. This entry supersedes the sections it
+names, which stay as written.
+
+- **`wphillipmoore/the-infrastructure-mindset` is out of scope.** Task R1–R4
+  counts it in the 2026-11-09 recount and makes Task 1 Blocked-by its R4, and
+  Task 1 says the same. By human decision that repo is out of the epic: its R4
+  was opened in error and is closed, so Task 1 is Blocked-by R1 and R2 only,
+  and Task 1's release-precondition recount excludes it alongside the
+  mq-rest-admin repos. The scope change is recorded on
+  vergil-project/vergil-tooling#4129.
+- **Three follow-on brainstorms moved to planning.** By human decision,
+  vergil-project/.github#959 (Node runtime architecture and TypeScript app
+  support), vergil-project/.github#651 (which components can move to Ubuntu
+  26.04) and vergil-project/.github#983 (remove the cutover vergil-tooling
+  install branch) moved out of epic #649 and into the planning queue,
+  vergil-project/.github#439. The Bookends section still lists #651 and #959
+  as the epic's follow-on brainstorms and the cutover-branch removal as a
+  brainstorm filed with the tasks; they are now planning items, not part of
+  this epic. The human made the move by hand, because agents cannot yet move
+  a follow-on brainstorm from a development epic into planning (intake
+  vergil-project/.github#1053).
