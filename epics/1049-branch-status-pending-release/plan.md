@@ -202,7 +202,14 @@ section once a release ships it.
   `repository(owner:, name:)`. Before a SHA is interpolated, assert it matches
   `^[0-9a-f]{40}$`. A connection whose `totalCount` exceeds the nodes returned
   is truncated → `PendingReleaseError("<connection> for <sha7> truncated")`.
-  Keep only nodes with `merged` true and `baseRefName == integration`. A commit with more
+  Keep only nodes with `merged` true and `baseRefName == integration`.
+  *Evidence (probed 2026-11-12, read-only):* batch PR
+  vergil-project/vergil-tooling#4248 landed on `develop` as two rebased
+  commits, `374361573a` (subject ending `(#4186)`) and `3892ed1b0f` (subject
+  ending `(#4103)`). GitHub's commit-to-PR association maps both to #4248
+  (base `develop`), and also to the release PR #4250 (base `main`), which the
+  base filter drops. So a rebase-merged batch maps by SHA as this design
+  needs. A commit with more
   than one such PR → `PendingReleaseError`. Consecutive chain commits with the
   same PR form one `PendingChange`. A commit with none is a `NO_PR` change of
   its own.
@@ -214,7 +221,12 @@ section once a release ships it.
   (which covers `GitHubAPIError`), `RuntimeError` from `graphql`, and
   `KeyError` / `TypeError` / `ValueError` from parsing the response shape. It
   re-raises each as `PendingReleaseError(<reason>) from exc`, with the
-  reason taken from the error's stderr or message. Nothing is swallowed.
+  reason taken from the error's stderr or message. GitHub auth errors are
+  caught too, with the fleet's standard guidance as the reason, matched
+  before the generic `CalledProcessError`:
+  `MissingGitHubTokenError` → `github.missing_token_message("vrg-repo-status")`,
+  `AppAuthError` → `github.app_auth_message(exc)`, and `NoInstallationError` →
+  `github.no_installation_message(exc)`. Nothing is swallowed.
 
 - [ ] **Step 1: Write the failing tests** in `test_pending_release.py`, with
   `git.read_output`, `github.read_json` and `github.graphql` patched:
@@ -264,6 +276,10 @@ section once a release ships it.
     with 5 nodes → `PendingReleaseError`.
   - `test_truncated_label_list_raises`: a PR's `labels.totalCount` 21 with 20
     nodes → `PendingReleaseError`.
+  - `test_auth_errors_use_standard_messages`: `github.read_json` raising
+    `MissingGitHubTokenError`, `AppAuthError` and `NoInstallationError` in
+    turn → `PendingReleaseError` whose message equals the matching builder's
+    output.
   - `test_non_github_remote_raises`: `github_remote_repo` returning `None` →
     `PendingReleaseError`, and the message does not contain the URL.
 - [ ] **Step 2: Run the tests.** `vrg-container-run -- vrg-validate`.
@@ -312,8 +328,9 @@ section once a release ships it.
 - Nothing pending: `Nothing pending release: <integration> and main are level.`
 - Summary: `<n> changes pending release: <d> dependency update(s), <r>
   release back-merge(s), <o> other PR(s).`, with `, <p> PROBLEM: commits with
-  no PR` before the period only when `p > 0`. Pluralise each bucket on its
-  count (`1 dependency update`, `2 dependency updates`).
+  no PR` before the period only when `p > 0`. Pluralise the leading noun and
+  each bucket on its count (`1 change pending release`, `1 dependency
+  update`, `2 dependency updates`).
 - A NO_PR row has `PR` set to `PROBLEM` and `BRANCH` set to `-`, and a note
   after the table: `  PROBLEM: <sha7> reached <integration> without a PR`.
 - Error: `ERROR: pending release: <reason>`, printed under the heading with
@@ -340,9 +357,16 @@ section once a release ships it.
   `f"{_MOD}.gather_pending_release"` (import it by name into the module).
   New parameters: `publish: bool = False` and `pending: PendingRelease |
   Exception | None = None`. `integration=None` makes `read_config` raise
-  `FileNotFoundError`, an `Exception` value is raised, and a string builds a
-  config whose branching model maps to it. With the defaults, every existing
-  `main()` test keeps its current output and exit code.
+  `FileNotFoundError`, and an `Exception` value is raised. A string builds a
+  config with a stub branching model, and `_run` also patches
+  `config.INTEGRATION_BRANCH_BY_MODEL` to map that model to the string, so
+  any integration branch is possible (every real model maps to `develop`).
+  With the defaults, every existing `main()` test keeps its current output
+  and exit code, except one, which is rewritten:
+  `test_main_uses_configured_integration_branch` keeps `integration="main"`,
+  and asserts that `config.read_config` is called once with `_ROOT` and that
+  the output names `main` as the integration branch, in place of its old
+  `config.integration_branch` assertion.
 
 - [ ] **Step 1: Write the failing tests** in `test_vrg_repo_status.py`, using
   the extended `_run`, alongside the existing worktree fixtures:
@@ -366,7 +390,9 @@ section once a release ships it.
     and main are level.` and no table header.
   - `test_no_pr_change_is_problem`: one NO_PR change → its row's PR cell is
     `PROBLEM`, the `PROBLEM: <sha7> reached develop without a PR` note is
-    printed, and the summary ends `, 1 PROBLEM: commits with no PR.`
+    printed, and the summary is `1 change pending release: 0 dependency
+    updates, 0 release back-merges, 0 other PRs, 1 PROBLEM: commits with no
+    PR.`
   - `test_pending_error_exits_nonzero`: `gather_pending_release` raising
     `PendingReleaseError("boom")` → `ERROR: pending release: boom` printed,
     the worktree summary lines still printed, and `main()` returns 1.
@@ -396,16 +422,17 @@ by Task 3, and run with `issue-validate`. It needs no PR.
 
 **Precondition (human-attested):** a vergil-tooling release that includes
 Task 3 is cut and installed on the host the check runs on, so that
-`vrg-repo-status` resolves to the released command. The agent never cuts the
-release.
+`vrg-repo-status` resolves to the released command, and at least one batch PR
+(rebase-merged as several commits) is pending release in vergil-tooling. The
+agent never cuts the release.
 
 **Procedure:**
 
 1. In the vergil-tooling main clone, after a fetch, run `vrg-repo-status`.
 2. Compare its Pending release rows with the PRs behind `vrg-git log
    --first-parent --oneline origin/main..origin/develop`: every first-parent
-   commit is accounted for, a batch PR (if one is pending) is one row, and the
-   back-merge row is typed `release`.
+   commit is accounted for, the pending batch PR is one row with its own PR
+   number (no `PROBLEM` rows), and the back-merge row is typed `release`.
 3. Check that the release line names the highest `vX.Y.Z` tag, and the
    commit `v2.1` points to.
 4. Run it in `vergil-actions` (whose tags sit on freeze commits) and in `docs`
