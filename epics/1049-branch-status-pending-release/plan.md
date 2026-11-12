@@ -64,12 +64,14 @@ wrappers (both retry transient network failures), pytest with
 | 1 | vergil-tooling | Rename to `vrg-repo-status` | — |
 | 2 | vergil-tooling | `lib/pending_release.py` (data layer) | — |
 | 3 | vergil-tooling | The Pending release section in `vrg-repo-status`, with docs | 1, 2 |
+| 4 | vergil-tooling | Validation (operational): the released command against live data | 3 |
 
 The bookends are already filed: the documentation review
 (vergil-project/vergil-tooling#4256) is blocked by Task 3, and the
-retrospective (vergil-project/.github#1051) closes the epic. No operational
-tasks are needed: the command is human-run and read-only, and the pipeline's
-tests cover it.
+retrospective (vergil-project/.github#1051) closes the epic. Task 4 is the only
+operational task: the mocked tests cannot prove what GitHub's real
+commit-to-PR associations return, and the installed command only has the new
+section once a release ships it.
 
 ---
 
@@ -164,13 +166,19 @@ tests cover it.
   def parse_release_tags(ls_remote: str) -> ReleaseTags: ...
   def first_parent_chain(commits: list[dict[str, object]], head: str) -> list[dict[str, object]]: ...
   def classify(title: str, branch: str | None, labels: Sequence[str]) -> tuple[ChangeKind, str]: ...
-  def gather_pending_release(*, repo: str, integration: str, remote: str = "origin") -> PendingRelease: ...
+  def gather_pending_release(*, integration: str, remote: str = "origin") -> PendingRelease: ...
   ```
 
-- Consumes: `git.read_output`, `github.read_json`, `github.graphql`.
+- Consumes: `git.read_output`, `git.remote_url`, `github.github_remote_repo`,
+  `github.read_json`, `github.graphql`.
 
 **Algorithm decisions** (the rest is the implementer's):
 
+- **Repo, from the same remote:** `github.github_remote_repo(git.remote_url(remote))`.
+  `None` → `PendingReleaseError("<remote> is not a github.com remote")`, without
+  echoing the URL (it can carry credentials). Resolving it here, not in the
+  command, keeps every lookup inside the one error boundary and ties the repo
+  to the remote whose SHAs are compared.
 - **Refs, one call:** `git.read_output("ls-remote", remote, "refs/heads/main",
   f"refs/heads/{integration}", "refs/tags/v*")`. Either branch missing →
   `PendingReleaseError("main or <integration> not found on <remote>")`.
@@ -188,11 +196,13 @@ tests cover it.
 - **First-parent chain:** start at `dev_sha` and follow `parents[0].sha`
   while it is in the compare set. Return the chain oldest first.
 - **PR mapping:** GraphQL in chunks of 50 SHAs, one aliased `object(oid:
-  "<sha>") { ... on Commit { associatedPullRequests(first: 5) { nodes {
-  number title headRefName mergedAt baseRefName merged labels(first: 20) {
-  nodes { name } } } } } }` per SHA, under `repository(owner:, name:)`. Before
-  a SHA is interpolated, assert it matches `^[0-9a-f]{40}$`. Keep only nodes
-  with `merged` true and `baseRefName == integration`. A commit with more
+  "<sha>") { ... on Commit { associatedPullRequests(first: 5) { totalCount
+  nodes { number title headRefName mergedAt baseRefName merged
+  labels(first: 20) { totalCount nodes { name } } } } } }` per SHA, under
+  `repository(owner:, name:)`. Before a SHA is interpolated, assert it matches
+  `^[0-9a-f]{40}$`. A connection whose `totalCount` exceeds the nodes returned
+  is truncated → `PendingReleaseError("<connection> for <sha7> truncated")`.
+  Keep only nodes with `merged` true and `baseRefName == integration`. A commit with more
   than one such PR → `PendingReleaseError`. Consecutive chain commits with the
   same PR form one `PendingChange`. A commit with none is a `NO_PR` change of
   its own.
@@ -250,6 +260,12 @@ tests cover it.
     `__cause__` is that error.
   - `test_multiple_prs_for_one_commit_raises`: two merged PRs into `develop`
     on one commit → `PendingReleaseError`.
+  - `test_truncated_pr_list_raises`: `associatedPullRequests.totalCount` 6
+    with 5 nodes → `PendingReleaseError`.
+  - `test_truncated_label_list_raises`: a PR's `labels.totalCount` 21 with 20
+    nodes → `PendingReleaseError`.
+  - `test_non_github_remote_raises`: `github_remote_repo` returning `None` →
+    `PendingReleaseError`, and the message does not contain the URL.
 - [ ] **Step 2: Run the tests.** `vrg-container-run -- vrg-validate`.
   Expected: FAIL, `ModuleNotFoundError: vergil_tooling.lib.pending_release`.
 - [ ] **Step 3: Implement the module** to the Interfaces and Algorithm
@@ -273,24 +289,26 @@ tests cover it.
 **Interfaces:**
 - Consumes: Task 1's module; Task 2's `gather_pending_release`,
   `PendingRelease`, `PendingChange`, `ReleaseTags`, `ChangeKind`,
-  `PendingReleaseError`; `config.read_config(root).publish.release`;
-  `github.current_repo()`; the module's existing `_render_table` and
-  `_format_age`.
+  `PendingReleaseError`; `config.read_config`,
+  `config.INTEGRATION_BRANCH_BY_MODEL`; the module's existing
+  `_render_table` and `_format_age`.
 - Produces: `_PENDING_COLUMNS = ("PR", "BRANCH", "TYPE", "MERGED", "TITLE")`,
   `_TITLE_WIDTH = 72`, and these functions, each returning printable text:
   `_release_line(tags: ReleaseTags, main_moved_ts: float, now: float) -> str`,
   `_pending_rows(changes, now) -> list[tuple[str, ...]]`,
   `_pending_summary(changes) -> str`, and
-  `_print_pending(root: Path, integration: str, now: float) -> bool`, which
-  returns False only on an error.
+  `_print_pending(integration: str, now: float) -> bool`, which returns False
+  only on an error.
 
 **Exact copy** (spec §5.3, §5.5):
 
 - Heading: `Pending release (develop → main)`, with the configured
   integration branch in place of `develop`.
 - Release line: `  latest release: <latest | no release yet>, main moved
-  <age>; rolling tag <rolling> → <target>`, plus ` (lags <latest>)` when
-  `target != latest`, or `; no rolling tag`.
+  <age>; rolling tag <rolling> → <target>`, or `; no rolling tag`. The suffix
+  ` (lags <latest>)` is added only when `target` is a `vX.Y.Z` tag, `latest`
+  is not `None`, and the two differ. A target that is a short SHA gets no
+  suffix.
 - Nothing pending: `Nothing pending release: <integration> and main are level.`
 - Summary: `<n> changes pending release: <d> dependency update(s), <r>
   release back-merge(s), <o> other PR(s).`, with `, <p> PROBLEM: commits with
@@ -304,16 +322,30 @@ tests cover it.
 - Titles longer than `_TITLE_WIDTH` are cut to `_TITLE_WIDTH - 1` characters
   plus `…`.
 
-**Wiring:** in `main`, after the worktree-section loop and before the blank
-line and `_summary`, call `_print_pending` only when `vergil.toml` exists and
-`publish.release` is true. With `publish.release` false or absent, print
-nothing. With no `vergil.toml`, print only the note. If `_print_pending`
-returned False, `main` returns 1 after printing everything else; otherwise
-it returns 0 as today.
+**Wiring:**
 
-- [ ] **Step 1: Write the failing tests** in `test_vrg_repo_status.py`,
-  patching `gather_pending_release` and `read_config` in `_MOD`, alongside the
-  existing worktree fixtures:
+- **One config read.** `main` calls `config.read_config(root)` once, in place
+  of `config.integration_branch(root)`. A `FileNotFoundError` means no
+  `vergil.toml`: the integration branch defaults to `develop` with the
+  existing note, and the section is skipped with its note. A `ConfigError`
+  keeps its current handling (`ERROR:` and return 1). Otherwise the
+  integration branch is `config.INTEGRATION_BRANCH_BY_MODEL[cfg.project.branching_model]`
+  and the section runs when `cfg.publish.release` is true.
+- After the worktree-section loop, and before the blank line and `_summary`,
+  call `_print_pending` when the section runs. With `publish.release` false
+  or absent, print nothing for it. If `_print_pending` returned False, `main`
+  returns 1 after printing everything else; otherwise it returns 0 as today.
+- **Test helper.** Extend `_run` to patch `config.read_config` (the module
+  imports `config`, so patch `vergil_tooling.lib.config.read_config`) and
+  `f"{_MOD}.gather_pending_release"` (import it by name into the module).
+  New parameters: `publish: bool = False` and `pending: PendingRelease |
+  Exception | None = None`. `integration=None` makes `read_config` raise
+  `FileNotFoundError`, an `Exception` value is raised, and a string builds a
+  config whose branching model maps to it. With the defaults, every existing
+  `main()` test keeps its current output and exit code.
+
+- [ ] **Step 1: Write the failing tests** in `test_vrg_repo_status.py`, using
+  the extended `_run`, alongside the existing worktree fixtures:
   - `test_pending_section_renders_rows_in_order`: the spec's §5.3 mock-up
     data (back-merge #4251, deps #4258, feat #4252, docs #4255) → the output
     contains the heading, the release line `latest release: v2.1.303, main
@@ -324,6 +356,12 @@ it returns 0 as today.
     ends `rolling tag v2.1 → v2.1.302 (lags v2.1.303)`.
   - `test_release_line_no_tags`: `ReleaseTags(None, None, None)` →
     `latest release: no release yet, main moved …; no rolling tag`.
+  - `test_release_line_rolling_on_untagged_commit`: `ReleaseTags("v2.1.303",
+    "v2.1", "abc1234")` → the line ends `rolling tag v2.1 → abc1234`, with no
+    `lags`.
+  - `test_release_line_rolling_without_release`: `ReleaseTags(None, "v2.1",
+    "abc1234")` → `latest release: no release yet`, no `lags`, and no `None`
+    anywhere in the line.
   - `test_nothing_pending`: no changes → `Nothing pending release: develop
     and main are level.` and no table header.
   - `test_no_pr_change_is_problem`: one NO_PR change → its row's PR cell is
@@ -346,10 +384,33 @@ it returns 0 as today.
   `vrg-repo-status`.
 - [ ] **Step 5: Run the tests.** `vrg-container-run -- vrg-validate`.
   Expected: green.
-- [ ] **Step 6: Check against live data.** In the vergil-tooling main clone,
-  run `vrg-repo-status`. Then check that its pending rows match the PRs
-  behind `vrg-git log --first-parent --oneline origin/main..origin/develop`
-  (after the human's normal fetch), and that its release line names the
-  highest `v2.1.Z` tag. Put the comparison in the PR's notes.
-- [ ] **Step 7: Commit.** `vrg-commit --type feat --scope repo-status
+- [ ] **Step 6: Commit.** `vrg-commit --type feat --scope repo-status
   --message "show what develop holds that main does not, with the release tags"`
+
+---
+
+### Task 4: Validation — the released command against live data
+
+An operational task (`--kind validation`), filed in vergil-tooling, blocked
+by Task 3, and run with `issue-validate`. It needs no PR.
+
+**Precondition (human-attested):** a vergil-tooling release that includes
+Task 3 is cut and installed on the host the check runs on, so that
+`vrg-repo-status` resolves to the released command. The agent never cuts the
+release.
+
+**Procedure:**
+
+1. In the vergil-tooling main clone, after a fetch, run `vrg-repo-status`.
+2. Compare its Pending release rows with the PRs behind `vrg-git log
+   --first-parent --oneline origin/main..origin/develop`: every first-parent
+   commit is accounted for, a batch PR (if one is pending) is one row, and the
+   back-merge row is typed `release`.
+3. Check that the release line names the highest `vX.Y.Z` tag, and the
+   commit `v2.1` points to.
+4. Run it in `vergil-actions` (whose tags sit on freeze commits) and in `docs`
+   (`[publish].release` false). `vergil-actions` shows its latest tag;
+   `docs` shows no section.
+
+**Acceptance:** all four hold. Any mismatch is `Outcome: FAILURE`, with the
+output attached.
