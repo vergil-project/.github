@@ -60,7 +60,8 @@ branches and its release tags), not only its worktrees, so it is renamed
   differences between `develop` and `main`. A list that shows one automated PR
   but suppresses the other would itself be a red flag.
 - **A slow command.** It runs on every status check. The new section adds a
-  constant number of GitHub calls, never one per pending PR.
+  small number of GitHub calls, bounded by the size of the pending range (one
+  per page of commits, one per batch of commits), never one per pending PR.
 
 ## 5. Design
 
@@ -75,8 +76,9 @@ branches and its release tags), not only its worktrees, so it is renamed
   tool is only run by hand; no script or skill invokes it (a fleet-wide search
   found references only in vergil-tooling).
 - Historical records keep the old name: release notes, the changelog, dated
-  specs and plans under `docs/specs/` and `docs/plans/`, and earlier epics'
-  documents in `.github`. They describe what was true at the time.
+  specs and plans under `docs/specs/` and `docs/plans/`, the dated evidence
+  under vergil-tooling's `epics/`, and earlier epics' documents in `.github`.
+  They describe what was true at the time.
 - The output's first section (main checkout) and the existing worktree
   sections are unchanged.
 
@@ -150,7 +152,8 @@ PR     BRANCH                         TYPE     MERGED  TITLE
     `docs`, `chore`, …), with two overrides. A dependency update (a
     `deps/update-*` head branch or a `dependency-update` label) shows `deps`,
     and a release back-merge (a `release/post-*` head branch) shows `release`.
-    A title with no conventional type shows `-`.
+    A title with no conventional type shows `-`, and so does a commit with no
+    PR: a type is never inferred from a commit subject.
   - `MERGED`: relative age in the existing `_format_age` style: the PR's merge
     time, or the commit date for a commit with no PR.
   - `TITLE`: the PR title, or the commit subject when there is no PR,
@@ -168,8 +171,8 @@ PR     BRANCH                         TYPE     MERGED  TITLE
 ### 5.4 Data sources and failure handling
 
 The command stays read-only (§6): it never fetches and never writes a ref.
-Everything comes from the remote, in a constant number of calls, through the
-existing `lib/git.py` and `lib/github.py` helpers:
+Everything comes from the remote, in a number of calls bounded as §4 says,
+through the existing `lib/git.py` and `lib/github.py` helpers:
 
 1. **Current refs.** The current SHAs of `main` and `develop`, and the
    remote's `vX.Y.Z` and `vX.Y` tags with the commits they point to, are read
@@ -179,9 +182,9 @@ existing `lib/git.py` and `lib/github.py` helpers:
    SHAs, with their subjects and commit dates, come from the GitHub compare
    API, or from a local `git log` when both SHAs are already present locally.
    The answer must be complete: page through the API as needed.
-3. **PR metadata.** One batched GraphQL query, keyed by the commit SHAs from
-   step 2, returns each commit's associated merged PRs into `develop`, with
-   number, title, head branch, labels and merge time.
+3. **PR metadata.** Batched GraphQL queries, each covering a fixed number of
+   the commit SHAs from step 2, return each commit's associated merged PRs
+   into `develop`, with number, title, head branch, labels and merge time.
 
 Failure rules (the no-silent-failures principle):
 
@@ -194,6 +197,8 @@ Failure rules (the no-silent-failures principle):
   reason, and no table, release line or summary. There are no fallback rows
   built from partial data, and a PR number is never guessed from a commit
   subject.
+- An error's reason never contains credentials: any userinfo in a URL in the
+  reason is removed before it is printed.
 - The rest of the output (the main checkout and the worktree sections) still
   prints, and the command then **exits non-zero**. An existing worktree's PR
   lookup failure keeps its current handling (`unknown`, with a note).

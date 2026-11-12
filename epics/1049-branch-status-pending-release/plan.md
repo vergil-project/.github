@@ -39,7 +39,8 @@ wrappers (both retry transient network failures), pytest with
   (spec §4, §5.4).
 - `develop-v*` tags and rolling major `vX` tags are ignored (spec §3, §5.3).
 - Historical records keep the old name: `releases/`, `CHANGELOG.md`, dated
-  `docs/specs/2026-*` and `docs/plans/2026-*` files, and `epics/` (spec §5.1).
+  `docs/specs/2026-*` and `docs/plans/2026-*` files, and the dated evidence
+  under vergil-tooling's `epics/` (spec §5.1).
 
 ## Review Focus
 
@@ -88,7 +89,6 @@ section once a release ships it.
 - Modify (references only): `src/vergil_tooling/bin/vrg_finalize_pr.py`,
   `src/vergil_tooling/lib/git.py`, `src/vergil_tooling/lib/worktrees.py`,
   `tests/vergil_tooling/test_worktrees.py`,
-  `tests/vergil_tooling/test_vrg_finalize_pr.py`,
   `tests/vergil_tooling/fixtures/host/uv-tool-list.txt`,
   `tests/vergil_tooling/fixtures/update_deps/vrg-validate-typecheck-failure.stdout.txt`,
   `docs/specs/worktree-convention.md`,
@@ -106,6 +106,9 @@ section once a release ships it.
 - Internal names (`gather_worktree_status`, `WorktreeStatus`, …) are **not**
   renamed: they describe worktrees, which they still are.
 
+This task is a mechanical rename, exempt from red/green/refactor: the moved
+tests passing unchanged, plus the grep in Step 4, are its proof.
+
 - [ ] **Step 1: Move the module and its tests**, and update the test module's
   import line and `_MOD` constant to `vrg_repo_status`.
 - [ ] **Step 2: Update the entry point** in `pyproject.toml`.
@@ -114,10 +117,10 @@ section once a release ships it.
   is pending release." Update the argparse `description` to match.
 - [ ] **Step 4: Replace every remaining `vrg-worktree-status` /
   `vrg_worktree_status`** in the files listed, outside the historical records
-  in Global Constraints. Check: `grep -rn "worktree.status"` over `src`,
-  `tests`, `docs/site` and `docs/specs/worktree-convention.md` prints
-  nothing. The function name `gather_worktree_status` is expected to remain:
-  run the grep with `-w vrg-worktree-status -w vrg_worktree_status`.
+  in Global Constraints. Check: `grep -rnw -e vrg-worktree-status -e
+  vrg_worktree_status src tests docs/site docs/specs/worktree-convention.md`
+  prints nothing. (`gather_worktree_status` stays, and the `-w` match skips
+  it.)
 - [ ] **Step 5: Run the tests.** `vrg-container-run -- vrg-validate`.
   Expected: green; the moved tests pass unchanged.
 - [ ] **Step 6: Commit.** `vrg-commit --type refactor --scope repo-status
@@ -227,6 +230,10 @@ section once a release ships it.
   `MissingGitHubTokenError` → `github.missing_token_message("vrg-repo-status")`,
   `AppAuthError` → `github.app_auth_message(exc)`, and `NoInstallationError` →
   `github.no_installation_message(exc)`. Nothing is swallowed.
+- **One reason formatter.** Every `PendingReleaseError` reason passes through
+  one private function, `_reason(text: str) -> str`, which removes URL
+  userinfo (`scheme://user[:secret]@host` → `scheme://host`) before the
+  error is built. No other code path builds a reason.
 
 - [ ] **Step 1: Write the failing tests** in `test_pending_release.py`, with
   `git.read_output`, `github.read_json` and `github.graphql` patched:
@@ -280,6 +287,15 @@ section once a release ships it.
     `MissingGitHubTokenError`, `AppAuthError` and `NoInstallationError` in
     turn → `PendingReleaseError` whose message equals the matching builder's
     output.
+  - `test_error_reason_strips_url_userinfo`: `ls-remote` failing with stderr
+    `fatal: unable to access 'https://user:tok123@github.com/o/r.git/'` →
+    the `PendingReleaseError` message contains `https://github.com/o/r.git/`
+    and neither `tok123` nor `user:`.
+  - `test_multi_page_compare_collects_all`: `total_commits` 150, pages
+    yielding 100 and 50 → all 150 in the chain input, and exactly two compare
+    calls.
+  - `test_graphql_chunks_over_fifty_shas`: 120 chain commits → three
+    `graphql` calls (50, 50 and 20 aliases), with every change mapped.
   - `test_non_github_remote_raises`: `github_remote_repo` returning `None` →
     `PendingReleaseError`, and the message does not contain the URL.
 - [ ] **Step 2: Run the tests.** `vrg-container-run -- vrg-validate`.
@@ -288,7 +304,12 @@ section once a release ships it.
   decisions above.
 - [ ] **Step 4: Run the tests.** `vrg-container-run -- vrg-validate`.
   Expected: green, coverage gate included.
-- [ ] **Step 5: Commit.** `vrg-commit --type feat --scope repo-status
+- [ ] **Step 5: Refactor.** Reuse `github.read_json_paginated` for the
+  compare loop if it can check `total_commits`; otherwise keep the loop and
+  say why in its docstring. Name the tag regexes, the page size (100) and the
+  chunk size (50) as module constants, and keep the error mapping in one
+  `except` ladder. Re-run `vrg-container-run -- vrg-validate`: green.
+- [ ] **Step 6: Commit.** `vrg-commit --type feat --scope repo-status
   --message "add the pending-release data layer"`
 
 ---
@@ -335,7 +356,8 @@ section once a release ships it.
   after the table: `  PROBLEM: <sha7> reached <integration> without a PR`.
 - Error: `ERROR: pending release: <reason>`, printed under the heading with
   nothing else in the section.
-- No `vergil.toml`: `  note: no vergil.toml; pending-release section skipped`.
+- No `vergil.toml`: `  note: no vergil.toml; pending-release section skipped`,
+  printed right after the existing integration-branch note.
 - Titles longer than `_TITLE_WIDTH` are cut to `_TITLE_WIDTH - 1` characters
   plus `…`.
 
@@ -389,8 +411,9 @@ section once a release ships it.
   - `test_nothing_pending`: no changes → `Nothing pending release: develop
     and main are level.` and no table header.
   - `test_no_pr_change_is_problem`: one NO_PR change → its row's PR cell is
-    `PROBLEM`, the `PROBLEM: <sha7> reached develop without a PR` note is
-    printed, and the summary is `1 change pending release: 0 dependency
+    `PROBLEM`, its BRANCH and TYPE cells are `-`, its MERGED cell is the
+    commit date's age, the `PROBLEM: <sha7> reached develop without a PR`
+    note is printed, and the summary is `1 change pending release: 0 dependency
     updates, 0 release back-merges, 0 other PRs, 1 PROBLEM: commits with no
     PR.`
   - `test_pending_error_exits_nonzero`: `gather_pending_release` raising
@@ -400,7 +423,9 @@ section once a release ships it.
     `Pending release` text, `gather_pending_release` not called, and
     `main()` returns 0.
   - `test_section_skipped_without_config`: no `vergil.toml` → the skip note
-    is printed and `gather_pending_release` is not called.
+    is printed on the line right after the `no vergil.toml; integration
+    branch defaults to develop` note, and `gather_pending_release` is not
+    called.
   - `test_long_title_truncated`: a 100-character title → the cell is 72
     characters and ends with `…`.
 - [ ] **Step 2: Run the tests.** `vrg-container-run -- vrg-validate`.
@@ -410,7 +435,13 @@ section once a release ships it.
   `vrg-repo-status`.
 - [ ] **Step 5: Run the tests.** `vrg-container-run -- vrg-validate`.
   Expected: green.
-- [ ] **Step 6: Commit.** `vrg-commit --type feat --scope repo-status
+- [ ] **Step 6: Refactor.** Update the module docstring's section list to
+  name the Pending release section, and the argparse description to match.
+  Share one pluralisation helper between `_pending_summary` and the existing
+  `_summary` / `_development_summary` where they pluralise. Check that
+  `_print_pending` renders only through `_render_table` and `_format_age`.
+  Re-run `vrg-container-run -- vrg-validate`: green.
+- [ ] **Step 7: Commit.** `vrg-commit --type feat --scope repo-status
   --message "show what develop holds that main does not, with the release tags"`
 
 ---
