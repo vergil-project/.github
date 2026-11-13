@@ -42,9 +42,9 @@ Markdown), the fixture repos (Python with uv; Rust with Cargo), cargo-deny.
 ## Review Focus
 
 1. **A consumer repo with its own `deny.toml`.** The packaged policy is passed with `--config`, so a repo's own file is ignored. Expect the audit to use the fleet policy, not to fail or to merge the two. This is cargo-deny's own behaviour, so it is evidenced in Task 3 Step 1 from cargo-deny's `--config` documentation, not by a unit test.
-2. **A crate whose license is an SPDX expression** (`MIT OR Apache-2.0`, `Apache-2.0 WITH LLVM-exception`, `Unicode-3.0` for `unicode-ident`). These appear in almost every Rust dependency graph. Expect them to pass. Pinned in Task 3's policy test.
+2. **A crate whose license is an SPDX expression** (`MIT OR Apache-2.0`, `Apache-2.0 WITH LLVM-exception`, `Unicode-3.0` for `unicode-ident`). These appear in almost every Rust dependency graph. Expect them to pass. vergil-tooling's own gate cannot run cargo-deny, so this is evidenced in Task 3 Step 1 from cargo-deny's documentation, and proven live by the first Rust fixture audit in Task 6.
 3. **An existing `.gitignore` on a Rust repo when the fragment changes.** `vrg-gitignore-sync` must add `target/` to the managed block without touching the repo's own lines. Pinned in Task 2's tests.
-4. **The human's release lands before a proof run's preconditions can see it** (the tag exists but the release workflow is still running). Expect `issue-validate` to report blocked, not FAILURE. Written into Task 8's validation body.
+4. **The human's release lands before a proof run's preconditions can see it** (the tag exists but the release workflow is still running). Expect `issue-validate` to report blocked, not FAILURE. Written into Task 7's validation-task template.
 5. **A first Rust fixture CI run hitting a parity gap not in spec §6.4's table.** Expect the gap to be judged with the human (fix it here if small or blocking, otherwise record it on #410), with any new task recorded in `## Evolution during execution`. Written into Task 6.
 
 ---
@@ -117,14 +117,14 @@ The documentation task, vergil-project/.github#1092: this PR publishes
 - Consumes: the `{configs}` placeholder that `languages.py:881` already resolves to the packaged `vergil_tooling.configs` directory.
 - Produces: rust `AUDIT` = `[["cargo", "deny", "check", "--config", "{configs}/rust/deny.toml"]]`, and `_RUST_LICENSES_ALLOWLIST`, the reviewed list beside the other languages' lists.
 
-- [ ] **Step 1: Confirm cargo-deny's behaviour with no config** from its documentation, for the cargo-deny version in the current `prod-rust` image (`cargo deny --version` in the container; the image installs it unpinned). Record in the PR notes that version, whether a missing `deny.toml` rejects every license, and whether `--config` makes cargo-deny ignore a repo's own `deny.toml` (Review Focus 1), with a source for each. Either way this task proceeds: the spec puts the policy in the fleet, not in a fixture.
+- [ ] **Step 1: Confirm cargo-deny's behaviour with no config** from its documentation, for the cargo-deny version in the current `prod-rust` image (`cargo deny --version` in the container; the image installs it unpinned). Record in the PR notes that version, whether a missing `deny.toml` rejects every license, whether `--config` makes cargo-deny ignore a repo's own `deny.toml` (Review Focus 1), and how `licenses.allow` evaluates `OR` and `WITH` expressions (Review Focus 2), with a source for each. Either way this task proceeds: the spec puts the policy in the fleet, not in a fixture.
 - [ ] **Step 2: Write the failing tests.**
   - `test_rust_audit_commands` asserts the argv above.
   - `test_rust_deny_toml_allowlist_matches_constant` parses the packaged `deny.toml` with `tomllib` and asserts `licenses.allow == _RUST_LICENSES_ALLOWLIST`.
 - [ ] **Step 3: Run `vrg-container-run -- vrg-validate`.** Expected: the new tests fail.
 - [ ] **Step 4: Add `_RUST_LICENSES_ALLOWLIST`** in `languages.py` beside the Go list, as a `list[str]` of SPDX IDs: `Apache-2.0`, `Apache-2.0 WITH LLVM-exception`, `BSD-2-Clause`, `BSD-3-Clause`, `BSL-1.0`, `ISC`, `MIT`, `MPL-2.0`, `Unicode-3.0`, `Zlib`. Give it a comment naming this epic. Write `configs/rust/deny.toml` (cargo-deny's version 2 schema):
   - `[licenses]`: `allow` equal to that list, `confidence-threshold = 0.93`;
-  - `[advisories]`: the defaults (deny vulnerabilities);
+  - `[advisories]`: cargo-deny's v2 defaults, which deny vulnerabilities and unsound advisories, with `unmaintained = "workspace"`, so only the repo's direct dependencies are flagged as unmaintained. That is close to Python's vulnerability-focused gate. Step 1 confirms the option names for the image's version;
   - `[bans]`: `multiple-versions = "warn"`;
   - `[sources]`: `unknown-registry = "deny"`, `unknown-git = "deny"`.
 
@@ -143,23 +143,31 @@ Acceptance sections stay placeholders (`data/validation_task_body.md:16`,
 `data/deployment_task_body.md:17`). The `fixture-run` recipe needs real
 content in them, through the sanctioned creation path.
 
+This extends the operational tasks' *creation path* (what a body file may
+fill). It does not extend the operational-task *model*: the kinds, labels and
+run skills are unchanged, as spec §6.3 requires. It is a small gap that blocks
+the recipe, so under spec §6.4 it is fixed here.
+
 **Files:**
 - Modify: `src/vergil_tooling/bin/vrg_issue_create.py` (the `--body-file` refusal at `:96-98`, and `_render_scaffold_body` at `:237`)
 - Modify: `src/vergil_tooling/data/validation_task_body.md`, `src/vergil_tooling/data/deployment_task_body.md` (named slots in place of the placeholder lines)
 - Test: `tests/vergil_tooling/test_vrg_issue_create.py`
 
 **Interfaces:**
-- Produces: `vrg-issue-create --kind validation|deployment --body-file <file>`, where `<file>` is Markdown with exactly the level-2 sections `## Intro`, `## Preconditions`, `## Procedure` and `## Acceptance`. Each section's content fills the matching scaffold slot. The tool keeps the frame (the self-check rule, the results template and the `Blocked-by:` lines). Without `--body-file`, today's behaviour is unchanged.
+- Produces: `vrg-issue-create --kind validation|deployment --body-file <file>`, where `<file>` is Markdown with the level-2 sections `## Intro`, `## Preconditions`, `## Procedure` and `## Acceptance`, all required, plus `## Human-run steps`, optional and for `--kind deployment` only. Each section fills the matching scaffold slot:
+  - `## Procedure` fills "Commands to run" for validation and "Deploy steps (agent-safe; idempotent)" for deployment;
+  - `## Human-run steps` fills the deployment scaffold's "Human-run steps (need a human identity)" section, which is removed when the file has none. The tool keeps the frame (the self-check rule, the results template and the `Blocked-by:` lines). Without `--body-file`, today's behaviour is unchanged.
 
 - [ ] **Step 1: Write the failing tests.**
-  - `test_operational_body_file_fills_slots`: for each kind, the rendered body contains each section's text, and no `<precondition` placeholder remains.
+  - `test_operational_body_file_fills_slots`: for each kind, the rendered body contains each section's text, and no `\<…\>` placeholder remains anywhere in it. For deployment, check both with and without `## Human-run steps`; without it, the scaffold's human-run section is gone. A `## Human-run steps` section on a validation kind is refused.
   - `test_operational_body_file_keeps_frame`: the results template and the `Blocked-by:` lines are present.
   - `test_operational_body_file_rejects_missing_or_extra_section`: a file missing `## Preconditions`, or carrying an unknown `## Other`, exits non-zero with a message naming the section.
   - `test_operational_without_body_file_unchanged`: today's scaffold output, unchanged.
+  - `test_retrospective_body_file_still_refused`: `--kind retrospective --body-file` still exits non-zero.
 - [ ] **Step 2: Run `vrg-container-run -- vrg-validate`.** Expected: the new tests fail.
 - [ ] **Step 3: Implement it.**
-  - Replace the refusal with parsing the four sections.
-  - Give both templates `{preconditions}`, `{procedure}` and `{acceptance}` slots, defaulting to today's placeholder text.
+  - For `validation` and `deployment` only, replace the refusal with parsing the sections. The refusal stays for `retrospective`.
+  - Give both templates `{preconditions}`, `{procedure}` and `{acceptance}` slots, plus `{human_steps}` in the deployment template, defaulting to today's placeholder text.
   - Make `_render_scaffold_body(*, kind: str, intro: str, deps: list[epics.IssueRef], sections: dict[str, str] | None = None) -> str` fill them.
   - Refuse the file loudly on a missing or unknown section.
 - [ ] **Step 4: Run `vrg-container-run -- vrg-validate`.** Expected: pass.
@@ -173,7 +181,8 @@ content in them, through the sanctioned creation path.
 vergil-tooling, and the release contains Tasks 2, 3 and 3b.
 
 `issue-deploy` confirms the release tag exists, that all three PRs are in it, and
-that the rolling `v2.1` series tag points at it, then records the version.
+that the rolling `v2.1` series tag points at this release or at a later one
+that contains it, then records the version.
 The agent never cuts the release.
 
 ---
@@ -220,7 +229,13 @@ Then, for each repo:
 **Agent check** (`issue-deploy`), per repo:
 - the repo exists and is public, with `develop` as default and `main` present;
 - `vergil.toml` matches the Global Constraints;
-- the rulesets match `vrg-github-repo-config audit`;
+- repo settings and rulesets: the verdict is the human's
+  `vrg-github-repo-init` for that repo exiting 0, which applies them. If it
+  did not, the human runs `vrg-github-repo-config apply` and that exit 0 is
+  the verdict. The agent may run `vrg-github-repo-config audit` for
+  information only: under the agent identity it exits 2 by design, because
+  the admin-scoped settings cannot be read, and that exit code is never the
+  verdict;
 - `ops.yml`, `ci.yml`, `cd.yml` and `epic-rollup.yml` exist;
 - the ad-hoc epic exists.
 
@@ -294,7 +309,7 @@ around a gap by lowering a gate.
     - the change, kept at 100% coverage;
     - the dependency rollback in the lockfile only, to an audit-clean version with the range left open, skipped on Rust until a Cargo updater exists;
     - the human's submit and finalize.
-  - **(r) Release task** (`--kind deployment`, blocked by (a)): the human-attested `vrg-release` with the exact command, and the closing check that the release contains (a)'s merge.
+  - **(r) Release task** (`--kind deployment`, blocked by (a)): the human's `vrg-release`, with its exact command, under `## Human-run steps` (check: the command exits 0), and the closing check that the release contains (a)'s merge.
   - **(b) Validation task** (`--kind validation`, blocked by (r)):
     - the preconditions, including the deployed-version probe for `--validates`;
     - every check in spec §6.3 (b), in order;
