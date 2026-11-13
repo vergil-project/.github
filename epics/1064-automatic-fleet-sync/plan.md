@@ -707,3 +707,51 @@ Kind `validation`, filed in vergil-actions and blocked by D4.
 - [ ] **Step 2:** Delete them and remove the entry points and docs.
 - [ ] **Step 3: Validate, then commit** (`vrg-commit --type refactor
   --scope sync`).
+
+## Evolution during execution
+
+### 2026-11-13: the `epic-sweep` token, D2's permission list, and a catch-all exception
+
+**What changed:**
+
+- **Task A1 (vergil-project/vergil-actions#1153) no longer scopes the
+  `epic-sweep` token.** By the human's ruling, that part is split off
+  through a scope change on #1153. Every other token is scoped as planned.
+- **Two tasks are added:**
+  - **vergil-project/vergil-tooling#4313:** move the advisory-state sync
+    out of `vrg-epic-audit --close`. It has no blockers.
+  - **vergil-project/vergil-actions#1159:** scope the `epic-sweep` token
+    to Issues write, Pull requests read and Contents read. It is blocked
+    by #4313 and a vergil-tooling release that carries it.
+- **Task D2 (vergil-project/.github#1083) is also blocked by #1159.**
+- **Task D2's asserted App permissions also include Repository security
+  advisories: Read & write.** This came through a scope change on #1083.
+  A1's rewritten `configuration.md` table lists it too.
+- **One task is added:** vergil-project/vergil-tooling#4311 narrows the
+  `except Exception: return False` in `_cwd_matches_repo`
+  (`bin/vrg_github_repo_config.py`). It has no blockers.
+
+**Why:**
+
+- **The `epic-sweep` token.** Task A1's inventory found that the
+  security-records pass of `vrg-epic-audit --close` updates advisory
+  states in the org `.github` repo. That needs Repository security
+  advisories: write, and `actions/create-github-app-token` has no input
+  for it. A scoped sweep token would lose it, so the token stays unscoped
+  for now. Once D2 grants Administration write, an unscoped org-wide token
+  would carry it, which is what spec §6.4's scoping rule forbids. So the
+  token must be scoped, through #4313 and #1159, before D2.
+- **D2's permission list.** The plan's list left out a permission the
+  nightly sweep already uses in every org.
+- **The catch-all exception.** The run for Task 2 (vergil-tooling#4301)
+  found it. It predates the epic and conflicts with the no-silent-failures
+  rule. The human approved filing it on the epic.
+
+The updated order for the rollout chain:
+
+| Task | Repo | What | Blocked by |
+| --- | --- | --- | --- |
+| 4313 | vergil-tooling | Move the advisory sync out of `--close` | — |
+| 1159 | vergil-actions | Scope the `epic-sweep` token | 4313 (released) |
+| D2 | .github (deployment) | As planned, plus the advisories permission | D1, 1159 |
+| 4311 | vergil-tooling | Narrow the catch-all in `_cwd_matches_repo` | — |
