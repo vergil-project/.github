@@ -755,3 +755,54 @@ The updated order for the rollout chain:
 | 1159 | vergil-actions | Scope the `epic-sweep` token | 4313 (released) |
 | D2 | .github (deployment) | As planned, plus the advisories permission | D1, 1159 |
 | 4311 | vergil-tooling | Narrow the catch-all in `_cwd_matches_repo` | — |
+
+### 2026-11-13 (later): the advisory sync's new home, the D2 reversal, and D1's failure
+
+**What changed:**
+
+- **The advisory sync's home is settled.** vergil-project/vergil-tooling#4313
+  moves the whole security-records pass out of `vrg-epic-audit --close`:
+  the listing, the state sync and the broken-pair report. It becomes a new
+  `vrg-security-record sync` command, with a preview mode, run by the human
+  or the user agent. `--close` makes no advisory API call. This was the
+  human's ruling, through a scope change on #4313.
+- **The earlier D2 change is reversed.** No automation job now uses
+  Repository security advisories. So D2 (vergil-project/.github#1083) now
+  requires that the App does **not** hold that permission, and removes it
+  where it does. vergil-project/vergil-actions#1159 also drops it from
+  `configuration.md`'s App permission table. Both came through scope
+  changes. Ignore the advisories-permission row in the order table above.
+- **D1 (vergil-project/vergil-actions#1154) failed.** The scoped
+  `github-config` token (Administration read, Contents read) does not get
+  the repo's merge-setting fields back, so the audit reported false drift.
+  The run filed the fix task vergil-project/vergil-actions#1164, as a
+  FAILURE outcome allows. D1 re-runs once #1164 is released.
+- **A task is added, blocking Task 6.**
+  vergil-project/vergil-tooling#4322 records any repo-settings field
+  GitHub does not return as not checked, never defaulted to `False` or
+  `''`. Task 6 (vergil-project/vergil-tooling#4306) is now also blocked
+  by #4322.
+
+**Why:**
+
+- **The advisory sync and the D2 reversal.** A command a human or the user
+  agent runs needs no ops token, so the `epic-sweep` token can be scoped
+  fully. Once the sweep stopped using the advisories permission, asserting
+  it on an org-wide App would be an unneeded write grant. The cost the human
+  accepted: advisory states lag until someone runs `sync`, and the nightly
+  sweep no longer checks advisory/issue pairs.
+- **#4322.** D1's false drift came from the tool reading a missing field as
+  `False`, which breaks the no-silent-failures rule. Once `update` runs as
+  automation with Administration write, such a reading would trigger a
+  "convergence" based on a value that was never read.
+
+The updated order for the rollout chain:
+
+| Task | Repo | What | Blocked by |
+| --- | --- | --- | --- |
+| 1164 | vergil-actions | Give the `github-config` token the permission the merge settings need | — |
+| D1 | vergil-actions (deployment) | Re-run after #1164 is released | A1, C1, 1164 (released) |
+| 1159 | vergil-actions | Scope the `epic-sweep` token; drop advisories from the App table | 4313 (released) |
+| D2 | .github (deployment) | As planned, and remove the advisories permission | D1, 1159 |
+| 4322 | vergil-tooling | Missing repo-settings fields are not checked, never `False` | — |
+| 6 | vergil-tooling | As planned | 1, 3a, 3b, 4, 5, 4322 |
