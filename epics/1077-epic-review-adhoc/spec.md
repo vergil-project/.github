@@ -80,7 +80,8 @@ commands divide the lifecycle:
 - Unattended or scheduled running of either command
   (vergil-project/.github#710, vergil-project/.github#379).
 - Changes to `epic-create` beyond its references to the retired skills and
-  the guidance it takes over from planning review (§5.2), or to the
+  the guidance and trigger phrases it takes over from planning review
+  (§5.2), or to the
   planning-issue lifecycle and its queue states (vergil-project/.github#950).
 - Changes to `vrg-intake-route` beyond allowing `one-off` from planning
   (§5.6), including vergil-project/vergil-tooling#4291 and the intake epic's
@@ -181,7 +182,7 @@ queue correct, not to choose what to expand next:
 - Items that `epic-create` is expanding (`in-progress`) or has finished
   (`ready-to-close`) belong to `epic-create`. The review shows them with
   their latest note, offers only leave (or defer and drop where the tool
-  allows them), and never resumes them.
+  allows them), and never resumes them. It never offers one-off for them.
 - At the end of the pass it shows the surviving queue as a sorted list,
   oldest first, with each item's state and latest note, to help the human
   choose. Choosing an item and running `epic-create` on it is the human's
@@ -190,7 +191,7 @@ queue correct, not to choose what to expand next:
 The guidance that used to shape the pick list (plan an epic only when it
 will be implemented soon, since a plan left sitting goes stale) moves to
 `epic-create`'s no-argument summary of the planning queue, where the choice
-is actually made.
+is actually made. So do the trigger phrases that ask for the choice (below).
 
 **Drop in every mode.** Drop and defer of a planning item are refused only
 while one of its development epics is open, which is what `vrg-intake-route`
@@ -202,11 +203,14 @@ rule and no older one (#1007).
 adhoc` or `<ref> is a development epic; it is worked with
 /vergil:epic-implement <ref>`) and stops.
 
-**Triggers:** the description carries the old skills' trigger phrases
+**Triggers:** the description carries the old skills' review phrases
 ("review intake", "process the intake queue", "groom the backlog", "review
-planning", "what should we plan next", "review deferred", "what's
+planning", "clean up the planning queue", "review deferred", "what's
 deferred", "revisit the backlog", and the "triage" phrasings), so the
-existing habits still land on it. Each phrase selects its mode directly: the
+existing habits still land on it. The phrases that ask what to plan next
+("what should we plan next", "prioritize the planning queue", "what's in
+planning worth planning") move to `epic-create`'s description, since the
+choice is made there. Each phrase selects its mode directly: the
 intake and triage phrases select `intake`, the planning phrases `planning`,
 and the deferred phrases `deferred`. Only an invocation that names no queue
 shows the counts and asks which one to review.
@@ -214,7 +218,12 @@ shows the counts and asks which one to review.
 **Retirement:** `skills/intake-review/`, `skills/planning-review/` and
 `skills/deferred-review/` are deleted in the same change. Every reference to
 them in the plugin (other skills, the review doctrine, the paad policy, the
-README, the site docs) is updated to `epic-review <mode>`.
+README, the site docs) is updated to `epic-review <mode>`. The `docs`
+repo's `docs/site/docs/management/tools-and-skills.md` and
+`docs/site/docs/management/workflow.md` are updated too. Every one of these
+is revised for meaning, not only renamed: where a passage describes
+planning review as choosing what to plan next, it is rewritten to the
+prune-only role, with the choice made by the human through `epic-create`.
 
 ### 5.3 `epic-implement adhoc`
 
@@ -227,12 +236,24 @@ ref to limit it to that repo. The development-epic path is unchanged.
    kind and a one-line paraphrase. Ad-hoc tasks run in the order the
    human sets, not a plan's dependency order. They have no plan, so the
    runnable frontier is every open task with no open `Blocked-by:`
-   dependency.
+   dependency that is not **in flight** (§5.4). In-flight tasks are listed
+   separately with what marks them, and never enter the strategy.
 3. **Propose a strategy:** which tasks to batch together per repo (under
    `issue-implement`'s batching guidelines), which to run alone, which to
    leave for later, and the order, oldest first within a repo unless there
    is a reason to differ. Flag any task whose state suggests it is stale or
    larger than one PR, with a recommendation; moving it is the human's call.
+   **Judge overlap explicitly.** A development epic's frontier tasks are
+   independent by construction, because the plan's ordering keeps a
+   dependent task off the frontier until what it depends on merges. That
+   argument does not carry over to ad hoc: ad-hoc tasks are filed one at a
+   time and rarely carry `Blocked-by:` links. So the strategy checks, per
+   repo, which tasks touch the same files or area, and either batches them
+   or runs them one after another. The strategy names which tasks run at
+   the same time. Where the shared `epic-implement` text relies on
+   independence by construction (batching, parallel dispatch, per-repo
+   submission), it says that in the `adhoc` mode the confirmed strategy
+   supplies that independence instead.
 4. **One confirmation** of the whole strategy.
 5. **Dispatch** by kind label exactly as the development path does
    (`issue-implement`, `issue-validate`, `issue-deploy`), as sub-agents
@@ -267,8 +288,8 @@ The review doctrine's rule that relayed rulings are accepted only from
 A fourth queue in `vrg-queue`: the open tasks under every open `Epic (ad
 hoc): <repo>` epic (`epic` + `ad-hoc` labels) in the queue home, grouped by
 repo and oldest first within each. Text and `--json` output follow the other
-queues' shape, with the item's repo, its kind label and its open
-`Blocked-by:` refs added. `vrg-queue` with no queue named still shows intake,
+queues' shape, with the item's repo, its kind label, its open `Blocked-by:`
+refs and its state (below) added. `vrg-queue` with no queue named still shows intake,
 planning and deferred; `adhoc` is shown only when named, since it is not a
 review queue.
 
@@ -284,8 +305,22 @@ to that repo's ad-hoc epic in the org's `.github`, which is what
 `epic-implement`'s one-repo form uses. A public repo with no ad-hoc epic
 gives an empty list, not an error.
 
-A failed read of an epic or its sub-issues is a real failure that stops the
-command with its cause, never a silently short list.
+**In flight.** Each task carries a state: `ready`, `blocked` (an open
+`Blocked-by:` dependency) or `in-flight`. A task is in flight when it has
+any of:
+
+- an open PR that closes it;
+- a report-ready record;
+- a `feature/<N>-` branch or worktree in its repo's main clone;
+- a merge-review state directory in its repo's main clone.
+
+The output names the marks found for each in-flight task. Detection lives
+in the tool, in one place, so the skill and any other caller see the same
+answer.
+
+A failed read of an epic, its sub-issues or any of the in-flight sources is
+a real failure that stops the command with its cause, never a silently
+short list or a task wrongly shown as ready.
 
 ### 5.5 Tooling messages and docs
 
@@ -302,9 +337,19 @@ as follows:
   of the queue epics that already exist are updated once, after the tooling
   release;
 - the site docs, `docs/site/docs/standards/github-issues.md` and
-  `docs/site/docs/reference/cli-tools-overview.md`: the skill names change
-  to `epic-review <mode>`, and `cli-tools-overview.md` documents `vrg-queue
-  adhoc` alongside the other queues.
+  `docs/site/docs/reference/cli-tools-overview.md`, revised for meaning,
+  not only renamed:
+  - the skill names change to `epic-review <mode>`;
+  - `github-issues.md`'s planning row and its passage on which planning
+    item to expand next describe the prune-only role, with the choice made
+    by the human through `epic-create`;
+  - `one-off` is added to the planning exits in `github-issues.md` and to
+    the planning row of `cli-tools-overview.md`'s `vrg-intake-route` table;
+  - `cli-tools-overview.md`'s description of the planning refusal states
+    the current rule (refused only while a development epic is open), not
+    the older `Epic:`-marker rule;
+  - `cli-tools-overview.md` documents `vrg-queue adhoc`, with its states,
+    alongside the other queues.
 
 ### 5.6 `one-off` from planning
 
@@ -312,7 +357,9 @@ as follows:
 item. It gains `one-off` from planning, with the same mechanics as from
 intake and deferred, and under the same guard as `drop` and `defer`: it is
 refused while any development epic of the item is open. A routed item that
-carries the `in-progress` label loses it, as `defer` does today.
+carries the `in-progress` label loses it, as `defer` does today. That is
+tool behaviour for a direct `vrg-intake-route` call: `epic-review` never
+offers one-off for an `in-progress` item (§5.2).
 
 ## 6. Constraints
 
@@ -323,6 +370,12 @@ carries the `in-progress` label loses it, as `defer` does today.
   releases ship back to back, and the short window between them, in which
   the released tooling names `epic-review` before it is installed, is
   accepted.
+- **Two delivery groups.** The work splits into two parts that touch
+  different code: the `epic-review` consolidation with `one-off` from
+  planning (§5.2, §5.5, §5.6), and the `adhoc` mode with `vrg-queue adhoc`
+  (§5.3, §5.4). The plan orders them as separately landable task groups, so
+  neither part's PRs wait on the other's. A refusal line that points to the
+  other part's command lands with whichever part ships later.
 - **Private work stays private.** Both skills keep the existing
   private-repo rules: a self-homed private repo's queues and ad-hoc epic are
   reviewed and worked only with its own `--repo`.
@@ -334,6 +387,9 @@ carries the `in-progress` label loses it, as `defer` does today.
   per-mode reference files), within the plugin's skill conventions.
 - The exact wording of the refusal lines and the `vrg-queue adhoc` text
   columns.
+- How `vrg-queue adhoc` finds each repo's main clone for the local
+  in-flight marks, and how it reads a report-ready record, provided a mark
+  it cannot check is reported as a failure, never assumed absent.
 - Whether `epic-implement`'s `adhoc` mode lives inline in its SKILL.md or in
   a referenced section file, provided the shared gate, relay and batching
   text is not duplicated.
