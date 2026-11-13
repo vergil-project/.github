@@ -129,6 +129,7 @@ Advisory hand-off: each advisory is retargeted to the task that fixes it.
 | 4 | GHSA-596v-vphr-cpqq |
 | 5 | GHSA-mv3r-qfr4-7fr6 |
 | A2 | GHSA-2422-4hw9-c34c |
+| D2 | GHSA-jp69-53fx-f5j8 |
 
 ### Task A1: Scope every automation token, add per-job concurrency, rewrite the App docs
 
