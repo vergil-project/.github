@@ -47,8 +47,12 @@ and dependency-update parity) is planned on vergil-project/.github#1087.
 2. Rust's manifest automation is `pr`, and Rust reaches the policy window
    through the automation's own PRs.
 3. Inside every Vergil Rust image, rustup uses the image's installed toolchain
-   and nothing else. A repo file cannot select another one, and rustup never
-   downloads one.
+   by default. No repo file or setting (a toolchain file, a directory
+   override, an environment variable) can select another one, and rustup
+   never downloads one implicitly. The guarantee covers selection by
+   configuration. A repo's own commands that explicitly install or name
+   another toolchain are visible in its source and outside it, as an
+   explicit `uv python install` is for Python.
 4. `vrg-validate` reports a `rust-toolchain.toml` or `rust-toolchain` file as
    an error, and a `rust-version` floor below the window as a warning.
 5. Every Rust CI leg asserts that it runs the `x.y` CI resolved for it.
@@ -71,8 +75,8 @@ and dependency-update parity) is planned on vergil-project/.github#1087.
 ### Anti-goals (the epic fails if any of these happen)
 
 - A consumer repo has to name, or is exposed to, a Rust patch release.
-- A Rust CI leg or dev container runs a toolchain other than the image's,
-  silently.
+- A repo file or setting makes a Rust CI leg or dev container run a
+  toolchain other than the image's, silently.
 - A lifecycle add or drop PR, for any family, goes red in CI for a reason the
   automation itself caused.
 - Rust 1.100 is mis-sorted, mis-parsed, or treated as older than 1.99
@@ -270,6 +274,11 @@ A new `extensions/rust.py`, registered in `extensions/__init__.py`:
   with the fix: delete the file. The message says Vergil selects the toolchain
   through the image.
 - **No `CONTAINER_ENVS` entry:** the image sets the toolchain (§6.3).
+- **Allowed actions.** The managed allowed-actions list for Rust repos
+  (`lib/github_config.py`, `_LANGUAGE_ACTION_PATTERNS["rust"]`) allows only
+  actions that do not install or select a toolchain: `actions-rust-lang/*`
+  is removed, and `swatinem/*` (caching) stays. Nothing in Vergil uses the
+  removed pattern.
 - **The host cannot override the image's pin.** `lib/container.py`
   `build_container_args` forwards every host variable matching the repo's
   `[container].env-prefixes` as `-e NAME`, which beats the image's `ENV`; a
@@ -304,7 +313,11 @@ component's task.
   config belongs in `rustfmt.toml`.
 - The vergil-containers Rust policy page (`docs/site/docs/languages/rust.md`)
   and the toolchain-pin docs describe the `pr` automation and the image-level
-  pin.
+  pin. Each point-in-time fact on the page changes with the step that makes it
+  true (§6.8): the automation mode and the toolchain-file note change in the
+  same PR as the switch to `pr`, and the "Current out-of-policy versions"
+  section is rewritten once the catch-up has merged, as part of the
+  deployment task.
 - The docs say what a Rust repo does when it needs a component or target the
   image lacks: the image gains it through a vergil-containers change. A repo
   never selects it through a toolchain file, and is never exempted from the
@@ -318,8 +331,10 @@ component's task.
    and ship in their releases. Releases are human-gated.
 3. **Deployment** (operational task): with the releases attested, the fleet
    picks them up through its normal sync.
-4. vergil-containers: §6.2's switch to `pr` merges. The catch-up PRs then
-   merge in order (adds newest first, then drops).
+4. vergil-containers: §6.2's switch to `pr` merges, with the Rust policy
+   page's automation text (§6.7). The catch-up PRs then merge in order (adds
+   newest first, then drops), and the policy page's out-of-policy section is
+   rewritten to match.
 5. **Validation** (operational task, blocked by #1022's fixture task, the
    deployment and the catch-up):
    - `vergil-fixture-rust` passes CI on both window series;
