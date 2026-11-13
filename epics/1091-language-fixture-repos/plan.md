@@ -120,7 +120,7 @@ The documentation task, vergil-project/.github#1092: this PR publishes
 **Interfaces:**
 
 - Consumes: the `{configs}` placeholder that `languages.py:881` already resolves to the packaged `vergil_tooling.configs` directory.
-- Produces: rust `AUDIT` = `[["cargo", "deny", "check", "--config", "{configs}/rust/deny.toml"]]`, and `_RUST_LICENSES_ALLOWLIST`, the reviewed list beside the other languages' lists.
+- Produces: rust `AUDIT` = `[["cargo", "deny", "--config", "{configs}/rust/deny.toml", "check"]]`, and `_RUST_LICENSES_ALLOWLIST`, the reviewed list beside the other languages' lists.
 
 - [ ] **Step 1: Confirm cargo-deny's behaviour with no config** from its documentation, for the cargo-deny version in the current `prod-rust` image (`cargo deny --version` in the container; the image installs it unpinned). Record in the PR notes that version, whether a missing `deny.toml` rejects every license, whether `--config` makes cargo-deny ignore a repo's own `deny.toml` (Review Focus 1), and how `licenses.allow` evaluates `OR` and `WITH` expressions (Review Focus 2), with a source for each. Either way this task proceeds: the spec puts the policy in the fleet, not in a fixture.
 - [ ] **Step 2: Write the failing tests.**
