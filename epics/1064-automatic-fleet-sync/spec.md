@@ -79,7 +79,7 @@ administration (§6.4).
 
 ## 4. Goals, non-goals, anti-goals
 
-**Goals**
+### Goals
 
 - G1. A new `vrg-github-repo-config update` command fixes managed-file drift as well as the
   GitHub-side state.
@@ -94,7 +94,7 @@ administration (§6.4).
 - G6. The repo-status tool (from epic vergil-project/.github#1049) shows PRs
   on the automation prefix as automated (§9).
 
-**Non-goals**
+### Non-goals
 
 - Moving the other PR-opening jobs (`vrg-update-deps`, upstream-refresh,
   the vergil-containers lifecycle job) onto the building block, and moving
@@ -110,7 +110,9 @@ administration (§6.4).
 - Releases, or any other new rights for the automation identity beyond
   those listed in §3.
 
-**Anti-goals** (outcomes that count as failure even if the feature works)
+### Anti-goals
+
+Outcomes that count as failure even if the feature works:
 
 - The automation identity ever carrying AI-authored content.
 - A nightly run that opens a new PR (or issue) every night for the same

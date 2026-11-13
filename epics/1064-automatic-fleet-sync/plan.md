@@ -15,6 +15,7 @@ push-protected `automation/` branch. The ad-hoc `vrg-*-sync` tools are
 retired.
 
 **Architecture:** vergil-tooling gains four things:
+
 - an `automation` identity mode, switched on by the `VRG_AUTOMATION_APP` environment variable, which names
   the App and verified against the token;
 - a fresh shallow clone of the repo's `develop`, in which the managed-file
@@ -312,7 +313,6 @@ is human-attested: vergil-actions is released with A1b.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope identity`).
 
-
 ### Task 2: `audit` and `update` run in a fresh clone of `develop`
 
 **Files:**
@@ -489,7 +489,6 @@ is human-attested: vergil-actions is released with A1b.
   3. Then `create_pr`, the GraphQL auto-merge, and the read-back.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope automation`).
-
 
 ### Task 5: Desired state: auto-merge, the automation-prefix ruleset, fatal bypass reads
 
