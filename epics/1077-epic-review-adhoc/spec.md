@@ -237,7 +237,11 @@ ref to limit it to that repo. The development-epic path is unchanged.
    human sets, not a plan's dependency order. They have no plan, so the
    runnable frontier is every open task with no open `Blocked-by:`
    dependency that is not **in flight** (§5.4). In-flight tasks are listed
-   separately with what marks them, and never enter the strategy.
+   separately with what marks them. One handed off or worked elsewhere (an
+   open PR, a report-ready record, a remote branch) is left alone. One that
+   stopped or was interrupted on this machine (a worktree, a merge-review
+   directory, a batch marker) goes through the development path's re-entry
+   steps, and joins the strategy when they say to dispatch it.
 3. **Propose a strategy:** which tasks to batch together per repo (under
    `issue-implement`'s batching guidelines), which to run alone, which to
    leave for later, and the order, oldest first within a repo unless there
