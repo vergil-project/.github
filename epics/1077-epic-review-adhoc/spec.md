@@ -367,19 +367,19 @@ offers one-off for an `in-progress` item (§5.2).
 
 ## 6. Constraints
 
-- **Release order.** The plugin's `adhoc` mode calls `vrg-queue adhoc`, so
-  the tooling release that adds it ships before the plugin release that uses
-  it (vergil-project/.github#932's concern). The tooling message change
-  points to a skill that exists only after the plugin release. The two
-  releases ship back to back, and the short window between them, in which
-  the released tooling names `epic-review` before it is installed, is
-  accepted.
+- **Release order is not enforced.** The tooling and plugin releases go
+  out in whatever order is convenient, back to back. A released skill that
+  briefly calls a command not yet released, or tooling that names a skill
+  not yet installed, is accepted for that short window, and worked around
+  by telling the agent to use the old way or by not refreshing the plugins
+  until both releases are out.
 - **Two delivery groups.** The work splits into two parts that touch
   different code: the `epic-review` consolidation with `one-off` from
   planning (§5.2, §5.5, §5.6), and the `adhoc` mode with `vrg-queue adhoc`
-  (§5.3, §5.4). The plan orders them as separately landable task groups, so
-  neither part's PRs wait on the other's. A refusal line that points to the
-  other part's command lands with whichever part ships later.
+  (§5.3, §5.4). The plan orders them as separately landable task groups.
+  The one coupling is the refusal lines that point to each other's command:
+  they land with the `adhoc` mode's task, which follows the `epic-review`
+  task.
 - **Private work stays private.** Both skills keep the existing
   private-repo rules: a self-homed private repo's queues and ad-hoc epic are
   reviewed and worked only with its own `--repo`.
@@ -393,7 +393,9 @@ offers one-off for an `in-progress` item (§5.2).
   columns.
 - How `vrg-queue adhoc` finds each repo's main clone for the local
   in-flight marks, and how it reads a report-ready record, provided a mark
-  it cannot check is reported as a failure, never assumed absent.
+  it cannot check is reported as a failure, never assumed absent. Every
+  repo is assumed to be cloned locally: a repo with open ad-hoc tasks and
+  no main clone is a fatal error.
 - Whether `epic-implement`'s `adhoc` mode lives inline in its SKILL.md or in
   a referenced section file, provided the shared gate, relay and batching
   text is not duplicated.

@@ -46,11 +46,13 @@ docs (vergil-claude-plugin, docs, vergil-tooling).
   epic are reviewed and worked only with its own `--repo` (spec §6).
 - Historical records keep the old skill names: `releases/`, `CHANGELOG.md`,
   and every published `epics/*/spec.md`, `plan.md` and `retrospective.md`.
-- The tooling and plugin releases of each group ship back to back, **the
-  tooling release first** in both groups, so every command a released skill
-  calls exists when the skill ships. The one window left, in which the
-  released tooling names `epic-review` before the plugin is installed, is
-  accepted (spec §6).
+- Releases go out in whatever order is convenient; no release ordering is
+  enforced. A released skill that briefly calls a command not yet released
+  (or tooling that names a skill not yet installed) is accepted and worked
+  around by telling the agent to use the old way, or by not refreshing the
+  plugins until both releases are out (spec §6).
+- A repo with open ad-hoc tasks and no main clone under the repo roots is a
+  fatal error for `vrg-queue adhoc`, never skipped or assumed clean.
 
 ## Review Focus
 
@@ -61,9 +63,9 @@ docs (vergil-claude-plugin, docs, vergil-tooling).
 2. **A task in a batch** shows as in flight from its local batch marker,
    even though no `feature/<N>-` branch exists for it (Task 6,
    `test_in_flight_batch_marker_counts`).
-3. **A repo with ad-hoc tasks but no local clone** under the repo roots is
-   shown with `local: no clone`, never silently treated as checked (Task 6,
-   `test_in_flight_repo_without_clone_is_noted`).
+3. **A repo with ad-hoc tasks but no local clone** under the repo roots
+   stops the command with an error naming the repo and the roots (Task 6,
+   `test_in_flight_repo_without_clone_is_fatal`).
 4. **`--repo` on a public repo with no ad-hoc epic** gives an empty list
    and exit 0, not an error (Task 5,
    `test_adhoc_repo_without_epic_is_empty`).
@@ -91,14 +93,16 @@ docs (vergil-claude-plugin, docs, vergil-tooling).
 
 Group A and group B run in parallel. Only Task 7 waits on group A: it edits
 `epic-review`'s ad-hoc refusal (which Task 3 creates) to point at the new
-`adhoc` mode, so the refusal pointing to the later part lands with the later
-part (spec §6). The bookends are already filed: the docs task
+`adhoc` mode, and its own queue refusal names `/vergil:epic-review`. So the
+cross-pointing refusal lines land with Task 7, and Task 7 is blocked by
+Task 3 (spec §6). The bookends are already filed: the docs task
 vergil-project/.github#1078 (this spec and plan), the documentation review
 vergil-project/vergil-claude-plugin#1041 (after every task above), and the
 retrospective vergil-project/.github#1079 (last).
 
-Releases are human-gated preconditions of D1 and D2, never performed by an
-agent.
+Releases, the plugin refresh (`vrg-host plugins`, `vrg-vm update --all`) and
+the new-session checks are human-attested preconditions of D1 and D2, never
+performed by an agent.
 
 ---
 
@@ -129,8 +133,9 @@ agent.
     epic.
   - `test_route_one_off_planning_refuses_open_marker_epic`: with an open
     epic recorded by an `Epic:` marker, the route raises the same refusal
-    type as `test_route_drop_planning_refuses_open_marker_epic`, and the
-    message contains `routing one-off`.
+    type as `test_route_drop_planning_refuses_open_marker_epic`, the
+    message contains `routing one-off`, and no ad-hoc epic was created in
+    the target repo (this assertion applies to every refusal test below).
   - `test_route_one_off_planning_refuses_open_epic_found_by_planning_line`:
     as above, for an epic found by its `Planning:` body line.
   - `test_route_one_off_from_planning_removes_in_progress_after_transfer`:
@@ -158,7 +163,8 @@ agent.
   Add `OneOff` to `ROUTES["planning"]`. Extract `_remove_in_progress` from
   `_defer` and have `_defer` call it. In the one-off path, when the parent's
   kind is planning, call `_guard_open_planning_epics(ref, view, "routing
-  one-off")` before any move; once the move has settled, call
+  one-off")` first, before `epics.resolve_epic_ref` (which can create the
+  target's ad-hoc epic) and before any move; once the move has settled, call
   `_remove_in_progress(result.final, doing="routing one-off")` if the item
   carried the label. The recreate path must not copy `in-progress` onto the
   new issue.
@@ -184,7 +190,7 @@ agent.
 
 **Files:**
 - Modify: `src/vergil_tooling/lib/epics.py` (`_QUEUE_REFUSAL_TAILS`, the
-  `INTAKE` and `DEFERRED` `StandingKind.body` templates)
+  `INTAKE`, `PLANNING` and `DEFERRED` `StandingKind.body` templates)
 - Modify: `src/vergil_tooling/lib/epic_audit.py` (`_QUEUE_FULL_HINT`)
 - Modify: `src/vergil_tooling/bin/vrg_intake_create.py` (docstring, epilog)
 - Modify: `docs/site/docs/standards/github-issues.md`
@@ -201,7 +207,7 @@ agent.
 
   - `test_queue_epic_bodies_name_no_skill`: for each kind in
     `epics.QUEUE_KINDS`, `kind.body` contains none of `intake-review`,
-    `planning-review`, `deferred-review`, `epic-review`.
+    `planning-review`, `deferred-review`, `epic-review`, `epic-create`.
   - `test_queue_refusal_tails_name_epic_review`:
     `_QUEUE_REFUSAL_TAILS["intake"]` ends `Route it with epic-review intake
     first.` and `["deferred"]` ends `Revive it with epic-review deferred
@@ -219,8 +225,10 @@ agent.
 
   The intake body becomes `Perpetual intake queue for {name}: every
   captured, unreviewed item and every orphan the sweep finds, reviewed
-  oldest first.\n`; the deferred body `Perpetual deferred queue for {name}:
-  evaluated items parked until their revival conditions are met.\n`. Update
+  oldest first.\n`; the planning body `Perpetual planning queue for {name}:
+  items that need a full epic.\n`; the deferred body `Perpetual deferred
+  queue for {name}: evaluated items parked until their revival conditions
+  are met.\n`. Update
   any existing test that pinned the old strings. In `vrg_intake_create.py`
   the epilog reads `epic-review intake routes the capture into the
   epic/task model later.`
@@ -262,8 +270,9 @@ agent.
   `README.md`, `docs/site/docs/skills/index.md`
 
 **Interfaces:**
-- Consumes: Task 1's `one-off` from planning, released before the plugin
-  (Global Constraints).
+- Consumes: Task 1's `one-off` from planning. Until its tooling release is
+  installed, the tool refuses that route, which is accepted (Global
+  Constraints).
 - Produces: `/vergil:epic-review <intake|planning|deferred|<epic-ref>>`, and
   the refusal lines Task 7 edits:
   - ad-hoc epic: `<ref> is an ad-hoc epic; it holds placed work, not a
@@ -353,20 +362,21 @@ agent.
 Filed with `vrg-issue-create --kind deployment`, blocked by Tasks 1–4.
 
 - **Preconditions (human-attested):** vergil-tooling released with Tasks 1
-  and 2, then vergil-claude-plugin released with Task 3, back to back.
+  and 2, and vergil-claude-plugin released with Task 3; the human has run
+  `vrg-host plugins` and `vrg-vm update --all`, and has started a new
+  session that lists `/vergil:epic-review`.
 - **Steps:**
-  1. `vrg-host plugins` and `vrg-vm update --all`, and install the tooling
-     release where it runs.
-  2. Enumerate the queue homes as the tooling does: `epics._queue_homes(org)`
-     (every self-homed private repo) plus `<org>/.github`.
-  3. In each home, update the open `Epic (intake): …` and `Epic (deferred):
-     …` bodies once to the Task 2 templates, found with `vrg-gh issue list
-     --repo <home> --label epic --label intake` (and `deferred`), each
-     edited with `vrg-gh issue edit <N> --repo <home> --body-file <tmp>`,
-     keeping any text below the template line.
-- **Acceptance:** `/vergil:epic-review` is listed in a new session, and no
-  live queue epic body in any enumerated home names a skill. The result
-  comment lists every home checked.
+  1. Install the tooling release where it runs.
+  2. Enumerate the queue homes: `<org>/.github`, plus every private repo in
+     the org (`vrg-gh repo list <org> --visibility private`) for which
+     `vrg-queue --repo <org>/<repo>` reports its own repo as the home.
+  3. In each home, update the open `Epic (intake): …`, `Epic (planning): …`
+     and `Epic (deferred): …` bodies once to the Task 2 templates, found
+     with `vrg-gh issue list --repo <home> --label epic --label intake` (and
+     `planning`, `deferred`), each edited with `vrg-gh issue edit <N> --repo
+     <home> --body-file <tmp>`, keeping any text below the template line.
+- **Acceptance:** no live queue epic body in any enumerated home names a
+  skill. The result comment lists every home checked.
 
 ### Task V1: Validate `epic-review` live (validation)
 
@@ -413,7 +423,6 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
       blocked_by: tuple[IssueRef, ...]   # open blockers only
       state: AdhocState
       marks: tuple[str, ...]             # Task 6 fills it; () here
-      note: str            # Task 6: "local: no clone" when applicable
 
   def adhoc_items(home: str, *, repo: str | None = None) -> list[AdhocItem]
   def render_adhoc_text(items: Sequence[AdhocItem], *, now: datetime) -> str
@@ -483,30 +492,35 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
 - Produces:
 
   ```python
-  # Handed off or worked elsewhere: listed apart and left alone.
-  HANDED_OFF_MARKS = ("open-pr", "report-ready", "branch")
-  # Stopped or interrupted on this machine: resumed through re-entry.
-  RESUMABLE_MARKS = ("worktree", "merge-review", "batch")
-  MARKS = HANDED_OFF_MARKS + RESUMABLE_MARKS
+  MARKS = ("open-pr", "report-ready", "branch", "worktree", "merge-review", "batch")
+  Disposition = Literal["handed-off", "resume"]
 
   @dataclass(frozen=True)
   class RepoSignals:
       repo: str                    # "owner/name"
-      clone: Path | None           # main clone found under the roots
+      clone: Path                  # main clone found under the roots
       open_pr_issues: frozenset[int]
       remote_branches: frozenset[str]
-      relay_issues: frozenset[int]  # every issue in every relay payload
+      ready_relay_issues: frozenset[int]  # issues in relay payloads whose status is ready
       local_branches: frozenset[str]
 
   class InFlightError(RuntimeError): ...
 
-  def repo_signals(repo: str, clone: Path | None) -> RepoSignals
+  def repo_signals(repo: str, clone: Path) -> RepoSignals
   def marks_for(issue: int, signals: RepoSignals) -> tuple[str, ...]
+  def disposition(marks: Sequence[str]) -> Disposition | None
   def find_clones(repos: Iterable[str], roots: Sequence[Path]) -> dict[str, Path]
   ```
 
+  `disposition` ranks the marks, in order: `open-pr` or `report-ready` →
+  `"handed-off"`, whatever local marks exist (a reported-ready branch keeps
+  its worktree until it lands); otherwise `worktree`, `merge-review` or
+  `batch` → `"resume"`; otherwise `branch` → `"handed-off"`; no marks →
+  `None`. `AdhocItem` gains `disposition: Disposition | None`.
   `adhoc_items(home, *, repo=None, roots=None)` gains `roots`; a task with
-  any mark is `in-flight` (it outranks `blocked`).
+  any mark is `in-flight` (it outranks `blocked`). A repo with open ad-hoc
+  tasks and no main clone under the roots is a fatal error: `find_clones`
+  raises `InFlightError` naming the repo and the roots searched.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -516,10 +530,20 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
     `feature/<N>-x` gives `open-pr`.
   - `test_in_flight_report_ready_relay_ref`:
     `refs/vergil/pr-workflow/feature/<N>-x` on the remote, whose payload
-    names issue N, gives `report-ready`.
+    names issue N with status `ready`, gives `report-ready`.
+  - `test_in_flight_unfrozen_relay_is_not_report_ready`: the same ref with
+    payload status `implementing` gives no `report-ready` mark.
   - `test_in_flight_report_ready_batch_member`: a relay ref on
     `feature/<N>-batch-x` whose payload's `all_issues` names N and M gives
-    M `report-ready` too, with no local clone.
+    M `report-ready` too, with no local batch marker for M.
+  - `test_in_flight_relay_issue_forms`: payload entries `42` and
+    `<owner>/<repo>#42` both mark issue 42; an entry for another repo marks
+    nothing; an unparsable entry raises `InFlightError`.
+  - `test_disposition_ranks_handed_off_over_local`: `("report-ready",
+    "branch", "worktree")` and `("open-pr", "worktree")` give
+    `"handed-off"`; `("worktree",)`, `("merge-review",)` and
+    `("batch", "branch")` give `"resume"`; `("branch",)` gives
+    `"handed-off"`; `()` gives `None`.
   - `test_in_flight_remote_and_local_branch`: `feature/<N>-x` on the remote
     gives `branch`; a local branch or worktree of that name gives
     `worktree`.
@@ -530,35 +554,50 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
     `build/.vergil-state/issue-implement/<N>/batch` gives `batch`.
   - `test_in_flight_prefix_does_not_overmatch`: `feature/12-x` is not a
     mark for issue 1.
-  - `test_in_flight_repo_without_clone_is_noted` (Review Focus 3): no clone
-    gives no local marks and the item's note `local: no clone`.
+  - `test_in_flight_repo_without_clone_is_fatal` (Review Focus 3): a repo
+    with open ad-hoc tasks and no clone under the roots raises
+    `InFlightError` naming the repo and the roots, and `vrg-queue adhoc`
+    exits 1.
   - `test_in_flight_read_failure_raises`: a failed `pr list` or `ls-remote`
     raises `InFlightError` naming the repo and the source.
   - `test_vrg_queue_adhoc_no_repo_roots_fails`: with no `--root` on a
     platform with no default, the command exits 1 with the
     `RepoSetError` message.
 
-- [ ] **Step 2: Run the tests; confirm they fail**
+- [ ] **Step 2: Check the relay read live**
 
-- [ ] **Step 3: Implement**
+  Against one real relay ref, read its `pr-workflow.json` with the Git Data
+  API by the ref's SHA (`repos/<repo>/git/commits/<sha>` → its tree →
+  the `pr-workflow.json` blob), through `github.read_json("api", …)`.
+  Expected: the payload, with no clone and nothing written. If GitHub
+  refuses it, read the payload with `GitHubTransport.read` from the repo's
+  main clone instead (every repo has one; see Step 4), and record the
+  change and its reason in the plan's evolution log.
+
+- [ ] **Step 3: Run the tests; confirm they fail**
+
+- [ ] **Step 4: Implement**
 
   `repo_signals` reads, once per repo: `pr list --state open --json
   number,headRefName,closingIssuesReferences`, refused when truncated;
   `ls-remote https://github.com/<repo> refs/heads/feature/*
-  refs/vergil/pr-workflow/*`; each relay ref's payload, read the way
-  `pr_workflow.GitHubTransport.read` does, taking every issue in its
-  `all_issues`; and, when a clone is given, its local branches and worktree
-  branches. Signals are read only for repos with open ad-hoc tasks. The merge-review and batch marks are
+  refs/vergil/pr-workflow/*`; each relay ref's payload, by the method Step
+  2 confirmed, keeping it only when its status is `ready` and taking every
+  issue in its `all_issues`, each parsed with `pr_body.normalize_issue_ref`
+  then `epics.parse_issue_ref(default_repo=<repo>)` and kept only when its
+  repo matches; and the clone's local branches and worktree branches.
+  Signals are read only for repos with open ad-hoc tasks. The merge-review and batch marks are
   path checks in the clone's `build/.vergil-state/issue-implement/<N>/`.
   A branch matches issue *N* only by the exact prefix `feature/<N>-`. Any
   failed read raises `InFlightError`; `vrg_queue` reports it and exits 1.
   `find_clones` maps each `owner/name` to a discovered repo whose `origin`
   is that GitHub repo.
 
-- [ ] **Step 4: Document the in-flight state, its marks and `--root`** in
-  `cli-tools-overview.md`.
+- [ ] **Step 5: Document the in-flight state, its marks, the disposition
+  and `--root`** in `cli-tools-overview.md`, including that a missing local
+  clone is fatal.
 
-- [ ] **Step 5: Run the tests; confirm they pass, then commit**
+- [ ] **Step 6: Run the tests; confirm they pass, then commit**
 
   `vrg-commit --type feat --scope queue --message "report in-flight ad-hoc tasks in vrg-queue adhoc"`
 
@@ -583,14 +622,16 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
 
 - [ ] **Step 2: Add the `adhoc` mode section** with spec §5.3's six steps:
   collect with `vrg-queue adhoc`; summarize by repo with in-flight tasks
-  listed apart, with their marks. In-flight tasks split by mark:
-  - a task with only `HANDED_OFF_MARKS` (`open-pr`, `report-ready`,
-    `branch`) is left alone;
-  - a task with any of `RESUMABLE_MARKS` (`worktree`, `merge-review`,
-    `batch`) goes through the development path's existing re-entry steps
-    (the open-request lookup and `vrg-ruling read`, `batch-show` for a batch
-    member), and joins the strategy when those steps say to dispatch it,
-    with any relayed ruling.
+  listed apart, with their marks. In-flight tasks follow the tool's
+  `disposition`:
+  - `handed-off` (an open PR or a ready relay record, whatever local marks
+    remain; or a remote branch alone) is left alone, as the development
+    path treats a reported-ready task as finished;
+  - `resume` (a worktree, merge-review directory or batch marker, with no
+    open PR or ready relay record) goes through the development path's
+    existing re-entry steps (the open-request lookup and `vrg-ruling read`,
+    `batch-show` for a batch member), and joins the strategy when those
+    steps say to dispatch it, with any relayed ruling.
 
   Then propose a strategy that judges overlap
   per repo and names what runs at the same time; one confirmation;
@@ -622,11 +663,11 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
 Filed with `vrg-issue-create --kind deployment`, blocked by Tasks 5–7.
 
 - **Preconditions (human-attested):** vergil-tooling released with Tasks 5
-  and 6, then vergil-claude-plugin released with Task 7, back to back.
-- **Steps:** `vrg-host plugins`, `vrg-vm update --all`, and install the
-  tooling release where it runs.
-- **Acceptance:** `vrg-queue adhoc --help` lists `--root`, and a new session
-  lists the `adhoc` mode in `epic-implement`.
+  and 6, and vergil-claude-plugin released with Task 7; the human has run
+  `vrg-host plugins` and `vrg-vm update --all`, and has started a new
+  session that lists the `adhoc` mode in `epic-implement`.
+- **Steps:** install the tooling release where it runs.
+- **Acceptance:** `vrg-queue adhoc --help` lists `--root`.
 
 ### Task V2: Validate `epic-implement adhoc` live (validation)
 
@@ -643,6 +684,9 @@ Filed with `vrg-issue-create --kind validation`, blocked by D2.
   4. `/vergil:epic-implement intake` prints the queue refusal and stops;
      `/vergil:epic-review vergil-project/.github#99` prints the ad-hoc
      refusal naming `/vergil:epic-implement adhoc`.
-  5. An ad-hoc task stopped at merge review, with the human's reply posted,
-     is resumed by `/vergil:epic-implement adhoc` through the re-entry
-     steps, not listed as left alone.
+  5. If an ad-hoc task is stopped at merge review during this validation,
+     or already was, post the reply and confirm `/vergil:epic-implement
+     adhoc` resumes it through the re-entry steps. Otherwise record this
+     item as not exercised.
+  6. A task reported ready whose worktree is still present is listed as
+     handed off, not resumed.
