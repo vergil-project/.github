@@ -318,8 +318,7 @@ component's task.
   pin. Each point-in-time fact on the page changes with the step that makes it
   true (§6.8): the automation mode and the toolchain-file note change in the
   same PR as the switch to `pr`, and the "Current out-of-policy versions"
-  section is rewritten once the catch-up has merged, as part of the
-  deployment task.
+  section is rewritten once the catch-up has merged, in a task of its own.
 - The docs say what a Rust repo does when it needs a component or target the
   image lacks: the image gains it through a vergil-containers change. A repo
   never selects it through a toolchain file, and is never exempted from the
@@ -327,18 +326,22 @@ component's task.
 
 ### 6.8 Rollout and validation
 
-1. vergil-containers: §6.1, §6.3 and the 1.100 tests merge. The container
-   changes publish through the normal image build.
-2. vergil-tooling and vergil-actions: §6.4, §6.5 and their 1.100 tests merge
-   and ship in their releases. Releases are human-gated.
-3. **Deployment** (operational task): with the releases attested, the fleet
-   picks them up through its normal sync.
+1. vergil-containers: §6.1, §6.3 and the 1.100 tests merge. The dev images
+   rebuild from `develop`.
+2. vergil-tooling and vergil-actions: §6.4, §6.5 and their 1.100 tests merge.
+3. **Releases and deployment** (operational task): vergil-tooling,
+   vergil-actions and vergil-containers releases carrying steps 1 and 2 are
+   published (human-gated) and attested. A vergil-containers release is
+   needed because prod images build only from its `main`, and consumers read
+   the version window at their `[dependencies].vergil` release ref.
 4. vergil-containers: §6.2's switch to `pr` merges, with the Rust policy
    page's automation text (§6.7). The catch-up PRs then merge in order (adds
    newest first, then drops), and the policy page's out-of-policy section is
    rewritten to match.
 5. **Validation** (operational task, blocked by epic #1091's Rust fixtures, the
-   deployment and the catch-up):
+   deployment and the catch-up). It needs a second vergil-containers release
+   (human-gated), cut after the catch-up, so the fixtures resolve the new
+   window and run prod images that carry it. Then:
    - each Rust fixture (`vergil-fixture-rust-lib`, `vergil-fixture-rust-app`)
      passes CI on both window series;
    - adding a `rust-toolchain.toml` to a branch of a fixture fails
