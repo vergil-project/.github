@@ -69,9 +69,9 @@ and GitHub Actions YAML (vergil-actions, vergil-containers).
   accepted and ignored. No step exists only to keep nightly runs green.
   For example, vergil-tooling's own nightly `audit` is red from Task 5's
   merge until Task D3.
-- Any job holding the automation token with write permissions runs only
-  from `develop`. It checks out `ref: develop` and fails when dispatched
-  from any other ref.
+- The `github-config` and `bypass-probe` jobs, the two jobs this epic gives
+  write rights to, run only from `develop`. Each checks out `ref: develop`
+  and fails when dispatched from any other ref. Other jobs are unchanged.
 - The only validation command is `vrg-container-run -- vrg-validate`. Every
   "run the tests" step below means that command.
 - Commits use `vrg-commit`, and handoff uses `vrg-pr-workflow
@@ -107,7 +107,7 @@ and GitHub Actions YAML (vergil-actions, vergil-containers).
 | D2 | .github (deployment) | Assert every org's App configuration, grant Administration and Workflows write, set `VRG_AUTOMATION_APP` | D1 |
 | A1b | vergil-actions | The bypass probe (dispatch-only, `develop`-only) | D2 |
 | V1 | .github (validation) | An automation token reads `bypass_actors` correctly | A1b |
-| 1 | vergil-tooling | The `automation` identity mode | — |
+| 1 | vergil-tooling | The `automation` identity mode | V1 |
 | 2 | vergil-tooling | `audit` and `update` run in a fresh clone of `develop` | — |
 | 3a | vergil-tooling | Fixers (shared with their checks): shim, CLAUDE.md, Claude settings | 2 |
 | 3b | vergil-tooling | Fixers (shared with their checks): `.gitignore`, `dependabot.yml`, workflow ref pins | 3a |
@@ -157,6 +157,10 @@ Advisory hand-off: each advisory is retargeted to the task that fixes it.
   scoped, unchanged.
 - [ ] **Step 3: Add concurrency.** Add the per-job `concurrency:` groups to
   `branch-sweep`, `github-config` and `dependabot-audit`.
+- [ ] **Step 3b: Give git the job's token.** In the `github-config` job, add
+  a `gh auth setup-git` step (with `GH_TOKEN` set to the App token) before
+  the tool runs. Then the `git clone` and `git push` that the tooling runs
+  authenticate as the App.
 - [ ] **Step 4: Rewrite `configuration.md`.**
   - The permission table becomes the asserted configuration for every org's
     automation App: today's rows, plus Administration Read & write and
@@ -227,7 +231,9 @@ from the moment it ships.
   - it prints one line per bypass actor (`<actor_type> <actor_id>`), then
     `bypass_actors entries: <n>`;
   - it prints `VRG_AUTOMATION_APP set: yes` or `no`, read from
-    `vars.VRG_AUTOMATION_APP`, with no value printed.
+    `vars.VRG_AUTOMATION_APP`, with no value printed;
+  - it prints `login: <login>` from GraphQL `viewer { login }` with the
+    token, the premise of Task 1's identity check.
 
   Nightly scheduled runs skip it. Task A2 removes it.
 - [ ] **Step 2: Validate, then commit** (`vrg-commit --type ci --scope ops`).
@@ -241,7 +247,8 @@ is human-attested: vergil-actions is released with A1b.
   private repo (in each org that has a private managed repo), and read the
   `bypass-probe` job's log (Task A1b).
 - **Acceptance:** each log shows `RepositoryRole 5`,
-  `bypass_actors entries: 1` and `VRG_AUTOMATION_APP set: yes`.
+  `bypass_actors entries: 1`, `VRG_AUTOMATION_APP set: yes`, and
+  `login: <slug>[bot]` for the org's automation App.
 - **On failure:** the result is recorded and the epic stops for a human
   decision (spec §6.3). Tasks 5 onward stay blocked.
 
@@ -318,9 +325,10 @@ is human-attested: vergil-actions is released with A1b.
 - Produces: `clone_develop(repo: str) -> ContextManager[Path]`. It makes a
   shallow clone (`--depth 1 --branch develop`) into a
   `tempfile.TemporaryDirectory`, yields its path, and removes it on exit.
-  It uses the run's GitHub credentials through the existing
-  `lib.git`/`lib.github` helpers, and the token never appears in argv or
-  logs. A failed clone raises `DevelopCloneError`, naming the repo.
+  It runs plain `git clone`, which authenticates through git's credential
+  helper: `gh auth setup-git` in ops (Task A1), and the human's own `gh`
+  login locally. No token appears in argv or logs.
+  A failed clone raises `DevelopCloneError`, naming the repo.
 - Consumes: `audit_local_config(repo_root: Path)` and every `_check_*`,
   unchanged. They already read a directory.
 
@@ -421,6 +429,7 @@ is human-attested: vergil-actions is released with A1b.
 **Files:**
 
 - Create: `src/vergil_tooling/lib/mechanized_pr.py`
+- Modify: `src/vergil_tooling/lib/github.py` (`create_pr` gains `repo`)
 - Test: `tests/vergil_tooling/test_mechanized_pr.py`
 
 **Interfaces:**
@@ -438,7 +447,9 @@ is human-attested: vergil-actions is released with A1b.
   - `class MechanizedPRError(RuntimeError)`.
 - Consumes: `lib.git` (status, checkout, commit, push), and `github.delete_if_exists`
   (a branch already gone counts as deleted), and
-  `github.create_pr`, `graphql`, `read_json` and `delete`.
+  `github.create_pr`, `graphql`, `read_json` and `delete`. `create_pr` gains a
+  `repo: str` argument that is passed as `--repo`, and every PR list and
+  close call here passes `--repo` too, so nothing depends on the cwd.
 
 - [ ] **Step 1: Write the failing tests**, against a local bare repo
   standing in for `origin` and a mocked GitHub API.
@@ -456,6 +467,8 @@ is human-attested: vergil-actions is released with A1b.
   - `test_auto_merge_not_confirmed_raises`: `autoMergeRequest` is null on
     read-back.
   - `test_push_failure_raises_naming_step`
+  - `test_pr_opened_for_named_repo_from_unrelated_cwd`: every `gh` PR call
+    (create, list, close) passes `--repo <repo>`.
   - `test_only_own_job_prefix_closed`: a PR on `automation/other-job/…` is
     left alone.
   - `test_fork_pr_on_automation_prefix_ignored`: a cross-repository PR
@@ -559,7 +572,8 @@ is human-attested: vergil-actions is released with A1b.
   - `test_update_unreadable_github_setting_opens_nothing`
   - `test_update_in_sync_exits_0_no_pr`
   - `test_apply_unchanged_and_prints_deprecation`: stderr names `update`;
-    behaviour is byte-identical otherwise.
+    the behaviour is identical to `apply` after Task 2, apart from the
+    notice.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement** `_update_repo`:
   1. identity gate;
@@ -579,16 +593,20 @@ is human-attested: vergil-actions is released with A1b.
 
 Requires epic vergil-project/.github#1049 to have shipped `lib/pending_release.py`.
 
-**Files:** Modify `src/vergil_tooling/lib/pending_release.py` (classify),
+**Files:** Modify `src/vergil_tooling/lib/pending_release.py` (`ChangeKind`, classify),
+`src/vergil_tooling/bin/vrg_repo_status.py` (the summary counts)
 and `docs/site/docs/reference/cli-tools-overview.md`. Test in
 `tests/vergil_tooling/test_pending_release.py`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests:**
   `test_automation_prefix_classified_automation`: the branch
   `automation/repo-config-sync/123` gives type `automation`, checked before
-  the conventional-commit fallback.
+  the conventional-commit fallback; and `test_summary_counts_automation_apart`,
+  where the summary shows automation PRs on their own line.
 - [ ] **Step 2: Run the test and see it fail.**
-- [ ] **Step 3: Implement**, and add the type to the TYPE column's docs.
+- [ ] **Step 3: Implement.** Add `ChangeKind.AUTOMATION`, returned for the
+  `automation/` prefix, and count it as its own line in the summary in
+  `bin/vrg_repo_status.py`. Add the type to the TYPE column's docs.
 - [ ] **Step 4: Run the test and see it pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope repo-status`).
 
@@ -622,6 +640,12 @@ precondition is human-attested: vergil-tooling is released with Tasks 1–6 and 
 
   Every fleet repo's default branch is `develop`, so the automation job
   never runs code from any other branch.
+- [ ] **Step 2c: Set the git identity**, following the pattern in
+  `actions/create-github-app-token`'s README. Set `user.name` to
+  `<app-slug>[bot]`, from the token step's `app-slug` output. Set
+  `user.email` to `<id>+<app-slug>[bot]@users.noreply.github.com`, with
+  `<id>` from `gh api /users/<app-slug>[bot] --jq .id`. Sync commits then
+  show as the automation App.
 - [ ] **Step 3:** Replace `audit` with `vrg-github-repo-config update --repo
   "${{ github.repository }}"`, and rename the step. Remove the
   `bypass-probe` job (Task A1b).
@@ -646,7 +670,8 @@ Kind `validation`, filed in vergil-actions and blocked by D4.
   - its `github-config` log shows the `automation` mode resolved;
   - any sync PR opens on `automation/repo-config-sync/<run-id>` with
     auto-merge on, and merges once CI is green;
-  - `bypass_actors` converges under the automation identity;
+  - the run reports no bypass drift and no `BypassUnreadable`, and its log
+    shows both rulesets' bypass actors read back;
   - after the fleet-wide run, every failure is triaged and either fixed
     forward or answered by reverting the switch, with the outcome recorded.
 
