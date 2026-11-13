@@ -15,7 +15,7 @@ push-protected `automation/` branch. The ad-hoc `vrg-*-sync` tools are
 retired.
 
 **Architecture:** vergil-tooling gains four things:
-- an `automation` identity mode, switched on by an env marker that names
+- an `automation` identity mode, switched on by the `VRG_AUTOMATION_APP` environment variable, which names
   the App and verified against the token;
 - a file-tree view of a repo's `develop` tip that the managed-file checks
   and their new fixers share;
@@ -37,9 +37,9 @@ and GitHub Actions YAML (vergil-actions, vergil-containers).
 
 - The automation identity is used only for mechanized work, never for
   anything an AI agent does (spec §3).
-- In this epic only the `github-config` ops job sets the automation marker.
+- In this epic only the `github-config` ops job sets `VRG_AUTOMATION_APP`.
   Every other job resolves exactly as it does today.
-- The marker env var and the org-level Actions variable are both named
+- The `VRG_AUTOMATION_APP` environment variable and the org-level Actions variable are both named
   `VRG_AUTOMATION_APP`, and both hold the automation App's slug.
 - Automation branches are named `automation/<job>/<run-id>`. This epic's job
   name is `repo-config-sync`.
@@ -56,6 +56,9 @@ and GitHub Actions YAML (vergil-actions, vergil-containers).
 - `apply` keeps today's behaviour and prints a deprecation notice.
 - No silent failures: every failure is a non-zero exit with the reason
   named.
+- Any job holding the automation token with write permissions runs only
+  from `develop`. It checks out `ref: develop` and fails when dispatched
+  from any other ref.
 - The only validation command is `vrg-container-run -- vrg-validate`. Every
   "run the tests" step below means that command.
 - Commits use `vrg-commit`, and handoff uses `vrg-pr-workflow
@@ -70,7 +73,7 @@ and GitHub Actions YAML (vergil-actions, vergil-containers).
 2. **A ruleset that reads back with an empty bypass list while its desired
    list is non-empty, under the automation identity.** Expected: fatal, with
    nothing converged and no PR opened. Test in Task 5.
-3. **The marker set, but the token belongs to a different App or to
+3. **`VRG_AUTOMATION_APP` set, but the token belongs to a different App or to
    `GITHUB_TOKEN`.** Expected: resolution fails, naming both identities. Test
    in Task 1.
 4. **An earlier run's sync PR still open, and the drift now gone.**
@@ -89,12 +92,13 @@ and GitHub Actions YAML (vergil-actions, vergil-containers).
 | C1 | vergil-containers | Scope the automation tokens in `ops.yml` | — |
 | D1 | vergil-actions (deployment) | Release the token scoping and confirm consumers pick it up | A1, C1 |
 | D2 | .github (deployment) | Assert every org's App configuration, grant Administration and Workflows write, set `VRG_AUTOMATION_APP` | D1 |
-| V1 | .github (validation) | An automation token reads `bypass_actors` correctly | D2 |
+| A1b | vergil-actions | The bypass probe (dispatch-only, `develop`-only) | D2 |
+| V1 | .github (validation) | An automation token reads `bypass_actors` correctly | A1b |
 | 1 | vergil-tooling | The `automation` identity mode | — |
 | 2a | vergil-tooling | `FileTree`: a repo's files and modes at a ref | — |
 | 2b | vergil-tooling | Managed-file checks read a `FileTree` of `develop` | 2a |
-| 3a | vergil-tooling | Expected-file definitions and fixers: shim, CLAUDE.md, Claude settings | 2b |
-| 3b | vergil-tooling | Expected-file definitions and fixers: `.gitignore`, `dependabot.yml`, workflow ref pins | 2b |
+| 3a | vergil-tooling | Fixers (shared with their checks): shim, CLAUDE.md, Claude settings | 2b |
+| 3b | vergil-tooling | Fixers (shared with their checks): `.gitignore`, `dependabot.yml`, workflow ref pins | 2b |
 | 4 | vergil-tooling | The mechanized-PR library | 2a |
 | 5 | vergil-tooling | Desired state: auto-merge, the automation-prefix ruleset, fatal bypass reads | 1, V1 |
 | 6 | vergil-tooling | `vrg-github-repo-config update`; `apply` deprecated | 1, 3a, 3b, 4, 5 |
@@ -127,23 +131,14 @@ automation-prefix ruleset).
 
 - [ ] **Step 1: Inventory.** List every `create-github-app-token` step and
   the API calls its job makes. Record each step's needed permissions in the
-  PR body. `github-config` keeps today's unscoped token until Task A2:
-  scope it to Administration read, Contents read and Issues read, which is
-  what `audit` reads.
+  PR body. Scope `github-config` now to Administration read and Contents
+  read, which is what `audit` reads. Task A2 widens it. No Issues
+  permission: the repo-config code makes no Issues call.
 - [ ] **Step 2: Scope each step.** Add `permission-*` inputs matching the
   inventory. Leave `branch-sweep` and `dependabot-audit`, which are already
   scoped, unchanged.
 - [ ] **Step 3: Add concurrency.** Add the per-job `concurrency:` groups to
   `branch-sweep`, `github-config` and `dependabot-audit`.
-- [ ] **Step 3b: Add the bypass probe for Task V1.** Add a `bypass-probe`
-  job to `ops-github-config.yml` with these properties:
-  - it runs only when `github.event_name == 'workflow_dispatch'`;
-  - it mints a token with Administration write;
-  - it reads the repo's "Tag protection" ruleset;
-  - it prints only `bypass_actors entries: <n>`.
-
-  Before Task D2 it fails at token minting, which is expected. Nightly
-  scheduled runs skip it. Task A2 removes it.
 - [ ] **Step 4: Rewrite `configuration.md`.**
   - The permission table becomes the asserted configuration for every org's
     automation App: today's rows, plus Administration Read & write and
@@ -173,7 +168,9 @@ vergil-containers has C1 merged.
 - **Procedure:** dispatch one consumer's ops workflow and one epic-sweep run.
 - **Acceptance:**
   - both runs are green;
-  - their logs show tokens minted with the scoped permission set.
+  - their logs show tokens minted with the scoped permission set, and the
+    `github-config` token shows exactly Administration read and Contents
+    read.
 
 ### Task D2 (deployment): Configure every org's automation App
 
@@ -190,16 +187,39 @@ human action; the agent records the result.
 - **Acceptance:**
   - each org's App permission page matches the table;
   - `vrg-gh api orgs/<org>/actions/variables/VRG_AUTOMATION_APP` returns
-    the slug.
+    the slug, with `visibility: all`, or `selected` with a list that covers
+    every managed repo.
+
+### Task A1b: The bypass probe
+
+**Files:** Modify `.github/workflows/ops-github-config.yml`. It is
+blocked by D2, so the probe's Administration-write token can be minted
+from the moment it ships.
+
+- [ ] **Step 1:** Add a `bypass-probe` job with these properties:
+  - it runs only when `github.event_name == 'workflow_dispatch'`;
+  - it fails unless `github.ref == 'refs/heads/develop'`, and checks out
+    `ref: develop`;
+  - it mints a token with Administration write and Metadata read;
+  - it reads the repo's "Tag protection" ruleset;
+  - it prints one line per bypass actor (`<actor_type> <actor_id>`), then
+    `bypass_actors entries: <n>`;
+  - it prints `VRG_AUTOMATION_APP set: yes` or `no`, read from
+    `vars.VRG_AUTOMATION_APP`, with no value printed.
+
+  Nightly scheduled runs skip it. Task A2 removes it.
+- [ ] **Step 2: Validate, then commit** (`vrg-commit --type ci --scope ops`).
 
 ### Task V1 (validation): An automation token reads `bypass_actors`
 
-Kind `validation`, filed in .github and blocked by D2.
+Kind `validation`, filed in .github and blocked by A1b. Its precondition
+is human-attested: vergil-actions is released with A1b.
 
-- **Procedure:** in one repo, dispatch the ops workflow, and read the
-  `bypass-probe` job's log (Task A1, step 3b).
-- **Acceptance:** the log shows `bypass_actors entries: 1`; the Tag
-  protection ruleset lists only `RepositoryRole` 5.
+- **Procedure:** dispatch the ops workflow in one public repo and in one
+  private repo (in each org that has a private managed repo), and read the
+  `bypass-probe` job's log (Task A1b).
+- **Acceptance:** each log shows `RepositoryRole 5`,
+  `bypass_actors entries: 1` and `VRG_AUTOMATION_APP set: yes`.
 - **On failure:** the result is recorded and the epic stops for a human
   decision (spec §6.3). Tasks 5 onward stay blocked.
 
@@ -216,9 +236,9 @@ Kind `validation`, filed in .github and blocked by D2.
 
 - Produces:
   - `IdentityMode.AUTOMATION` (`"automation"`) and `is_automation() -> bool`.
-  - `automation_identity.MARKER_ENV = "VRG_AUTOMATION_APP"` and
+  - `automation_identity.AUTOMATION_ENV = "VRG_AUTOMATION_APP"` and
     `ORG_VARIABLE = "VRG_AUTOMATION_APP"`.
-  - `automation_app_slug(org: str) -> str`: the marker if set, otherwise
+  - `automation_app_slug(org: str) -> str`: the environment variable if set, otherwise
     the org variable read through the API. Raises `AutomationIdentityError`
     when it is unset or empty.
   - `automation_app_id(slug: str) -> int`, from `GET apps/<slug>`.
@@ -230,27 +250,33 @@ Kind `validation`, filed in .github and blocked by D2.
 - Consumes: `github.graphql`, `github.read_json`.
 
 - [ ] **Step 1: Write the failing tests.**
-  - `test_marker_and_matching_token_resolves_automation`
-  - `test_no_marker_resolves_as_today`: each of today's signal cases,
+  - `test_env_and_matching_token_resolves_automation`
+  - `test_no_env_resolves_as_today`: each of today's signal cases,
     unchanged.
-  - `test_marker_with_other_app_token_raises`: the login is
+  - `test_env_with_other_app_token_raises`: the login is
     `vergil-project-user[bot]`, and the message names both logins.
-  - `test_marker_with_github_token_raises`: the login is
+  - `test_env_with_github_token_raises`: the login is
     `github-actions[bot]`.
-  - `test_marker_with_agent_env_mode_raises`: `VRG_IDENTITY_MODE=user` plus
-    the marker; the message says the signals contradict.
+  - `test_env_with_agent_env_mode_raises`: `VRG_IDENTITY_MODE=user` plus
+    `VRG_AUTOMATION_APP`; the message says the signals contradict.
   - `test_lookup_failure_raises_after_retry`
-  - `test_no_marker_makes_no_api_call`
-  - `test_automation_app_slug_reads_org_variable_without_marker`
+  - `test_no_env_makes_no_api_call`
+  - `test_automation_app_slug_reads_org_variable_without_env`
   - `test_automation_app_slug_missing_raises`
   - `test_automation_app_id_parses_id`
 - [ ] **Step 2: Run the tests and see them fail.**
-- [ ] **Step 3: Implement.** In `resolve()`, check the marker first. With
-  the marker set, call `verify_token_is_app`, then refuse if any agent
+- [ ] **Step 3: Implement.** In `resolve()`, check `VRG_AUTOMATION_APP` first. With
+  it set, call `verify_token_is_app`, then refuse if any agent
   signal (`any_agent_signal()`) is also present, and otherwise return
   `AUTOMATION`. Without it, the existing order is unchanged. `is_agent()`
   stays false for `AUTOMATION`, and `is_human()` is false too. Every
   identity check on `update`'s path names `AUTOMATION` explicitly (Task 6).
+  **Trust:** the App name in `VRG_AUTOMATION_APP` is trusted because ops
+  copies it from the org-level Actions variable, which only an org admin
+  can set. Outside ops, a process that sets the environment variable by
+  hand still holds only its own token, so GitHub bounds what it can do. On
+  an agent VM, the agent identity signals make resolution refuse, and
+  `update` refuses agent modes. Write this into the module docstring.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope identity`).
 
@@ -323,7 +349,7 @@ Kind `validation`, filed in .github and blocked by D2.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type refactor --scope repo-config`).
 
-### Task 3a: Expected-file definitions and fixers for the shim, CLAUDE.md and Claude settings
+### Task 3a: Fixers for the shim, CLAUDE.md and Claude settings
 
 **Files:**
 
@@ -334,16 +360,24 @@ Kind `validation`, filed in .github and blocked by D2.
 
 **Interfaces:**
 
-- Produces: one function per managed file, each
-  `expected_<name>(tree: FileTree) -> TreeFile | None`, where `None` means
-  the check takes no position:
-  - `expected_hook_guard_shim`
-  - `expected_claude_md`
-  - `expected_claude_settings`
+- Produces:
+  - One fixer per managed file, each `fix_<name>(tree: FileTree) ->
+    list[TreeFile]`. It returns **only** the files whose content or mode
+    differs from the tree, and `[]` when the file is in sync or the check
+    does not apply:
+    - `fix_hook_guard_shim`
+    - `fix_claude_md`
+    - `fix_claude_settings`
+  - `class CannotFix(Exception)`, raised by a fixer when its check fails
+    but no fix can be computed (for example, CLAUDE.md markers that are
+    missing or malformed). It carries the check's name and reason.
+  - The registry `FIXERS: list[Callable[[FileTree], list[TreeFile]]]`.
+  - `apply_fixes(tree: FileTree, files: list[TreeFile]) -> FileTree`, the
+    tree with the fixes overlaid.
 
-  Each `_check_*` compares the file in the tree with its `expected_*`, so a
-  check and its fix share one definition. Also produces the registry
-  `FIXERS: list[Callable[[FileTree], TreeFile | None]]`.
+  Each `_check_*` reports drift exactly when its fixer would return a
+  non-empty list, or would raise `CannotFix`. So a check and its fix share
+  one definition.
 - Consumes: the existing renderers (`render_hook_guard_shim`,
   `load_claude_md_template`, `claude_md_marker_lines`,
   `_load_settings_template`) and the retired applicators' logic in
@@ -354,16 +388,18 @@ Kind `validation`, filed in .github and blocked by D2.
   - `test_shim_wrong_mode_is_drift_and_fix_sets_100755`
   - `test_shim_missing_is_created_100755`
   - `test_claude_md_region_replaced_outside_text_kept`
-  - `test_claude_md_without_markers_has_no_fix`: the check still reports
-    it; `expected_claude_md` returns `None`, so it is a no-fixer failure.
+  - `test_claude_md_without_markers_raises_cannot_fix`: the check still
+    reports it, and `fix_claude_md` raises `CannotFix`.
   - `test_claude_settings_written_equal_to_template`
-  - `test_in_sync_tree_yields_no_fixes`
+  - `test_in_sync_tree_yields_no_fixes`: every fixer returns `[]`.
+  - `test_check_and_fixer_agree`: for each fixture tree, the check reports
+    drift if and only if the fixer returns files or raises.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement**, porting each retired applicator's write logic.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope repo-config`).
 
-### Task 3b: Expected-file definitions and fixers for `.gitignore`, `dependabot.yml` and workflow ref pins
+### Task 3b: Fixers for `.gitignore`, `dependabot.yml` and workflow ref pins
 
 **Files:**
 
@@ -374,11 +410,11 @@ Kind `validation`, filed in .github and blocked by D2.
 
 **Interfaces:**
 
-- Produces, each added to `FIXERS`:
-  - `expected_gitignore`;
-  - `expected_dependabot_yml`;
-  - `expected_workflow_refs(tree) -> list[TreeFile]`, one entry per
-    workflow file whose `vergil-*` pins differ.
+- Produces, each added to `FIXERS` with the Task 3a contract:
+  - `fix_gitignore`;
+  - `fix_dependabot_yml`;
+  - `fix_workflow_refs`, one entry per workflow file whose `vergil-*` pins
+    differ.
 - Consumes: `lib/dependabot.render`, `lib/vergil_refs`, the gitignore data
   files, and `bin/vrg_gitignore_sync.py` / `bin/vrg_dependabot_sync.py`
   logic.
@@ -419,6 +455,9 @@ Kind `validation`, filed in .github and blocked by D2.
 
 - [ ] **Step 1: Write the failing tests.**
   - `test_no_change_closes_earlier_pr_and_deletes_branch`
+  - `test_files_identical_to_base_are_no_change`: a backstop. A change
+    whose files all match `base_tree` in content and mode gives `in_sync`,
+    and opens no PR.
   - `test_change_opens_pr_from_base_tip_on_new_branch`: the commit's
     parent is `base_tree.ref_sha`, and the tree entries carry the given
     modes.
@@ -431,11 +470,15 @@ Kind `validation`, filed in .github and blocked by D2.
   - `test_api_failure_mid_way_raises_naming_step`
   - `test_only_own_job_prefix_closed`: a PR on `automation/other-job/…` is
     left alone.
+  - `test_fork_pr_on_automation_prefix_ignored`: a cross-repository PR
+    from `automation/repo-config-sync/x` is neither closed nor touched.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement**, through the Git Data API: blobs, then a tree
   with `base_tree`, then a commit, then `POST git/refs`. Then
   `POST pulls`, and the GraphQL auto-merge, then the read-back. Earlier PRs
-  are the open PRs whose head starts with `automation/<job>/`.
+  are the open PRs whose head starts with `automation/<job>/` **and whose
+  head repo is the same repo** (`head.repo.full_name == repo`). A PR from a
+  fork is never closed, and its branch is never deleted.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope automation`).
 
@@ -447,7 +490,13 @@ Kind `validation`, filed in .github and blocked by D2.
   (`desired_repo_settings`, `compute_desired_state`, `_diff_rulesets`)
 - Modify: `src/vergil_tooling/bin/vrg_github_repo_config.py`
   (`_audit_repo`, `_apply_repo`: passing the mode and the App ID)
-- Test: `tests/vergil_tooling/test_github_config_lib.py`
+- Modify: `src/vergil_tooling/lib/repo_init.py` (`step_github_config`, the
+  third `compute_desired_state` caller). Repo-init always runs as the human,
+  so it passes `skip_bypass=False` and resolves the App ID the way a human
+  run does.
+- Test: `tests/vergil_tooling/test_github_config_lib.py`,
+  `tests/vergil_tooling/test_repo_init.py`
+  (`test_new_repo_gets_automation_ruleset_with_both_bypass_actors`)
 
 **Interfaces:**
 
@@ -463,8 +512,10 @@ Kind `validation`, filed in .github and blocked by D2.
     bool, automation_app_id: int | None)`, replacing `app_mode`.
     `skip_bypass` is true only for a non-automation App token: today's
     ops `audit`.
-  - `class BypassUnreadable(NotChecked)`, raised when a desired non-empty
-    bypass list reads back empty and `skip_bypass` is false.
+  - `BypassUnreadable`, a `NotChecked` entry recorded when a desired
+    non-empty bypass list reads back empty **under the automation identity**
+    (`identity_mode.is_automation()`). For a human run, an empty list is
+    ordinary drift, and the run converges it.
   - `allow_auto_merge=True` in `desired_repo_settings`.
 - Consumes: `identity_mode.is_automation`, `github.is_app_mode`, and
   `automation_identity.automation_app_slug` / `automation_app_id`
@@ -476,7 +527,9 @@ Kind `validation`, filed in .github and blocked by D2.
     `deletion` rule.
   - `test_empty_bypass_read_is_unreadable_under_automation`
   - `test_empty_bypass_read_skipped_for_non_automation_app`
-  - `test_human_run_compares_bypass_actors`
+  - `test_human_run_converges_emptied_bypass_list`: a human run on a
+    ruleset whose bypass list reads back `[]` reports drift and writes the
+    desired list.
   - `test_unreadable_bypass_stops_apply_before_any_write`
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement.** The CLI derives `skip_bypass =
@@ -486,6 +539,10 @@ Kind `validation`, filed in .github and blocked by D2.
   trust note ("only a human runs `apply`") no longer covers `update`.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope repo-config`).
+  The handoff notes tell the human to run `vrg-github-repo-config apply --repo
+  vergil-project/vergil-tooling` once this merges. vergil-tooling's own ops
+  runs its `develop` code, so without that its nightly `audit` stays red
+  until Task D3.
 
 ### Task 6: `vrg-github-repo-config update`; `apply` deprecated
 
@@ -523,9 +580,11 @@ Kind `validation`, filed in .github and blocked by D2.
   2. GitHub-side convergence (shared with `apply`);
   3. `fetch_tree(repo, "develop")`;
   4. `audit_files`;
-  5. the `FIXERS` outputs, gathered into one `MechanizedChange` (job
-     `repo-config-sync`), then `sync_pr`;
-  6. the exit code.
+  5. every fixer's output, gathered into one `MechanizedChange` (job
+     `repo-config-sync`), then `sync_pr`. Each `CannotFix` is collected,
+     and does not stop the other fixers;
+  6. the exit code: `audit_files(apply_fixes(tree, files))`. Any failure
+     left, or any `CannotFix`, is exit 1, even with a PR opened.
 
   Update `config-audit.md`.
 - [ ] **Step 4: Run the tests and see them pass.**
@@ -543,11 +602,17 @@ Kind `validation`, filed in .github and blocked by D2.
     ruleset is deleted.
   - `test_open_automation_pr_branch_kept`
   - `test_other_ruleset_protected_branch_still_skipped`
+  - `test_automation_branch_with_protected_flag_is_deleted`: the fixture
+    sets `protected: true` from the branches API, with only the automation
+    ruleset covering the branch.
 - [ ] **Step 2: Run the tests and see them fail.**
-- [ ] **Step 3: Implement.** A branch is still exempt when any ruleset
+- [ ] **Step 3: Implement.** Map each rule returned by
+  `GET repos/<repo>/rules/branches/<b>` to its ruleset by `ruleset_id`, and
+  look up the ruleset's name. A branch is still exempt when any ruleset
   targets it, except when the only ruleset targeting it is "Automation
   branches". The exemption for every other ruleset, the rolling-tag branch
-  ruleset included, is unchanged.
+  ruleset included, is unchanged. In `decide()`, GitHub's `protected` flag
+  does not exempt a branch that only the automation ruleset covers.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type fix --scope branch-sweep`).
 
@@ -576,7 +641,9 @@ precondition is human-attested: vergil-tooling is released with Tasks 1–8.
 - **Procedure:** the human runs `vrg-github-repo-config update --repo
   <repo>` for every managed repo in each org, the same day.
 - **Acceptance:**
-  - `vrg-github-repo-config audit` exits 0 on every repo;
+  - `vrg-github-repo-config audit` shows no GitHub-side drift on any repo;
+  - each repo's file state is either in sync, or covered by an open sync PR
+    with auto-merge on;
   - each repo shows `allow_auto_merge` on, and the "Automation branches"
     ruleset with both bypass actors;
   - any sync PRs the sweep opened are recorded.
@@ -590,9 +657,15 @@ precondition is human-attested: vergil-tooling is released with Tasks 1–8.
   Pull requests write, Workflows write and Metadata read.
 - [ ] **Step 2:** Set `env: VRG_AUTOMATION_APP: ${{ vars.VRG_AUTOMATION_APP }}`,
   and add a first step that fails the job when it is empty.
+- [ ] **Step 2b: Run only from `develop`.**
+  - The first step fails the job unless `github.ref == 'refs/heads/develop'`.
+  - `actions/checkout` pins `ref: develop`.
+
+  Every fleet repo's default branch is `develop`, so the automation job
+  never runs code from any other branch.
 - [ ] **Step 3:** Replace `audit` with `vrg-github-repo-config update --repo
   "${{ github.repository }}"`, and rename the step. Remove the
-  `bypass-probe` job (Task A1, step 3b).
+  `bypass-probe` job (Task A1b).
 - [ ] **Step 4: Validate, then commit** (`vrg-commit --type ci --scope ops`).
   The human's `vrg-submit-pr` pushes the branch.
 
@@ -633,8 +706,17 @@ Kind `validation`, filed in vergil-actions and blocked by D4.
   `docs/site/docs/reference/config-audit.md` and `cli-tools-overview.md`
   (remove the sync-tool sections).
 
-- [ ] **Step 1:** Confirm nothing imports the deleted modules outside the
-  deleted files: `rg` over `src/` and `tests/`.
+- [ ] **Step 1:** Search `src/`, `tests/` and `docs/` with `rg` for the seven command
+  names (`vrg-fleet-sync`, `vrg-gitignore-sync`, `vrg-dependabot-sync`,
+  `vrg-claude-settings-sync`, `vrg-claude-md-sync`, `vrg-hook-guard-shim-sync`,
+  `vrg-ci-sync`) and for the deleted modules. Fix every hit outside the deleted
+  files, remediation messages and docstrings included (for example
+  `bin/vrg_container_docs.py`, `lib/gitignore.py`, `lib/dependabot.py`, and
+  the guides and reference pages). Change the managed `.gitignore` block's
+  header text from naming `vrg-gitignore-sync` to naming
+  `vrg-github-repo-config update`, and update the gitignore data files and
+  tests to match. Every repo then drifts once, and the nightly `update`
+  syncs the new header fleet-wide.
 - [ ] **Step 2:** Delete them and remove the entry points and docs.
 - [ ] **Step 3: Validate, then commit** (`vrg-commit --type refactor
   --scope sync`).

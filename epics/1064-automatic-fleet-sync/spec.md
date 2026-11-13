@@ -197,21 +197,21 @@ administration (§6.4).
   mode, and anything else, including `GITHUB_TOKEN` in release and docs
   CI, falls through to `human`.
 - **Where the lookup runs.** A job that runs as the automation identity
-  sets a marker in its environment saying it holds the automation App
+  sets the `VRG_AUTOMATION_APP` environment variable, which says it holds the automation App
   token. **In this epic only the `github-config` ops job, which runs
   `update`, sets it.** Every other job that mints an automation token today
   (the other ops jobs, epic-sweep, epic-rollup, upstream-refresh, and the
   release workflows `cd.yml` and `cd-release.yml`) does not set it. Those
   jobs keep resolving exactly as they do today, and are migrated later (§4,
-  vergil-project/.github#1067). The lookup runs only when the marker is
+  vergil-project/.github#1067). The lookup runs only when that variable is
   present, and it
   verifies that the credential really belongs to the automation App. The
-  marker alone grants nothing: a marker without the App's credential fails
+  variable alone grants nothing: the variable without the App's credential fails
   the verification, and the run fails. Jobs that use `GITHUB_TOKEN`, and
-  ordinary human and agent calls, never set the marker, so they make no
+  ordinary human and agent calls, never set it, so they make no
   extra network request and gain no new way to fail. The lookup retries
   transient errors before it fails.
-- **Fail loudly** when the marker is present but the lookup that
+- **Fail loudly** when the variable is set but the lookup that
   identifies the App fails, or identifies a different App. The resolver never guesses. An explicit
   mode signal (the environment variable or the mode file) that contradicts
   a credential identified as the automation App is an error too; neither
@@ -231,16 +231,20 @@ administration (§6.4).
   same ID everywhere.
 - How the check works (for example, asking GitHub which App the
   installation token belongs to and comparing it with the configured App)
-  is left to the builder. The marker only decides whether the verification runs.
-  The verification itself must not depend on a flag or environment variable
-  that any process could set.
+  is left to the builder. The variable only decides whether the verification runs.
+  The verification checks that the token belongs to the App the variable
+  names. The name itself is trusted because ops copies it from the org-level
+  Actions variable, which only an org admin can set. A process outside ops
+  that sets the environment variable by hand still holds only its own
+  token, and the agent identity signals and `update`'s refusal of agent
+  modes stop it.
 - **Rights in the tooling's own checks.** Some `vrg-*` tools check the mode
   themselves ("refuse unless human", "refuse if agent"). These are separate
   from GitHub's permissions: GitHub grants permissions per App and per
   token (§6.4), and the tooling cannot widen or narrow them. The tooling's
   checks admit `automation` for exactly the operations the `github-config`
   job performs through `update` (§3), and to nothing else. Because no other
-  job sets the marker, no existing job changes mode in this epic. Every
+  job sets the variable, no existing job changes mode in this epic. Every
   identity check that `update`'s code path passes through states explicitly
   what it does with `automation`; a check on that path that is silent about
   `automation` is a defect.
@@ -481,8 +485,8 @@ keeps each step inert until the next one switches it on:
    PRs early, under the human's identity; that is harmless. The red
    window is limited to the hours between the release and the sweep.
 5. **Ops switch.** vergil-actions releases the change that makes ops run
-   `update` instead of `audit`, and that sets the automation marker on the
-   `github-config` job (§6.1). The marker ships in this release and no
+   `update` instead of `audit`, and that sets `VRG_AUTOMATION_APP` on the
+   `github-config` job (§6.1). The variable ships in this release and no
    earlier one, so the job runs as `automation` only after the grant
    (step 2) and the premise check (step 3). This switches the whole fleet at once.
    There is no canary mechanism: the fleet is small, and a failed sync
