@@ -114,7 +114,7 @@ and GitHub Actions YAML (vergil-actions, vergil-containers).
 | 4 | vergil-tooling | The mechanized-PR library | 2 |
 | 5 | vergil-tooling | Desired state: auto-merge, the automation-prefix ruleset, fatal bypass reads | 1, V1 |
 | 6 | vergil-tooling | `vrg-github-repo-config update`; `apply` deprecated | 1, 3a, 3b, 4, 5 |
-| 8 | vergil-tooling | `vrg-repo-status` shows automation PRs as `automation` | — (epic #1049 shipped) |
+| 8 | vergil-tooling | `vrg-repo-status` shows automation PRs as `automation` | — |
 | D3 | vergil-tooling (deployment) | Release the tooling; the human's same-day `update` sweep | 6, 8 |
 | A2 | vergil-actions | Ops switch: `github-config` runs `update` as automation | D3 |
 | D4 | vergil-actions (deployment) | Release the ops switch | A2 |
@@ -591,24 +591,20 @@ is human-attested: vergil-actions is released with A1b.
 
 ### Task 8: `vrg-repo-status` shows automation PRs as `automation`
 
-Requires epic vergil-project/.github#1049 to have shipped `lib/pending_release.py`.
+`vrg-repo-status` (epic vergil-project/.github#1049) has shipped. This task
+extends it.
 
-**Files:** Modify `src/vergil_tooling/lib/pending_release.py` (`ChangeKind`, classify),
-`src/vergil_tooling/bin/vrg_repo_status.py` (the summary counts)
-and `docs/site/docs/reference/cli-tools-overview.md`. Test in
-`tests/vergil_tooling/test_pending_release.py`.
+**Deliverable:** PRs whose branch is under `automation/` show with the type
+`automation`, kept apart from development PRs wherever the tool groups or
+counts PRs. The docs list the new type. How the tool classifies and counts
+it is left to the builder, following the tool's existing branch-based types
+(`deps/update-*`, `release/post-*`).
 
-- [ ] **Step 1: Write the failing tests:**
-  `test_automation_prefix_classified_automation`: the branch
-  `automation/repo-config-sync/123` gives type `automation`, checked before
-  the conventional-commit fallback; and `test_summary_counts_automation_apart`,
-  where the summary shows automation PRs on their own line.
-- [ ] **Step 2: Run the test and see it fail.**
-- [ ] **Step 3: Implement.** Add `ChangeKind.AUTOMATION`, returned for the
-  `automation/` prefix, and count it as its own line in the summary in
-  `bin/vrg_repo_status.py`. Add the type to the TYPE column's docs.
-- [ ] **Step 4: Run the test and see it pass.**
-- [ ] **Step 5: Commit** (`vrg-commit --type feat --scope repo-status`).
+- [ ] **Step 1:** Write a failing test: a PR on
+  `automation/repo-config-sync/123` shows as `automation`, apart from
+  development PRs.
+- [ ] **Step 2:** Implement it, update the docs, and see the test pass.
+- [ ] **Step 3: Commit** (`vrg-commit --type feat --scope repo-status`).
 
 ### Task D3 (deployment): Release the tooling; the same-day sweep
 
