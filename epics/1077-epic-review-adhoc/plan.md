@@ -111,6 +111,7 @@ performed by an agent.
 ### Task 1: `one-off` from planning
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/intake_route.py` (`ROUTES`, the one-off
   path)
 - Modify: `docs/site/docs/reference/cli-tools-overview.md` (the
@@ -118,6 +119,7 @@ performed by an agent.
 - Test: `tests/vergil_tooling/test_intake_route.py`
 
 **Interfaces:**
+
 - Produces: `ROUTES["planning"] == frozenset({Defer, Drop, OneOff})`.
   `vrg-intake-route <planning item> one-off --repo … [--epic …]` behaves as
   from intake, behind `_guard_open_planning_epics(ref, view, "routing
@@ -192,6 +194,7 @@ performed by an agent.
 ### Task 2: Skill names in tooling text and docs
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/epics.py` (`_QUEUE_REFUSAL_TAILS`, the
   `INTAKE`, `PLANNING` and `DEFERRED` `StandingKind.body` templates)
 - Modify: `src/vergil_tooling/lib/epic_audit.py` (`_QUEUE_FULL_HINT`)
@@ -206,6 +209,7 @@ performed by an agent.
   `tests/vergil_tooling/test_vrg_submit_pr.py`
 
 **Interfaces:**
+
 - Produces: the user-facing strings below, exactly.
 
 - [ ] **Step 1: Write the failing tests**
@@ -264,6 +268,7 @@ performed by an agent.
 ### Task 3: The `epic-review` skill
 
 **Files:**
+
 - Create: `skills/epic-review/SKILL.md`
 - Delete: `skills/intake-review/`, `skills/planning-review/`,
   `skills/deferred-review/`
@@ -275,13 +280,14 @@ performed by an agent.
   `README.md`, `docs/site/docs/skills/index.md`
 
 **Interfaces:**
+
 - Consumes: Task 1's `one-off` from planning. Until its tooling release is
   installed, the tool refuses that route, which is accepted (Global
   Constraints).
 - Produces: `/vergil:epic-review <intake|planning|deferred|<epic-ref>>`, and
   the refusal lines Task 7 edits:
   - ad-hoc epic: `<ref> is an ad-hoc epic; it holds placed work, not a
-    queue.` (Task 7 appends ` Its tasks are worked with
+    queue.` (Task 7 appends the sentence `Its tasks are worked with
     /vergil:epic-implement adhoc.`);
   - development epic: `<ref> is a development epic; it is worked with
     /vergil:epic-implement <ref>.`
@@ -350,6 +356,7 @@ performed by an agent.
 ### Task 4: `docs` repo management pages
 
 **Files:**
+
 - Modify: `docs/site/docs/management/tools-and-skills.md`
 - Modify: `docs/site/docs/management/workflow.md`
 
@@ -412,6 +419,7 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
 ### Task 5: `vrg-queue adhoc`
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/queue_view.py` (new `AdhocItem`,
   `adhoc_items`, `render_adhoc_text`, `adhoc_to_json`)
 - Modify: `src/vergil_tooling/bin/vrg_queue.py` (the `adhoc` choice)
@@ -420,6 +428,7 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
   `tests/vergil_tooling/test_vrg_queue.py`
 
 **Interfaces:**
+
 - Produces:
 
   ```python
@@ -498,6 +507,7 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
 ### Task 6: In-flight detection
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/in_flight.py`
 - Modify: `src/vergil_tooling/lib/queue_view.py` (`adhoc_items` uses it)
 - Modify: `src/vergil_tooling/bin/vrg_queue.py` (`--root DIR`, repeatable,
@@ -506,6 +516,7 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
 - Test: `tests/vergil_tooling/test_in_flight.py`
 
 **Interfaces:**
+
 - Consumes: Task 5's `AdhocItem`, `adhoc_items`;
   `live_branches.default_repo_roots`, `live_branches.discover_repos`.
 - Produces:
@@ -629,12 +640,14 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
 ### Task 7: The `adhoc` mode in `epic-implement`
 
 **Files:**
+
 - Modify: `skills/epic-implement/SKILL.md`
 - Modify: `skills/epic-review/SKILL.md` (the ad-hoc refusal)
 - Modify: `docs/site/docs/skills/index.md` (the `epic-implement` section),
   `README.md` (its table row)
 
 **Interfaces:**
+
 - Consumes: Task 5 and 6's `vrg-queue adhoc [--repo R] [--root DIR] --json`
   and its `state`, `marks`, `blocked_by`, `kind` fields; Task 3's
   refusal line.
