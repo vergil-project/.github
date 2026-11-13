@@ -57,11 +57,11 @@ pytest, bash (`assert.sh`, `checks.sh`), Dockerfile, rustup.
 | 5 | vergil-tooling | task | rustup variables never forwarded into a container | — |
 | 6 | vergil-tooling | task | Rust allowed actions drop `actions-rust-lang/*` | — |
 | 7 | vergil-actions | task | Rust branch of the toolchain assertion | — |
-| 8 | .github | deployment | Releases attested; Rust images rebuilt with the pin | 2b, 3, 4, 5, 6, 7 |
+| 8 | .github | deployment | Tooling, actions and containers releases attested; Rust images rebuilt with the pin | 2b, 3, 4, 5, 6, 7 |
 | 9 | vergil-containers | task | Rust moves to `automation: "pr"`, with the policy page's automation text | 8 |
 | 10 | .github | deployment | Rust catch-up: lifecycle PRs merged in order | 9 |
 | 11 | vergil-containers | task | Rust policy page: out-of-policy section rewritten after the catch-up | 10 |
-| 12 | .github | validation | End-to-end check on the Rust fixtures | 10, 11 |
+| 12 | .github | validation | Containers release after the catch-up attested; end-to-end check on the Rust fixtures | 10, 11 |
 | — | vergil-tooling | bookend (#4319) | Documentation review | 2b, 3, 4, 5, 6, 7, 9, 11 |
 | — | .github | bookend (#1097) | Follow-on brainstorm: pick up Epic B (#1087) | 12 |
 | — | .github | bookend (#1098) | Retrospective | all |
@@ -96,14 +96,14 @@ yet filed.
 
 **Files:**
 - Modify: `docker/versions/lifecycle/apply.py` (`render_change`; new `edit_pins`)
-- Modify: `docker/versions/lifecycle/publish.py` (`_publish_change` passes its fetcher)
+- Modify: `docker/versions/lifecycle/publish.py` (a `fetch` keyword through `sync_prs` and `_publish_change`; `main` passes `rt.fetch_url`)
 - Modify: the lifecycle and toolchain-pin docs in `docs/site/docs/` that say lifecycle PRs leave `toolchains.yml` alone
 - Test: `docker/versions/test_apply.py`, `docker/versions/test_publish.py`, `docker/pins/test_toolchains.py`
 
 **Interfaces:**
 - Consumes: Task 2a's `render_all(m, root, pins)` and `generate_catalog.render(root, toolchains)`; `rt.required_series`, `rt.required_tools`, `rt.RESOLVERS`, `rt.TOOL_RESOLVERS`, `rt.consistency_errors`, `rt.dump_toolchains`, `rt.load_toolchains`.
-- Produces: `apply.edit_pins(after: Manifest, base: rt.Toolchains, fetch: rt.Fetch) -> rt.Toolchains` — the base pins with every series `required_series(after)` lacks resolved through `RESOLVERS[key]([series], fetch)`, every series it no longer requires removed, and each missing tool resolved through `TOOL_RESOLVERS`. Nothing else re-resolved. A `ResolutionError` or a non-empty `consistency_errors(after, result)` raises `ApplyError` naming the family and series.
-- Produces: `apply.render_change(m, change, target, root, fetch: rt.Fetch = rt.fetch_url) -> dict[Path, str]` — computes `edit_pins(after, generate.load_pins(root), fetch)`, renders from it, and adds `docker/pins/toolchains.yml` and `docker/pins/CATALOG.md` when their content differs from the files in `root`. Writes nothing to `root`.
+- Produces: `apply.edit_pins(after: Manifest, base: rt.Toolchains, fetch: rt.Fetch) -> rt.Toolchains` — the base pins, where every series in `required_series(after)` that `base` does not pin is resolved through `RESOLVERS[key]([series], fetch)`, every series `base` pins that `required_series(after)` no longer lists is removed, and each tool in `required_tools(after)` that `base` lacks is resolved through `TOOL_RESOLVERS`. Nothing else re-resolved. A `ResolutionError` or a non-empty `consistency_errors(after, result)` raises `ApplyError` naming the family and series.
+- Produces: `apply.render_change(m, change, target, root, *, fetch: rt.Fetch) -> dict[Path, str]`, with `fetch` required (no default), so a test that forgets a fake fails with a `TypeError` and never reaches the network. It computes `edit_pins(after, generate.load_pins(root), fetch)`, renders from it, and adds `docker/pins/toolchains.yml` and `docker/pins/CATALOG.md` when their content differs from the files in `root`. Writes nothing to `root`.
 
 - [ ] **Step 1: Write the failing tests** in `test_apply.py`, with a fake fetch:
   - `test_add_writes_the_new_series_pin`: a rust add of `1.100` yields `toolchains.yml` with a `"1.100"` pin, listed before `"1.99"`.
@@ -114,10 +114,12 @@ yet filed.
   - `test_unresolvable_pin_is_apply_error`: a fetch that raises gives `ApplyError` naming `rust` and the series.
   - `test_render_change_leaves_root_untouched`: the files under `root` are unchanged after a call.
   - `test_catalog_in_pr_files`: an add's file list includes `docker/pins/CATALOG.md`.
+  - Rewrite `test_render_add_without_a_toolchain_pin_fails_as_an_apply_error` (`test_apply.py:657`), which asserts the behaviour this task removes: an add of python 3.16 with no pin now resolves it through the injected fetch, and the `ApplyError` case moves to `test_unresolvable_pin_is_apply_error`.
+  - Every existing `render_change` and `sync_prs` test passes a fake fetch.
 - [ ] **Step 2: Write the failing test** `test_one_run_two_adds_and_a_drop` in `test_publish.py`: a run with rust add `1.100`, rust add `1.99` and rust drop `1.92`. Each published branch's `toolchains.yml` differs from the base by exactly its own series.
 - [ ] **Step 3: Write the three-digit-minor tests** (spec §6.6): `test_parse_branch_accepts_three_digit_minor` (`lifecycle/rust-add-1.100` parses) in `test_apply.py`; `test_dump_orders_1_100_before_1_99` in `test_toolchains.py`; `test_classify_orders_1_100_newest` (a rust window of 1.100/1.99 against a manifest of 1.99/1.98 gives `add 1.100`, then `drop 1.98`) in `test_lifecycle_core.py`; and `test_rust_1_100_build_args` (the rendered matrix gives `RUST_VERSION=1.100` with `TOOLCHAIN_VERSION=1.100.0`) in `test_generate.py`.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
-- [ ] **Step 5: Implement** `edit_pins` and the new `render_change`, and pass `fetch` from `_publish_change`. Update the docs that describe lifecycle PRs.
+- [ ] **Step 5: Implement** `edit_pins` and the new `render_change`, and thread `fetch` through `sync_prs` and `_publish_change` from `publish.main`. Update the docs that describe lifecycle PRs.
 - [ ] **Step 6: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 7: Commit** `vrg-commit --type fix --scope lifecycle --message "write and remove toolchain pins in lifecycle add and drop PRs"`, then report-ready.
 
@@ -190,7 +192,7 @@ yet filed.
 - [ ] **Step 1: Change the test** to expect `["actions/*", "docker/*", "github/*", "swatinem/*", "vergil-project/*"]` for `"rust"`.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect FAIL.
 - [ ] **Step 3: Implement**: `"rust": ["swatinem/*"]`.
-- [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS. Grep the repo and its docs for `actions-rust-lang` and remove any remaining mention.
+- [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS. Grep `src/`, `tests/` and `docs/site/` for `actions-rust-lang` and remove any remaining mention. Completed plans (`docs/plans/completed/`) and dated specs (`docs/specs/`) are records of earlier changes and stay as they are.
 - [ ] **Step 5: Commit** `vrg-commit --type fix --scope github-config --message "allow only non-toolchain actions for Rust repos"`, then report-ready.
 
 ### Task 7: Rust branch of the toolchain assertion (vergil-actions)
@@ -213,11 +215,11 @@ yet filed.
 
 Blocked by 2b, 3, 4, 5, 6, 7.
 
-- **Precondition (human-attested):** vergil-tooling and vergil-actions releases containing Tasks 4, 5, 6 and 7 are published, and their versions are named in a comment.
+- **Precondition (human-attested):** three releases are published, and their versions are named in a comment: vergil-tooling (Tasks 4, 5 and 6), vergil-actions (Task 7) and vergil-containers (Tasks 2b and 3). Prod images build only from vergil-containers `main` (`cd.yml`), and consumers read the version window at their `[dependencies].vergil` release ref (`window.py`), so a vergil-containers release is what puts the pin in front of consumers.
 - **Procedure (agent-safe):**
   1. Confirm the release notes of each named release list the tasks' PRs.
-  2. Confirm the vergil-containers Rust images built from `develop` after Tasks 2b and 3 merged are published (dev and prod, each window series in the manifest).
-  3. In each published Rust image: `RUSTUP_TOOLCHAIN` equals `RUST_VERSION`, and `(RUSTUP_TOOLCHAIN=1.0.0 rustc --version)` fails as not installed.
+  2. Confirm the Rust images are published for each window series in the manifest: dev images built from `develop` after Tasks 2b and 3 merged, and prod images built from the named vergil-containers release.
+  3. In each published Rust image, dev and prod: `RUSTUP_TOOLCHAIN` equals `RUST_VERSION`, and `(RUSTUP_TOOLCHAIN=1.0.0 rustc --version)` fails as not installed.
 - **SUCCESS:** every check above passes, recorded with the release versions and image digests.
 
 ### Task 9: Rust moves to `automation: "pr"` (vergil-containers)
@@ -261,10 +263,12 @@ Blocked by 10.
 
 Blocked by 10 and 11.
 
+- **Precondition (human-attested):** a vergil-containers release cut after Task 10's catch-up and Task 11 merged is published, and its version is named in a comment. It carries the caught-up manifest's `window.json` and the prod images for the new series.
 - **Precondition (machine probe):** `vergil-project/vergil-fixture-rust-lib` and `vergil-project/vergil-fixture-rust-app` exist (epic vergil-project/.github#1091) and their latest `develop` CI is green. If not, comment "blocked: preconditions not met" and stop.
 - **Procedure,** on each fixture (where epic #1091's `fixture-run` recipe is available, run the checks through it):
-  1. CI passes on both window series, and each leg's `assert-toolchain` step logs `rust <x.y> matches the resolved version <x.y>`.
-  2. On a throwaway branch, add `rust-toolchain.toml` (`channel = "1.0.0"`): `vrg-container-run -- vrg-validate` fails with the Task 4 toolchain error. Delete the branch.
-  3. In `vrg-container-run`, `rustc --version` reports the image's release, and `(RUSTUP_TOOLCHAIN=1.0.0 rustc --version)` fails as not installed with nothing downloaded.
-  4. With `RUSTUP_TOOLCHAIN=1.0.0` exported on the host and the fixture's `env-prefixes` including `RUST`, `vrg-container-run -- rustc --version` still reports the image's release.
+  1. The fixture's resolved Rust window equals the `window.json` of the named release, and its CI legs run prod images whose digests match that release's published images.
+  2. CI passes on both window series, and each leg's `assert-toolchain` step logs `rust <x.y> matches the resolved version <x.y>`.
+  3. On a throwaway branch, add `rust-toolchain.toml` (`channel = "1.0.0"`): `vrg-container-run -- vrg-validate` fails with the Task 4 toolchain error. Delete the branch.
+  4. In `vrg-container-run`, `rustc --version` reports the image's release, and `(RUSTUP_TOOLCHAIN=1.0.0 rustc --version)` fails as not installed with nothing downloaded.
+  5. On a throwaway branch that adds `RUST` to the fixture's `[container].env-prefixes`, with `RUSTUP_TOOLCHAIN=1.0.0` exported on the host, `vrg-container-run -- rustc --version` still reports the image's release. Delete the branch.
 - **SUCCESS:** every step passes on both fixtures, recorded per fixture.
