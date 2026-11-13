@@ -314,13 +314,19 @@ gives an empty list, not an error.
 any of:
 
 - an open PR that closes it;
-- a report-ready record;
+- a ready report-ready record that names it (a batch's record names every
+  member);
+- a `feature/<N>-` branch on the remote;
 - a `feature/<N>-` branch or worktree in its repo's main clone;
-- a merge-review state directory in its repo's main clone.
+- a merge-review state directory in its repo's main clone;
+- a batch marker in its repo's main clone.
 
-The output names the marks found for each in-flight task. Detection lives
-in the tool, in one place, so the skill and any other caller see the same
-answer.
+The output names the marks found for each in-flight task, and the task's
+**disposition**: *handed off* when it has an open PR or a ready record,
+whatever local marks remain, or only a remote branch; *resume* when it has
+a local worktree, merge-review directory or batch marker and nothing that
+hands it off. Detection lives in the tool, in one place, so the skill and
+any other caller see the same answer.
 
 A failed read of an epic, its sub-issues or any of the in-flight sources is
 a real failure that stops the command with its cause, never a silently

@@ -146,6 +146,9 @@ performed by an agent.
   - `test_route_one_off_from_planning_removes_in_progress_after_recreate`:
     as above, when the transfer is refused and the item is recreated; the
     recreated issue does not keep the label.
+  - `test_route_one_off_from_planning_removes_in_progress_same_repo`: a
+    `.github` planning item routed one-off into `.github`'s own ad-hoc epic
+    (the no-move path) loses the label.
   - `test_route_one_off_from_planning_keeps_in_progress_when_move_fails`:
     a failed transfer and recreate leave the label on the original item.
   - `test_route_defer_from_planning_removes_in_progress` (existing) still
@@ -197,8 +200,10 @@ performed by an agent.
 - Modify: `docs/site/docs/reference/cli-tools-overview.md` (the `vrg-queue`
   section's "three review skills" sentence)
 - Test: `tests/vergil_tooling/test_epics.py`,
-  `tests/vergil_tooling/test_epic_audit.py` (and
-  `tests/vergil_tooling/test_vrg_epic_audit.py`, which pins the old hints)
+  `tests/vergil_tooling/test_epic_audit.py`, and the tests that pin the old
+  strings: `tests/vergil_tooling/test_vrg_epic_audit.py`,
+  `tests/vergil_tooling/pr_workflow/test_cli_e2e.py` and
+  `tests/vergil_tooling/test_vrg_submit_pr.py`
 
 **Interfaces:**
 - Produces: the user-facing strings below, exactly.
@@ -289,6 +294,10 @@ performed by an agent.
   - **Kind detection** from labels (spec §5.1 table) and the keyword form;
     `--repo` as `vrg-queue --repo`. A non-epic ref is refused as not an
     epic.
+  - **The no-argument path:** a bare `/vergil:epic-review` shows the three
+    queue counts from `vrg-queue`, asks which queue to review, and never
+    picks one itself. It is the only path that asks; a trigger phrase or
+    keyword selects its mode directly.
   - **The shared procedure** (spec §5.2 steps 1–6), written once, carrying
     over from today's skills: the USER-agent preflight, the missing-queue
     rule, batches of 4, one confirmation per batch, applying with
@@ -390,6 +399,8 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
   3. `/vergil:epic-review planning` presents the oldest 4 items with leave,
      defer, drop or one-off recommendations only, and never offers a pick;
      stop before confirming.
+  4. A bare `/vergil:epic-review` shows the three queue counts and asks
+     which queue to review.
 
   The `one-off`-from-planning guard is proven by Task 1's unit tests, not
   live: a live check would move a real planning item if the guard failed.
@@ -450,10 +461,18 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
   - `test_adhoc_repo_narrows_to_one_epic`: `repo="<org>/vergil-tooling"`
     gives only that repo's tasks.
   - `test_adhoc_repo_without_epic_is_empty` (Review Focus 4).
+  - `test_adhoc_items_sub_issue_read_failure_raises` and
+    `test_adhoc_items_blocker_read_failure_raises`: a failed sub-issue read,
+    or a failed read of a blocker or its state, raises, and `vrg-queue
+    adhoc` exits 1.
   - `test_vrg_queue_adhoc_text_and_json`, and
     `test_vrg_queue_bare_does_not_list_adhoc`.
 
 - [ ] **Step 2: Run the tests; confirm they fail**
+
+  Run: `vrg-container-run -- vrg-validate`
+  Expected: FAIL, `adhoc` being an invalid `vrg-queue` choice and
+  `adhoc_items` undefined.
 
 - [ ] **Step 3: Implement**
 
@@ -501,7 +520,7 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
       clone: Path                  # main clone found under the roots
       open_pr_issues: frozenset[int]
       remote_branches: frozenset[str]
-      ready_relay_issues: frozenset[int]  # issues in relay payloads whose status is ready
+      ready_relay_issues: frozenset[int]  # WorkflowState.all_issues of each ready relay payload
       local_branches: frozenset[str]
 
   class InFlightError(RuntimeError): ...
@@ -534,8 +553,9 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
   - `test_in_flight_unfrozen_relay_is_not_report_ready`: the same ref with
     payload status `implementing` gives no `report-ready` mark.
   - `test_in_flight_report_ready_batch_member`: a relay ref on
-    `feature/<N>-batch-x` whose payload's `all_issues` names N and M gives
-    M `report-ready` too, with no local batch marker for M.
+    `feature/<N>-batch-x` whose payload's `issues` key lists N and M gives
+    M `report-ready` too, with no local batch marker for M; a single-issue
+    payload (only `issue`) marks that one issue.
   - `test_in_flight_relay_issue_forms`: payload entries `42` and
     `<owner>/<repo>#42` both mark issue 42; an entry for another repo marks
     nothing; an unparsable entry raises `InFlightError`.
@@ -576,14 +596,19 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
 
 - [ ] **Step 3: Run the tests; confirm they fail**
 
+  Run: `vrg-container-run -- vrg-validate`
+  Expected: FAIL, `lib/in_flight.py` not existing.
+
 - [ ] **Step 4: Implement**
 
   `repo_signals` reads, once per repo: `pr list --state open --json
   number,headRefName,closingIssuesReferences`, refused when truncated;
   `ls-remote https://github.com/<repo> refs/heads/feature/*
   refs/vergil/pr-workflow/*`; each relay ref's payload, by the method Step
-  2 confirmed, keeping it only when its status is `ready` and taking every
-  issue in its `all_issues`, each parsed with `pr_body.normalize_issue_ref`
+  2 confirmed, parsed with `pr_workflow.state.WorkflowState.from_dict` (the
+  one parser, with its schema-version check), keeping it only when its
+  status is `ready` and taking every entry of its `all_issues` property,
+  each parsed with `pr_body.normalize_issue_ref`
   then `epics.parse_issue_ref(default_repo=<repo>)` and kept only when its
   repo matches; and the clone's local branches and worktree branches.
   Signals are read only for repos with open ad-hoc tasks. The merge-review and batch marks are
@@ -614,11 +639,20 @@ Filed with `vrg-issue-create --kind validation`, blocked by D1.
   and its `state`, `marks`, `blocked_by`, `kind` fields; Task 3's
   refusal line.
 
-- [ ] **Step 1: Add kind detection and the queue refusal**
+- [ ] **Step 1: Add kind detection, the refusals and the one-repo mapping**
 
-  In Preflight, detect the ref's kind (spec §5.1). An intake, planning or
-  deferred epic or keyword prints `<ref> is the <kind> queue; review it
-  with /vergil:epic-review <kind>.` and stops.
+  This step, with Step 4, delivers vergil-project/vergil-claude-plugin#1005.
+  In Preflight, detect the ref's kind (spec §5.1):
+  - a ref not labelled `epic` prints `<ref> is not an epic.` and stops;
+  - an intake, planning or deferred epic or keyword prints `<ref> is the
+    <kind> queue; review it with /vergil:epic-review <kind>.` and stops;
+  - an ad-hoc epic ref runs the `adhoc` mode for one repo. The repo is the
+    `<repo>` of its title, `Epic (ad hoc): <repo>`, under its home's owner;
+    a self-homed private repo's ad-hoc epic maps to that repo itself. That
+    repo is passed to `vrg-queue adhoc --repo`.
+  - `/vergil:epic-implement adhoc --repo <owner>/<repo>` is accepted
+    directly, and is the only way to work a self-homed private repo's
+    ad-hoc tasks.
 
 - [ ] **Step 2: Add the `adhoc` mode section** with spec §5.3's six steps:
   collect with `vrg-queue adhoc`; summarize by repo with in-flight tasks
@@ -690,3 +724,8 @@ Filed with `vrg-issue-create --kind validation`, blocked by D2.
      item as not exercised.
   6. A task reported ready whose worktree is still present is listed as
      handed off, not resumed.
+  7. `/vergil:epic-implement <a plain task issue>` prints `<ref> is not an
+     epic.` and stops.
+  8. If the org has a self-homed private repo with an ad-hoc epic,
+     `/vergil:epic-implement adhoc --repo <that repo>` lists only its
+     tasks. Otherwise record this item as not exercised.
