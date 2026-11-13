@@ -89,11 +89,13 @@ The documentation task, vergil-project/.github#1092: this PR publishes
 ### Task 2: Rust `.gitignore` fragment (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/data/gitignore/rust` (empty today)
 - Modify: `src/vergil_tooling/lib/gitignore.py:143` (the docstring naming rust as known-but-empty)
 - Test: `tests/vergil_tooling/test_gitignore.py:242` and `:313-314`, and the frozen `_LEGACY_GITIGNORE_PATTERNS` set at `:41` with its comment block. The guards `test_split_is_lossless_against_baseline` (~`:111`) and `test_managed_vocabulary_equals_baseline_set` (~`:284`) assert that base plus fragments equals that set.
 
 **Interfaces:**
+
 - Produces: `gitignore.load_fragment("rust") == ["target/"]`; the managed block for a rust repo includes `target/`.
 
 - [ ] **Step 1: Change the tests.** Add `"target/"` to `_LEGACY_GITIGNORE_PATTERNS`, with a comment-block entry naming epic vergil-project/.github#1091 as the source of the deliberate addition. `test_gitignore.py:242` becomes `assert gitignore.load_fragment("rust") == ["target/"]`. The render test at `:313` asserts `"target/" in block` for `render_block("rust")`. Pick another known language with an empty fragment for the base-only case, or drop that case if none is left. Add `test_sync_rust_adds_target_keeps_repo_lines`: a repo `.gitignore` with a user line `scratch/` outside the managed block, synced for rust, keeps `scratch/` and gains `target/` inside the block (Review Focus 3).
@@ -108,6 +110,7 @@ The documentation task, vergil-project/.github#1092: this PR publishes
 ### Task 3: Packaged Rust license policy (vergil-tooling)
 
 **Files:**
+
 - Create: `src/vergil_tooling/configs/rust/__init__.py` (empty, as in `configs/cpp/`)
 - Create: `src/vergil_tooling/configs/rust/deny.toml`
 - Modify: `src/vergil_tooling/lib/languages.py:426` (the rust `AUDIT` entry), and the allowlist block at `:111-191`
@@ -115,6 +118,7 @@ The documentation task, vergil-project/.github#1092: this PR publishes
 - Test: `tests/vergil_tooling/test_languages.py:384` (`test_rust_audit_commands`)
 
 **Interfaces:**
+
 - Consumes: the `{configs}` placeholder that `languages.py:881` already resolves to the packaged `vergil_tooling.configs` directory.
 - Produces: rust `AUDIT` = `[["cargo", "deny", "check", "--config", "{configs}/rust/deny.toml"]]`, and `_RUST_LICENSES_ALLOWLIST`, the reviewed list beside the other languages' lists.
 
@@ -151,11 +155,13 @@ run skills are unchanged, as spec §6.3 requires. It is a small gap that blocks
 the recipe, so under spec §6.4 it is fixed here.
 
 **Files:**
+
 - Modify: `src/vergil_tooling/bin/vrg_issue_create.py` (the `--body-file` refusal at `:96-98`, and `_render_scaffold_body` at `:237`)
 - Modify: `src/vergil_tooling/data/validation_task_body.md`, `src/vergil_tooling/data/deployment_task_body.md` (named slots in place of the placeholder lines)
 - Test: `tests/vergil_tooling/test_vrg_issue_create.py`
 
 **Interfaces:**
+
 - Produces: `vrg-issue-create --kind validation|deployment --body-file <file>`, where `<file>` is Markdown with the level-2 sections `## Intro`, `## Preconditions`, `## Procedure` and `## Acceptance`, all required, plus `## Human-run steps`, optional and for `--kind deployment` only. Each section fills the matching scaffold slot:
   - `## Procedure` fills "Commands to run" for validation and "Deploy steps (agent-safe; idempotent)" for deployment;
   - `## Human-run steps` fills the deployment scaffold's "Human-run steps (need a human identity)" section, which is removed when the file has none. The tool keeps the frame (the self-check rule, the results template and the `Blocked-by:` lines). Without `--body-file`, today's behaviour is unchanged.
@@ -193,6 +199,7 @@ The agent never cuts the release.
 ### Task 5: Create the four fixture repos (deployment)
 
 **Preconditions:**
+
 - Task 4 is closed.
 - Epic vergil-project/.github#1064's rollout has switched ops to its config-update mode (spec §6.2). If it has not, the human decides whether to go ahead, with the nightly ops check a known gap until it lands.
 
@@ -226,10 +233,12 @@ vrg-github-repo-init vergil-project/vergil-fixture-rust-app --visibility public 
 ```
 
 Then, for each repo:
+
 - add the `APP_CLIENT_ID` and `APP_PRIVATE_KEY` secrets, plus any other secret the generated workflows name, as for any onboarded repo (vergil-actions `docs/site/docs/configuration.md` "Secrets"). `CARGO_REGISTRY_TOKEN` is deliberately **not** set;
 - create the repo's ad-hoc epic with `vrg-adhoc-epic`.
 
 **Agent check** (`issue-deploy`), per repo:
+
 - the repo exists and is public, with `develop` as default and `main` present;
 - `vergil.toml` matches the Global Constraints;
 - repo settings and rulesets: the verdict is the human's
@@ -254,12 +263,13 @@ result. This plan is the approval for filing them.
 
 ### Task 6a–6d: Each fixture's program (one task per fixture repo)
 
-One task in each fixture repo, filed in that repo and linked under epic
-#1091, implemented with `issue-implement`. Each brings the fixture to a
+One task in each fixture repo, filed in that repo and linked under epic vergil-project/.github#1091,
+implemented with `issue-implement`. Each brings the fixture to a
 green first cycle: `vrg-container-run -- vrg-validate` passes locally, and
 every required CI gate passes on the PR.
 
 **Each fixture gets:**
+
 - **A program.**
   - `-lib`: a small library with a public API of 3–4 functions.
   - `-app`: a small CLI with 2–3 subcommands.
@@ -273,6 +283,7 @@ every required CI gate passes on the PR.
 - **A README** that opens by saying this is a Vergil test fixture with no users, what it exercises, and a link to `epics/1091-language-fixture-repos/spec.md`.
 
 **Steps:**
+
 - [ ] **Step 1:** Write the tests for the public API or CLI, with the expected values (for example `greet("Ada") == "Hello, Ada"`).
 - [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`. Expected: the tests fail.
 - [ ] **Step 3:** Implement the program, the docs pages and the README.
@@ -293,11 +304,13 @@ around a gap by lowering a gate.
 ### Task 7: The `fixture-run` recipe and the seeding rule (vergil-claude-plugin)
 
 **Files:**
+
 - Create: `skills/fixture-run/SKILL.md`
 - Modify: `skills/epic-create/SKILL.md` (the "Operational tasks" section)
 - Modify: `docs/site/docs/skills/index.md` and `README.md` (the skills table): list the new skill
 
 **Interfaces:**
+
 - Consumes: `vrg-issue-create --epic <ref> --repo <ref> [--kind deployment|validation] --title … --body-file … --blocked-by <ref>`, where an operational kind's body file uses Task 3b's four sections; `issue-implement`, `issue-deploy`, `issue-validate`.
 - Produces: the skill `vergil:fixture-run`, invoked as `fixture-run <epic-ref> <fixture>[,<fixture>…] --validates <what> --after <owner/repo#N> [--after …]`.
   - `<what>` names the released change under validation, for example `vergil-tooling v2.1.N`.
@@ -306,6 +319,7 @@ around a gap by lowering a gate.
   - It files one trio per fixture and prints the refs.
 
 **`SKILL.md` must state:**
+
 - **The four fixtures,** and their language and shape, as the skill's one list (spec §6.6).
 - **The trio** (spec §6.3) with exact body templates:
   - **(a) Change task:**
@@ -357,6 +371,7 @@ vergil-claude-plugin containing Task 7, and updated the host and VMs
 Once Tasks 6x and 8 are closed, run
 `fixture-run vergil-project/.github#1091 <fixture> --validates "vergil-tooling <Task 4 version>" --after <Task 4 ref> --after <Task 8 ref>`
 for each of the four fixtures. Each run files a trio:
+
 - the change task, in the fixture repo;
 - the release task, in the fixture repo;
 - the validation task, in the fixture repo.
