@@ -2,7 +2,7 @@
 
 - **Epic:** vergil-project/.github#1064
 - **Planning issue:** vergil-project/.github#909 (review history is in its comments)
-- **Status:** draft, in design review
+- **Status:** approved
 
 > **For agentic workers:** each task is one PR, implemented with the
 > `issue-implement` skill (operational tasks with `issue-deploy` or
