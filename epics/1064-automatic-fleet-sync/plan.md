@@ -110,8 +110,14 @@ and GitHub Actions YAML (vergil-actions, vergil-containers).
 | V2 | vergil-actions (validation) | Live validation on switch day | D4 |
 | 9 | vergil-tooling | Retire the sync tools | V2 |
 
-Advisory hand-off: GHSA-mv3r-qfr4-7fr6 is fixed by Task 5 (the
-automation-prefix ruleset).
+Advisory hand-off: each advisory is retargeted to the task that fixes it.
+
+| Task | Advisories |
+| --- | --- |
+| 1 | GHSA-ggw3-hcf8-cqxh |
+| 4 | GHSA-596v-vphr-cpqq |
+| 5 | GHSA-mv3r-qfr4-7fr6 |
+| A2 | GHSA-2422-4hw9-c34c |
 
 ### Task A1: Scope every automation token, add per-job concurrency, rewrite the App docs
 
