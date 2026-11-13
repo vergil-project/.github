@@ -17,10 +17,10 @@ retired.
 **Architecture:** vergil-tooling gains four things:
 - an `automation` identity mode, switched on by the `VRG_AUTOMATION_APP` environment variable, which names
   the App and verified against the token;
-- a file-tree view of a repo's `develop` tip that the managed-file checks
-  and their new fixers share;
-- a mechanized-PR library that writes commits through the Git Data API and
-  turns on auto-merge;
+- a fresh shallow clone of the repo's `develop`, in which the managed-file
+  checks and their new fixers run;
+- a mechanized-PR library that commits and pushes from that clone with
+  plain git, opens the PR and turns on auto-merge;
 - an `update` subcommand that joins them.
 
 vergil-actions scopes every automation token, serializes the ops jobs, and
@@ -54,8 +54,21 @@ and GitHub Actions YAML (vergil-actions, vergil-containers).
 - Under the automation identity, an unreadable `bypass_actors` field is
   fatal. It is never skipped.
 - `apply` keeps today's behaviour and prints a deprecation notice.
+- All file work, checks, fixes, commit and push, happens with plain git
+  in a fresh shallow clone of `develop` in a temporary directory. No GitHub
+  API is used for file contents or commits.
 - No silent failures: every failure is a non-zero exit with the reason
   named.
+- Required configuration is asserted, not re-checked. The human's token
+  holds full rights, `admin:org` included, and a human run reads the org
+  variable through the org endpoint. Every managed repo is org-owned and
+  configured at org level. A missing right or setting fails with the API's
+  error. No task adds a probe, fallback or special case for configuration
+  that this plan requires.
+- A nightly ops run that goes red for a day or two during the rollout is
+  accepted and ignored. No step exists only to keep nightly runs green.
+  For example, vergil-tooling's own nightly `audit` is red from Task 5's
+  merge until Task D3.
 - Any job holding the automation token with write permissions runs only
   from `develop`. It checks out `ref: develop` and fails when dispatched
   from any other ref.
@@ -79,8 +92,8 @@ and GitHub Actions YAML (vergil-actions, vergil-containers).
 4. **An earlier run's sync PR still open, and the drift now gone.**
    Expected: that PR is closed, its branch is deleted, and the result is "in
    sync". Test in Task 4.
-5. **The hook-guard shim with correct bytes but mode 100644.** Expected: it
-   is reported as drift and fixed to 100755. Test in Task 3a.
+5. **The hook-guard shim with correct bytes but not executable.** Expected:
+   it is reported as drift and fixed to mode 0755. Test in Task 3a.
 
 ---
 
@@ -95,16 +108,14 @@ and GitHub Actions YAML (vergil-actions, vergil-containers).
 | A1b | vergil-actions | The bypass probe (dispatch-only, `develop`-only) | D2 |
 | V1 | .github (validation) | An automation token reads `bypass_actors` correctly | A1b |
 | 1 | vergil-tooling | The `automation` identity mode | — |
-| 2a | vergil-tooling | `FileTree`: a repo's files and modes at a ref | — |
-| 2b | vergil-tooling | Managed-file checks read a `FileTree` of `develop` | 2a |
-| 3a | vergil-tooling | Fixers (shared with their checks): shim, CLAUDE.md, Claude settings | 2b |
-| 3b | vergil-tooling | Fixers (shared with their checks): `.gitignore`, `dependabot.yml`, workflow ref pins | 2b |
-| 4 | vergil-tooling | The mechanized-PR library | 2a |
+| 2 | vergil-tooling | `audit` and `update` run in a fresh clone of `develop` | — |
+| 3a | vergil-tooling | Fixers (shared with their checks): shim, CLAUDE.md, Claude settings | 2 |
+| 3b | vergil-tooling | Fixers (shared with their checks): `.gitignore`, `dependabot.yml`, workflow ref pins | 3a |
+| 4 | vergil-tooling | The mechanized-PR library | 2 |
 | 5 | vergil-tooling | Desired state: auto-merge, the automation-prefix ruleset, fatal bypass reads | 1, V1 |
 | 6 | vergil-tooling | `vrg-github-repo-config update`; `apply` deprecated | 1, 3a, 3b, 4, 5 |
-| 7 | vergil-tooling | Branch-sweep cleans finished automation branches | 5 |
 | 8 | vergil-tooling | `vrg-repo-status` shows automation PRs as `automation` | — (epic #1049 shipped) |
-| D3 | vergil-tooling (deployment) | Release the tooling; the human's same-day `update` sweep | 6, 7, 8 |
+| D3 | vergil-tooling (deployment) | Release the tooling; the human's same-day `update` sweep | 6, 8 |
 | A2 | vergil-actions | Ops switch: `github-config` runs `update` as automation | D3 |
 | D4 | vergil-actions (deployment) | Release the ops switch | A2 |
 | V2 | vergil-actions (validation) | Live validation on switch day | D4 |
@@ -184,13 +195,17 @@ Kind `deployment`, filed in .github and blocked by D1. Every step is a
 human action; the agent records the result.
 
 - **Procedure:** for each org,
-  1. compare the automation App's permissions with `configuration.md`'s
+  1. search the org's code for `create-github-app-token` and
+     `APP_PRIVATE_KEY`. Scope every minting step that has no `permission-*`
+     inputs before going on, and record the search result on this task;
+  2. compare the automation App's permissions with `configuration.md`'s
      table, and correct any difference;
-  2. grant Administration Read & write, and Workflows Read & write;
-  3. accept the change on the installation;
-  4. set the org-level Actions variable `VRG_AUTOMATION_APP` to the App's
+  3. grant Administration Read & write, and Workflows Read & write;
+  4. accept the change on the installation;
+  5. set the org-level Actions variable `VRG_AUTOMATION_APP` to the App's
      slug.
 - **Acceptance:**
+  - each org's code search is recorded, with no unscoped minting step left;
   - each org's App permission page matches the table;
   - `vrg-gh api orgs/<org>/actions/variables/VRG_AUTOMATION_APP` returns
     the slug, with `visibility: all`, or `selected` with a list that covers
@@ -286,74 +301,42 @@ is human-attested: vergil-actions is released with A1b.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope identity`).
 
-### Task 2a: `FileTree`, a repo's files and modes at a ref
+
+### Task 2: `audit` and `update` run in a fresh clone of `develop`
 
 **Files:**
 
-- Create: `src/vergil_tooling/lib/file_tree.py`
-- Test: `tests/vergil_tooling/test_file_tree.py`
-
-**Interfaces:**
-
-- Produces:
-  - `@dataclass(frozen=True) class TreeFile: path: str; content: bytes;
-    mode: str`, where `mode` is one of `"100644"`, `"100755"`.
-  - `class FileTree`, with:
-    - `get(path: str) -> TreeFile | None`;
-    - `paths() -> frozenset[str]`;
-    - `ref_sha: str`, the commit SHA it was read at.
-  - `fetch_tree(repo: str, ref: str) -> FileTree`. It reads the recursive
-    Git tree once, and fetches blob contents lazily on `get`.
-  - `FileTree.from_files(files: Iterable[TreeFile], ref_sha: str) ->
-    FileTree`, for tests and for callers.
-- Consumes: `github.read_json`.
-
-- [ ] **Step 1: Write the failing tests.**
-  - `test_fetch_tree_reads_modes`: a tree response with a `100755` entry
-    gives `TreeFile.mode == "100755"`.
-  - `test_get_missing_returns_none`
-  - `test_fetch_tree_truncated_raises`: `"truncated": true` raises
-    `FileTreeError`.
-  - `test_blob_fetched_once`
-  - `test_symlink_and_submodule_entries_rejected_on_get`: `get` on a
-    `120000` or `160000` entry raises `FileTreeError`.
-- [ ] **Step 2: Run the tests and see them fail.**
-- [ ] **Step 3: Implement**, with `GET repos/<repo>/git/trees/<ref>?recursive=1`
-  and `GET repos/<repo>/git/blobs/<sha>` (base64).
-- [ ] **Step 4: Run the tests and see them pass.**
-- [ ] **Step 5: Commit** (`vrg-commit --type feat --scope repo-config`).
-
-### Task 2b: Managed-file checks read a `FileTree` of `develop`
-
-**Files:**
-
-- Modify: `src/vergil_tooling/lib/repo_config.py` (every `_check_*`, and
-  `audit_local_config`)
-- Modify: `src/vergil_tooling/bin/vrg_github_repo_config.py` (`audit`,
-  `diff`, `apply`: the local-file half)
-- Test: `tests/vergil_tooling/test_repo_config.py`,
+- Create: `src/vergil_tooling/lib/develop_clone.py`
+- Modify: `src/vergil_tooling/bin/vrg_github_repo_config.py` (the
+  local-file half of `audit`, `diff` and `apply`)
+- Test: `tests/vergil_tooling/test_develop_clone.py`,
   `tests/vergil_tooling/test_vrg_github_repo_config.py`
 
 **Interfaces:**
 
-- Produces: `audit_files(tree: FileTree) -> ConfigDiff`, which replaces
-  `audit_local_config(repo_root: Path)`. Every `_check_*(tree, items)`
-  takes the tree.
-- Consumes: `fetch_tree` (Task 2a).
+- Produces: `clone_develop(repo: str) -> ContextManager[Path]`. It makes a
+  shallow clone (`--depth 1 --branch develop`) into a
+  `tempfile.TemporaryDirectory`, yields its path, and removes it on exit.
+  It uses the run's GitHub credentials through the existing
+  `lib.git`/`lib.github` helpers, and the token never appears in argv or
+  logs. A failed clone raises `DevelopCloneError`, naming the repo.
+- Consumes: `audit_local_config(repo_root: Path)` and every `_check_*`,
+  unchanged. They already read a directory.
 
-- [ ] **Step 1: Convert the existing tests** to build trees with
-  `FileTree.from_files`, keeping every assertion. Add:
-  - `test_audit_reads_develop_not_cwd`: the CLI fetches `develop` for
-    `--repo`, and a dirty working tree does not change the result;
+- [ ] **Step 1: Write the failing tests.**
+  - `test_audit_reads_develop_not_cwd`: the CLI audits the clone, and a
+    dirty cwd checkout does not change the result.
   - `test_audit_runs_without_checkout`: `--repo other/repo` from an
     unrelated cwd still audits files. Today's "skipped with a warning" path
     is removed.
+  - `test_clone_removed_after_run`
+  - `test_clone_failure_exits_2_naming_repo`
 - [ ] **Step 2: Run the tests and see them fail.**
-- [ ] **Step 3: Implement.** Port each check onto the tree.
-  `_gitignore_language` and `_check_workflow_refs` read `vergil.toml` from
-  the tree. The CLI calls `audit_files(fetch_tree(repo, "develop"))`.
+- [ ] **Step 3: Implement.** The CLI runs
+  `audit_local_config(clone)` inside `with clone_develop(repo) as clone:`,
+  in place of the cwd check.
 - [ ] **Step 4: Run the tests and see them pass.**
-- [ ] **Step 5: Commit** (`vrg-commit --type refactor --scope repo-config`).
+- [ ] **Step 5: Commit** (`vrg-commit --type feat --scope repo-config`).
 
 ### Task 3a: Fixers for the shim, CLAUDE.md and Claude settings
 
@@ -367,23 +350,20 @@ is human-attested: vergil-actions is released with A1b.
 **Interfaces:**
 
 - Produces:
-  - One fixer per managed file, each `fix_<name>(tree: FileTree) ->
-    list[TreeFile]`. It returns **only** the files whose content or mode
-    differs from the tree, and `[]` when the file is in sync or the check
-    does not apply:
+  - One fixer per managed file, each `fix_<name>(root: Path) -> bool`. It
+    writes the file in place in the clone, and returns whether it changed
+    anything:
     - `fix_hook_guard_shim`
     - `fix_claude_md`
     - `fix_claude_settings`
   - `class CannotFix(Exception)`, raised by a fixer when its check fails
     but no fix can be computed (for example, CLAUDE.md markers that are
     missing or malformed). It carries the check's name and reason.
-  - The registry `FIXERS: list[Callable[[FileTree], list[TreeFile]]]`.
-  - `apply_fixes(tree: FileTree, files: list[TreeFile]) -> FileTree`, the
-    tree with the fixes overlaid.
+  - The registry `FIXERS: list[Callable[[Path], bool]]`.
 
-  Each `_check_*` reports drift exactly when its fixer would return a
-  non-empty list, or would raise `CannotFix`. So a check and its fix share
-  one definition.
+  Each `_check_*` and its fixer share one definition of the correct file.
+  The check reports drift exactly when the fixer would change something
+  or raise `CannotFix`.
 - Consumes: the existing renderers (`render_hook_guard_shim`,
   `load_claude_md_template`, `claude_md_marker_lines`,
   `_load_settings_template`) and the retired applicators' logic in
@@ -391,17 +371,18 @@ is human-attested: vergil-actions is released with A1b.
   `bin/vrg_claude_settings_sync.py`.
 
 - [ ] **Step 1: Write the failing tests.**
-  - `test_shim_wrong_mode_is_drift_and_fix_sets_100755`
-  - `test_shim_missing_is_created_100755`
+  - `test_shim_not_executable_is_drift_and_fix_sets_0755`
+  - `test_shim_missing_is_created_0755`
   - `test_claude_md_region_replaced_outside_text_kept`
   - `test_claude_md_without_markers_raises_cannot_fix`: the check still
     reports it, and `fix_claude_md` raises `CannotFix`.
   - `test_claude_settings_written_equal_to_template`
-  - `test_in_sync_tree_yields_no_fixes`: every fixer returns `[]`.
-  - `test_check_and_fixer_agree`: for each fixture tree, the check reports
-    drift if and only if the fixer returns files or raises.
+  - `test_in_sync_root_changes_nothing`: every fixer returns `False`.
+  - `test_check_and_fixer_agree`: for each fixture directory, the check
+    reports drift if and only if the fixer changes something or raises.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement**, porting each retired applicator's write logic.
+  The shim check also requires the executable bit.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope repo-config`).
 
@@ -419,8 +400,8 @@ is human-attested: vergil-actions is released with A1b.
 - Produces, each added to `FIXERS` with the Task 3a contract:
   - `fix_gitignore`;
   - `fix_dependabot_yml`;
-  - `fix_workflow_refs`, one entry per workflow file whose `vergil-*` pins
-    differ.
+  - `fix_workflow_refs`, which rewrites every workflow file whose
+    `vergil-*` pins differ.
 - Consumes: `lib/dependabot.render`, `lib/vergil_refs`, the gitignore data
   files, and `bin/vrg_gitignore_sync.py` / `bin/vrg_dependabot_sync.py`
   logic.
@@ -429,7 +410,6 @@ is human-attested: vergil-actions is released with A1b.
   - `test_gitignore_block_replaced_user_lines_kept`
   - `test_dependabot_rendered_exactly`
   - `test_workflow_pins_rewritten_to_vergil_toml_version`
-  - `test_workflow_file_mode_preserved`
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run the tests and see them pass.**
@@ -446,47 +426,50 @@ is human-attested: vergil-actions is released with A1b.
 
 - Produces:
   - `AUTOMATION_BRANCH_PREFIX = "automation/"`.
-  - `@dataclass(frozen=True) class MechanizedChange: job: str; base: str;
-    files: list[TreeFile]; title: str; body: str`.
   - `@dataclass(frozen=True) class SyncResult: status: Literal["in_sync",
     "opened"]; pr_url: str | None; closed: list[str]`.
-  - `sync_pr(repo: str, change: MechanizedChange, *, base_tree: FileTree)
-    -> SyncResult`.
+  - `open_sync_pr(repo: str, clone: Path, *, job: str, title: str, body:
+    str) -> SyncResult`. `clone` is a `clone_develop` checkout (Task 2)
+    with the job's changes already written in it.
   - `branch_name(job: str, run_id: str) -> str`, giving
     `automation/<job>/<run-id>`. `run_id` is `$GITHUB_RUN_ID` when set,
     otherwise a UTC `%Y%m%dT%H%M%SZ` stamp plus 6 hex characters.
   - `class MechanizedPRError(RuntimeError)`.
-- Consumes: `github.read_json`, `post_json_once`, `graphql`, `delete`, and
-  `TreeFile` / `FileTree` (Task 2a).
+- Consumes: `lib.git` (status, checkout, commit, push), and `github.delete_if_exists`
+  (a branch already gone counts as deleted), and
+  `github.create_pr`, `graphql`, `read_json` and `delete`.
 
-- [ ] **Step 1: Write the failing tests.**
-  - `test_no_change_closes_earlier_pr_and_deletes_branch`
-  - `test_files_identical_to_base_are_no_change`: a backstop. A change
-    whose files all match `base_tree` in content and mode gives `in_sync`,
-    and opens no PR.
-  - `test_change_opens_pr_from_base_tip_on_new_branch`: the commit's
-    parent is `base_tree.ref_sha`, and the tree entries carry the given
-    modes.
+- [ ] **Step 1: Write the failing tests**, against a local bare repo
+  standing in for `origin` and a mocked GitHub API.
+  - `test_clean_clone_closes_earlier_pr_and_reports_in_sync`
+  - `test_changes_pushed_on_new_branch_and_pr_opened`: the branch's parent
+    is the clone's `develop` commit, and the shim's executable bit
+    survives the commit.
   - `test_earlier_open_pr_closed_before_new_one_opened`
+  - `test_branch_without_pr_under_own_prefix_deleted`: a branch a failed
+    earlier attempt pushed without a PR is deleted, and a re-run with the
+    same run ID then pushes cleanly.
   - `test_auto_merge_enabled_squash_with_expected_head`: GraphQL
     `enablePullRequestAutoMerge` gets `mergeMethod: SQUASH` and
-    `expectedHeadOid` equal to the new commit.
+    `expectedHeadOid` equal to the pushed commit.
   - `test_auto_merge_not_confirmed_raises`: `autoMergeRequest` is null on
     read-back.
-  - `test_api_failure_mid_way_raises_naming_step`
+  - `test_push_failure_raises_naming_step`
   - `test_only_own_job_prefix_closed`: a PR on `automation/other-job/…` is
     left alone.
   - `test_fork_pr_on_automation_prefix_ignored`: a cross-repository PR
     from `automation/repo-config-sync/x` is neither closed nor touched.
 - [ ] **Step 2: Run the tests and see them fail.**
-- [ ] **Step 3: Implement**, through the Git Data API: blobs, then a tree
-  with `base_tree`, then a commit, then `POST git/refs`. Then
-  `POST pulls`, and the GraphQL auto-merge, then the read-back. Earlier PRs
-  are the open PRs whose head starts with `automation/<job>/` **and whose
-  head repo is the same repo** (`head.repo.full_name == repo`). A PR from a
-  fork is never closed, and its branch is never deleted.
+- [ ] **Step 3: Implement.**
+  1. First, delete every branch in this repo under `automation/<job>/`,
+     closing its PR first if one is open. Only same-repo PRs count
+     (`head.repo.full_name == repo`): a PR from a fork is never closed.
+  2. Then, with plain git in the clone: `git status`, then `checkout -b`,
+     `commit`, and `push origin <branch>`.
+  3. Then `create_pr`, the GraphQL auto-merge, and the read-back.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope automation`).
+
 
 ### Task 5: Desired state: auto-merge, the automation-prefix ruleset, fatal bypass reads
 
@@ -545,10 +528,6 @@ is human-attested: vergil-actions is released with A1b.
   trust note ("only a human runs `apply`") no longer covers `update`.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope repo-config`).
-  The handoff notes tell the human to run `vrg-github-repo-config apply --repo
-  vergil-project/vergil-tooling` once this merges. vergil-tooling's own ops
-  runs its `develop` code, so without that its nightly `audit` stays red
-  until Task D3.
 
 ### Task 6: `vrg-github-repo-config update`; `apply` deprecated
 
@@ -566,7 +545,7 @@ is human-attested: vergil-actions is released with A1b.
   - **0:** in sync, or a sync PR was opened with auto-merge confirmed;
   - **1:** drift that could not be fixed, with any PR still opened;
   - **2:** something could not be audited or converged.
-- Consumes: `audit_files`, `FIXERS`, `sync_pr`, `compute_desired_state` and
+- Consumes: `clone_develop`, `audit_local_config`, `FIXERS`, `open_sync_pr`, `compute_desired_state` and
   the identity functions (Tasks 1–5).
 
 - [ ] **Step 1: Write the failing tests.**
@@ -584,43 +563,16 @@ is human-attested: vergil-actions is released with A1b.
 - [ ] **Step 3: Implement** `_update_repo`:
   1. identity gate;
   2. GitHub-side convergence (shared with `apply`);
-  3. `fetch_tree(repo, "develop")`;
-  4. `audit_files`;
-  5. every fixer's output, gathered into one `MechanizedChange` (job
-     `repo-config-sync`), then `sync_pr`. Each `CannotFix` is collected,
+  3. `with clone_develop(repo) as clone:`;
+  4. every fixer in `FIXERS` on the clone. Each `CannotFix` is collected,
      and does not stop the other fixers;
-  6. the exit code: `audit_files(apply_fixes(tree, files))`. Any failure
-     left, or any `CannotFix`, is exit 1, even with a PR opened.
+  5. `open_sync_pr(repo, clone, job="repo-config-sync", …)`;
+  6. the exit code: `audit_local_config(clone)` on the fixed clone. Any
+     failure left, or any `CannotFix`, is exit 1, even with a PR opened.
 
   Update `config-audit.md`.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope repo-config`).
-
-### Task 7: Branch-sweep cleans finished automation branches
-
-**Files:** Modify `src/vergil_tooling/lib/branch_sweep.py`
-(`ruleset_rule_types`, `decide`). Test in
-`tests/vergil_tooling/test_branch_sweep.py`.
-
-- [ ] **Step 1: Write the failing tests.**
-  - `test_finished_automation_branch_is_deleted`: a merged or closed PR on
-    an `automation/` branch targeted only by the "Automation branches"
-    ruleset is deleted.
-  - `test_open_automation_pr_branch_kept`
-  - `test_other_ruleset_protected_branch_still_skipped`
-  - `test_automation_branch_with_protected_flag_is_deleted`: the fixture
-    sets `protected: true` from the branches API, with only the automation
-    ruleset covering the branch.
-- [ ] **Step 2: Run the tests and see them fail.**
-- [ ] **Step 3: Implement.** Map each rule returned by
-  `GET repos/<repo>/rules/branches/<b>` to its ruleset by `ruleset_id`, and
-  look up the ruleset's name. A branch is still exempt when any ruleset
-  targets it, except when the only ruleset targeting it is "Automation
-  branches". The exemption for every other ruleset, the rolling-tag branch
-  ruleset included, is unchanged. In `decide()`, GitHub's `protected` flag
-  does not exempt a branch that only the automation ruleset covers.
-- [ ] **Step 4: Run the tests and see them pass.**
-- [ ] **Step 5: Commit** (`vrg-commit --type fix --scope branch-sweep`).
 
 ### Task 8: `vrg-repo-status` shows automation PRs as `automation`
 
@@ -641,8 +593,8 @@ and `docs/site/docs/reference/cli-tools-overview.md`. Test in
 
 ### Task D3 (deployment): Release the tooling; the same-day sweep
 
-Kind `deployment`, filed in vergil-tooling and blocked by 6, 7 and 8. Its
-precondition is human-attested: vergil-tooling is released with Tasks 1–8.
+Kind `deployment`, filed in vergil-tooling and blocked by 6 and 8. Its
+precondition is human-attested: vergil-tooling is released with Tasks 1–6 and 8.
 
 - **Procedure:** the human runs `vrg-github-repo-config update --repo
   <repo>` for every managed repo in each org, the same day.

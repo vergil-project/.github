@@ -254,20 +254,26 @@ administration (§6.4).
 
 This is a library module in vergil-tooling for mechanized jobs. It does
 not use the agent PR workflow: no issue, no `vrg-pr-workflow` state, no
-relay ref, no `vrg-submit-pr`, no `vrg-finalize-pr`. It is called with
-the job's name, the target base (`develop`), the change (the files to
-write), and the PR title and body. It then:
+relay ref, no `vrg-submit-pr`, no `vrg-finalize-pr`. It works the way a
+person would, with ordinary git in a local checkout. It is called with the
+job's name, a fresh local clone of the base branch (`develop`) in which the
+job has already written its changes, and the PR title and body. It then:
 
-1. Computes the change against the current tip of the base.
-2. Closes any open PR the job left from an earlier run and deletes its
-   branch. A new run always replaces it, never builds on it.
-3. If there is no change, reports "in sync" and stops.
-4. If there is a change, creates a **new branch for this run** from the
-   current base tip, named with the automation prefix, the job name and a
-   unique run identifier (for example `automation/repo-config-sync/<run-id>`),
-   commits the change there, and opens the PR.
-5. Turns on GitHub auto-merge for the PR, using the repo's squash method.
-6. Returns. It does not wait for CI or for the merge.
+1. Deletes every branch under the job's own prefix in this repo, first
+   closing its PR if one is open. A new run always replaces what an earlier
+   run left, never builds on it.
+2. If the clone has no changes (`git status` is clean), reports "in sync"
+   and stops.
+3. Otherwise, creates a **new branch for this run** in the clone, named
+   with the automation prefix, the job name and a unique run identifier
+   (for example `automation/repo-config-sync/<run-id>`), commits the
+   changes, pushes the branch, and opens the PR.
+4. Turns on GitHub auto-merge for the PR, using the repo's squash method.
+5. Returns. It does not wait for CI or for the merge.
+
+Git records content and file mode the way it does for any commit. The push
+uses the run's own GitHub credentials: the automation App token in ops, and
+the human's own credentials in a local run.
 
 At most one PR is open per job per repo. Ops runs of a job never overlap
 (§6.4, concurrency). A local human run that happens to overlap an ops run is
@@ -289,10 +295,9 @@ Only they may create those branches or push to them (including
 force-push). Every other identity, including every agent App, is
 refused. The ruleset does **not** restrict deletion. Automation branches
 are ordinary temporary branches, not protected long-lived ones like
-`develop` and `main`: delete-on-merge removes them, and `vrg-branch-sweep`
-(already run nightly by ops) cleans up any that are left. Branch-sweep
-skips every branch a ruleset targets today, so it is changed so that this
-ruleset no longer exempts finished automation branches. So the content of an
+`develop` and `main`: delete-on-merge removes them, and each run of the
+job deletes every branch left under its own prefix (step 1). No other
+cleanup is needed, so `vrg-branch-sweep` is unchanged. The content of an
 automation PR is what the automation, or the human admin, pushed, and never
 an agent's. The admin role is included as a rule: an identity-restricting
 ruleset never locks out the admin, so the human can always repair things
@@ -343,18 +348,17 @@ to draw on.
   - the `vergil-*` workflow ref pins.
 
   The check and its applicator share one definition of "correct", so they
-  cannot disagree. "Correct" covers the git file mode as well as the bytes.
-  The file tree the checks read, and the change handed to the building block,
-  carry each file's mode. The hook-guard shim must be mode 100755: its check
-  treats any other mode as drift, and its applicator writes 100755, as the
+  cannot disagree. "Correct" covers the file's executable bit as well as
+  its bytes. The hook-guard shim must be executable: its check treats a
+  non-executable shim as drift, and its applicator sets mode 0755, as the
   retired `vrg-hook-guard-shim-sync` did.
-- **The checks evaluate the `develop` tip on GitHub, not the working tree.**
-  The fixable checks and the ones with no fixer both read the base the
-  PR targets. That makes `audit`, `update` and the PR agree, and lets
-  `update --repo X` sync a repo with no local checkout. The check and
-  applicator code works on a file tree fetched from GitHub. `audit` follows
-  the same rule, so a human's feature-branch edits never mask or invent
-  drift on `develop`.
+- **Checks and fixes run in a fresh clone of `develop`.** `audit` and
+  `update` clone the repo's `develop` (shallow) into a temporary directory,
+  and run every check there; `update`'s fixers write their files in that
+  same clone. So `audit`, `update` and the PR all see the branch the PR
+  targets. `update --repo X` works from anywhere, and a human's own
+  working checkout, with any feature-branch edits, is never read or
+  touched.
 - **Identity.** `update` refuses to run in the agent modes (`user`, `audit`)
   and says why. It runs for `human` and `automation`.
 - **`bypass_actors`.** The automation App holds Administration write on
@@ -372,9 +376,8 @@ to draw on.
   Administration write is confirmed before any code relies on it (§6.7, step 3).
   If it does not, the epic stops there for a human decision.
 - `update` runs the GitHub-side convergence as it does today. It then
-  collects every file fix for the repo into **one change** and hands it to
-  the building block (§6.2), giving one PR per repo however many files
-  drifted.
+  runs every fixer in the clone and hands the clone to the building block
+  (§6.2), giving one PR per repo however many files drifted.
 - Checks with no fixer still fail the run: a missing or invalid
   `vergil.toml`, a CLAUDE.md over the length limit, an AGENTS.md that
   shouldn't exist, missing required workflows. A file fix that cannot be
@@ -438,8 +441,9 @@ to draw on.
 A human running `update` locally gets the same behavior: the same one PR,
 with auto-merge on. Once it merges, the human runs `vrg-finalize-pr` on the
 merged PR to bring the local `develop` up to date; `vrg-finalize-pr` already
-handles a PR that has already been merged. The building block does not
-touch any local branch or worktree.
+handles a PR that has already been merged. `update` works in its own
+temporary clone (§6.3), so it never touches the human's working checkout,
+branches or worktrees.
 
 ### 6.6 Retirement
 
@@ -482,8 +486,10 @@ keeps each step inert until the next one switches it on:
    (or `apply`) across the fleet, which turns the setting on everywhere.
    Allowing auto-merge as a repo setting is harmless by itself, and agents
    cannot turn it on for a PR. A sweep with `update` may open the first sync
-   PRs early, under the human's identity; that is harmless. The red
-   window is limited to the hours between the release and the sweep.
+   PRs early, under the human's identity; that is harmless. The sweep is
+   needed because `vrg-release`'s preflight runs `audit` and would refuse
+   to release any repo until the setting is on. A red nightly run in the
+   meantime does not matter.
 5. **Ops switch.** vergil-actions releases the change that makes ops run
    `update` instead of `audit`, and that sets `VRG_AUTOMATION_APP` on the
    `github-config` job (§6.1). The variable ships in this release and no
