@@ -2,7 +2,7 @@
 
 - **Epic:** vergil-project/.github#1077
 - **Planning issue:** vergil-project/.github#1076 (review history is in its comments)
-- **Status:** draft, in design review
+- **Status:** approved
 
 > **For agentic workers:** each task below is one issue, one worktree and one
 > PR in the repo it names, driven by `epic-implement` / `issue-implement`
