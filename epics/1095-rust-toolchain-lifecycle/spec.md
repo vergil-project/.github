@@ -25,8 +25,10 @@ forward each time the containers rebuild, with no change in any consumer.
 - **Rust moves fast.** A new stable Rust release ships every six weeks, and
   the policy window is two series (newest and newest-1). A family that changes
   every six weeks must change through automation, or it falls behind: today
-  the manifest lists 1.93/1.92 while the window is 1.99/1.98, and the four
-  report issues vergil-containers#640–643 stay open.
+  the manifest lists 1.93/1.92 while endoflife.date's window is 1.99/1.98,
+  and the four report issues vergil-containers#640–643 stay open. Rust 1.100
+  shipped on 2026-11-09 (the release channel reports `1.100.0`); once
+  endoflife.date lists it, the window becomes 1.100/1.99.
 - **Toolchain selection belongs to Vergil** (epic #407 spec §6.5). A
   `rust-toolchain.toml` lets a repo choose its toolchain, so a CI leg can pass
   on a version it never ran. The Rust standards page still recommends the
@@ -166,10 +168,15 @@ a toolchain file into an error has no consumer to break.
 ### 6.1 Lifecycle PRs carry their toolchain pin (vergil-containers)
 
 - An **add** change resolves the new series' pin with the
-  `resolve_toolchains` resolver for that family and writes it to
-  `toolchains.yml` before `generate.render_all` runs, so the rendered files
-  carry the new series' build args. The PR's file list includes
-  `docker/pins/toolchains.yml`.
+  `resolve_toolchains` resolver for that family. The change's edited pins are
+  passed to the renderers in memory: `generate.render_all` and the
+  `CATALOG.md` renderer (`generate_catalog`) take the toolchain pins as a
+  value instead of reading `toolchains.yml` from disk, so the rendered files
+  carry the new series' build args. `render_change` never writes to the
+  shared checkout. Every file, including `docker/pins/toolchains.yml` and
+  `docker/pins/CATALOG.md`, is compared against the untouched base, so a
+  change's pin can neither drop out of its own PR nor leak into the next
+  change rendered in the same publish run.
 - A **drop** change removes the series' pin only when the edited manifest no
   longer needs it (`required_series` of the edited manifest). A pin that also
   serves the `core:` section, such as `node: "22"` for `core.node`, stays.
@@ -185,22 +192,31 @@ a toolchain file into an error has no consumer to break.
 - The mechanism lives in shared code and dispatches to the family's existing
   resolver; no family is special-cased in `apply.py`. It covers python, go,
   node (ts-node) and rust: every family that has a toolchain pin.
-- `CATALOG.md`, if it lists the pins, is regenerated in the same PR, so the
-  PR passes CI as opened.
+- `CATALOG.md` lists the pins (its "Toolchain pins" table, checked in PR CI
+  by `generate_catalog.py --check`), so it is regenerated in the same PR, and
+  the PR passes CI as opened.
+- Tests include one publish run with two adds and a drop, checking that each
+  PR carries exactly its own pin change.
 
 ### 6.2 Rust moves to `pr` and catches up through the automation
 
 - `manifest.yml`: `rust.automation: "report"` → `"pr"`. From then on the
-  lifecycle job opens add PRs for 1.99 and 1.98 and drop PRs for 1.93 and
-  1.92 in place of vergil-containers#640–643. The report issues close as the
-  job stops reporting them.
-- **Catch-up merge order:** adds first, then drops. Each PR is built against
-  the base it was opened on. After each merge, the next publish run rebuilds
-  the remaining branches against the new base before the next one merges.
-  `_drop` already refuses to leave a family empty. The order is a human step,
-  written into the deployment task.
-- If Rust 1.100 is released before the catch-up completes, the automation
-  targets the window it then sees (1.100/1.99); no special handling.
+  lifecycle job opens an add PR for each window series the manifest lacks
+  and a drop PR for each manifest series outside the window (likely adds for
+  1.100 and 1.99 and drops for 1.93 and 1.92), in place of
+  vergil-containers#640–643. The report issues close as the job stops
+  reporting them.
+- **Catch-up merge order,** by kind and never by version number: adds newest
+  first, then drops. Each PR is built against the base it was opened on.
+  After each merge, the next publish run rebuilds the remaining branches
+  against the new base before the next one merges. `_drop` already refuses
+  to leave a family empty. The order is a human step, written into the
+  deployment task, which reads the open lifecycle PRs rather than a version
+  list.
+- **Before the switch:** the 1.100 tests in every repo (§6.6), and the
+  vergil-tooling and vergil-actions releases that carry them, land before
+  `rust.automation` becomes `pr`, so the first three-digit series meets code
+  already proven against it.
 
 ### 6.3 The image owns Rust toolchain selection (vergil-containers)
 
@@ -214,7 +230,12 @@ a toolchain file into an error has no consumer to break.
   - `RUSTUP_TOOLCHAIN` equals the installed release;
   - in a scratch directory holding a `rust-toolchain.toml` that names a
     different release, `rustc --version` still reports the installed
-    release, and nothing is downloaded.
+    release;
+  - a request for a toolchain the image does not have (`RUSTUP_TOOLCHAIN`
+    set to another release, in a subshell) fails as not installed, and the
+    installed toolchains (`rustup toolchain list` and
+    `$RUSTUP_HOME/toolchains`) are unchanged afterwards. This is the check
+    that fails if the auto-install switch does nothing.
 - **Verification before building on it:** the first task confirms, against
   the rustup changelog and documentation for the `rustup-init` version
   pinned in `toolchains.yml`, the precedence of `RUSTUP_TOOLCHAIN` and the name
@@ -228,17 +249,34 @@ a toolchain file into an error has no consumer to break.
 
 A new `extensions/rust.py`, registered in `extensions/__init__.py`:
 
-- **`check_floor`** (`FLOOR_CHECKS["rust"]`): warns when `rust-version` in
-  `Cargo.toml` (`[package]`, or `[workspace.package]` for a workspace) is
-  below the window's oldest series. A floor above it is a deliberate
-  restriction and is allowed, as for Python and Go (epic #407 spec §6.4). An
-  unparseable `Cargo.toml` or `rust-version` is a `VersionsError`, never
-  ignored.
+- **`check_floor`** (`FLOOR_CHECKS["rust"]`): warns when the repo's
+  `rust-version` floor is below the window's oldest series. A floor above it
+  is a deliberate restriction and is allowed, as for Python and Go (epic #407
+  spec §6.4). The floor is read from the root `Cargo.toml` only, in this
+  order:
+  1. `[package].rust-version`, when it is a string;
+  2. `[workspace.package].rust-version`, when `[package].rust-version` is
+     `{ workspace = true }`, or when there is no `[package]`;
+  3. no floor (no warning) when neither declares one.
+
+  Workspace members are not checked. Both `x.y` and `x.y.z` are accepted and
+  compared on `x.y`, as Go's check accepts an optional patch. An unparseable
+  `Cargo.toml`, a `rust-version` of any other shape, or
+  `{ workspace = true }` with no `[workspace.package].rust-version` is a
+  `VersionsError`, never ignored. Tests cover the inherited-table layout and
+  a `1.85.0` floor.
 - **`check_toolchain`** (`TOOLCHAIN_CHECKS["rust"]`): errors when
   `rust-toolchain.toml` or the legacy `rust-toolchain` exists at the repo root,
   with the fix: delete the file. The message says Vergil selects the toolchain
   through the image.
 - **No `CONTAINER_ENVS` entry:** the image sets the toolchain (§6.3).
+- **The host cannot override the image's pin.** `lib/container.py`
+  `build_container_args` forwards every host variable matching the repo's
+  `[container].env-prefixes` as `-e NAME`, which beats the image's `ENV`; a
+  prefix such as `RUST` also matches rustup's variables. `RUSTUP_TOOLCHAIN`
+  and `RUSTUP_AUTO_INSTALL` are therefore never forwarded by that
+  passthrough, as `VRG_VERSION_WINDOW` already is not. A test with
+  `env-prefixes = ["RUST"]` and both variables set on the host covers it.
 
 ### 6.5 CI asserts the leg's Rust version (vergil-actions)
 
@@ -276,20 +314,21 @@ component's task.
 
 1. vergil-containers: §6.1, §6.3 and the 1.100 tests merge. The container
    changes publish through the normal image build.
-2. vergil-containers: §6.2's switch to `pr` merges. The catch-up PRs then
-   merge in order (adds, then drops).
-3. vergil-tooling and vergil-actions: §6.4 and §6.5 merge and ship in their
-   releases. Releases are human-gated.
-4. **Deployment** (operational task): with the releases attested, the fleet
+2. vergil-tooling and vergil-actions: §6.4, §6.5 and their 1.100 tests merge
+   and ship in their releases. Releases are human-gated.
+3. **Deployment** (operational task): with the releases attested, the fleet
    picks them up through its normal sync.
-5. **Validation** (operational task, blocked by #1022's fixture task and the
-   deployment):
+4. vergil-containers: §6.2's switch to `pr` merges. The catch-up PRs then
+   merge in order (adds newest first, then drops).
+5. **Validation** (operational task, blocked by #1022's fixture task, the
+   deployment and the catch-up):
    - `vergil-fixture-rust` passes CI on both window series;
    - adding a `rust-toolchain.toml` to a branch of the fixture fails
      `vrg-validate` with the toolchain error;
    - the assertion reports the leg's `x.y`;
    - a dev container (`vrg-container-run`) on the fixture reports the
-     installed release, with auto-install off.
+     installed release, and a request there for a toolchain the image does
+     not have fails as not installed, with nothing downloaded.
 
 ## 7. Failure model
 
