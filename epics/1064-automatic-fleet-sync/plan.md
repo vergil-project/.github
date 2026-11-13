@@ -138,7 +138,9 @@ Advisory hand-off: each advisory is retargeted to the task that fixes it.
 - Modify: `.github/workflows/ops-github-config.yml`, `ops-epic-sweep.yml`,
   `ops-epic-rollup.yml`, `ops-upstream-refresh.yml`, `cd.yml`,
   `cd-release.yml`
-- Modify: `docs/site/docs/configuration.md`
+- Modify: `docs/site/docs/configuration.md`,
+  `docs/site/docs/workflows/ops-github-config.md` (each job's scoped token,
+  the concurrency groups, and `gh auth setup-git`)
 
 **Interfaces:**
 
@@ -250,7 +252,8 @@ is human-attested: vergil-actions is released with A1b.
   `bypass_actors entries: 1`, `VRG_AUTOMATION_APP set: yes`, and
   `login: <slug>[bot]` for the org's automation App.
 - **On failure:** the result is recorded and the epic stops for a human
-  decision (spec §6.3). Tasks 5 onward stay blocked.
+  decision (spec §6.3). Task 1, Task 5 and everything after them wait. Tasks
+  2, 3a, 3b, 4 and 8 do not depend on the premise and may proceed.
 
 ### Task 1: The `automation` identity mode
 
@@ -387,8 +390,10 @@ is human-attested: vergil-actions is released with A1b.
     reports it, and `fix_claude_md` raises `CannotFix`.
   - `test_claude_settings_written_equal_to_template`
   - `test_in_sync_root_changes_nothing`: every fixer returns `False`.
-  - `test_check_and_fixer_agree`: for each fixture directory, the check
-    reports drift if and only if the fixer changes something or raises.
+  - `test_check_and_fixer_agree`: parametrised over every entry in `FIXERS`,
+    so Task 3b's fixers are covered too. For each fixture directory, the check
+    reports drift if and only if the fixer changes something or raises. Task
+    3b adds fixtures for its checks.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement**, porting each retired applicator's write logic.
   The shim check also requires the executable bit.
@@ -445,7 +450,8 @@ is human-attested: vergil-actions is released with A1b.
     `automation/<job>/<run-id>`. `run_id` is `$GITHUB_RUN_ID` when set,
     otherwise a UTC `%Y%m%dT%H%M%SZ` stamp plus 6 hex characters.
   - `class MechanizedPRError(RuntimeError)`.
-- Consumes: `lib.git` (status, checkout, commit, push), and `github.delete_if_exists`
+- Consumes: `lib.git` (status, checkout, commit, push, run with `-C <clone>`;
+  authentication is git's credential helper, Task 2), and `github.delete_if_exists`
   (a branch already gone counts as deleted), and
   `github.create_pr`, `graphql`, `read_json` and `delete`. `create_pr` gains a
   `repo: str` argument that is passed as `--repo`, and every PR list and
@@ -572,7 +578,7 @@ is human-attested: vergil-actions is released with A1b.
   - `test_update_unreadable_github_setting_opens_nothing`
   - `test_update_in_sync_exits_0_no_pr`
   - `test_apply_unchanged_and_prints_deprecation`: stderr names `update`;
-    the behaviour is identical to `apply` after Task 2, apart from the
+    the behaviour is identical to `apply` after Tasks 2 and 5, apart from the
     notice.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement** `_update_repo`:
@@ -624,7 +630,9 @@ precondition is human-attested: vergil-tooling is released with Tasks 1–6 and 
 ### Task A2: Ops switch: `github-config` runs `update` as automation
 
 **Files:** Modify `.github/workflows/ops-github-config.yml` (the
-`github-config` job).
+`github-config` job), and `docs/site/docs/workflows/ops-github-config.md`
+(the job runs `update` as the automation identity with a write-scoped
+token, only from `develop`; the probe job is gone).
 
 - [ ] **Step 1:** Scope the token to Administration write, Contents write,
   Pull requests write, Workflows write and Metadata read.

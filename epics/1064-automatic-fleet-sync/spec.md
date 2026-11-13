@@ -184,9 +184,13 @@ administration (§6.4).
 ### 6.1 The `automation` identity mode
 
 - Add an `automation` mode to `lib/identity_mode.py`.
-- It is **detected from the credential**, not declared. A process whose
-  GitHub credential is an installation token of the org automation App
-  resolves to `automation`.
+- It is **detected from the credential**. A process whose GitHub
+  credential is an installation token of the org automation App resolves
+  to `automation`. The mode is a convenience that tells the code how to
+  behave, not a control. A process that sets a mode by hand without the
+  App's credentials still holds only its own token, so its GitHub
+  operations fail or stay within that token's rights. The credentials are
+  the backstop.
 - The agents are GitHub Apps too. So the check must establish *which*
   App minted the token (the automation App, as configured for the org), not
   merely that the token belongs to some App. A token from the agent Apps
@@ -213,9 +217,9 @@ administration (§6.4).
   transient errors before it fails.
 - **Fail loudly** when the variable is set but the lookup that
   identifies the App fails, or identifies a different App. The resolver never guesses. An explicit
-  mode signal (the environment variable or the mode file) that contradicts
-  a credential identified as the automation App is an error too; neither
-  side wins.
+  agent identity signal (the environment variable or the mode file naming
+  an agent mode) alongside a credential identified as the automation App is
+  an error too.
 - **Which App is the automation App** is configuration, not code. Each org
   has exactly one automation App, and its name is set once, as an
   **org-level Actions variable**, when the org's jobs are set up, next to
@@ -224,9 +228,9 @@ administration (§6.4).
   pass it to their jobs. A local human run reads it through the API (org
   admin). Only an org admin can change it. The tooling turns the name into
   the App's numeric ID at run time through GitHub's public App lookup by
-  name. Both the identity check and the automation-prefix ruleset's bypass
-  actor (§6.2) use that ID. A missing variable, or a lookup that fails, fails
-  the run. This is the first ruleset bypass actor that differs per org:
+  name. The automation-prefix ruleset's bypass actor (§6.2) uses that ID.
+  The identity check compares the token's login with `<slug>[bot]`. A
+  missing variable, or a lookup that fails, fails the run. This is the first ruleset bypass actor that differs per org:
   today's bypass actors (the admin role, the GitHub Actions App) have the
   same ID everywhere.
 - How the check works (for example, asking GitHub which App the
@@ -241,13 +245,15 @@ administration (§6.4).
 - **Rights in the tooling's own checks.** Some `vrg-*` tools check the mode
   themselves ("refuse unless human", "refuse if agent"). These are separate
   from GitHub's permissions: GitHub grants permissions per App and per
-  token (§6.4), and the tooling cannot widen or narrow them. The tooling's
-  checks admit `automation` for exactly the operations the `github-config`
-  job performs through `update` (§3), and to nothing else. Because no other
-  job sets the variable, no existing job changes mode in this epic. Every
-  identity check that `update`'s code path passes through states explicitly
-  what it does with `automation`; a check on that path that is silent about
-  `automation` is a defect.
+  token (§6.4), and the tooling cannot widen or narrow them. Every identity
+  check that `update`'s code path passes through states explicitly what it
+  does with `automation`; a check on that path that is silent about
+  `automation` is a defect. Other checks are left as they are. Many are
+  written as "refuse if agent" and so would admit `automation`. That is
+  accepted: they are soft gates, the token's GitHub permissions bound what
+  any identity can do, and the automation identity's rights are meant to
+  grow toward the human's. Because no other job sets the variable, no
+  existing job changes mode in this epic.
 - The `human` fall-through stays as it is (§4 non-goals).
 
 ### 6.2 The mechanized-PR building block
@@ -329,10 +335,14 @@ to draw on.
   converges only the GitHub side, and still reports file drift without
   fixing it. Its new identity check (below) is `update`'s alone, and it
   prints a deprecation notice pointing at `update`. Removing `apply` is a
-  later change once nothing calls it; this epic only deprecates it. The one
-  thing `apply` picks up is the shared desired-state change (§6.4,
-  auto-merge), because that is a change to the desired state, not to the
-  command.
+  later change once nothing calls it; this epic only deprecates it.
+  Because `apply` and `update` share their code paths, `apply` also picks
+  up three things, all changes to shared state, not to the command:
+  - the auto-merge setting (§6.4);
+  - the automation-prefix ruleset (§6.2), with the App-ID lookup through
+    the org variable that its bypass actor needs (§6.1);
+  - reading managed files from a fresh clone of `develop` (below), not from
+    the cwd.
 - Because a new command carries the new behavior, releasing the tooling
   opens no PRs and syncs no files. The fleet switches only when ops is
   changed to call `update` (§6.4, §6.7). The one fleet-visible change is the
@@ -426,6 +436,9 @@ to draw on.
   `vrg-gh` and the plugin hooks block it, so the agent boundary holds.
 - **Ops runs `update`.** `ops-github-config.yml`'s `github-config` job runs
   `vrg-github-repo-config update`, with a token scoped by the rule above.
+  The `github-config` job runs only from `develop`: it checks out
+  `ref: develop` and fails when dispatched from any other ref. Its config
+  and its code therefore always come from merged, CI-gated content.
 - **Concurrency.** Each job in `ops-github-config.yml` gets its own
   per-repo `concurrency:` group (for example `<repo>/github-config`), which
   queues rather than cancels. A job never overlaps itself, whether started
