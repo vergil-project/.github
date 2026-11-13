@@ -147,10 +147,12 @@ pin is set by the image, one layer below where Python's is.
 There is no active Rust consumer. `mq-rest-admin-project/mq-rest-admin-rust`
 is decommissioned and out of scope: it runs old 2.1 releases and is not
 expected to be revived, so this epic neither changes it nor waits on it. The
-first Rust consumer is `vergil-fixture-rust`, which arrives with
-vergil-project/.github#1022 and is built to current standards (no toolchain
-file). So no fleet sweep is needed, and the vergil-tooling release that turns
-a toolchain file into an error has no consumer to break.
+first Rust consumers are the fixtures `vergil-fixture-rust-lib` and
+`vergil-fixture-rust-app`, which arrive with epic vergil-project/.github#1091
+(planned on vergil-project/.github#1022) and are built to current
+standards (no toolchain file). So no fleet sweep is needed, and the
+vergil-tooling release that turns a toolchain file into an error has no
+consumer to break.
 
 ## 5. Approaches considered
 
@@ -335,13 +337,14 @@ component's task.
    page's automation text (§6.7). The catch-up PRs then merge in order (adds
    newest first, then drops), and the policy page's out-of-policy section is
    rewritten to match.
-5. **Validation** (operational task, blocked by #1022's fixture task, the
+5. **Validation** (operational task, blocked by epic #1091's Rust fixtures, the
    deployment and the catch-up):
-   - `vergil-fixture-rust` passes CI on both window series;
-   - adding a `rust-toolchain.toml` to a branch of the fixture fails
+   - each Rust fixture (`vergil-fixture-rust-lib`, `vergil-fixture-rust-app`)
+     passes CI on both window series;
+   - adding a `rust-toolchain.toml` to a branch of a fixture fails
      `vrg-validate` with the toolchain error;
    - the assertion reports the leg's `x.y`;
-   - a dev container (`vrg-container-run`) on the fixture reports the
+   - a dev container (`vrg-container-run`) on each fixture reports the
      installed release, and a request there for a toolchain the image does
      not have fails as not installed, with nothing downloaded.
 
@@ -372,8 +375,9 @@ component's task.
 - Epic vergil-project/.github#649: the toolchain pins this builds on.
 - vergil-project/.github#978: the pin half is delivered here; the `core:`
   half moved to vergil-project/.github#1094.
-- vergil-project/.github#1022: the fixture repos; `vergil-fixture-rust` is
-  the validation target.
+- Epic vergil-project/.github#1091 (planned on vergil-project/.github#1022):
+  the fixture repos; `vergil-fixture-rust-lib` and `vergil-fixture-rust-app`
+  are the validation targets.
 - vergil-project/.github#1087: Epic B.
 
 ## 10. Left to the builder
