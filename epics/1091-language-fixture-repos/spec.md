@@ -51,9 +51,10 @@ behind that wave is a 2027 rewrite of Vergil in Rust, using Vergil to do it.
 2. Each fixture is a managed fleet repo, created with `vrg-github-repo-init`,
    with real code, real dependencies, 100% coverage and a docs site, and with
    every piece of fleet automation enabled.
-3. A repeatable **fixture run**: a pair of tasks that takes one fixture
-   through the full cycle (an ordinary change task, then a validation task
-   that checks the result), filed by a documented `fixture-run` recipe.
+3. A repeatable **fixture run**: a trio of tasks that takes one fixture
+   through the full cycle (an ordinary change task, a release task for the
+   human's release, then a validation task that checks the result), filed
+   by a documented `fixture-run` recipe.
 4. A rule in the epic workflow guidance that an epic touching language
    support, containers, CI or release tooling seeds a fixture run for each
    fixture it affects.
@@ -212,7 +213,11 @@ Requirements for all four:
   report-only Dependabot with its nightly audit; `ops.yml`; the automated
   config-sync PRs that merge themselves once CI passes; the epic rollup; and
   the dependency update that `vrg-release` runs. A fixture has no upstream
-  refresh, which needs a repo-specific hook it has no use for.
+  refresh, which needs a repo-specific hook it has no use for. The fixture
+  repos are created after #1064's rollout has switched ops to its
+  config-update mode, so they are born under the automated sync. If #1064
+  slips, the fixtures may still be created, with the ops check in §6.3 a
+  known gap until it lands.
 - **An ad-hoc epic**, so fixture-run changes and anything a run finds can be
   filed as ordinary tasks in the fixture repo.
 
@@ -223,21 +228,27 @@ functions, or a CLI with subcommands, suits this well.
 ### 6.3 The fixture run
 
 A fixture run is one pass through the full cycle on one fixture. It is a
-**pair of tasks**, both linked under the epic that needs the run, so each
-half runs under the skill already built for it. Nothing new is built into
-the operational-task model.
+**trio of tasks**, all linked under the epic that needs the run, in the
+epic workflow's usual change → deploy → validate shape. Each task runs under
+the skill already built for its kind. Nothing new is built into the
+operational-task model.
 
 - **(a) The change task:** an ordinary task in the fixture repo, implemented
-  with `issue-implement` exactly like a task on any real repo.
-- **(b) The validation task:** a `--kind validation` task, blocked by (a),
-  run with `issue-validate` after the human's release. It only checks and
-  records, keeping `issue-validate`'s rule of no worktree, no commits and no
-  PR.
+  with `issue-implement` exactly like a task on any real repo. It closes when
+  its PR is finalized.
+- **(r) The release task:** a `--kind deployment` task, blocked by (a), run
+  with `issue-deploy`. Its precondition is the human's `vrg-release` of the
+  fixture, attested by the human and never performed by the agent (the
+  deployment autonomy boundary). It closes once that release exists and
+  contains (a)'s merge.
+- **(b) The validation task:** a `--kind validation` task, blocked by (r),
+  run with `issue-validate`. It only checks and records, keeping
+  `issue-validate`'s rule of no worktree, no commits and no PR.
 
 A new `fixture-run` skill in vergil-claude-plugin is the recipe for a run. It
-files the pair, with the bodies below and the `Blocked-by:` link between
+files the trio, with the bodies below and the `Blocked-by:` links between
 them, when an epic's plan calls for a run, and it says which skill runs each
-half. It does not run either half itself.
+task. It does not run any of them itself.
 
 **(a) The change task:**
 
@@ -246,8 +257,11 @@ half. It does not run either half itself.
    (for example, something left open or red from earlier), the agent stops
    and works with the human to get it there, and anything broken outside the
    fixture is filed, with the human's approval, in the repo that owns it.
-   This epic deliberately does not define "ready" as a checklist. The
-   conditions are expected to emerge from the first runs, and the
+   This epic deliberately does not define "ready" as a checklist, with one
+   exception: **runs on one fixture are serialized.** A run's change task
+   starts only when no other run's release or validation task on the same
+   fixture is open, so each run gets its own release and its own evidence.
+   The other conditions are expected to emerge from the first runs, and the
    `fixture-run` recipe records them as they are learned.
 2. **Change.** One small, real change through the normal worktree flow: a new
    function or subcommand with its tests, kept at 100% coverage. It is
@@ -261,11 +275,17 @@ half. It does not run either half itself.
    update has a guaranteed upgrade to make. A pinned manifest would make
    leaving it alone the correct behaviour, and the check would prove
    nothing. The earlier version must pass the vulnerability audit, so the
-   rollback never turns the PR red for the wrong reason.
+   rollback never turns the PR red for the wrong reason. The rollback is
+   skipped on a language whose dependency update is a known gap (below),
+   since nothing would restore it and the lockfile would only drift
+   backwards. Today that is Rust. The #410 change that delivers a Cargo
+   updater turns the rollback on for Rust.
 3. **Submit and merge.** The human runs `vrg-submit-pr`, then
    `vrg-finalize-pr` once CI is green, which closes the change task.
-4. **Release.** The human runs `vrg-release` on the fixture. The task body
-   gives the exact command.
+
+**(r) The release task.** The human runs `vrg-release` on the fixture; the
+task body gives the exact command. `issue-deploy` confirms the release
+exists and contains (a)'s merge, records its version, and closes the task.
 
 **(b) The validation task.**
 
@@ -274,8 +294,8 @@ half. It does not run either half itself.
 - the fixture repo exists and the session can clone it;
 - `develop` and `main` exist;
 - `vergil.toml` has the expected `repository-type` and language;
-- the change task's PR is merged, and a fixture release newer than that
-  merge exists;
+- the release task (r) is closed, and the release it recorded contains the
+  change task's merge;
 - the change under validation is in what the fixture will actually consume.
   The fixtures consume only released Vergil: their workflows call
   vergil-actions at the rolling series tag, `setup/vergil` installs the
@@ -293,6 +313,8 @@ names):
 
 - every required CI gate passed on the change PR and on `main`, and the
   library fixtures' matrix ran every version in the window;
+- the fixture's latest scheduled ops run is green, and any config-sync PR
+  since the previous run merged on its own;
 - the release produced the `vX.Y.Z` tag, the GitHub Release with its
   evidence bundle, the back-merge and bump on `develop`, and the moved
   `vX.Y` tag;
@@ -303,15 +325,19 @@ names):
   up to the newest version its declared range allows, through its usual
   PR, with the versions before and after recorded;
 - the docs site was published;
-- no artifact was published anywhere outside the fixture repo.
+- nothing was published to a package registry: no crates.io, PyPI, apt/dnf
+  index or container-registry upload. The release's provenance attestation
+  and the fixture's own Pages site are not artifacts in this sense; every
+  real repo produces them too.
 
 **Known gaps.** A check that fails because of a gap already recorded on
 vergil-project/.github#410 is reported as a known gap: it is recorded with
 its evidence on #410, and it does not count against this epic's goal 5.
 Today that covers two checks on the Rust fixtures: the dependency-update
-check, because `vrg-update-deps` has no Cargo updater, and the
-evidence-bundle check, because the bundles name only Python's tools (§6.4). Once #410 delivers one, the same
-check is its proof, and a failure is an ordinary failure again.
+check, because `vrg-update-deps` has no Cargo updater (so the Rust run also
+skips the rollback), and the evidence-bundle check, because the bundles
+name only Python's tools (§6.4). Once #410 closes a gap, the same check is
+its proof, and a failure is an ordinary failure again.
 
 *Record.* The results template gets `Outcome: SUCCESS` only if every
 precondition passed and every check passed or is a known gap (below), with
@@ -354,7 +380,7 @@ judged when it is found, with the human:
 The epic workflow documentation (the `epic-create` skill and the convention
 it cites) gains a rule. When an epic changes language support, container
 images, shared CI workflows or release tooling, its plan seeds a fixture run
-(the §6.3 pair) for each fixture whose language or shape the change affects.
+(the §6.3 trio) for each fixture whose language or shape the change affects.
 The run's change task is blocked by the deployment or release task that
 ships the change to the fixtures (a vergil-tooling release, a vergil-actions
 tag, a container image publish), never only by the code task that merges it:
@@ -369,8 +395,9 @@ other validation.
 A new language gets fixtures by adding `vergil-fixture-<lang>-lib` and
 `vergil-fixture-<lang>-app` repos to the same pattern, with no change to the
 skill other than its list of fixtures. Turning on publishing (#1090),
-packaging, integration tests or agent rights (#1088) later adds steps to the
-run and checks to §6.3 step 5. It does not change the repos' purpose or
+packaging, integration tests or agent rights (#1088) later adds steps to
+§6.3's change task (a) or release task (r), and checks to the validation
+task's (b) *Checks*. It does not change the repos' purpose or
 names.
 
 ## 7. Constraints
@@ -400,6 +427,6 @@ names.
 - The exact `vrg-github-repo-init` flag values, derived from vergil-tooling's
   own `vergil.toml` and the tool's choices.
 - The shape of the `fixture-run` recipe skill, how it reads the list of
-  fixtures, and how it fills the pair's task bodies.
+  fixtures, and how it fills the trio's task bodies.
 - The wording and placement of the epic-guidance rule in §6.5.
 - How each run's code change is chosen, within §6.3 step 2.
