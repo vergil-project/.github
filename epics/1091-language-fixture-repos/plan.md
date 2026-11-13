@@ -63,7 +63,7 @@ Markdown), the fixture repos (Python with uv; Rust with Cargo), cargo-deny.
 | 7 | vergil-claude-plugin | task | `fixture-run` recipe skill and the `epic-create` seeding rule | 3b |
 | 8 | vergil-claude-plugin | deployment | Release the plugin and update the agent boxes | 7 |
 | 9a–9d | each fixture repo | run trio | One fixture run per fixture, filed with `fixture-run` | 6x, 8 |
-| — | vergil-tooling | bookend (#4317) | Documentation review | 9a–9d |
+| — | vergil-tooling | bookend (#4317) | Documentation review, including the seeding rule in `standards/github-issues.md` | 9a–9d |
 | — | .github | bookend (#1093) | Retrospective | all |
 
 **Filing.** At epic-create's filing step, Tasks 2, 3, 3b, 4, 5, 7 and 8 are
@@ -100,7 +100,8 @@ The documentation task, vergil-project/.github#1092: this PR publishes
 - [ ] **Step 2: Run `vrg-container-run -- vrg-validate`.** Expected: the changed tests fail.
 - [ ] **Step 3: Write `target/` (one line) to `data/gitignore/rust`,** and update the `gitignore.py:143` docstring so it no longer names rust as empty.
 - [ ] **Step 4: Run `vrg-container-run -- vrg-validate`.** Expected: pass.
-- [ ] **Step 5: Commit** with `vrg-commit --type fix --scope gitignore --message "ignore target/ in rust repos"`, then hand off with report-ready.
+- [ ] **Step 5: Refactor.** Tidy the frozen-set comment entry and the `gitignore.py:143` docstring so they read as one deliberate change, then re-run `vrg-container-run -- vrg-validate`. Expected: pass.
+- [ ] **Step 6: Commit** with `vrg-commit --type fix --scope gitignore --message "ignore target/ in rust repos"`, then hand off with report-ready.
 
 ---
 
@@ -130,7 +131,8 @@ The documentation task, vergil-project/.github#1092: this PR publishes
 
   Point the rust `AUDIT` entry at it, and add the package-data glob. SPDX expressions such as `MIT OR Apache-2.0` pass because both terms are allowed (Review Focus 2).
 - [ ] **Step 5: Run `vrg-container-run -- vrg-validate`.** Expected: pass.
-- [ ] **Step 6: Commit** with `vrg-commit --type feat --scope languages --message "packaged cargo-deny policy for rust"`, then hand off with report-ready.
+- [ ] **Step 6: Refactor.** Bring `_RUST_LICENSES_ALLOWLIST` into line with the existing allowlist block's comments and ordering. It stays a `list[str]`, unlike the other lists' joined strings, because it feeds a TOML array, and a comment says so. Re-run `vrg-container-run -- vrg-validate`. Expected: pass.
+- [ ] **Step 7: Commit** with `vrg-commit --type feat --scope languages --message "packaged cargo-deny policy for rust"`, then hand off with report-ready.
 
 ---
 
@@ -159,7 +161,7 @@ the recipe, so under spec §6.4 it is fixed here.
   - `## Human-run steps` fills the deployment scaffold's "Human-run steps (need a human identity)" section, which is removed when the file has none. The tool keeps the frame (the self-check rule, the results template and the `Blocked-by:` lines). Without `--body-file`, today's behaviour is unchanged.
 
 - [ ] **Step 1: Write the failing tests.**
-  - `test_operational_body_file_fills_slots`: for each kind, the rendered body contains each section's text, and no `\<…\>` placeholder remains anywhere in it. For deployment, check both with and without `## Human-run steps`; without it, the scaffold's human-run section is gone. A `## Human-run steps` section on a validation kind is refused.
+  - `test_operational_body_file_fills_slots`: for each kind, the rendered body contains each section's text, and none of the placeholders Task 3b replaces remains: preconditions, commands or deploy steps, acceptance, and the human-run step. The frame's run-time placeholders (`<which>` in the blocked line, and `Evidence:` in the results template) stay, since the run skill fills them when it records a result. For deployment, check both with and without `## Human-run steps`; without it, the scaffold's human-run section is gone. A `## Human-run steps` section on a validation kind is refused.
   - `test_operational_body_file_keeps_frame`: the results template and the `Blocked-by:` lines are present.
   - `test_operational_body_file_rejects_missing_or_extra_section`: a file missing `## Preconditions`, or carrying an unknown `## Other`, exits non-zero with a message naming the section.
   - `test_operational_without_body_file_unchanged`: today's scaffold output, unchanged.
@@ -171,7 +173,8 @@ the recipe, so under spec §6.4 it is fixed here.
   - Make `_render_scaffold_body(*, kind: str, intro: str, deps: list[epics.IssueRef], sections: dict[str, str] | None = None) -> str` fill them.
   - Refuse the file loudly on a missing or unknown section.
 - [ ] **Step 4: Run `vrg-container-run -- vrg-validate`.** Expected: pass.
-- [ ] **Step 5: Commit** with `vrg-commit --type feat --scope issue-create --message "operational task bodies from a sectioned file"`, then hand off with report-ready.
+- [ ] **Step 5: Refactor.** Define the section-name-to-slot mapping once and use it for both parsing and rendering. Re-run `vrg-container-run -- vrg-validate`. Expected: pass.
+- [ ] **Step 6: Commit** with `vrg-commit --type feat --scope issue-create --message "operational task bodies from a sectioned file"`, then hand off with report-ready.
 
 ---
 
@@ -236,7 +239,7 @@ Then, for each repo:
   information only: under the agent identity it exits 2 by design, because
   the admin-scoped settings cannot be read, and that exit code is never the
   verdict;
-- `ops.yml`, `ci.yml`, `cd.yml` and `epic-rollup.yml` exist;
+- `ops.yml`, `ci.yml`, `cd.yml` and `epic-rollup.yml` exist, and `.github/dependabot.yml` exists and is report-only;
 - the ad-hoc epic exists.
 
 It records each repo's first `ops.yml` run, which may be red until Task 6
@@ -274,7 +277,8 @@ every required CI gate passes on the PR.
 - [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`. Expected: the tests fail.
 - [ ] **Step 3:** Implement the program, the docs pages and the README.
 - [ ] **Step 4:** Run `vrg-container-run -- vrg-validate`. Expected: pass, with 100% coverage.
-- [ ] **Step 5:** Commit with `vrg-commit --type feat --scope fixture`, and hand off with report-ready.
+- [ ] **Step 5:** Refactor: check that the layout takes one more function or subcommand, with its tests, without restructuring (spec §6.2), and adjust it if not. Re-run `vrg-container-run -- vrg-validate`. Expected: pass.
+- [ ] **Step 6:** Commit with `vrg-commit --type feat --scope fixture --message "<the fixture's program>"`, and hand off with report-ready.
 
 **Gaps found here** (Review Focus 5): a gap not in spec §6.4's table that
 stops `vrg-validate` or CI is stopped on and judged with the human. If it is
@@ -305,7 +309,7 @@ around a gap by lowering a gate.
 - **The four fixtures,** and their language and shape, as the skill's one list (spec §6.6).
 - **The trio** (spec §6.3) with exact body templates:
   - **(a) Change task:**
-    - "Ready to start", with its one defined rule: no other run's release or validation task on this fixture is open;
+    - "Ready to start", with its one defined rule: no other run's release or validation task on this fixture is open. Anything broken outside the fixture is filed, with the human's approval, in the repo that owns it;
     - the change, kept at 100% coverage;
     - the dependency rollback in the lockfile only, to an audit-clean version with the range left open, skipped on Rust until a Cargo updater exists;
     - the human's submit and finalize.
@@ -314,7 +318,7 @@ around a gap by lowering a gate.
     - the preconditions, including the deployed-version probe for `--validates`;
     - every check in spec §6.3 (b), in order;
     - the known-gaps rule and today's two known gaps on Rust;
-    - SUCCESS/FAILURE recording.
+    - SUCCESS/FAILURE recording. Each failure is filed in the repo that owns the broken behaviour, never in the fixture. A fix that belongs in the fixture itself is a separate, ordinary task in the fixture's ad-hoc epic.
 - **A tag that exists before its release workflow has finished** means blocked, not FAILURE (Review Focus 4).
 - **A learned-conditions section** for "Ready to start", empty at first, where each run records a new condition it found.
 - **The recipe files tasks only.** It never runs them, and the task-creation approval comes from the epic plan that seeded the run.
@@ -324,7 +328,13 @@ epic changes language support, container images, shared CI workflows or
 release tooling, its plan seeds a fixture run, with `fixture-run`, for each
 fixture whose language or shape the change affects. The run's change task is
 blocked by the deployment or release task that ships the change (passed as
-`--after`), never only by the code task.
+`--after`), never only by the code task. A change that affects every
+language seeds all four.
+
+The same rule goes into vergil-tooling's
+`docs/site/docs/standards/github-issues.md`, the living conventions page,
+through the documentation-review bookend (vergil-tooling#4317), which lands
+in that repo. Convention #40 is a closed epic's spec and is not rewritten.
 
 - [ ] **Step 1:** Write `skills/fixture-run/SKILL.md`, the `epic-create` rule and the index entry.
 - [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`, which includes the plugin's SKILL.md frontmatter check in `validate-custom`. Expected: pass.

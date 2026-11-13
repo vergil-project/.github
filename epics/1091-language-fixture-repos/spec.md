@@ -230,8 +230,9 @@ functions, or a CLI with subcommands, suits this well.
 A fixture run is one pass through the full cycle on one fixture. It is a
 **trio of tasks**, all linked under the epic that needs the run, in the
 epic workflow's usual change → deploy → validate shape. Each task runs under
-the skill already built for its kind. Nothing new is built into the
-operational-task model.
+the skill already built for its kind. The operational-task model (its
+kinds, labels and run skills) is unchanged. Only its creation path gains
+one thing: a body file can fill the scaffold's sections (§6.4).
 
 - **(a) The change task:** an ordinary task in the fixture repo, implemented
   with `issue-implement` exactly like a task on any real repo. It closes when
@@ -365,20 +366,26 @@ each, not a hope that it is found:
 | The Rust `.gitignore` fragment is empty, so `target/` is ignored nowhere | blocks | A task in vergil-tooling fills in the fragment. |
 | CI evidence bundles name only Python's tools and reports | only weaker | Not fixed here. The bundle-contents check (§6.3) reports it as a known gap on the Rust fixtures, recorded on #410. |
 | `vrg-update-deps` has no Cargo updater | only weaker | Not fixed here. A known gap (§6.3), recorded on #410. |
+| `vrg-issue-create` refuses a body file for validation and deployment tasks and fills only their intro, so their preconditions, procedure and acceptance stay placeholders (not Rust-specific) | blocks | A task in vergil-tooling lets those kinds take the sections from a body file, so the `fixture-run` recipe can file real release and validation bodies through the sanctioned creation path. |
 
 **Gaps found later.** A gap found while building or running a fixture is
 judged when it is found, with the human:
 
 - if it is small, or it blocks a fixture from being created, validated or
   released, it is fixed in this epic as a task in the repo that owns it,
-  linked under the epic, and the plan's delivery table is updated;
+  linked under the epic, and recorded as a dated entry in the plan's
+  `## Evolution during execution` (the delivery table stays frozen once
+  execution starts);
 - otherwise it is recorded clearly on #410 (or, for a gap outside Rust
   parity, filed in intake) and left for that work.
 
 ### 6.5 Epic workflow guidance
 
-The epic workflow documentation (the `epic-create` skill and the convention
-it cites) gains a rule. When an epic changes language support, container
+The epic workflow documentation gains a rule, in two places: the
+`epic-create` skill, and the living issue-conventions page
+(vergil-tooling `docs/site/docs/standards/github-issues.md`). Convention #40,
+which the skill cites, is a closed epic's published spec and is not
+rewritten. When an epic changes language support, container
 images, shared CI workflows or release tooling, its plan seeds a fixture run
 (the §6.3 trio) for each fixture whose language or shape the change affects.
 The run's change task is blocked by the deployment or release task that
