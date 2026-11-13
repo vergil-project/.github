@@ -77,12 +77,14 @@ yet filed.
 ### Task 2a: Renderers take the toolchain pins as a value (vergil-containers)
 
 **Files:**
+
 - Modify: `docker/versions/generate.py` (`render_all`, `main`; `load_pins` stays)
 - Modify: `docker/pins/generate_catalog.py` (`render`, `main`)
 - Modify: `docker/versions/frozen.py` (`make_repo`'s two `render_all` calls pass the frozen `PINS`)
 - Test: `docker/versions/test_generate.py`, `docker/pins/test_toolchains.py` (the catalog's toolchain-table tests)
 
 **Interfaces:**
+
 - Produces: `generate.render_all(m: mf.Manifest, root: Path, pins: rt.Toolchains) -> dict[Path, str]` — renders from `pins`, never reads `toolchains.yml`.
 - Produces: `generate_catalog.render(root: Path, toolchains: rt.Toolchains) -> str` — `root` is the `docker/` dir as today; the toolchain table comes from `toolchains`.
 - Both `main`s load the pins from disk (`generate.load_pins(root)`, `rt.load_toolchains(...)`) and pass them in, so the CLI output is byte-for-byte unchanged.
@@ -96,6 +98,7 @@ yet filed.
 ### Task 2b: Lifecycle add and drop PRs write and remove their pins (vergil-containers)
 
 **Files:**
+
 - Modify: `docker/versions/lifecycle/apply.py` (`render_change`; new `edit_pins`)
 - Modify: `docker/versions/lifecycle/publish.py` (a `fetch` keyword through `sync_prs` and `_publish_change`; `main` passes `rt.fetch_url`)
 - Modify: `docker/versions/frozen.py` (`make_repo` also copies `docker/pins/pins.yml` and `docker/common/*.dockerfile`, and writes `docker/pins/CATALOG.md` rendered with `generate_catalog.render(dest / "docker", PINS)`, so `render_change` has every catalog input in the frozen tree)
@@ -103,6 +106,7 @@ yet filed.
 - Test: `docker/versions/test_apply.py`, `docker/versions/test_publish.py`, `docker/pins/test_toolchains.py`
 
 **Interfaces:**
+
 - Consumes: Task 2a's `render_all(m, root, pins)` and `generate_catalog.render(root, toolchains)`; `rt.required_series`, `rt.required_tools`, `rt.RESOLVERS`, `rt.TOOL_RESOLVERS`, `rt.consistency_errors`, `rt.dump_toolchains`, `rt.load_toolchains`.
 - Produces: `apply.edit_pins(after: Manifest, base: rt.Toolchains, fetch: rt.Fetch) -> rt.Toolchains` — the base pins, where every series in `required_series(after)` that `base` does not pin is resolved through `RESOLVERS[key]([series], fetch)`, every series `base` pins that `required_series(after)` no longer lists is removed, and each tool in `required_tools(after)` that `base` lacks is resolved through `TOOL_RESOLVERS`. Nothing else re-resolved. A `ResolutionError` or a non-empty `consistency_errors(after, result)` raises `ApplyError` naming the manifest family (`rt.KINDS[key].family`, so `ts-node`, never the toolchain key `node`) and the series.
 - Produces: `apply.render_change(m, change, target, root, *, fetch: rt.Fetch) -> dict[Path, str]`, with `fetch` required (no default), so a test that forgets a fake fails with a `TypeError` and never reaches the network. It computes `edit_pins(after, generate.load_pins(root), fetch)`, renders from it, and adds `docker/pins/toolchains.yml` and `docker/pins/CATALOG.md` when their content differs from the files in `root`. Writes nothing to `root`.
@@ -130,12 +134,14 @@ yet filed.
 ### Task 3: The Rust image pins rustup to its own release (vergil-containers)
 
 **Files:**
+
 - Modify: `docker/rust/Dockerfile.template` (after `ENV RUST_VERSION=${TOOLCHAIN_VERSION}`)
 - Modify: `docker/rust/checks.sh`
 - Modify: the Rust image docs under `docs/site/docs/images/` (or the toolchain-pin page) to describe the image-level pin
 - Test: the generated Rust Dockerfiles via `generate.py --check`, and `checks.sh` at image build
 
 **Interfaces:**
+
 - Produces: in every Rust image, `RUSTUP_TOOLCHAIN` equals `RUST_VERSION` (the exact installed release) and rustup's auto-install is off.
 
 - [ ] **Step 1: Verify the switch.** Read the rustup changelog and docs for the `rustup-init` version pinned in `docker/pins/toolchains.yml` (1.29.3 at planning time). Confirm: (a) `RUSTUP_TOOLCHAIN` outranks directory overrides and `rust-toolchain.toml`; (b) the name and value that turn auto-install off (`RUSTUP_AUTO_INSTALL=0` expected). Record both URLs in the PR body. If (b) differs, use the documented mechanism and correct spec §6.3 in a separate `.github` PR.
@@ -152,12 +158,14 @@ yet filed.
 ### Task 4: Rust floor and toolchain-file checks, and the Rust standards page (vergil-tooling)
 
 **Files:**
+
 - Create: `src/vergil_tooling/lib/versions/extensions/rust.py`
 - Modify: `src/vergil_tooling/lib/versions/extensions/__init__.py` (register `rust` in `FLOOR_CHECKS` and `TOOLCHAIN_CHECKS`; not in `CONTAINER_ENVS`)
 - Modify: `docs/site/docs/standards/development/rust/overview.md`
 - Test: `tests/vergil_tooling/test_versions_rust_ext.py` (new), `tests/vergil_tooling/test_versions_floors.py` (`test_registries`)
 
 **Interfaces:**
+
 - Produces: `rust.check_floor(repo_root: Path, oldest: str, _newest: str) -> list[str]`, the `FloorCheck` type, following spec §6.4's lookup order. Warning text: `Cargo.toml rust-version floor <x.y> is below the oldest supported version <oldest>. Fix: raise it to <oldest>`.
 - Produces: `rust.check_toolchain(repo_root: Path) -> list[str]`, the `ToolchainCheck` type. One error per present file among `rust-toolchain.toml` and `rust-toolchain`: `<file> selects the Rust toolchain, which belongs to Vergil (the Vergil Rust image pins it). Fix: delete <file>`.
 
@@ -176,10 +184,12 @@ yet filed.
 ### Task 5: rustup variables never forwarded into a container (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/container.py` (`build_container_args`, the env-prefixes passthrough)
 - Test: `tests/vergil_tooling/test_container.py`
 
 **Interfaces:**
+
 - Produces: a module constant `NEVER_FORWARDED: frozenset[str] = frozenset({"VRG_VERSION_WINDOW", "RUSTUP_TOOLCHAIN", "RUSTUP_AUTO_INSTALL"})`, written with literal names so `container.py` keeps importing `versions.window` lazily, replacing the `name != WINDOW_ENV` test in the passthrough. `env_names` and `extra_env` are unaffected.
 
 - [ ] **Step 1: Write the failing tests.** `test_never_forwarded_names_the_window_env`: `"VRG_VERSION_WINDOW" in NEVER_FORWARDED` and it equals `versions.window.WINDOW_ENV`. `test_env_prefixes_never_forward_rustup_selection`: with `env_prefixes=["RUST"]` and host `RUST_LOG`, `RUSTUP_TOOLCHAIN`, `RUSTUP_AUTO_INSTALL` set, the args contain `-e RUST_LOG` and neither rustup name. Keep the existing `VRG_VERSION_WINDOW` test passing.
@@ -191,6 +201,7 @@ yet filed.
 ### Task 6: Rust allowed actions drop `actions-rust-lang/*` (vergil-tooling)
 
 **Files:**
+
 - Modify: `src/vergil_tooling/lib/github_config.py` (`_LANGUAGE_ACTION_PATTERNS["rust"]`)
 - Test: `tests/vergil_tooling/test_github_config_lib.py` (`test_desired_actions_permissions_with_language_patterns`)
 
@@ -203,11 +214,13 @@ yet filed.
 ### Task 7: Rust branch of the toolchain assertion (vergil-actions)
 
 **Files:**
+
 - Modify: `actions/ci/toolchain/assert/assert.sh` (new `rust)` case; header comment; the notice for other languages)
 - Modify: `docs/site/docs/actions/ci-toolchain-assert.md`
 - Test: `actions/ci/toolchain/assert/tests/assert.test.sh`
 
 **Interfaces:**
+
 - Produces: for `LANGUAGE=rust`, `assert.sh` runs `rustc --version` in the working directory, takes the `x.y` with `x_y`, and compares it with `EXPECTED`. A failed `rustc` call is `::error::assert-toolchain: cannot ask rustc for its version: <output>`. No workflow file changes.
 
 - [ ] **Step 1: Write the failing cases** in `assert.test.sh`, faking `rustc` the way `go` is faked: `rustc 1.99.1 (abc 2026-10-01)` vs `1.99` passes; vs `1.98` fails with `CI resolved 1.98 but the job runs 1.99`; `rustc 1.100.0 (...)` vs `1.100` passes; `rustc 1.100.0` vs `1.10` fails; `rustc` exiting 1 fails with the "cannot ask rustc" error; unparseable output fails.
@@ -232,6 +245,7 @@ Blocked by 2b, 3, 4, 5, 6, 7.
 Blocked by 8.
 
 **Files:**
+
 - Modify: `docker/versions/manifest.yml` (`rust.automation`)
 - Modify: `docs/site/docs/languages/rust.md` (the "Automation" section, and the "Adapter quirks" line on `rust-toolchain.toml`)
 - Test: none new. How a `pr` family classifies is tested in Task 2b; this task is proven by `test_generate.test_real_manifest_is_valid` (the repo's one live-manifest check) passing with the generated files regenerated.
@@ -256,6 +270,7 @@ Blocked by 9.
 Blocked by 10.
 
 **Files:**
+
 - Modify: `docs/site/docs/languages/rust.md` ("Current out-of-policy versions")
 
 - [ ] **Step 1:** Replace the dated 1.93/1.92 text and the "manifest is behind" paragraph with the current state: under `pr` automation, versions outside the window are dropped through lifecycle PRs, so there is no out-of-policy version; the open lifecycle PRs show any pending change.
