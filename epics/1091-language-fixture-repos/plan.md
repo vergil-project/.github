@@ -41,11 +41,11 @@ Markdown), the fixture repos (Python with uv; Rust with Cargo), cargo-deny.
 
 ## Review Focus
 
-1. **A consumer repo with its own `deny.toml`.** The packaged policy is passed with `--config`, so a repo's own file is ignored. Expect the audit to use the fleet policy, not to fail or to merge the two. Pinned in Task 3's tests.
+1. **A consumer repo with its own `deny.toml`.** The packaged policy is passed with `--config`, so a repo's own file is ignored. Expect the audit to use the fleet policy, not to fail or to merge the two. This is cargo-deny's own behaviour, so it is evidenced in Task 3 Step 1 from cargo-deny's `--config` documentation, not by a unit test.
 2. **A crate whose license is an SPDX expression** (`MIT OR Apache-2.0`, `Apache-2.0 WITH LLVM-exception`, `Unicode-3.0` for `unicode-ident`). These appear in almost every Rust dependency graph. Expect them to pass. Pinned in Task 3's policy test.
 3. **An existing `.gitignore` on a Rust repo when the fragment changes.** `vrg-gitignore-sync` must add `target/` to the managed block without touching the repo's own lines. Pinned in Task 2's tests.
 4. **The human's release lands before a proof run's preconditions can see it** (the tag exists but the release workflow is still running). Expect `issue-validate` to report blocked, not FAILURE. Written into Task 8's validation body.
-5. **A first Rust fixture CI run hitting a parity gap not in spec §6.4's table.** Expect the gap to be judged with the human (fix it here if small or blocking, otherwise record it on #410), with a new task added to the delivery table. Written into Task 6.
+5. **A first Rust fixture CI run hitting a parity gap not in spec §6.4's table.** Expect the gap to be judged with the human (fix it here if small or blocking, otherwise record it on #410), with any new task recorded in `## Evolution during execution`. Written into Task 6.
 
 ---
 
@@ -56,18 +56,26 @@ Markdown), the fixture repos (Python with uv; Rust with Cargo), cargo-deny.
 | 1 | .github | task (#1092) | Spec and plan (this PR) | — |
 | 2 | vergil-tooling | task | Rust `.gitignore` fragment | — |
 | 3 | vergil-tooling | task | Packaged Rust license policy (`deny.toml`) | — |
-| 4 | vergil-tooling | deployment | Release vergil-tooling with Tasks 2–3 | 2, 3 |
-| 5 | .github | deployment | Human creates the four fixture repos | 4, #1064 rollout |
+| 3b | vergil-tooling | task | Operational task bodies from a file (`vrg-issue-create`) | — |
+| 4 | vergil-tooling | deployment | Release vergil-tooling with Tasks 2, 3 and 3b | 2, 3, 3b |
+| 5 | .github | deployment | Human creates the four fixture repos | 4 |
 | 6a–6d | each fixture repo | task | The fixture's program, tests, docs and README | 5 |
-| 7 | vergil-claude-plugin | task | `fixture-run` recipe skill and the `epic-create` seeding rule | — |
+| 7 | vergil-claude-plugin | task | `fixture-run` recipe skill and the `epic-create` seeding rule | 3b |
 | 8 | vergil-claude-plugin | deployment | Release the plugin and update the agent boxes | 7 |
 | 9a–9d | each fixture repo | run trio | One fixture run per fixture, filed with `fixture-run` | 6x, 8 |
 | — | vergil-tooling | bookend (#4317) | Documentation review | 9a–9d |
 | — | .github | bookend (#1093) | Retrospective | all |
 
+**Filing.** At epic-create's filing step, Tasks 2, 3, 3b, 4, 5, 7 and 8 are
+filed. Tasks 6a–6d live in repos that do not exist yet: Task 5 files them
+once it has created those repos. Tasks 9a–9d are filed by `fixture-run` once
+Task 8 is closed. `Tasks filed: yes` covers what can be filed at planning
+time.
+
 A blocking gap found during Task 6 or Task 9 becomes a new lettered task in
-the repo that owns it (for example `6e` in vergil-tooling), added to this
-table with its blockers (spec §6.4).
+the repo that owns it (for example `6e` in vergil-tooling), recorded with
+its blockers as a dated entry in `## Evolution during execution` (spec
+§6.4). The table itself is frozen once the first task ships.
 
 ---
 
@@ -83,12 +91,12 @@ The documentation task, vergil-project/.github#1092: this PR publishes
 **Files:**
 - Modify: `src/vergil_tooling/data/gitignore/rust` (empty today)
 - Modify: `src/vergil_tooling/lib/gitignore.py:143` (the docstring naming rust as known-but-empty)
-- Test: `tests/vergil_tooling/test_gitignore.py:242` and `:313-314`
+- Test: `tests/vergil_tooling/test_gitignore.py:242` and `:313-314`, and the frozen `_LEGACY_GITIGNORE_PATTERNS` set at `:41` with its comment block. The guards `test_split_is_lossless_against_baseline` (~`:111`) and `test_managed_vocabulary_equals_baseline_set` (~`:284`) assert that base plus fragments equals that set.
 
 **Interfaces:**
 - Produces: `gitignore.load_fragment("rust") == ["target/"]`; the managed block for a rust repo includes `target/`.
 
-- [ ] **Step 1: Change the tests.** `test_gitignore.py:242` becomes `assert gitignore.load_fragment("rust") == ["target/"]`. The render test at `:313` asserts `"target/" in block` for `render_block("rust")`. Pick another known language with an empty fragment for the base-only case, or drop that case if none is left. Add `test_sync_rust_adds_target_keeps_repo_lines`: a repo `.gitignore` with a user line `scratch/` outside the managed block, synced for rust, keeps `scratch/` and gains `target/` inside the block (Review Focus 3).
+- [ ] **Step 1: Change the tests.** Add `"target/"` to `_LEGACY_GITIGNORE_PATTERNS`, with a comment-block entry naming epic vergil-project/.github#1091 as the source of the deliberate addition. `test_gitignore.py:242` becomes `assert gitignore.load_fragment("rust") == ["target/"]`. The render test at `:313` asserts `"target/" in block` for `render_block("rust")`. Pick another known language with an empty fragment for the base-only case, or drop that case if none is left. Add `test_sync_rust_adds_target_keeps_repo_lines`: a repo `.gitignore` with a user line `scratch/` outside the managed block, synced for rust, keeps `scratch/` and gains `target/` inside the block (Review Focus 3).
 - [ ] **Step 2: Run `vrg-container-run -- vrg-validate`.** Expected: the changed tests fail.
 - [ ] **Step 3: Write `target/` (one line) to `data/gitignore/rust`,** and update the `gitignore.py:143` docstring so it no longer names rust as empty.
 - [ ] **Step 4: Run `vrg-container-run -- vrg-validate`.** Expected: pass.
@@ -109,11 +117,10 @@ The documentation task, vergil-project/.github#1092: this PR publishes
 - Consumes: the `{configs}` placeholder that `languages.py:881` already resolves to the packaged `vergil_tooling.configs` directory.
 - Produces: rust `AUDIT` = `[["cargo", "deny", "check", "--config", "{configs}/rust/deny.toml"]]`, and `_RUST_LICENSES_ALLOWLIST`, the reviewed list beside the other languages' lists.
 
-- [ ] **Step 1: Confirm cargo-deny's behaviour with no config** from its documentation, for the version the rust image pins. Record in the PR notes whether a missing `deny.toml` rejects every license, and give the source. Either way this task proceeds: the spec puts the policy in the fleet, not in a fixture.
+- [ ] **Step 1: Confirm cargo-deny's behaviour with no config** from its documentation, for the cargo-deny version in the current `prod-rust` image (`cargo deny --version` in the container; the image installs it unpinned). Record in the PR notes that version, whether a missing `deny.toml` rejects every license, and whether `--config` makes cargo-deny ignore a repo's own `deny.toml` (Review Focus 1), with a source for each. Either way this task proceeds: the spec puts the policy in the fleet, not in a fixture.
 - [ ] **Step 2: Write the failing tests.**
   - `test_rust_audit_commands` asserts the argv above.
   - `test_rust_deny_toml_allowlist_matches_constant` parses the packaged `deny.toml` with `tomllib` and asserts `licenses.allow == _RUST_LICENSES_ALLOWLIST`.
-  - `test_rust_audit_ignores_repo_deny_toml` asserts the resolved argv always carries `--config` with the packaged path, whatever is in the repo (Review Focus 1).
 - [ ] **Step 3: Run `vrg-container-run -- vrg-validate`.** Expected: the new tests fail.
 - [ ] **Step 4: Add `_RUST_LICENSES_ALLOWLIST`** in `languages.py` beside the Go list, as a `list[str]` of SPDX IDs: `Apache-2.0`, `Apache-2.0 WITH LLVM-exception`, `BSD-2-Clause`, `BSD-3-Clause`, `BSL-1.0`, `ISC`, `MIT`, `MPL-2.0`, `Unicode-3.0`, `Zlib`. Give it a comment naming this epic. Write `configs/rust/deny.toml` (cargo-deny's version 2 schema):
   - `[licenses]`: `allow` equal to that list, `confidence-threshold = 0.93`;
@@ -127,12 +134,45 @@ The documentation task, vergil-project/.github#1092: this PR publishes
 
 ---
 
+### Task 3b: Operational task bodies from a file (vergil-tooling)
+
+Today `vrg-issue-create` refuses `--body-file` with `--kind validation` or
+`--kind deployment` (`src/vergil_tooling/bin/vrg_issue_create.py:96-98`). It
+fills only the scaffold's `{intro}`, so the Preconditions, Procedure and
+Acceptance sections stay placeholders (`data/validation_task_body.md:16`,
+`data/deployment_task_body.md:17`). The `fixture-run` recipe needs real
+content in them, through the sanctioned creation path.
+
+**Files:**
+- Modify: `src/vergil_tooling/bin/vrg_issue_create.py` (the `--body-file` refusal at `:96-98`, and `_render_scaffold_body` at `:237`)
+- Modify: `src/vergil_tooling/data/validation_task_body.md`, `src/vergil_tooling/data/deployment_task_body.md` (named slots in place of the placeholder lines)
+- Test: `tests/vergil_tooling/test_vrg_issue_create.py`
+
+**Interfaces:**
+- Produces: `vrg-issue-create --kind validation|deployment --body-file <file>`, where `<file>` is Markdown with exactly the level-2 sections `## Intro`, `## Preconditions`, `## Procedure` and `## Acceptance`. Each section's content fills the matching scaffold slot. The tool keeps the frame (the self-check rule, the results template and the `Blocked-by:` lines). Without `--body-file`, today's behaviour is unchanged.
+
+- [ ] **Step 1: Write the failing tests.**
+  - `test_operational_body_file_fills_slots`: for each kind, the rendered body contains each section's text, and no `<precondition` placeholder remains.
+  - `test_operational_body_file_keeps_frame`: the results template and the `Blocked-by:` lines are present.
+  - `test_operational_body_file_rejects_missing_or_extra_section`: a file missing `## Preconditions`, or carrying an unknown `## Other`, exits non-zero with a message naming the section.
+  - `test_operational_without_body_file_unchanged`: today's scaffold output, unchanged.
+- [ ] **Step 2: Run `vrg-container-run -- vrg-validate`.** Expected: the new tests fail.
+- [ ] **Step 3: Implement it.**
+  - Replace the refusal with parsing the four sections.
+  - Give both templates `{preconditions}`, `{procedure}` and `{acceptance}` slots, defaulting to today's placeholder text.
+  - Make `_render_scaffold_body(*, kind: str, intro: str, deps: list[epics.IssueRef], sections: dict[str, str] | None = None) -> str` fill them.
+  - Refuse the file loudly on a missing or unknown section.
+- [ ] **Step 4: Run `vrg-container-run -- vrg-validate`.** Expected: pass.
+- [ ] **Step 5: Commit** with `vrg-commit --type feat --scope issue-create --message "operational task bodies from a sectioned file"`, then hand off with report-ready.
+
+---
+
 ### Task 4: Release vergil-tooling (deployment)
 
 **Precondition (human-attested):** the human has run `vrg-release` on
-vergil-tooling, and the release contains Tasks 2 and 3.
+vergil-tooling, and the release contains Tasks 2, 3 and 3b.
 
-`issue-deploy` confirms the release tag exists, that both PRs are in it, and
+`issue-deploy` confirms the release tag exists, that all three PRs are in it, and
 that the rolling `v2.1` series tag points at it, then records the version.
 The agent never cuts the release.
 
@@ -187,6 +227,11 @@ Then, for each repo:
 It records each repo's first `ops.yml` run, which may be red until Task 6
 lands code.
 
+**Then it files Tasks 6a–6d**, one in each new repo, with
+`vrg-issue-create --epic vergil-project/.github#1091 --repo vergil-project/<fixture> --blocked-by <this task's ref>`,
+using Task 6's text as the body, and records their refs in this task's
+result. This plan is the approval for filing them.
+
 ---
 
 ### Task 6a–6d: Each fixture's program (one task per fixture repo)
@@ -218,8 +263,9 @@ every required CI gate passes on the PR.
 
 **Gaps found here** (Review Focus 5): a gap not in spec §6.4's table that
 stops `vrg-validate` or CI is stopped on and judged with the human. If it is
-small or blocking, it becomes a new task in the repo that owns it, added to
-the delivery table and blocking this one. Otherwise it is recorded on #410
+small or blocking, it becomes a new task in the repo that owns it, blocking
+this one, and is recorded as a dated entry in `## Evolution during
+execution`. Otherwise it is recorded on #410
 (or filed in intake if it is outside Rust parity). A fixture never works
 around a gap by lowering a gate.
 
@@ -230,11 +276,15 @@ around a gap by lowering a gate.
 **Files:**
 - Create: `skills/fixture-run/SKILL.md`
 - Modify: `skills/epic-create/SKILL.md` (the "Operational tasks" section)
-- Modify: `docs/site/docs/skills/index.md` (list the new skill)
+- Modify: `docs/site/docs/skills/index.md` and `README.md` (the skills table): list the new skill
 
 **Interfaces:**
-- Consumes: `vrg-issue-create --epic <ref> --repo <ref> [--kind deployment|validation] --title … --body-file … --blocked-by <ref>`; `issue-implement`, `issue-deploy`, `issue-validate`.
-- Produces: the skill `vergil:fixture-run`, invoked as `fixture-run <epic-ref> <fixture>[,<fixture>…] --validates <what>`, where `<what>` names the released change under validation (for example `vergil-tooling v2.1.N`). It files one trio per fixture and prints the refs.
+- Consumes: `vrg-issue-create --epic <ref> --repo <ref> [--kind deployment|validation] --title … --body-file … --blocked-by <ref>`, where an operational kind's body file uses Task 3b's four sections; `issue-implement`, `issue-deploy`, `issue-validate`.
+- Produces: the skill `vergil:fixture-run`, invoked as `fixture-run <epic-ref> <fixture>[,<fixture>…] --validates <what> --after <owner/repo#N> [--after …]`.
+  - `<what>` names the released change under validation, for example `vergil-tooling v2.1.N`.
+  - `--after` is required and repeatable. Each ref is the release or deployment task that ships that change, and is stamped as the change task's `--blocked-by`.
+  - The recipe refuses to file a run without `--after`.
+  - It files one trio per fixture and prints the refs.
 
 **`SKILL.md` must state:**
 - **The four fixtures,** and their language and shape, as the skill's one list (spec §6.6).
@@ -258,8 +308,8 @@ around a gap by lowering a gate.
 epic changes language support, container images, shared CI workflows or
 release tooling, its plan seeds a fixture run, with `fixture-run`, for each
 fixture whose language or shape the change affects. The run's change task is
-blocked by the deployment or release task that ships the change, never only
-by the code task.
+blocked by the deployment or release task that ships the change (passed as
+`--after`), never only by the code task.
 
 - [ ] **Step 1:** Write `skills/fixture-run/SKILL.md`, the `epic-create` rule and the index entry.
 - [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`, which includes the plugin's SKILL.md frontmatter check in `validate-custom`. Expected: pass.
@@ -280,13 +330,14 @@ vergil-claude-plugin containing Task 7, and updated the host and VMs
 ### Task 9a–9d: One proof run per fixture
 
 Once Tasks 6x and 8 are closed, run
-`fixture-run vergil-project/.github#1091 <fixture> --validates "vergil-tooling <Task 4 version>"`
+`fixture-run vergil-project/.github#1091 <fixture> --validates "vergil-tooling <Task 4 version>" --after <Task 4 ref> --after <Task 8 ref>`
 for each of the four fixtures. Each run files a trio:
 - the change task, in the fixture repo;
 - the release task, in the fixture repo;
 - the validation task, in the fixture repo.
 
-All three are linked under #1091. Add their refs to the delivery table. Run
+All three are linked under #1091. Record their refs as a dated entry in
+`## Evolution during execution`. Run
 them one at a time per fixture, with their own skills.
 
 Goal 5 is met when all four validation tasks record `Outcome: SUCCESS`.
