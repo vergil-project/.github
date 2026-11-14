@@ -405,3 +405,46 @@ Rust fixtures, are the evidence bundle and the dependency update.
   | §7 placement | the delivery table |
 
 - **Releases gate the fixtures** (spec §6.5): Task 4 gates Task 5, and Task 8 gates Task 9.
+
+## Evolution during execution
+
+### 2026-11-13: Task 3's audit argv and the license-policy follow-up
+
+**What changed:**
+
+- **Task 3's rust audit argv is corrected** to
+  `cargo deny --config {configs}/rust/deny.toml check`
+  (vergil-project/.github#1112). This was a direct edit to the Task 3
+  text, made before the plan froze.
+- **A task is added:** vergil-project/vergil-tooling#4354, a follow-up to
+  Task 3, drops `unused-allowed-license = "allow"` from the packaged
+  `deny.toml`. It does not block Task 4's release, and ships in a later
+  vergil-tooling release.
+
+**Why:**
+
+- **The argv.** cargo-deny 0.20 takes `--config` on the root command
+  (EmbarkStudios/cargo-deny#881) and rejects the old order.
+- **#4354.** vergil-tooling#4347, Task 3's PR, added the setting beyond
+  the plan. The human ruled it out.
+
+### 2026-11-14: the Pages step of `vrg-github-repo-init`, and Task 5's precondition
+
+**What changed:**
+
+- **A task is added:** vergil-project/vergil-tooling#4371.
+  `vrg-github-repo-init` step 10 (GitHub Pages) reports failure after a
+  successful create, and cannot resume. It does not block Task 5.
+- **Task 5's precondition is met.** The human attested that epic
+  vergil-project/.github#1064's rollout has been deployed.
+- **One related follow-up went to intake, not into this epic:** pinning
+  cargo-deny in the `prod-rust` image (vergil-project/vergil-containers#865).
+
+**Why:**
+
+- **#4371.** Task 5 found the bug, and it reproduced on the two Python
+  fixtures. The human finished each repo by hand: the homepage set with
+  `gh repo edit`, then `vrg-github-repo-config update` reporting
+  compliant. So Task 5 goes on without the fix.
+- **The precondition.** The fixtures are created after the rollout, so
+  they are born under the automated sync, as spec §6.2 intends.
