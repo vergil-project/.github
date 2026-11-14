@@ -441,6 +441,14 @@ to draw on.
   The `github-config` job runs only from `develop`: it checks out
   `ref: develop` and fails when dispatched from any other ref. Its config
   and its code therefore always come from merged, CI-gated content.
+- **Develop-only rule.** This holds for every job this epic gives write
+  rights through the automation App: the `github-config` job, and the
+  temporary `bypass-probe` job while it existed. Each one fails before it
+  mints a token unless `github.ref` is `refs/heads/develop`, and checks out
+  `ref: develop`. It is a failing step, never a job-level `if:`, so a run
+  from another ref is visible and is never skipped silently. The App's
+  credentials also move into a `develop`-only GitHub environment
+  (vergil-project/vergil-actions#1185), added during execution.
 - **Concurrency.** Each job in `ops-github-config.yml` gets its own
   per-repo `concurrency:` group (for example `<repo>/github-config`), which
   queues rather than cancels. A job never overlaps itself, whether started
