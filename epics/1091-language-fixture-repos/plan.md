@@ -448,3 +448,151 @@ Rust fixtures, are the evidence bundle and the dependency update.
   compliant. So Task 5 goes on without the fix.
 - **The precondition.** The fixtures are created after the rollout, so
   they are born under the automated sync, as spec §6.2 intends.
+
+### 2026-11-14: workflow registration in `vrg-github-repo-init`, found in Task 5
+
+**What changed:**
+
+- **A task is added:** vergil-project/vergil-tooling#4376.
+  `vrg-github-repo-init` now checks that every workflow file is
+  registered, and works around the GitHub bug when one is not.
+- **A task is added:** vergil-project/.github#1129. At the end of the
+  epic, before the retrospective, the human reports the bug upstream, and
+  the agent files the deferred item to remove #4376's workaround once
+  GitHub fixes it.
+
+**Why:**
+
+- **#4376.** In Task 5, GitHub registered only 1 of the 4 workflow files
+  in vergil-fixture-python-lib after its first push. Switching the default
+  branch away and back registered the rest. The human fixed that repo by
+  hand, so Task 5 went on without waiting for the fix.
+- **#1129.** The workaround is technical debt that only an upstream fix
+  can retire. Tracking it as a deferred item tied to that fix is the
+  model for tracking workarounds for other projects' bugs.
+
+### 2026-11-14: the vergil-actions `github-config` break, found in Task 5
+
+**What changed:**
+
+- **A task is added:** vergil-project/vergil-actions#1192 fixes the
+  `github-config` job of `ops.yml`, which vergil-actions v2.1.71 broke.
+- **A deployment task is added:** vergil-project/vergil-actions#1193,
+  blocked by #1192, releases the fix and confirms a green config-update
+  run on all four fixtures. It recorded `Outcome: SUCCESS` on v2.1.72.
+
+**Why:**
+
+- **#1192.** v2.1.71 set `VRG_AUTOMATION_APP` for every step of the job,
+  so `vrg-whoami` ran without a `GH_TOKEN` and the job failed in every
+  repo, the fixtures included.
+- **#1193.** No fixture had yet had a green `github-config` run in
+  config-update mode, which spec §6.2 intends. The human ruled that this
+  must happen before the epic closes.
+
+### 2026-11-14: Rust gaps found in Task 6, fixed under this epic
+
+**What changed:**
+
+- **Tasks are added in vergil-tooling,** fixed here rather than recorded
+  on vergil-project/.github#410:
+  - vergil-project/vergil-tooling#4378: the Rust test gate also runs
+    doctests;
+  - vergil-project/vergil-tooling#4379: the Rust lint gate runs clippy on
+    all targets, tests included;
+  - vergil-project/vergil-tooling#4381: one CodeQL language definition,
+    including rust;
+  - vergil-project/vergil-tooling#4384: `vrg-validate` works on a Rust
+    repo that has no crate yet.
+- **Tasks are added in the Rust fixtures:**
+  vergil-project/vergil-fixture-rust-lib#3 and
+  vergil-project/vergil-fixture-rust-app#3 enable CodeQL in each
+  fixture's `ci.yml` by removing `run-codeql: false`.
+- **Tasks 6c and 6d's delivery changed.** Each fixture's #3 branch was
+  rebuilt on its program branch, and one PR, #4 in each fixture, delivered
+  both #3 and the program task #1. The original program PRs (#2) were
+  closed unmerged.
+
+**Why:**
+
+- **#4378 and #4379.** The rust-lib run found that doctests never ran and
+  that clippy skipped `tests/`. The human ruled to fix both here.
+- **#4381.** The two CodeQL language lists in vergil-tooling disagreed on
+  rust. The CI-gates ruleset required the CodeQL checks, but
+  `vrg-github-repo-init` turned CodeQL off in a Rust repo's `ci.yml`, so
+  the checks never reported and every Rust PR stayed blocked with all its
+  checks green.
+- **#4384.** `vrg-validate` failed its install stage on a Rust repo with
+  no crate yet, so a fixture's develop branch could not be validated
+  before its program landed.
+- **The rebuilt PRs.** The CodeQL fix could not land on its own, because
+  develop had no crate, and the program PRs could not merge without it.
+  The human first ruled to fold the fix into each program branch, but
+  `vrg-pr-workflow unfreeze` refuses a submitted PR, so the agreed
+  fallback applied.
+
+### 2026-11-14: process fixes from the no-nits rulings
+
+**What changed:**
+
+- **Tasks are added in vergil-claude-plugin:**
+  - vergil-project/vergil-claude-plugin#1065: merge review stores the
+    reviewer's reply without the agent retyping it, and the full reply
+    survives handoff in a durable place;
+  - vergil-project/vergil-claude-plugin#1067: validation fails when a
+    hook script is not executable;
+  - vergil-project/vergil-claude-plugin#1069: the merge-review skill's
+    `fix_status` sentence is corrected.
+- **Tasks are added in vergil-actions:**
+  vergil-project/vergil-actions#1195, #1201 and #1202 make every
+  `*.test.sh` executable, check that in validation, and run every test
+  suite in CI, with a check that none is left out.
+
+**Why:** the human ruled that review findings are fixed, not accepted as
+nits. The #4376 run stored a shortened reviewer reply (#1065), and the
+review of #1065 found the `fix_status` wording (#1069). The test script
+of #1192 had mode 644 (#1195), which led to the fleet-wide check
+(#1201), and four test suites were never run (#1202). #1067 applies the
+same executable-script rule to the plugin's hooks.
+
+### 2026-11-14: a new deployment task before Task 9
+
+**What changed:** a deployment task is added:
+vergil-project/vergil-tooling#4389, "Release vergil-tooling with the
+fixture-gap fixes". Task 9's proof runs validate against this release in
+place of Task 4's.
+
+**Why:** the vergil-tooling fixes above land after Task 4's release, so
+the proof runs need a release that contains them.
+
+### 2026-11-14: items moved to intake, and one planning issue
+
+**What changed:**
+
+- **Moved out of the epic into intake:**
+  vergil-project/vergil-actions#1205 (every test suite gates merges),
+  vergil-project/vergil-actions#1206 (skip the direct Python install in
+  PR CI on an unbootstrapped repo) and
+  vergil-project/vergil-tooling#4382 (`vrg-merge-review-check` verifies
+  the stored result's capture record).
+- **Captured straight to intake:** vergil-project/.github#1130 (a new
+  repo's first CD run on `main` fails) and vergil-project/.github#1136 (a
+  durable private record for merge reviews that touch a security
+  finding). Pinning cargo-deny (vergil-project/vergil-containers#865)
+  also went to intake, as the entry above records.
+- **Also filed:** vergil-project/.github#1122, a planning issue for fleet
+  credential rotation, raised during Task 5.
+
+**Why:**
+
+- **The moves.** The human ruled that #1205, #1206 and #4382 are not
+  needed for this epic. #4382 must still ship only after the plugin
+  release carrying #1065 is deployed.
+- **#1130.** Every new tagged-release repo's first CD run on `main` is
+  red, because `vrg-github-repo-init` pushes `main` directly and there is
+  no release PR to resolve. Red runs should be rare enough that a failure
+  report gets acted on, but the fix does not block the fixtures.
+- **#1136.** The gap needs more thought than this epic gives it.
+- **#1122.** The human could not find the automation App's private key
+  while setting up the fixtures, which showed that the fleet's
+  credentials have no catalogue and no rotation strategy.
