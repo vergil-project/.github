@@ -549,11 +549,11 @@ Rust fixtures, are the evidence bundle and the dependency update.
   suite in CI, with a check that none is left out.
 
 **Why:** the human ruled that review findings are fixed, not accepted as
-nits. The #4376 run stored a shortened reviewer reply (#1065), and
-#1065's own review found the `fix_status` wording (#1069). #1192's test
-script had mode 644 (#1195), which led to the fleet-wide check (#1201),
-and four test suites were never run (#1202). #1067 applies the same
-executable-script rule to the plugin's hooks.
+nits. The #4376 run stored a shortened reviewer reply (#1065), and the
+review of #1065 found the `fix_status` wording (#1069). The test script
+of #1192 had mode 644 (#1195), which led to the fleet-wide check
+(#1201), and four test suites were never run (#1202). #1067 applies the
+same executable-script rule to the plugin's hooks.
 
 ### 2026-11-14: a new deployment task before Task 9
 
