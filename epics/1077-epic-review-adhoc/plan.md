@@ -742,3 +742,21 @@ Filed with `vrg-issue-create --kind validation`, blocked by D2.
   8. If the org has a self-homed private repo with an ad-hoc epic,
      `/vergil:epic-implement adhoc --repo <that repo>` lists only its
      tasks. Otherwise record this item as not exercised.
+
+## Evolution during execution
+
+- **2026-11-14: two doc tasks added by the documentation review.** The
+  sweep (vergil-project/vergil-claude-plugin#1041) found two gaps that
+  Task 4 and Task 7 did not cover, and filed one per-repo doc task for each
+  under the epic, as the bookend convention says:
+  - vergil-project/docs#105: the management pages had no `epic-implement`
+    entry and did not describe the `adhoc` mode or `vrg-queue adhoc`.
+  - vergil-project/vergil-tooling#4366: `github-issues.md` did not list
+    `vrg-queue adhoc`, and the queue-item refusal passage in
+    `cli-tools-overview.md` did not name `epic-review` as the tool's
+    refusal message does.
+
+  Why: the plan gave the docs repo one task (Task 4) covering only
+  `epic-review`, and gave the `adhoc` mode's documentation only to the
+  plugin's own site docs in Task 7. No other task changed, and none was
+  dropped.
