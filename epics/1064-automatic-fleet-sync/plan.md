@@ -806,3 +806,56 @@ The updated order for the rollout chain:
 | D2 | .github (deployment) | As planned, and remove the advisories permission | D1, 1159 |
 | 4322 | vergil-tooling | Missing repo-settings fields are not checked, never `False` | — |
 | 6 | vergil-tooling | As planned | 1, 3a, 3b, 4, 5, 4322 |
+
+### 2026-11-14: the sweep, merge-watch, the credentials environment, and the org scope
+
+**What changed:**
+
+- **Task added: vergil-project/vergil-tooling#4370. V2 is now blocked by it.**
+  Mechanized PRs no longer fire and forget. They watch the PR until it merges,
+  and update a branch that falls behind `develop`, reusing
+  `vrg-finalize-pr`'s update-and-wait logic. A PR whose CI fails, or that
+  does not merge in time, exits non-zero, naming the PR.
+- **Task added: vergil-project/vergil-actions#1185. V2 is now blocked by it.**
+  The automation App's credentials move into a GitHub environment that
+  only `develop` may use.
+- **Spec §6.4** now states the develop-only rule for every job given write
+  rights.
+- **Org scope** (the human's rulings on D2 and V1):
+  - D2 configured four orgs: vergil-project, logical-minds-foundry,
+    mnemosys-project and mq-rest-admin-project.
+  - V1, D3 and the nightly switch cover the three orgs that run ops.
+  - mq-rest-admin-project has no ops job. Onboarding it is intake
+    vergil-project/.github#1107, outside this epic.
+  - diogenes-project and vergils-nemesis are dormant and out of scope.
+- **Follow-ups added and landed:**
+  - vergil-tooling#4326: name the permission in the not-checked message.
+  - vergil-tooling#4327: docs-only; the human ruled that the
+    `diff` exit-code question was academic, since agents never run `apply`.
+  - vergil-actions#1173 and vergil-tooling#4336: list mq-rest-admin-project.
+
+**Why:**
+
+- **#4370.** D3's sweep opened 17 sync PRs. Two stalled behind `develop`
+  with green CI, because other PRs merged first. On an active `develop` that
+  is the common case. Auto-merge alone cannot finish it, and waiting for the
+  next night's replacement PR turns a minutes-long fix into a day.
+- **#1185.** It hardens the automation identity, with its details in a
+  private advisory. A2 covers the in-workflow `develop` guard; the
+  environment covers what that guard cannot reach.
+
+**Outcomes so far:** D1 (after #1164 and #1159), D2, V1 and D3 all passed.
+D3 found all 18 repos exit 0. Twelve of the 17 sync PRs merged at once,
+three wait on CI failures that predate the sweep and already have fix tasks,
+and two stalled behind `develop` (the #4370 case).
+
+The updated order for the rest of the rollout:
+
+| Task | Repo | What | Blocked by |
+| --- | --- | --- | --- |
+| A2 | vergil-actions | Ops switch to `update` | D3 |
+| D4 | vergil-actions (deployment) | Release the ops switch | A2 |
+| 4370 | vergil-tooling | Mechanized PRs watch until merged | — |
+| 1185 | vergil-actions | Credentials in a `develop`-only environment | — (may split) |
+| V2 | vergil-actions (validation) | Live validation on switch day | D4, 4370 (released), 1185 |
+| 9 | vergil-tooling | Retire the sync tools | V2 |
