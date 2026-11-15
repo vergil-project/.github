@@ -859,3 +859,38 @@ The updated order for the rest of the rollout:
 | 1185 | vergil-actions | Credentials in a `develop`-only environment | — (may split) |
 | V2 | vergil-actions (validation) | Live validation on switch day | D4, 4370 (released), 1185 |
 | 9 | vergil-tooling | Retire the sync tools | V2 |
+
+### 2026-11-15: the deferral, the single release, the install-step fix, and V2
+
+**What changed:**
+
+- **vergil-project/vergil-actions#1185 left this epic.** It moves the automation App's credentials into a GitHub environment that only `develop` may use. Its scoping run found it epic-sized: about seven pieces across vergil-tooling, vergil-actions, vergil-containers and up to fifteen caller repos. It also needs a release-time exception on `main` and a per-org human rollout. The human ruled that it does not change this epic's deliverable and moved it to the planning queue (vergil-project/.github#439), to go through `epic-create`. It no longer blocks D4 or V2. Advisory GHSA-2422-4hw9-c34c stays attached to it. Ignore the #1185 row in the order table above.
+- **Task added: vergil-project/vergil-actions#1187.** It sets `timeout-minutes: 60` on the `github-config` job, matching the automation token's one-hour life. It blocks D4 and V2.
+- **One release for the switch.** By the human's ruling, D4 waited for #1187, so A2 and the job cap shipped together in vergil-actions v2.1.71, alongside vergil-tooling v2.1.310 with #4370.
+- **The first switch release broke the install step.** In v2.1.71, the job set `VRG_AUTOMATION_APP` for every step. The install step's `vrg-whoami` check then could not verify the token, so every `github-config` run failed before `update` ran. Nothing was changed.
+  - The fix was vergil-project/vergil-actions#1192, released in v2.1.72 and checked by #1193, both under epic vergil-project/.github#1091. It sets the variable only on the `update` step.
+  - The human ruled V2 blocked, not failed, and did not revert the switch. V2 was blocked on #1192 and #1193.
+- **V2 passed** (vergil-project/vergil-actions#1158). In vergil-project/docs's first run, the automation App closed the stale sync PR, opened a fresh one, merged it within the run and exited 0. Across all 22 repos:
+  - 17 met the acceptance;
+  - 5 exited 2 by design, each naming its PR: three repos whose CI failed before this epic, and two Rust fixtures whose release was unfinished.
+
+  The human read the docs ruleset's bypass actors once to back the inferred criteria. The nightly schedule skipped 7 repos, which the human started by hand. The merge watch's branch update has not yet been seen live.
+- **Task added: vergil-project/vergil-tooling#4414.** When vergil-tooling releases itself, `vrg-release`'s audit checks its managed files against the templates in the tree being released, not the installed ones. Without it, every template change forced `--skip-audit`, which also skipped the GitHub-side checks.
+- **Task 9 (vergil-project/vergil-tooling#4309).**
+  - The vergil-claude-plugin reference to `vrg-gitignore-sync` is left to the documentation-review sweep (vergil-project/vergil-tooling#4268).
+  - The fleet's old `.gitignore` headers are not edited by hand; the nightly `update` syncs them after the release.
+
+**Why:**
+
+- **#1185.** It is a hardening step, not part of the sync feature. The exposure it closes dates from D2 and is narrow: agents cannot push workflow files or start workflows. So it can wait for its own epic.
+- **The single release.** It kept the job cap from arriving after the switch.
+- **#4414.** vergil-tooling holds the master copies, so its own managed files are always ahead of the installed release after a template change.
+
+The order for what remains:
+
+| Task | Repo | What | Blocked by |
+| --- | --- | --- | --- |
+| 4414 | vergil-tooling | Release audit uses the in-tree templates | — |
+| 9 | vergil-tooling | Retire the sync tools | V2 |
+| 4268 | vergil-tooling | Documentation review (bookend) | everything above |
+| 1066 | .github | Retrospective (bookend) | 4268 |
