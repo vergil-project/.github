@@ -290,3 +290,31 @@ Blocked by 10 and 11.
   4. In `vrg-container-run`, `rustc --version` reports the image's release, and `(RUSTUP_TOOLCHAIN=1.0.0 rustc --version)` fails as not installed with nothing downloaded.
   5. On a throwaway branch that adds `RUST` to the fixture's `[container].env-prefixes`, with `RUSTUP_TOOLCHAIN=1.0.0` exported on the host, `vrg-container-run -- rustc --version` still reports the image's release. Delete the branch.
 - **SUCCESS:** every step passes on both fixtures, recorded per fixture.
+
+## Evolution during execution
+
+### 2026-11-15: Task 12's acceptance for the app fixture's CI legs and for image digests
+
+**What changed:**
+
+- **Task 12 step 2: the app fixture's CI runs only on the newest
+  series.** By the human's ruling, a single newest-series leg passes
+  step 2 for an application such as `vergil-fixture-rust-app`. "Both
+  window series" applies to libraries.
+- **Task 12 step 1: what counts as an image digest match.** By the
+  human's ruling, a current tag digest that was rebuilt from the named
+  release's commit counts as a match.
+
+**Why:**
+
+- **Step 2.** The plan, spec §6.8 and #1106 say "CI passes on both window
+  series" for both Rust fixtures. vergil-tooling resolves every
+  repository type other than `library` to the newest series only
+  (`lib/versions/resolve.py`; the consuming-repo-setup guide says the
+  same), so `vergil-fixture-rust-app` has a single 1.99 leg by design.
+- **Step 1.** Prod Rust tags are movable. vergil-containers' nightly
+  `nightly-rebuild-prod` job rebuilds them every night from
+  `cd-docker-publish.yml@main`, the release commit. So the digests the
+  fixtures' CI pulls are usually the nightly rebuild of the release
+  commit, not the images the release run itself pushed, which remain
+  under date-stamped tags.
