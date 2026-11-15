@@ -773,3 +773,24 @@ vergil-project/vergil-tooling#4416.
   from the same release as the binary does not catch a tampered release.
 - **#1227.** Found while fixing #1215. The suite still runs in CI, so it
   is not a coverage hole.
+
+### 2026-11-15: the upstream report and deferred removal item, dropped
+
+**What changed:**
+
+- **A task is dropped:** vergil-project/.github#1129, added by the
+  2026-11-14 workflow-registration entry above, is closed as won't do.
+  Vergil does not report the bug again, and the deferred item to remove
+  the workaround is not filed.
+- **A task is added:** vergil-project/vergil-tooling#4430 updates the
+  code comment on the workaround from vergil-project/vergil-tooling#4376
+  in `vrg-github-repo-init`. It says the workaround is kept on purpose,
+  with the upstream references, rather than tracked by #1129.
+
+**Why:** the human ruled it, as an executive decision. The bug is already
+reported upstream, in GitHub community discussion 25219 and in
+tazama-lf/rule-studio-devtestops#15. The workaround is simple and built
+into `vrg-github-repo-init`, so it is kept on purpose. Vergil plans to
+move off GitHub in 2027, so a removal item tied to an upstream fix is
+not worth tracking. This entry supersedes the reason given for #1129 in
+the earlier entry, which stays as written.
