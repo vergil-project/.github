@@ -622,7 +622,7 @@ the proof runs need a release that contains them.
 - **The Python ops check.** The human accepted each Python validation's
   check 2 (ops) on the green ops runs dispatched before the release, with
   no re-confirmation after it.
-- **The known gaps.** Under spec §6.4 a known gap does not count against
+- **The known gaps.** Under spec §6.3 a known gap does not count against
   goal 5. Only the parts of a gap that blocked a release were fixed here,
   as the next entries record.
 
