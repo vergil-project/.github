@@ -596,3 +596,201 @@ the proof runs need a release that contains them.
 - **#1122.** The human could not find the automation App's private key
   while setting up the fixtures, which showed that the fleet's
   credentials have no catalogue and no rotation strategy.
+
+### 2026-11-14: Task 9's proof-run trios
+
+**What changed:**
+
+- **Task 9's trios are filed with `fixture-run`,** validating
+  vergil-tooling v2.1.311. Their `--after` refs are
+  vergil-project/vergil-tooling#4389, in place of Task 4, and
+  vergil-project/vergil-claude-plugin#1053 (Task 8):
+  - 9a: vergil-project/vergil-fixture-python-lib#3, #4 and #5;
+  - 9b: vergil-project/vergil-fixture-python-app#3, #4 and #5;
+  - 9c: vergil-project/vergil-fixture-rust-lib#5, #6 and #7;
+  - 9d: vergil-project/vergil-fixture-rust-app#5, #6 and #7.
+- **All four validation tasks passed.** The Python fixtures passed on
+  their first release. The Rust fixtures passed after the release
+  recovery recorded below, with two known gaps posted on
+  vergil-project/.github#410: the dependency update, and the evidence
+  bundle, now narrowed to its quality gate.
+
+**Why:**
+
+- **The `--after` ref.** The entry "a new deployment task before Task 9"
+  above replaced Task 4's release with #4389, so the trios wait on it.
+- **The Python ops check.** The human accepted each Python validation's
+  check 2 (ops) on the green ops runs dispatched before the release, with
+  no re-confirmation after it.
+- **The known gaps.** Under spec §6.3 a known gap does not count against
+  goal 5. Only the parts of a gap that blocked a release were fixed here,
+  as the next entries record.
+
+### 2026-11-14: Rust releases blocked by an empty evidence payload
+
+**What changed:**
+
+- **Tasks are added to fix the payload:**
+  - vergil-project/vergil-tooling#4394: the Rust test and audit gates
+    write evidence report files;
+  - vergil-project/vergil-actions#1211: CI stages each language's
+    reports, not Python's names only. By a scope change, a language with
+    no entry in its table (go, cpp, typescript) warns and stages nothing;
+  - vergil-project/vergil-actions#1212, a deployment task, confirmed both
+    fixes released, in vergil-tooling v2.1.312 and vergil-actions
+    v2.1.74, before the Rust fixtures re-ran their releases.
+- **JUnit is split out of #4394 and done here:**
+  vergil-project/vergil-containers#885 adds cargo-nextest to the Rust
+  images, vergil-project/vergil-containers#886 releases them, and
+  vergil-project/vergil-tooling#4395 makes the Rust test gate write
+  `junit.xml` with `cargo llvm-cov nextest`. #4394 shipped without it, by
+  a scope change.
+- **A follow-up to #1211 is added and narrowed:**
+  vergil-project/vergil-actions#1216 was filed to derive the report table
+  from vergil-tooling. On 2026-11-15 it was narrowed to an interim fix:
+  `junit.xml` and cargo-nextest join the Rust test entry of the existing
+  table, merged only after a vergil-tooling release carrying #4395.
+
+**Why:**
+
+- **The payload.** The first Rust release, on
+  vergil-fixture-rust-app#6, merged its release PR to `main`, but the CD
+  release job's evidence gate found the `test` and `audit` gates empty
+  and refused to tag or publish. CI staged Python's report names, and
+  the Rust gates wrote none of them. This is the evidence-bundle known
+  gap, but it blocked every Rust release, so spec §6.4 has it fixed here.
+- **The warning.** Failing every PR leg of a language with no table
+  entry would turn repos red overnight. The release-time evidence gate
+  still decides.
+- **JUnit.** Stable `cargo test` writes no JUnit report, so a new tool
+  had to reach the images first. The human kept nextest's
+  `fail-fast = false`, so every test runs and is reported.
+- **The narrowing of #1216.** vergil-tooling publishes no per-gate
+  contract to read, and adding one is a design question, with a
+  version-skew problem across the fleet's pins. That design went to
+  intake, as the last entry records.
+
+### 2026-11-14: release recovery fixes, found in Task 9
+
+**What changed:**
+
+- **Tasks are added in vergil-tooling:**
+  - vergil-project/vergil-tooling#4405: when the CD release job fails,
+    `vrg-release --resume` prints the exact recovery steps, with the run
+    IDs filled in;
+  - vergil-project/vergil-tooling#4407: the lockfile refresh after the
+    version bump runs in the language container, so a Rust release needs
+    no cargo on the host;
+  - vergil-project/vergil-tooling#4415: `--resume` can re-run
+    back-merge-bump after it has created the post-release branch;
+  - vergil-project/vergil-tooling#4367 (an interrupt before the progress
+    block is written leaves an unrecoverable release) is moved into this
+    epic and fixed here.
+- **The Rust releases were recovered by hand:** re-run the release PR's
+  CI run, then the failed CD run on `main`, then `vrg-release --resume`.
+
+**Why:**
+
+- **The fixes.** The human ruled to fail forward, fixing each corner
+  case of the release flow as the runs find it. Each of these stopped a
+  Rust re-release. `--resume` re-judged the same failed CD run. The
+  release ran `cargo update --workspace` on a host with no Rust
+  toolchain, although the fleet is container-first. A resume could not
+  get past a back-merge-bump stage it had half done.
+- **The manual steps.** The evidence gate harvests the release PR's CI
+  run, so a fix that changes what CI writes needs that run re-run before
+  the CD run.
+- **The `--skip-audit` runs.** The Rust re-releases used `--skip-audit`
+  on purpose, for an out-of-date `.gitignore` unrelated to this work.
+- **Accepted risks.** #4367 lets a fresh `vrg-release` adopt a leftover
+  release branch, which leaves a window where two concurrent fresh runs
+  could adopt the same one. #4415 reuses a branch whose earlier
+  back-merge PR was closed unmerged, and opens a new PR. The human
+  accepted both while a human runs releases.
+- **Recorded elsewhere.** The human ruled that agent releases will need
+  a per-repo lock for single-threaded processes such as a release. It is
+  recorded as a comment on vergil-project/.github#1088, the planning
+  issue for agent rights in the fixture repos, not as a task here.
+
+### 2026-11-14: other fixes from the Python proof runs, and one dropped
+
+**What changed:**
+
+- **Tasks are added:**
+  - vergil-project/vergil-actions#1214: a `develop` docs deploy no longer
+    resets the released default docs version to `dev`;
+  - vergil-project/vergil-actions#1215: the security gate's evidence
+    names its scanners. It was narrowed by a scope change, and its other
+    half, a bundle README that describes only the entries present, was
+    split out to vergil-project/vergil-tooling#4402.
+- **Dropped:** vergil-project/vergil-actions#1213 (create the GitHub
+  Release with its real target), closed as working as intended.
+
+**Why:**
+
+- **#1214.** After each Python release, the next `develop` docs deploy
+  made the site root redirect to the development docs. The human ruled
+  to fix it here.
+- **#1215 and #4402.** Both Python validations found the empty security
+  tools list, and a README that describes a `gates/sbom/` entry that a
+  release with no package lacks. The human ruled to fix both here. The
+  README is written by vergil-tooling, and nothing in vergil-actions
+  writes it, so that half moved there.
+- **#1213.** The release's `target_commitish` reads `develop`, but it is
+  ignored because the tag already exists. The tags are correct, and only
+  cosmetic metadata is affected.
+
+### 2026-11-15: the fixture-run known gap, narrowed
+
+**What changed:** a task is added:
+vergil-project/vergil-claude-plugin#1088 narrows the Rust evidence-bundle
+known gap in the `fixture-run` skill to the quality gate.
+
+**Why:** with the fixes above, the Rust bundle's `test`, `audit` and
+`security` gates hold Rust's reports. Only the `quality` gate still
+names Python's tools and holds no lint or typecheck report. The human
+ruled not to fix the quality gate here: it stays a narrowed known gap on
+vergil-project/.github#410, and joins the design in
+vergil-project/vergil-tooling#4416.
+
+### 2026-11-15: more items captured to intake
+
+**What changed:** these went straight to intake, not into this epic:
+
+- vergil-project/vergil-tooling#4416: one source of truth for the CI
+  evidence report files, through a `vrg-ci-reports` command. It now also
+  covers the quality gate;
+- vergil-project/vergil-containers#889: verify binary tool downloads
+  against hashes stored in the repo;
+- vergil-project/vergil-actions#1227: the install-tooling suite's
+  "needs python3" reason for running only in CI looks stale.
+
+**Why:**
+
+- **#4416.** It is the design that the narrowing of #1216 left out, and
+  it needs more thought than this epic gives it.
+- **#889.** Raised while adding cargo-nextest (#885). A checksum fetched
+  from the same release as the binary does not catch a tampered release.
+- **#1227.** Found while fixing #1215. The suite still runs in CI, so it
+  is not a coverage hole.
+
+### 2026-11-15: the upstream report and deferred removal item, dropped
+
+**What changed:**
+
+- **A task is dropped:** vergil-project/.github#1129, added by the
+  2026-11-14 workflow-registration entry above, is closed as won't do.
+  Vergil does not report the bug again, and the deferred item to remove
+  the workaround is not filed.
+- **A task is added:** vergil-project/vergil-tooling#4430 updates the
+  code comment on the workaround from vergil-project/vergil-tooling#4376
+  in `vrg-github-repo-init`. It says the workaround is kept on purpose,
+  with the upstream references, rather than tracked by #1129.
+
+**Why:** the human ruled it, as an executive decision. The bug is already
+reported upstream, in GitHub community discussion 25219 and in
+tazama-lf/rule-studio-devtestops#15. The workaround is simple and built
+into `vrg-github-repo-init`, so it is kept on purpose. Vergil plans to
+move off GitHub in 2027, so a removal item tied to an upstream fix is
+not worth tracking. This entry supersedes the reason given for #1129 in
+the earlier entry, which stays as written.
