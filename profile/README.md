@@ -159,6 +159,19 @@ profile, the org-wide default files (contributing, support, security
 and issue templates) and the lab's planning: every epic's spec, plan
 and retrospective.
 
+Four fixture repositories test Vergil itself:
+[vergil-fixture-python-lib](https://github.com/vergil-project/vergil-fixture-python-lib),
+[vergil-fixture-python-app](https://github.com/vergil-project/vergil-fixture-python-app),
+[vergil-fixture-rust-lib](https://github.com/vergil-project/vergil-fixture-rust-lib)
+and
+[vergil-fixture-rust-app](https://github.com/vergil-project/vergil-fixture-rust-app).
+They are small repositories with no users. Each one is driven through
+Vergil's full change, release and validate cycle (the `fixture-run`
+skill) to prove a released Vergil change before it reaches a real
+repository. The
+[fixture repos spec](https://github.com/vergil-project/.github/blob/develop/epics/1091-language-fixture-repos/spec.md)
+describes the design.
+
 ---
 
 ## What's next in the lab
