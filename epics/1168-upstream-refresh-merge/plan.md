@@ -56,11 +56,14 @@ vergil-python).
   `automation/upstream-refresh/<run-id>`. The PR title is
   `chore(upstream): refresh upstream inputs`.
 - Exit codes: 0 means merged, or nothing to change. 2 means not merged,
-  naming the PR and the reason. 1 is any other failure, with the reason.
+  naming the PR and the reason. 1 is any other failure, with the reason,
+  including a usage error (argparse's own exit 2 is mapped to 1).
 - The path fence: the allowlist is read only from publish's own `develop`
-  clone (`[upstream-refresh].paths`). `.github/**` is always refused.
-  `vergil.toml` may change only in `[[package]]` tables. A repo with no
-  `paths` refuses every patch.
+  clone (`[upstream-refresh].paths`), and the touched set comes from the
+  applied tree, never from prepare's meta. `.github/**` is always refused.
+  In `vergil.toml`, only `upstream-version` and `summary` of existing
+  `[[package]]` entries may change. A repo with no `paths` refuses every
+  patch.
 - With no token source registered, `lib/github.py` and `lib/git.py` behave
   exactly as today. `github-config`, `vrg-release`, `vrg-finalize-pr` and
   human runs are unchanged.
@@ -248,7 +251,10 @@ retargeted to the task or tasks that fix it.
 **Files:**
 
 - Modify: `src/vergil_tooling/lib/config.py` (`UpstreamRefreshConfig`
-  gains `paths: tuple[str, ...] = ()`; the allowed keys of
+  gains `paths: tuple[PathRule, ...] = ()`, with `@dataclass(frozen=True)
+  class PathRule: glob: str; lines: str | None = None`. Each `paths` entry
+  is either a string (a glob, with no line rule) or a table
+  `{ path = "<glob>", lines = "<regex>" }`. The allowed keys of
   `upstream-refresh` gain `paths`), `src/vergil_tooling/lib/upstream_refresh.py`
   (rewrite), `src/vergil_tooling/lib/develop_clone.py` (`clone_develop`
   gains `token: str | None = None`, used through `git._git_auth_env`)
@@ -274,9 +280,16 @@ retargeted to the task or tasks that fix it.
     started with a scrubbed environment: no `GH_TOKEN`, `GITHUB_TOKEN`,
     `VRG_AUTOMATION_*`, `VRG_APP_ID` or `VRG_PRIVATE_KEY_PATH`.
   - `fence_violations(rules: UpstreamRefreshConfig, paths: Sequence[str],
-    vergil_toml_before: str | None, vergil_toml_after: str | None) ->
+    changed_lines: Mapping[str, Sequence[str]], vergil_toml_before: str |
+    None, vergil_toml_after: str | None) ->
     list[str]`: one message per violation, each naming the path or table
-    and the rule. An empty list means allowed.
+    and the rule. An empty list means allowed. Its `paths` argument is
+    always the set the caller computed from the applied tree, never one
+    read from prepare's output. `changed_lines` maps each touched path to
+    its removed and added lines (from `git diff -U0 <base_sha>` in the
+    applied clone). A path whose first matching rule has a `lines` regex
+    is allowed only when every changed line matches it (`re.match`). A
+    binary or added or deleted file under such a rule is refused.
   - `render_body(notes: list[str], paths: list[str]) -> str`, whose intro
     now says the job merges the PR itself once CI passes.
   - Removed: `REFRESH_BRANCH`, `sync`, `open_refresh_prs`,
@@ -297,19 +310,44 @@ retargeted to the task or tasks that fix it.
   - `test_fence_refuses_github_dir_even_with_star_star`: `paths = ["**"]`,
     patch path `.github/workflows/ci.yml`.
   - `test_fence_no_paths_refuses_everything`
-  - `test_fence_vergil_toml_package_only_allowed`
+  - `test_fence_vergil_toml_version_and_summary_allowed`: an existing
+    `[[package]]` entry's `upstream-version` and `summary` change.
+  - `test_fence_vergil_toml_smoke_change_refused`
+  - `test_fence_vergil_toml_build_command_change_refused`: a change to
+    `staged.build-command`.
+  - `test_fence_vergil_toml_added_package_refused`: a new `[[package]]`
+    entry is refused, naming its `name`. The same goes for a removed
+    entry.
   - `test_fence_vergil_toml_dependencies_change_refused`: `[[package]]`
     and `[dependencies].vergil` both changed; the message names
     `[dependencies]`.
   - `test_fence_vergil_toml_upstream_refresh_change_refused`
   - `test_read_prepared_rejects_bad_meta`: a missing key, a non-hex SHA,
     or a path with `..`.
-  - `test_config_accepts_paths_key` and `test_config_rejects_unknown_key`.
+  - `test_fence_line_rule_allows_version_lines`: in a
+    `docker/common/x.dockerfile` covered by
+    `lines = '^ARG [A-Z0-9_]+_VERSION='`, only an `ARG FOO_VERSION=` line
+    changes.
+  - `test_fence_line_rule_refuses_run_line_change`: the same file with a
+    changed `RUN` line is refused, naming the file and the line rule.
+  - `test_fence_line_rule_refuses_added_file`
+  - `test_config_accepts_paths_key` (strings and `{ path, lines }` tables),
+    `test_config_rejects_bad_line_regex` and
+    `test_config_rejects_unknown_key`.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement.** Match globs with `PurePosixPath.full_match`,
-  or `fnmatch` with `**` support. Compare `vergil.toml` with `tomllib` as
-  two dicts with `package` removed. Any remaining difference is a
-  violation.
+  or `fnmatch` with `**` support. Parse `vergil.toml` before and after with
+  `tomllib`:
+  - outside `package`, the two must be equal;
+  - the `package` entries must match one to one by `name`, so none is
+    added or removed;
+  - within each entry, only `upstream-version` and `summary` may differ,
+    so `smoke`, `staged` and every other key must be equal.
+
+  Each difference is a violation. A new `[[package]]` entry, which
+  vergil-python's hook adds when a new CPython series appears, is
+  therefore refused. That case becomes an attended run (the human's local
+  `vrg-upstream-refresh`, then a reviewed PR).
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope upstream-refresh`).
 
@@ -351,8 +389,14 @@ retargeted to the task or tasks that fix it.
     `diverged`, or the commit is unknown.
   - `test_publish_refuses_patch_that_does_not_apply`
   - `test_publish_refuses_extra_untracked_paths`
-  - `test_publish_fence_reads_rules_from_own_clone`: a meta carrying its
-    own rules has no effect.
+  - `test_publish_fence_sees_tracked_change_missing_from_meta`: the patch
+    modifies `.github/workflows/ci.yml`, and the meta leaves it out. The
+    run is refused for the mismatch and the fence names the path.
+  - `test_publish_touched_set_must_equal_meta_paths`: a meta that lists a
+    path the patch does not touch is refused.
+  - `test_publish_fence_reads_rules_from_develop_tip`: the recorded base's
+    `vergil.toml` has a looser `paths` than the tip, and the tip's rules
+    apply. A meta carrying its own rules has no effect.
   - `test_publish_fence_refusal_pushes_nothing`
   - `test_publish_empty_paths_closes_earlier_pr_in_sync`
   - `test_publish_sets_bot_author_and_committer`
@@ -368,7 +412,8 @@ retargeted to the task or tasks that fix it.
     `deadline_secs=6600`.
   - `test_sigterm_revokes_and_exits_nonzero`
   - `test_exit_codes`: merged gives 0, in sync gives 0, `PRNotMergedError`
-    gives 2 with the URL printed, a fence refusal gives 1.
+    gives 2 with the URL printed, a fence refusal gives 1, and a usage
+    error (for example the removed `--base`) gives 1, not argparse's 2.
   - `test_log_lines`: closed, opened or in sync, each renewal and
     revocation with a time, and how the wait ended. No token appears.
   - `test_agent_modes_refused`
@@ -387,10 +432,19 @@ retargeted to the task or tasks that fix it.
     5. resolve the identity;
     6. install the SIGINT and SIGTERM handlers, which `close()` and exit
        130 or 143;
-    7. clone, fetch and check out `base_sha` detached, `git apply`, and
-       check the paths and the fence;
-    8. set the clone's `user.name` and `user.email` from `bot`;
-    9. `open_sync_pr(..., deadline_secs=7200 - elapsed)`.
+    7. clone `develop`, and read the fence rules (`[upstream-refresh]`)
+       from that tip before anything else. Then fetch and check out
+       `base_sha` detached, and `git apply`;
+    8. compute the touched set from the clone itself, with
+       `git status --porcelain=v1 -z --untracked-files=all --no-renames`:
+       added, modified, deleted, mode-changed and untracked files. Refuse
+       unless it equals the meta's `paths` exactly. Pass that set, never
+       the meta's, to `fence_violations`, with the changed lines from
+       `git diff -U0 <base_sha>` in the clone, the `vergil.toml` "before"
+       taken from `base_sha` and "after" from the working tree. The meta's
+       `paths` are used only for the PR body;
+    9. set the clone's `user.name` and `user.email` from `bot`;
+    10. `open_sync_pr(..., deadline_secs=7200 - elapsed)`.
   - The bot email is `<id>+<slug>[bot]@users.noreply.github.com`, with
     `<id>` from `GET /users/<slug>[bot]`.
   - Update the three docs pages, the module docstring and `--help`. The
@@ -423,10 +477,15 @@ describe its token and pushes "as upstream-refresh's"), and
 goes).
 
 - [ ] **Step 1:** Derive `paths` from what the hook writes:
-  `resolve_latest.py` (`docker/common/*`), `resolve_toolchains.py`
-  (`docker/pins/toolchains.yml`), every path `docker/versions/generate.py`
-  renders, and `generate_catalog.py` (`docker/pins/CATALOG.md`). List
-  exact files where the set is fixed, and globs only where it is not.
+  - `resolve_latest.py`: the `docker/common/*` fragments, as one entry
+    `{ path = "docker/common/*", lines = '^ARG [A-Z0-9_]+_VERSION=' }`;
+  - `resolve_toolchains.py`: `docker/pins/toolchains.yml`;
+  - every path `docker/versions/generate.py` renders;
+  - `generate_catalog.py`: `docker/pins/CATALOG.md`.
+
+  Generated data files are listed as exact paths. No entry may cover the
+  hook script or its resolvers and generators (`docker/pins/*.sh`,
+  `docker/pins/*.py`, `docker/versions/*.py`).
 - [ ] **Step 2:** Check it: run `vrg-upstream-refresh --dry-run` locally,
   and confirm every changed path is covered.
 - [ ] **Step 3: Run the tests** (`vrg-validate` checks `vergil.toml`
@@ -458,6 +517,10 @@ update it if it describes the human merge.
   the tool mints its own token, with the four permissions, and holds the
   key only in publish)
 - Create: `actions/ops/upstream-refresh/tests/key-boundary.test.sh`
+- Modify: `actions/ops/github-config/tests/automation-env.test.sh` (the
+  fleet-wide rule for where `VRG_AUTOMATION_APP` may be set), its section
+  in `docs/site/docs/workflows/ops-github-config.md`, and its summary in
+  `smoke-setup-vergil.yml`
 
 **Interfaces:**
 
@@ -473,13 +536,26 @@ update it if it describes the human merge.
   - `VRG_AUTOMATION_APP` is set on no job-level `env:`;
   - each job's first step is the `develop` guard;
   - there is no `if:` on any step;
+  - both jobs set `timeout-minutes` (prepare 30, publish 140);
   - `create-github-app-token` and `gh auth setup-git` are absent.
 
   It runs where `actions/ops/github-config/tests/automation-env.test.sh`
   runs today.
+- [ ] **Step 1b: Extend `automation-env.test.sh`'s rule.** A step that sets
+  `VRG_AUTOMATION_APP` is accepted in one of two forms:
+  - `GH_TOKEN` from an earlier token step, as today;
+  - `VRG_AUTOMATION_CLIENT_ID` and `VRG_AUTOMATION_PRIVATE_KEY` from
+    `secrets.*`, with no `GH_TOKEN`.
+
+  Anything else is still a violation. Add fixture cases
+  `credential_form_accepted`, `credential_form_missing_key_rejected` and
+  `credential_form_with_gh_token_rejected`. Its `case_real_workflows` then
+  passes on the rewritten `ops-upstream-refresh.yml`.
 - [ ] **Step 2: Run the tests and see it fail.**
 - [ ] **Step 3: Rewrite the workflow** as spec §6.3 lays it out:
   - **`prepare`:**
+    - `timeout-minutes: 30`, so a hung hook cannot hold the concurrency
+      group;
     - the guard;
     - checkout of `ref: develop` with `persist-credentials: false`;
     - install;
@@ -535,6 +611,8 @@ Kind `validation`, filed in vergil-actions and blocked by D2.
     is recorded as extra evidence.
   - **The key boundary, from the logs:** prepare's log shows no App token
     minted; publish's log shows the hook never ran.
-  - **The guard:** a dispatch from a non-`develop` branch fails at the
-    guard step in both jobs.
+  - **The guard:** a dispatch from a non-`develop` branch fails at
+    prepare's guard step. Publish is skipped (`needs: prepare`), so no App
+    token is minted. Publish's own guard is defence in depth, and A1's
+    `key-boundary.test.sh` already proves it is there.
   - No open PR or branch named `upstream-refresh*` remains in either repo.
