@@ -433,15 +433,44 @@ tokens for one repo, and hands out a current token on demand.
       `docker/pins/CATALOG.md`.
 
     vergil-python lists `runtime.toml`, with a value-format rule covering
-    its `series`, `cpython`, `pbs_tag` and `sha256` lines, and
-    `vergil.toml`.
+    its `series`, `cpython`, `pbs_tag` and `sha256` lines (the `series`
+    line is its anchor, below), and `vergil.toml`.
   - **A refresh never lowers a pinned version.** Both hooks only ever move
     pins forward, so a downgrade is never valid output. A line rule marks
-    the version in its regex with a named group, `(?P<version>…)`. Within
-    each changed hunk, removed and added lines are paired by the text
-    before that group, and the new version must compare greater than or
-    equal to the old one, as a tuple of numbers. In `vergil.toml`,
-    `upstream-version` is compared the same way per entry `name`.
+    each version in its regex with a named group: `(?P<version>…)`, or
+    `(?P<version_<suffix>>…)` for a second one in the same regex (such as
+    `version_pbs`), since Python's `re` allows no repeated group name.
+    - **Whole files, not hunks.** A file under a versioned line rule is
+      compared as a whole, before and after the patch, so publish takes its
+      diff with the whole file as context. A versioned line's place in the
+      file decides which block it belongs to, so a diff that does not show
+      the whole file is refused.
+    - **Blocks and anchors.** A line rule may also carry an optional
+      `(?P<anchor>…)` group, on the line that names a block, such as
+      `runtime.toml`'s `series` line. Each versioned line belongs to the
+      block named by the most recent anchor line above it. Under a rule
+      with no anchor group, the whole file is one block.
+    - **Identity.** A versioned line's identity is its block's anchor value
+      (none under a rule with no anchor group) and the text before its
+      version group. Versions are compared per identity, wherever the line
+      stands in the file, as tuples of integers split on `.` (trailing
+      zeros dropped). A new version lower than the old one is refused, and
+      so is a version that is not numeric.
+    - **Ambiguity is refused.** An identity with more than one versioned
+      line on either side, where the versions change, is refused: a key
+      that repeats in a file whose rule has no anchor cannot be paired.
+      Under a rule with an anchor, a versioned line that appears or
+      disappears inside a block that stays, or above the first anchor
+      line, is refused too.
+    - **New blocks and pins.** A whole new anchored block (a new
+      `[[series]]`) is allowed, as is a new or a dropped versioned line
+      under a rule with no anchor group.
+    - **Removals are a human change.** An automated refresh never removes
+      an existing anchored block. Dropping a series is a human change,
+      made in an ordinary PR.
+
+    In `vergil.toml`, `upstream-version` is compared the same way per
+    entry `name`, on its `<cpython>` part, then its `<pbs_tag>`.
   - **`.github/**` is always refused**, whatever the allowlist says.
   - **`vergil.toml`, where allowed, has its own rules.** Publish parses the
     file before and after the patch:
@@ -451,7 +480,8 @@ tokens for one repo, and hands out a current token on demand.
     - in an existing `[[package]]` entry, only `upstream-version` and
       `summary` may change, and `upstream-version` must keep its format
       (`<cpython>+<pbs_tag>`);
-    - a removed entry is allowed;
+    - an existing entry is never removed: dropping a series is a human
+      change, as for an anchored block;
     - a new entry is allowed only as a series copy of an existing one:
       the names differ by one `\d+\.\d+` series token, and every other
       value, including `smoke` and `staged`, is the existing entry's with

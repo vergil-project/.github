@@ -63,9 +63,9 @@ vergil-python).
   applied tree, never from prepare's meta. `.github/**` is always refused.
   In `vergil.toml`, only `upstream-version` and `summary` of existing
   `[[package]]` entries may change. A new entry must be a series copy of an
-  existing one, and a removed entry is allowed. A repo with no `paths`
-  refuses every
-  patch.
+  existing one. A refresh never removes an existing `[[package]]` entry or
+  an existing anchored block: dropping a series is a human change. A repo
+  with no `paths` refuses every patch.
 - With no token source registered, `lib/github.py` and `lib/git.py` behave
   exactly as today. `github-config`, `vrg-release`, `vrg-finalize-pr` and
   human runs are unchanged.
@@ -307,20 +307,44 @@ retargeted to the task or tasks that fix it.
     and the rule. An empty list means allowed. Its `paths` argument is
     always the set the caller computed from the applied tree, never one
     read from prepare's output. `changed_lines` maps each touched path to
-    its removed and added lines (from `git diff -U0 <base_sha>` in the
-    applied clone). A path whose first matching rule has a `lines` regex
-    is allowed only when every changed line matches it as a whole line
-    (`re.fullmatch`). A binary, added or deleted file under such a rule is
-    refused. When the regex has a `(?P<version>…)` group, removed and
-    added lines in each hunk are paired by the text before the group, and
-    the added version, read as a tuple of integers split on `.`, must be
-    greater than or equal to the removed one. A lower version is a
-    violation naming the key and both versions. Only pairs are compared:
-    an added line with no removed counterpart (a new series block) or a
-    removed one with no added counterpart (a dropped series) is left to
-    the line rule and the other fence rules. `upstream-version` in
-    `vergil.toml` is compared the same way per entry `name`, on its
-    `<cpython>` part, then its `<pbs_tag>`.
+    its whole-file diff against `base_sha` in the applied clone
+    (`diff_changed_lines`, below). A path whose first matching rule has a
+    `lines` regex is allowed only when every removed and added line
+    matches it as a whole line (`re.fullmatch`). A binary, added, deleted
+    or mode-changed file under such a rule is refused. When the regex has
+    a version group (`(?P<version>…)`, or `(?P<version_<suffix>>…)` for a
+    second one, since `re` allows no repeated group name), the no-downgrade
+    rule compares the file as a whole, before and after (spec §6.2):
+    - an optional `(?P<anchor>…)` group marks the line that names a
+      block; each versioned line belongs to the block named by the most
+      recent anchor line above it. With no anchor group, the file is one
+      block;
+    - a versioned line's identity is its block's anchor value (none with
+      no anchor group) and the text before its version group. Versions are
+      compared per identity, wherever the line stands, as tuples of
+      integers split on `.` (trailing zeros dropped). A lower version, or
+      a non-numeric one, is a violation naming the key, the anchor and
+      both versions;
+    - an identity with more than one versioned line on either side, where
+      the versions change, is refused as ambiguous: a key that repeats
+      under a rule with no anchor cannot be paired;
+    - under an anchored rule, a versioned line that appears or disappears
+      inside a block that stays, or above the first anchor line, is
+      refused as ambiguous;
+    - a whole new anchored block is allowed, as is a new or a dropped
+      versioned line under a rule with no anchor group;
+    - an existing anchored block is never removed: dropping a series is a
+      human change;
+    - a diff that does not show the whole file is refused under a
+      versioned rule.
+
+    `upstream-version` in `vergil.toml` is compared per entry `name`, on
+    its `<cpython>` part, then its `<pbs_tag>`.
+  - `diff_changed_lines(tree: Path, base_sha: str, paths: Sequence[str])
+    -> dict[str, list[str]]`: each path's `git diff <base_sha>` in *tree*,
+    with the whole file as context (`--no-renames`, `--no-ext-diff`,
+    `--no-textconv`), so a changed file's diff is one hunk over the whole
+    file.
   - `render_body(notes: list[str], paths: list[str]) -> str`, whose intro
     now says the job merges the PR itself once CI passes.
   - Removed: `REFRESH_BRANCH`, `sync`, `open_refresh_prs`,
@@ -361,7 +385,8 @@ retargeted to the task or tasks that fix it.
   - `test_fence_vergil_toml_new_entry_changed_build_command_refused`
   - `test_fence_vergil_toml_new_entry_unrelated_name_refused`: a new entry
     whose name differs by more than a series token.
-  - `test_fence_vergil_toml_removed_package_allowed`
+  - `test_fence_vergil_toml_removed_package_refused`: an existing
+    `[[package]]` entry removed is refused, naming the entry.
   - `test_fence_vergil_toml_dependencies_change_refused`: `[[package]]`
     and `[dependencies].vergil` both changed; the message names
     `[dependencies]`.
@@ -391,6 +416,30 @@ retargeted to the task or tasks that fix it.
     `1.10` (numeric, not string, comparison).
   - `test_fence_new_series_block_allowed`: a whole new `[[series]]` block
     in `runtime.toml`, with added lines only, passes the version check.
+  - `test_fence_dropped_series_block_refused`: a whole `[[series]]` block
+    removed from `runtime.toml` is refused, naming its anchor.
+  - `test_fence_version_downgrade_refused_in_runtime_toml`: under the P1
+    rule (`series` as the anchor, `cpython` as `version`, `pbs_tag` as
+    `version_pbs`), a lower `cpython` or `pbs_tag` in one block is
+    refused, naming the anchor, while the other blocks' versions rise.
+  - `test_fence_moved_and_lowered_version_refused`: a versioned line moved
+    to another place in the file and lowered is refused (whole-file
+    comparison, not hunk pairing).
+  - `test_fence_relabelled_series_block_refused`: a block whose `series`
+    value changes while its versions stay is refused.
+  - `test_fence_duplicate_series_block_refused`: two blocks with the same
+    anchor value are refused as ambiguous.
+  - `test_fence_version_moved_above_its_anchor_refused` and
+    `test_fence_version_line_dropped_from_a_kept_block_refused`: a
+    versioned line that leaves a block that stays is refused.
+  - `test_fence_repeated_key_without_anchor_refused`: under a rule with no
+    anchor group, a changed key that appears twice in the file is refused.
+  - `test_fence_dropped_and_new_keys_allowed`: under a rule with no anchor
+    group, a dropped key and a new key are allowed.
+  - `test_fence_partial_diff_refused_under_a_version_rule`: a diff that
+    does not show the whole file is refused under a versioned rule; a rule
+    with no version group needs no whole file.
+  - `test_fence_non_numeric_version_refused`
   - `test_config_accepts_paths_key` (strings and `{ path, lines }` tables),
     `test_config_rejects_bad_line_regex` and
     `test_config_rejects_unknown_key`.
@@ -404,7 +453,7 @@ retargeted to the task or tasks that fix it.
     every other key must be equal;
   - every `upstream-version`, changed or new, must match
     `\d+\.\d+\.\d+\+\d{8}` in full;
-  - a removed entry is allowed;
+  - an existing entry is never removed;
   - a new entry, which vergil-python's hook adds when a new CPython series
     appears, is allowed only as a **series copy** of an existing entry E:
     - E's `name` and the new `name` must be equal except for one
@@ -530,8 +579,8 @@ retargeted to the task or tasks that fix it.
        `git status --porcelain=v1 -z --untracked-files=all --no-renames`:
        added, modified, deleted, mode-changed and untracked files. Refuse
        unless it equals the meta's `paths` exactly. Pass that set, never
-       the meta's, to `fence_violations`, with the changed lines from
-       `git diff -U0 <base_sha>` in the clone, the `vergil.toml` "before"
+       the meta's, to `fence_violations`, with each path's whole-file diff
+       from `diff_changed_lines(clone, base_sha, paths)`, the `vergil.toml` "before"
        taken from `base_sha` and "after" from the working tree. The meta's
        `paths` are used only for the PR body;
     9. set the clone's `user.name` and `user.email` from `bot`;
@@ -594,6 +643,15 @@ the reason is now the path fence, where `.github/**` is always refused).
   fence refuses a downgrade (Task 3a). The regexes above show the formats
   without the group.
 
+  Check whether any of these files can repeat a versioned key, for example
+  an `ARG` a multi-stage fragment declares again after each `FROM`. Under a
+  rule with no anchor group, a changed key that repeats in a file is
+  refused as ambiguous (Task 3a). If a file can repeat one, give its rule
+  a `(?P<anchor>…)` group on the line that names each block, chosen so
+  that the anchor line comes before the block's versioned lines, and
+  record the choice in the `vergil.toml` comment beside `paths`. If none
+  can, record that.
+
   As of the snapshot, that is the whole list. Data files are listed as
   exact paths. `generate.py`
   renders more (`window.json`, the `docker/build.sh` smoke table, the
@@ -636,10 +694,14 @@ merge.
     lines the hook writes: `[[series]]`, `[series.sha256]`,
     `series = "\d+\.\d+"`, `cpython = "\d+\.\d+\.\d+"`,
     `pbs_tag = "\d{8}"`, `x86_64 = "[0-9a-f]{64}"`,
-    `aarch64 = "[0-9a-f]{64}"`, and blank lines. Mark `cpython` and
-    `pbs_tag` with `(?P<version>…)`, so neither can go down. Derive the
-    exact regex
-    from the file on `develop` at implementation time;
+    `aarch64 = "[0-9a-f]{64}"`, and blank lines. The file repeats
+    `cpython` and `pbs_tag` once per `[[series]]` block, so mark the
+    `series` value as the anchor, `(?P<anchor>\d+\.\d+)`, which names each
+    block. Mark `cpython` with `(?P<version>…)` and `pbs_tag` with
+    `(?P<version_pbs>…)` (a regex cannot repeat a group name), so neither
+    can go down within its block. Derive the exact regex from the file on
+    `develop` at implementation time, and confirm that the `series` line
+    comes before the versioned lines of its block;
   - `vergil.toml`, which the `vergil.toml` rules of Task 3a govern.
 - [ ] **Step 1b: The content checks the fence relies on** (spec §6.2).
   Name the PR CI checks that bind `runtime.toml` to `vergil.toml` (for
