@@ -62,7 +62,9 @@ vergil-python).
   clone (`[upstream-refresh].paths`), and the touched set comes from the
   applied tree, never from prepare's meta. `.github/**` is always refused.
   In `vergil.toml`, only `upstream-version` and `summary` of existing
-  `[[package]]` entries may change. A repo with no `paths` refuses every
+  `[[package]]` entries may change. A new entry must be a series copy of an
+  existing one, and a removed entry is allowed. A repo with no `paths`
+  refuses every
   patch.
 - With no token source registered, `lib/github.py` and `lib/git.py` behave
   exactly as today. `github-config`, `vrg-release`, `vrg-finalize-pr` and
@@ -317,9 +319,17 @@ retargeted to the task or tasks that fix it.
   - `test_fence_vergil_toml_smoke_change_refused`
   - `test_fence_vergil_toml_build_command_change_refused`: a change to
     `staged.build-command`.
-  - `test_fence_vergil_toml_added_package_refused`: a new `[[package]]`
-    entry is refused, naming its `name`. The same goes for a removed
-    entry.
+  - `test_fence_vergil_toml_series_copy_allowed`: a new
+    `vergil-python3.15` entry that equals the `vergil-python3.14` entry
+    with `3.14` replaced by `3.15` in `name`, `smoke` and `staged`, with
+    its own `upstream-version` and `summary`.
+  - `test_fence_vergil_toml_new_entry_extra_command_refused`: the same new
+    entry, but its `smoke` has an extra `; curl …`, is refused, naming the
+    entry and `smoke`.
+  - `test_fence_vergil_toml_new_entry_changed_build_command_refused`
+  - `test_fence_vergil_toml_new_entry_unrelated_name_refused`: a new entry
+    whose name differs by more than a series token.
+  - `test_fence_vergil_toml_removed_package_allowed`
   - `test_fence_vergil_toml_dependencies_change_refused`: `[[package]]`
     and `[dependencies].vergil` both changed; the message names
     `[dependencies]`.
@@ -341,15 +351,23 @@ retargeted to the task or tasks that fix it.
   or `fnmatch` with `**` support. Parse `vergil.toml` before and after with
   `tomllib`:
   - outside `package`, the two must be equal;
-  - the `package` entries must match one to one by `name`, so none is
-    added or removed;
-  - within each entry, only `upstream-version` and `summary` may differ,
-    so `smoke`, `staged` and every other key must be equal.
+  - entries are matched by `name`. Within an existing entry, only
+    `upstream-version` and `summary` may differ, so `smoke`, `staged` and
+    every other key must be equal;
+  - a removed entry is allowed;
+  - a new entry, which vergil-python's hook adds when a new CPython series
+    appears, is allowed only as a **series copy** of an existing entry E:
+    - E's `name` and the new `name` must be equal except for one
+      `\d+\.\d+` series token (old in E, new in the new entry);
+    - replacing every occurrence of the old token with the new one in
+      each of E's string values, `upstream-version` and `summary` aside,
+      must give exactly the new entry's values, with the same keys and
+      nested tables;
+    - `upstream-version` and `summary` are free.
 
-  Each difference is a violation. A new `[[package]]` entry, which
-  vergil-python's hook adds when a new CPython series appears, is
-  therefore refused. That case becomes an attended run (the human's local
-  `vrg-upstream-refresh`, then a reviewed PR).
+  Each difference is a violation, naming the entry and the key. The human's
+  local run follows exactly the same rules and the same merge flow as the
+  automation; there is no separate attended path.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope upstream-refresh`).
 
@@ -360,7 +378,9 @@ retargeted to the task or tasks that fix it.
 - Modify: `src/vergil_tooling/bin/vrg_upstream_refresh.py` (rewrite),
   `src/vergil_tooling/lib/upstream_refresh.py` (add `publish`),
   `src/vergil_tooling/lib/mechanized_pr.py` (`open_sync_pr` gains
-  `deadline_secs: int | None = None`; `None` keeps today's rule),
+  `deadline_secs: int | None = None`; `None` keeps today's rule; its
+  module docstring drops "cannot be renewed inside the job" and describes
+  the token source), `README.md` (the "one PR for a human to merge" line),
   `docs/site/docs/reference/upstream-refresh-config.md`,
   `docs/site/docs/reference/dependency-update-config.md`,
   `docs/site/docs/reference/cli-tools-overview.md`
@@ -378,10 +398,16 @@ retargeted to the task or tasks that fix it.
   - The CLI:
     - `vrg-upstream-refresh prepare --out DIR [--repo R]`;
     - `vrg-upstream-refresh publish --from DIR [--repo R]`;
-    - `vrg-upstream-refresh [--repo R] [--dry-run]`, the combined default.
+    - `vrg-upstream-refresh [--repo R] [--dry-run [--rules-from
+      PATH]]`, the combined default.
 
-    `--dry-run` runs prepare into a temporary directory and prints the
-    PR body.
+    `--dry-run` runs prepare into a temporary directory, applies the patch
+    to a second clone exactly as publish does, runs `fence_violations` on
+    it, and prints the PR body and every violation. It pushes nothing, and
+    exits 1 if any violation is found. The fence rules come from the
+    `develop` tip, or from the `vergil.toml` named by `--rules-from`, so a
+    branch can test its new `paths` before they merge. `--rules-from` is
+    accepted only with `--dry-run`.
 - Consumes: Tasks 1, 2 and 3a, and `mechanized_pr.open_sync_pr`.
 
 - [ ] **Step 1: Write the failing tests.**
@@ -409,6 +435,9 @@ retargeted to the task or tasks that fix it.
   - `test_publish_mints_before_identity_resolution`: with only the
     credential variables and `VRG_AUTOMATION_APP` set, the mode resolves
     to `automation` through the source's first token.
+  - `test_human_run_keeps_env_deadline`: with no token source,
+    `open_sync_pr` gets `deadline_secs=None`, so
+    `$VRG_MECHANIZED_PR_DEADLINE` still applies.
   - `test_publish_deadline_counts_from_tool_start`: after 600 seconds of
     clone and apply on a fake clock, `open_sync_pr` gets
     `deadline_secs=6600`.
@@ -419,6 +448,10 @@ retargeted to the task or tasks that fix it.
   - `test_log_lines`: closed, opened or in sync, each renewal and
     revocation with a time, and how the wait ended. No token appears.
   - `test_agent_modes_refused`
+  - `test_dry_run_reports_fence_violations`: with `--rules-from` naming a
+    file whose `paths` omits a touched file, the dry run prints the
+    violation, pushes nothing and exits 1. `--rules-from` without
+    `--dry-run` is a usage error (exit 1).
   - `test_human_default_runs_prepare_then_publish_without_source`: outside
     Actions, the combined mode runs both halves with the human's ambient
     credentials, registers no token source, and keeps the human's commit
@@ -446,7 +479,8 @@ retargeted to the task or tasks that fix it.
        taken from `base_sha` and "after" from the working tree. The meta's
        `paths` are used only for the PR body;
     9. set the clone's `user.name` and `user.email` from `bot`;
-    10. `open_sync_pr(..., deadline_secs=7200 - elapsed)`.
+    10. `open_sync_pr(..., deadline_secs=7200 - elapsed)` when a token
+        source is registered, and `deadline_secs=None` for a human run.
   - The bot email is `<id>+<slug>[bot]@users.noreply.github.com`, with
     `<id>` from `GET /users/<slug>[bot]`.
   - Update the three docs pages, the module docstring and `--help`. The
@@ -474,22 +508,33 @@ line with Tasks 1, 2, 3a and 3b.
 **Files:** Modify `vergil.toml` (`[upstream-refresh]` gains `paths`, and
 the comment loses "a human merges it"), `.github/workflows/ops.yml` (the
 `upstream-refresh` job comment, and the `language-lifecycle` comments that
-describe its token and pushes "as upstream-refresh's"), and
+describe its token and pushes "as upstream-refresh's"),
 `docs/site/docs/operations/version-management.md` (the human merge gate
-goes).
+goes), and `docker/pins/report_exposure.py` with its test expectations
+(the "never auto-merges" note, and the pointer to an open `upstream-refresh`
+PR, which now names the `automation/upstream-refresh/` PRs).
 
 - [ ] **Step 1:** Derive `paths` from what the hook writes:
   - `resolve_latest.py`: the `docker/common/*` fragments, as one entry
     `{ path = "docker/common/*", lines = '^ARG [A-Z0-9_]+_VERSION=' }`;
   - `resolve_toolchains.py`: `docker/pins/toolchains.yml`;
-  - every path `docker/versions/generate.py` renders;
+  - `generate.py`: `docker/versions/matrix.json` only;
   - `generate_catalog.py`: `docker/pins/CATALOG.md`.
 
-  Generated data files are listed as exact paths. No entry may cover the
-  hook script or its resolvers and generators (`docker/pins/*.sh`,
+  That is the whole list. Data files are listed as exact paths. `generate.py`
+  renders more (`window.json`, the `docker/build.sh` smoke table, the
+  `Dockerfile.template` `ARG` defaults, the README and docs version tables,
+  and two `.github/workflows/` package lists), but those come from
+  `manifest.yml`, which the hook never edits. They are deliberately
+  excluded, and a comment in `vergil.toml` says so. PR CI's
+  `generate.py --check` still catches drift. No entry may cover the hook
+  script or its resolvers and generators (`docker/pins/*.sh`,
   `docker/pins/*.py`, `docker/versions/*.py`).
-- [ ] **Step 2:** Check it: run `vrg-upstream-refresh --dry-run` locally,
-  and confirm every changed path is covered.
+- [ ] **Step 2:** Check it: run `vrg-upstream-refresh --dry-run
+  --rules-from vergil.toml` locally, and confirm it reports no violation.
+  If upstream has nothing new that day, there is no change to check.
+  Record that, and rerun the check on a later day before handoff, or use a
+  past refresh PR's diff.
 - [ ] **Step 3: Run the tests** (`vrg-validate` checks `vergil.toml`
   against the released tooling).
 - [ ] **Step 4: Commit** (`vrg-commit --type chore --scope upstream-refresh`).
@@ -503,8 +548,8 @@ goes).
 update it if it describes the human merge.
 
 - [ ] **Step 1:** Edit as above.
-- [ ] **Step 2:** Run `vrg-upstream-refresh --dry-run` locally, and confirm
-  the changed paths are covered.
+- [ ] **Step 2:** Run `vrg-upstream-refresh --dry-run --rules-from
+  vergil.toml` locally, and confirm it reports no violation, as in C1.
 - [ ] **Step 3: Run the tests.**
 - [ ] **Step 4: Commit** (`vrg-commit --type chore --scope upstream-refresh`).
 
@@ -517,7 +562,10 @@ update it if it describes the human merge.
   `docs/site/docs/workflows/index.md` ("one human-merged PR"),
   `docs/site/docs/configuration.md` (the upstream-refresh permission rows:
   the tool mints its own token, with the four permissions, and holds the
-  key only in publish)
+  key only in publish. They also state that a cancel which does not reach
+  the publish step inside its container counts as a hard kill: the last
+  token is then left to expire within its hour, on a runner that never ran
+  the work)
 - Create: `actions/ops/upstream-refresh/tests/key-boundary.test.sh`
 - Modify: `actions/ops/github-config/tests/automation-env.test.sh` (the
   fleet-wide rule for where `VRG_AUTOMATION_APP` may be set), its section
