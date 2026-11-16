@@ -126,7 +126,8 @@ Outcomes that count as failure even if the feature works:
   `.github/**`, to the tooling pin, or to the refresh's own configuration.
 - A token left live after the tool has replaced it, or after the tool has
   ended by success, failure or cancellation. A hard kill is the one
-  accepted exception (§6.1).
+  accepted exception (§6.1), and a cancel that never reaches the publish
+  step inside its container counts as one.
 - Run logic for the wait (rounds, retries, state passed between steps) in
   the workflow's YAML.
 - A refresh merging from any branch's code other than `develop`'s.
@@ -333,8 +334,10 @@ tokens for one repo, and hands out a current token on demand.
   current one: on success, on failure, and when GitHub's cancel signal
   (SIGINT or SIGTERM) arrives. The tool's own deadline ends safely before
   the job's `timeout-minutes`, so the normal path always reaches that
-  revocation. Only a hard kill (the runner lost, or the kill after the cancel
-  grace period) skips it. The token is then left to expire within its hour,
+  revocation. The handlers are installed before the first token is minted.
+  Only a hard kill skips the revocation: the runner lost, the kill after
+  the cancel grace period, or a cancel signal that the job container never
+  passes on to the step. The token is then left to expire within its hour,
   in the memory of a runner that never ran the work. A revocation that
   fails fails the run, naming the step. Revocation is its own call, not the
   shared `gh` retry path, which retries HTTP 401 as transient. It retries
@@ -404,26 +407,62 @@ tokens for one repo, and hands out a current token on demand.
   patch is untrusted data. A compromised package in the hook could write
   anything into it, and PR CI is no gate against a change to the workflows
   that CI itself runs. So publish checks every path the patch touches
-  before it pushes anything, against rules it reads only from its own
-  `develop` clone, never from prepare's output:
+  before it pushes anything:
+  - **Inputs come from publish's own clone.** The set of touched paths is
+    computed from the clone after the patch is applied (added, modified,
+    deleted, mode-changed and untracked files), and must equal prepare's
+    list exactly. Prepare's list is used only for the PR body. The rules
+    are read from the `develop` tip of publish's clone, never from
+    prepare's output.
   - **The allowlist.** Each repo's `[upstream-refresh]` table in
-    `vergil.toml` lists the paths, as glob patterns, that its hook may
-    change. For example, vergil-containers lists `docker/pins/**`,
-    `docker/common/*` and `docker/versions/matrix.json`, and vergil-python
-    lists `runtime.toml` and `vergil.toml`. A path outside the list is
-    refused. A repo with no list refuses every patch. Each repo's PR adds
-    its list.
+    `vergil.toml` has a `paths` list of the files its hook may change.
+    Each entry is a glob, or a glob with a `lines` regex. Under a line
+    rule, every removed and added line must match the regex as a whole
+    line, and an added, deleted or binary file is refused. A path outside
+    the list is refused. A repo with no list refuses every patch.
+  - **Exact data paths, never scripts.** An allowlist names the data files
+    the hook writes, as exact paths where the set is fixed. It never
+    covers the hook, its resolvers or generators, or files the hook does
+    not change. Where a file's content follows a format, a line rule pins
+    it. vergil-containers' list:
+    - its `docker/common/*` fragments, with
+      `lines = '^ARG [A-Z0-9_]+_VERSION=\d+(\.\d+)*$'`;
+    - `docker/pins/workflow-images.txt`, with a value-format rule;
+    - `docker/pins/toolchains.yml`, `docker/versions/matrix.json` and
+      `docker/pins/CATALOG.md`.
+
+    vergil-python lists `runtime.toml` and `vergil.toml`.
   - **`.github/**` is always refused**, whatever the allowlist says.
-  - **`vergil.toml`, where allowed, may change only in its `[[package]]`
-    tables.** Publish parses the file before and after the patch, and
-    refuses any other difference: above all `[dependencies]` (the tooling
-    pin) and `[upstream-refresh]` (the hook and this allowlist).
-    vergil-python's hook rewrites its `[[package]]` entries with
-    `runtime.toml`, which is why the file cannot simply be refused.
+  - **`vergil.toml`, where allowed, has its own rules.** Publish parses the
+    file before and after the patch:
+    - outside `[[package]]`, it must not change at all. Above all that
+      covers `[dependencies]` (the tooling pin) and `[upstream-refresh]`
+      (the hook and this allowlist);
+    - in an existing `[[package]]` entry, only `upstream-version` and
+      `summary` may change;
+    - a removed entry is allowed;
+    - a new entry is allowed only as a series copy of an existing one:
+      the names differ by one `\d+\.\d+` series token, and every other
+      value, including `smoke` and `staged`, is the existing entry's with
+      that token replaced.
+
+    vergil-python's hook rewrites its entries' versions with
+    `runtime.toml`, and adds a series copy when a new CPython series
+    appears. That is why the file cannot simply be refused.
 
   A refused patch fails the run, naming each path or table and the rule.
   Nothing is pushed. Workflows write stays on the token for the wait's
   branch update alone (§6.1), and no patch can use it.
+
+  The fence limits which files change. For an allowlisted data file that
+  workflows read, what goes into it is limited by the repo's PR CI checks.
+  The fence relies on those checks, and each repo names them. In
+  vergil-containers, `generate.py --check` requires
+  `docker/versions/matrix.json` to equal what is generated from
+  `manifest.yml` (which the fence never allows to change) and
+  `docker/pins/toolchains.yml`, and `check_pins.py` checks the pins. Those
+  checks must be required status checks on `develop`. Where a data file's
+  format allows it, a value-format line rule bounds its content as well.
   - The scratch linked worktree, the "clean checkout at `origin/<base>`"
     check and `--base` are removed. The base is always `develop`, as with
     every mechanized PR. The tool never touches the caller's checkout.
@@ -453,8 +492,13 @@ tokens for one repo, and hands out a current token on demand.
     human's local run, where the human's own trust covers the hook. It is
     refused under Actions.
 
-  `--repo` and `--dry-run` stay. `--dry-run` runs prepare and prints the PR
-  body, pushing nothing.
+  `--repo` and `--dry-run` stay. `--dry-run` runs prepare, applies the
+  patch in a second clone exactly as publish does, and runs the fence. It
+  prints the PR body and every violation, pushes nothing, and exits 1 on
+  any violation. With `--rules-from <vergil.toml>`, which is accepted only
+  with `--dry-run`, the fence reads its rules from that file instead of
+  the `develop` tip. A repo's PR can then check its new allowlist before
+  it merges.
 - **Exit codes**, stated in `--help`:
   - **0:** merged, or nothing to change;
   - **2:** not merged, naming the PR and the reason, a terminal outcome or
@@ -464,7 +508,10 @@ tokens for one repo, and hands out a current token on demand.
     as the tool's errors do today.
 - **Identity.** The tool accepts `human` and `automation`, and refuses the
   agent modes, as it does today. Its identity check names `automation`
-  explicitly (epic #1064's rule).
+  explicitly (epic #1064's rule). The one exception is `--dry-run`, which
+  the agent modes may run: it mints no token, pushes nothing and opens
+  nothing. It only clones `develop`, runs the hook and checks the fence. So
+  an agent can check a repo's allowlist before it merges.
 - **Under Actions.** When `GITHUB_ACTIONS` is set:
   - publish refuses to run, before touching GitHub, unless it was given the
     App's credentials and resolves to `automation`. A workflow without them
@@ -516,9 +563,10 @@ git-identity step are removed: the tool now does each of them itself (§6.1,
 §6.2). The workflow also gets:
 
 - `timeout-minutes` on publish, set as §6.1 ("The wait") says: the tool's
-  120-minute deadline plus a budget for the earlier steps plus a margin. A
-  hung run then cannot hold the concurrency group for GitHub's six-hour
-  default;
+  120-minute deadline plus a budget for the earlier steps plus a margin.
+  Prepare gets its own `timeout-minutes` (30) for the same reason: neither
+  a hung publish nor a hung hook can then hold the concurrency group for
+  GitHub's six-hour default;
 - `concurrency: group: ${{ github.repository }}/upstream-refresh`,
   `cancel-in-progress: false`, at the workflow level, so a run's prepare
   and publish never interleave with another run's;

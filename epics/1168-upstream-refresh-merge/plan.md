@@ -292,8 +292,9 @@ retargeted to the task or tasks that fix it.
     read from prepare's output. `changed_lines` maps each touched path to
     its removed and added lines (from `git diff -U0 <base_sha>` in the
     applied clone). A path whose first matching rule has a `lines` regex
-    is allowed only when every changed line matches it (`re.match`). A
-    binary or added or deleted file under such a rule is refused.
+    is allowed only when every changed line matches it as a whole line
+    (`re.fullmatch`). A binary, added or deleted file under such a rule is
+    refused.
   - `render_body(notes: list[str], paths: list[str]) -> str`, whose intro
     now says the job merges the PR itself once CI passes.
   - Removed: `REFRESH_BRANCH`, `sync`, `open_refresh_prs`,
@@ -338,8 +339,11 @@ retargeted to the task or tasks that fix it.
     or a path with `..`.
   - `test_fence_line_rule_allows_version_lines`: in a
     `docker/common/x.dockerfile` covered by
-    `lines = '^ARG [A-Z0-9_]+_VERSION='`, only an `ARG FOO_VERSION=` line
-    changes.
+    `lines = '^ARG [A-Z0-9_]+_VERSION=\d+(\.\d+)*$'`, only an
+    `ARG FOO_VERSION=1.2.3` line changes.
+  - `test_fence_line_rule_refuses_value_outside_format`: the same rule
+    refuses `ARG X_VERSION=1.2.3/../x` and `ARG X_VERSION=1.2.3 # x`. A
+    line rule matches the whole line (`re.fullmatch`).
   - `test_fence_line_rule_refuses_run_line_change`: the same file with a
     changed `RUN` line is refused, naming the file and the line rule.
   - `test_fence_line_rule_refuses_added_file`
@@ -441,13 +445,19 @@ retargeted to the task or tasks that fix it.
   - `test_publish_deadline_counts_from_tool_start`: after 600 seconds of
     clone and apply on a fake clock, `open_sync_pr` gets
     `deadline_secs=6600`.
-  - `test_sigterm_revokes_and_exits_nonzero`
+  - `test_sigterm_revokes_and_exits_nonzero`, including a signal right
+    after the first mint, during identity resolution.
   - `test_exit_codes`: merged gives 0, in sync gives 0, `PRNotMergedError`
     gives 2 with the URL printed, a fence refusal gives 1, and a usage
     error (for example the removed `--base`) gives 1, not argparse's 2.
   - `test_log_lines`: closed, opened or in sync, each renewal and
     revocation with a time, and how the wait ended. No token appears.
-  - `test_agent_modes_refused`
+  - `test_agent_modes_refused`: `prepare`, `publish` and the combined
+    mode are refused under each agent mode.
+  - `test_agent_dry_run_allowed`: `--dry-run` (with or without
+    `--rules-from`) runs under an agent mode, registers no token source,
+    and makes no write call. Patch `github` and `git` push helpers to
+    fail.
   - `test_dry_run_reports_fence_violations`: with `--rules-from` naming a
     file whose `paths` omits a touched file, the dry run prints the
     violation, pushes nothing and exits 1. `--rules-from` without
@@ -463,10 +473,10 @@ retargeted to the task or tasks that fix it.
     2. refuse App mode;
     3. build the `AppTokenSource` with `expected_slug` from
        `automation_identity.env_slug()`;
-    4. register it (`github.token_source`);
-    5. resolve the identity;
-    6. install the SIGINT and SIGTERM handlers, which `close()` and exit
-       130 or 143;
+    4. install the SIGINT and SIGTERM handlers, which `close()` and exit
+       130 or 143, before anything can mint a token;
+    5. register the source (`github.token_source`);
+    6. resolve the identity, which mints the first token;
     7. clone `develop`, and read the fence rules (`[upstream-refresh]`)
        from that tip before anything else. Then fetch and check out
        `base_sha` detached, and `git apply`;
@@ -512,16 +522,27 @@ describe its token and pushes "as upstream-refresh's"),
 `docs/site/docs/operations/version-management.md` (the human merge gate
 goes), and `docker/pins/report_exposure.py` with its test expectations
 (the "never auto-merges" note, and the pointer to an open `upstream-refresh`
-PR, which now names the `automation/upstream-refresh/` PRs).
+PR, which now names the `automation/upstream-refresh/` PRs), and the
+`docker/pins/workflow_images.py` module docstring (it says the refresh
+cannot edit workflows because its token has no `workflows` permission;
+the reason is now the path fence, where `.github/**` is always refused).
 
-- [ ] **Step 1:** Derive `paths` from what the hook writes:
+- [ ] **Step 1:** Derive `paths` from what the hook writes *at
+  implementation time*. Read `docker/pins/upstream-refresh.sh` and each
+  script it runs on `develop` then, not this plan's snapshot, which was
+  taken on 2026-11-16:
   - `resolve_latest.py`: the `docker/common/*` fragments, as one entry
-    `{ path = "docker/common/*", lines = '^ARG [A-Z0-9_]+_VERSION=' }`;
+    `{ path = "docker/common/*",
+    lines = '^ARG [A-Z0-9_]+_VERSION=\d+(\.\d+)*$' }`, and
+    `docker/pins/workflow-images.txt` (added by vergil-containers#919), as
+    `{ path = "docker/pins/workflow-images.txt",
+    lines = '^[A-Z0-9_]+_VERSION=\d+(\.\d+)*$' }`;
   - `resolve_toolchains.py`: `docker/pins/toolchains.yml`;
   - `generate.py`: `docker/versions/matrix.json` only;
   - `generate_catalog.py`: `docker/pins/CATALOG.md`.
 
-  That is the whole list. Data files are listed as exact paths. `generate.py`
+  As of the snapshot, that is the whole list. Data files are listed as
+  exact paths. `generate.py`
   renders more (`window.json`, the `docker/build.sh` smoke table, the
   `Dockerfile.template` `ARG` defaults, the README and docs version tables,
   and two `.github/workflows/` package lists), but those come from
@@ -530,6 +551,16 @@ PR, which now names the `automation/upstream-refresh/` PRs).
   `generate.py --check` still catches drift. No entry may cover the hook
   script or its resolvers and generators (`docker/pins/*.sh`,
   `docker/pins/*.py`, `docker/versions/*.py`).
+- [ ] **Step 1b: The content checks the fence relies on** (spec §6.2).
+  - Confirm that `generate.py --check` and `check_pins.py` run in PR CI,
+    and that the jobs running them are required status checks on
+    `develop` (the repo's ruleset, as `vrg-github-repo-config audit`
+    reports it). Record the check names in the `vergil.toml` comment
+    beside `paths`. If either is not required, stop and raise it: the
+    fence must not ship without it.
+  - Where `toolchains.yml`'s format allows a value-format line rule (a
+    version and a hex hash per line), give its entry one. Otherwise record
+    why not.
 - [ ] **Step 2:** Check it: run `vrg-upstream-refresh --dry-run
   --rules-from vergil.toml` locally, and confirm it reports no violation.
   If upstream has nothing new that day, there is no change to check.
@@ -566,7 +597,11 @@ update it if it describes the human merge.
   the publish step inside its container counts as a hard kill: the last
   token is then left to expire within its hour, on a runner that never ran
   the work)
-- Create: `actions/ops/upstream-refresh/tests/key-boundary.test.sh`
+- Create: `actions/ops/upstream-refresh/tests/key-boundary.test.sh`, with
+  git mode 100755, and a step in `.github/workflows/smoke-setup-vergil.yml`
+  that runs it (or its `validate-custom` entry, if it needs only `yq` and
+  `jq`). `scripts/bin/check-test-suites-run` fails any `*.test.sh` that
+  nothing runs.
 - Modify: `actions/ops/github-config/tests/automation-env.test.sh` (the
   fleet-wide rule for where `VRG_AUTOMATION_APP` may be set), its section
   in `docs/site/docs/workflows/ops-github-config.md`, and its summary in
@@ -624,6 +659,12 @@ update it if it describes the human merge.
   - Workflow-level: `concurrency: group: ${{ github.repository
     }}/upstream-refresh`, `cancel-in-progress: false`. Both jobs keep
     today's container input. Rewrite the header comment.
+- [ ] **Step 3b: Check the callers' `permissions:`.** Compare
+  vergil-containers' and vergil-python's `ops.yml` `upstream-refresh` jobs
+  with what the two new jobs need (`contents: read` for prepare's
+  `GITHUB_TOKEN`; nothing for publish, whose writes use the tool's own
+  token). Record the result in the PR body. If a caller needs a change,
+  it goes into C1 or P1.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope ops`). The human's
   `vrg-submit-pr` pushes it.
