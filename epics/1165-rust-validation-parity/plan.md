@@ -12,7 +12,8 @@
 **Goal:** A Rust repo's lockfile is enforced, its validation tools are pinned
 to digests and versions held in source, its coverage gate requires 100% lines
 and regions, its CI evidence names its own tools and reports, and
-`vrg-update-deps` updates its `Cargo.lock` and reports what is held back.
+`vrg-update-deps` updates its `Cargo.lock` and reports what is held back,
+and `vrg-validate` builds its release profile before release.
 
 **Architecture:**
 
@@ -52,8 +53,8 @@ Actions YAML, Dockerfile, cargo, cargo-llvm-cov, cargo-deny, cargo-nextest.
   `vrg-pr-workflow report-ready`.
 - **Live check for Rust command changes.** String tests cannot show that
   cargo accepts a command, and vergil-tooling's own validation never runs
-  cargo. So every task that changes a Rust gate command (Tasks 2, 3, 4 and
-  6) runs the real commands before report-ready:
+  cargo. So every task that changes a Rust gate command (Tasks 2, 3, 4, 6
+  and 13) runs the real commands before report-ready:
   - install the task branch's vergil-tooling into the current Rust image,
     for example from the worktree with `uv tool install`, inside
     `vrg-container-run`;
@@ -104,13 +105,17 @@ blocked by.
 - **11a** (vergil-fixture-rust-lib): region coverage brought to 100%.
 - **11b** (vergil-fixture-rust-app): region coverage brought to 100%.
 - **12** (.github, deployment): releases attested; Rust images published
-  with the pinned tools. Blocked by 2–10, 11a and 11b.
+  with the pinned tools. Blocked by 2–10, 11a, 11b and 13.
+- **13** (vergil-tooling): Rust release build in `vrg-validate`, through
+  #1174's BUILD check. Blocked by 6 and by the #1174 task that adds the
+  BUILD check kind.
 - **Fixture runs** (both Rust fixtures): one `fixture-run` trio per fixture.
   Blocked by 12.
-- **Documentation review** (vergil-tooling, bookend #4443). Blocked by 2–10.
+- **Documentation review** (vergil-tooling, bookend #4443). Blocked by 2–10
+  and 13.
 - **Retrospective** (.github, bookend #1167). Blocked by everything else.
 
-- **Ordering in vergil-tooling.** Tasks 2, 4, 3 and 6 change the same Rust
+- **Ordering in vergil-tooling.** Tasks 2, 4, 3, 6 and 13 change the same Rust
   entry in `lib/languages.py` (Task 3 rewrites `_RUST_TEST_SCRIPT`'s report
   line, which Tasks 2 and 4 also change) and all touch `vrg_validate.py`.
   So they land in that order. Task 5 touches `lib/version.py` and creates
@@ -737,13 +742,54 @@ Spec §6.2, "measure before switching on". One task per fixture repo.
 - [ ] **Step 4: Commit** `vrg-commit --type test --scope coverage --message
   "cover every region"`, then report-ready.
 
+### Task 13: Rust release build in `vrg-validate` (vergil-tooling)
+
+Spec §6.9. Blocked by 6 (the same `languages.py` entry) and by the epic
+vergil-project/.github#1174 task that adds the generic BUILD check kind.
+That task is not yet filed. Its ref is added to this task's `Blocked-by:`
+when it is, and this task's body names it as a precondition until then.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/languages.py` (the Rust entry enables
+  BUILD; `EcosystemInfo.build_cmd`)
+- Modify: `docs/site/docs/standards/development/rust/overview.md` (the
+  release profile is built in validation)
+- Test: `tests/vergil_tooling/test_languages.py`,
+  `tests/vergil_tooling/test_vrg_validate.py`
+
+**Interfaces:**
+
+- Consumes: #1174's BUILD check kind and the way it enables a language, as
+  that epic's plan defines them. This task does not change the mechanism.
+- Produces: Rust's `build_cmd == ["cargo", "build", "--release", "--locked",
+  "--workspace"]`, and BUILD enabled for Rust. The release job's build runs
+  the same command, so validation and release build the same profile.
+
+- [ ] **Step 1: Write the failing tests.**
+  - `test_rust_build_cmd_is_locked_release_workspace`
+  - `test_rust_build_check_enabled`: the Rust language runs BUILD with that
+    command.
+  - `test_rust_build_failure_fails_validate`: a failing build command fails
+    the BUILD stage.
+- [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expect the new
+  tests to fail.
+- [ ] **Step 3: Implement** the interfaces above, and update the standards
+  page.
+- [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expect PASS.
+- [ ] **Step 4b: Live check** (Global Constraints) against
+  `vergil-fixture-rust-lib`. Expect the BUILD stage to run the release
+  build and pass, and record the output in the PR.
+- [ ] **Step 5: Commit** `vrg-commit --type feat --scope rust --message
+  "build the Rust release profile in vrg-validate"`, then report-ready.
+
 ### Task 12: Releases attested; pinned-tool Rust images (deployment, .github)
 
-Blocked by 2–10, 11a and 11b.
+Blocked by 2–10, 11a, 11b and 13.
 
 - **Precondition (human-attested):** the releases are published and their
   versions named in a comment:
-  - vergil-tooling (Tasks 2–7), first;
+  - vergil-tooling (Tasks 2–7 and 13), first;
   - then vergil-actions (Task 8) and vergil-containers (Tasks 9 and 10).
 - **Procedure (agent-safe):**
   1. Confirm each named release's notes list its tasks' PRs.
@@ -771,3 +817,5 @@ standard trio, each run checks:
   known gap.
 - The test gate passes at 100% lines and regions, and the install step runs
   `--locked`.
+- `vrg-validate` runs the BUILD stage with `cargo build --release --locked
+  --workspace`, and it passes before the release PR merges.

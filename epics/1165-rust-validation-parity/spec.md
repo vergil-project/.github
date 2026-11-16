@@ -55,6 +55,8 @@ a Python repo:
    requirements in `Cargo.toml`, and reports each direct dependency those
    requirements hold back.
 7. The Rust fixtures' dependency-rollback and evidence-bundle checks pass.
+8. `vrg-validate` builds a Rust repo's release profile before release, using
+   the generic BUILD check from epic vergil-project/.github#1174 (§6.9).
 
 ### Non-goals
 
@@ -478,12 +480,34 @@ human-facing docs for every change above. That covers at least:
      `vrg-update-deps` restores it with a Cargo update commit;
    - checks the evidence bundle's `quality` gate names Rust's tools and holds
      its reports;
-   - passes the new coverage gate and the locked install.
+   - passes the new coverage gate and the locked install;
+   - runs the release build in `vrg-validate` (§6.9), and it passes.
 
    The two known-gap checks from the first fixture runs become passing checks.
 
    Both fixtures are single-crate repos, so workspace support (§6.4) is
    covered by unit tests only, not by the fixture runs.
+
+### 6.9 The release build is validated (vergil-tooling)
+
+- **The gap.** `vrg-validate` never runs a language's release build. The
+  build command runs for the first time in the release job, after the
+  release PR has merged. For Rust, the TEST stage compiles the test profile
+  with coverage instrumentation, so the `--release` profile is never built
+  before release, even though it differs: optimisation, and code under
+  `cfg(debug_assertions)` or `cfg(not(debug_assertions))`. A release-only
+  compile error surfaces only after merge.
+- **The mechanism is #1174's.** Epic vergil-project/.github#1174 (TypeScript
+  through the full cycle) adds a generic BUILD check kind to `vrg-validate`
+  that runs the language's `build_cmd`, enabled for TypeScript only. This
+  epic does not design that check. It enables it for Rust, as that epic
+  defines it, and proves it with the Rust fixture runs.
+- **Rust's build command** is `cargo build --release --locked --workspace`,
+  following §6.1 and §6.4. The same command is the release job's build, so
+  validation and release build the same thing.
+- **Python** gets its own task, outside this epic: enabling BUILD for Python
+  (`uv build`) is not Rust work.
+- A failing release build fails `vrg-validate`, as every other stage does.
 
 ## 7. Failure model
 
@@ -502,6 +526,8 @@ human-facing docs for every change above. That covers at least:
   change".
 - **The sparse index unreachable during the held-back check:** the updater fails
   loudly. The held-back list is never silently empty.
+- **The Rust release build fails:** `vrg-validate` fails at its BUILD stage,
+  before release (§6.9).
 - **A lint or typecheck report is missing in CI after a passing leg**
   (Rust or Python): the leg's staging step fails. Today a missing Python
   report is skipped silently. This epic makes it fail (§6.5).
@@ -541,6 +567,8 @@ human-facing docs for every change above. That covers at least:
 - vergil-project/vergil-containers#910: the Rust window from Rust's own
   channel.
 - vergil-project/.github#1128: automatic merging of lifecycle PRs.
+- vergil-project/.github#1174: TypeScript through the full cycle, which adds
+  the generic BUILD check kind §6.9 enables for Rust.
 - vergil-project/.github#1179: Rust workspace support, and the lib/app
   fixture split.
 
