@@ -56,9 +56,13 @@ This is epic 1 of the TypeScript-parity wave:
    `vrg-validate` with a message that names the fix.
 4. Every TypeScript repo gets Vergil's strict base tsconfig, ESLint config and
    Prettier config as managed files, kept current by the nightly fleet sync.
-   The repo's own `tsconfig.json` and `eslint.config.mjs` extend them.
-5. A TypeScript repo can release. `vrg-version` bumps `package.json` and
-   refreshes `package-lock.json`, and `cd-release` accepts TypeScript.
+   The repo's own `tsconfig.json` and `eslint.config.mjs` extend them, and
+   weakening a Vergil rule is an exception under epic #375.
+5. A TypeScript repo can release. `vrg-version` bumps the version in
+   `package.json` and `package-lock.json`, `cd-release` accepts TypeScript,
+   and `vrg-validate` runs the release build (a new, language-neutral BUILD
+   check, on for TypeScript), so a broken build fails on the PR, not at
+   release.
 6. The TypeScript gates write evidence files, and the CI report contract
    stages them.
 7. A `package.json` Vergil cannot parse is an error, never "not TypeScript".
@@ -83,8 +87,8 @@ This is epic 1 of the TypeScript-parity wave:
 
 ### Anti-goals (the epic fails if any of these happen)
 
-- A TypeScript gate passes with a tool the repo did not lock, or with a tool
-  missing.
+- A TypeScript gate runs a tool the guideline (§6.2) assigns to the repo from
+  anywhere but the repo's lockfile, or runs with a required tool missing.
 - A repo turns red overnight because the image removed a tool the repo still
   calls from `PATH`, with no warning beforehand.
 - The fleet sync overwrites a file a repo owns.
@@ -311,7 +315,12 @@ states the rule and how to apply it to a new language:
 - **Gates run the repo's tools.** LINT's ESLint step, TYPECHECK and TEST call
   the repo-local binaries, with no implicit download (for example
   `npx --no-install`). Prettier and license-checker stay image tools;
-  Prettier reads the repo's managed `.prettierrc.json` (§6.4).
+  Prettier runs with `--config .prettierrc.json`, the repo's managed copy
+  (§6.4).
+- **No install scripts.** Every `npm ci` Vergil runs for TypeScript (INSTALL,
+  the BUILD check and the release build, §6.5) passes `--ignore-scripts`.
+  Repos Vergil manages are code we own and do not rely on install scripts. A
+  repo that genuinely needs one declares it as an exception (§6.4).
 - **A required devDependency that is missing or out of range fails.** Before
   the TypeScript gates run, `vrg-validate` checks that `package.json` declares
   each required devDependency, and that both the declared range and the
@@ -351,20 +360,39 @@ states the rule and how to apply it to a new language:
     the repo's `node_modules`, which hold the declared plugins, so the
     copy-in, delete-after staging goes away.
   - `.prettierrc.json`: Prettier's config, currently
-    `configs/typescript/prettier.config.json`. Prettier finds it on its own,
-    so the gate drops `--config`, and an editor or a bare `npx prettier`
-    formats exactly as the gate checks.
+    `configs/typescript/prettier.config.json`. The gate passes it with
+    `--config .prettierrc.json`, and an editor finds the same file on its
+    own, so both format with the same config. The same Prettier *version* is
+    guaranteed only inside the container
+    (`vrg-container-run -- prettier --write .`): Prettier is an image tool
+    and floats, so an editor's own Prettier may differ, and the standards page
+    says so.
 - **The repo owns the entry points, and each extends Vergil's base.** The
   fleet sync never writes them:
   - `tsconfig.json` holds the repo's paths and
     `"extends": "./tsconfig.vergil.json"`;
   - `eslint.config.mjs` imports `./eslint.vergil.config.mjs` and spreads it.
-    It may add ignores (generated code, for example) and rule overrides.
-    Standing suppressions stay banned by the existing ESLint rules.
+    It may add ignores (generated code, for example) and rules of its own.
 
   `vrg-validate` checks that `tsconfig.json` extends the base and that
   `eslint.config.mjs` imports and spreads Vergil's config, and fails with the
-  fix otherwise.
+  fix otherwise. The `tsconfig.json` check parses the file as `tsc` does
+  (comments and trailing commas allowed) and accepts
+  `"./tsconfig.vergil.json"` as the `extends` string or as one entry of an
+  `extends` array. The ESLint check is equally tolerant of form.
+- **Weakening a Vergil rule is an exception, not a failure.** A repo that
+  turns off or weakens a rule from Vergil's ESLint config, or a strict flag
+  from the base tsconfig, has made a repo-level (level 2) exception under
+  exception management, epic vergil-project/.github#375, exactly as a Python
+  repo that disables a ruff rule in its `pyproject.toml` has. This epic does
+  not block it. Finding and auditing such overrides, through the effective
+  config (`eslint --print-config`, `tsc --showConfig`), is #375's TypeScript
+  plug-in. Leaving out Vergil's base altogether is not an exception: the
+  structural check above fails it.
+- **One Prettier config.** A second Prettier config source (a `"prettier"`
+  key in `package.json`, or another `.prettierrc*` file) fails
+  `vrg-validate` with the fix, so the gate and an editor can never read
+  different formatting configs.
 - **One definition.** Each managed file has a `<name>_drift` in
   `repo_config.py`, a `_check_*`, a fixer in `FIXERS`, and an entry in
   `audit_local_config`, following the existing pattern. Drift is "differs from
@@ -378,20 +406,40 @@ states the rule and how to apply it to a new language:
 
 ### 6.5 The TypeScript release path (vergil-tooling, vergil-actions)
 
-- **`vrg-version`** gains TypeScript in each map in `lib/version.py`:
-  - version file `package.json`;
-  - lockfile `package-lock.json`;
-  - the version write is edit-only: `npm version <v> --no-git-tag-version`,
-    run in the dev container. It changes only the version fields of
-    `package.json` and the lockfile's root entries, and re-resolves nothing,
-    so no dependency can move. A test proves that nothing outside those
-    fields changes.
-- **The build command installs from the lockfile first:** `npm ci`, then
-  `npm run build`. The release job's Build step runs on a fresh checkout with
-  no `node_modules` (§4), and a library's `tsc` must resolve its dependencies.
-- **A TypeScript repo must define a `build` script.** `vrg-validate` checks
-  for it, so a missing script fails on the first validate with the fix
-  message, never only at release.
+- **`vrg-version`** supports TypeScript within its existing two-phase bump
+  (`lib/version.py`: write the version file, then refresh the lockfile):
+  - `package.json` joins the version-file map and the set of languages with
+    a separate version file;
+  - `_read_version` and `_write_version` gain a JSON `"version"` branch for
+    `package.json`, as the plugin manifest already has, so `vrg-version show`
+    reads it and a bump rewrites only that field;
+  - the lockfile step rewrites only `package-lock.json`'s root version fields
+    (the top-level `version` and `packages[""].version`) with a direct JSON
+    edit. It runs no npm, so no script runs and nothing is re-resolved, and no
+    dependency can move;
+  - `bump_paths()` lists both files. Tests prove the bump paths, that
+    `vrg-version show` reads `package.json`, and that nothing outside the
+    version fields changes.
+- **The build command installs from the lockfile first:**
+  `npm ci --ignore-scripts`, then `npm run build`. The release job's Build
+  step runs on a fresh checkout with no `node_modules` (§4), and a library's
+  `tsc` must resolve its dependencies. The release build runs without
+  persisted checkout credentials.
+- **A TypeScript repo must define a `build` script,** and `vrg-validate`
+  checks for it.
+- **A generic BUILD check in `vrg-validate`.** Today no language's release
+  build runs before release: `vrg-validate` has no BUILD check, and the build
+  command (`uv build`, `cargo build --release`, `go build ./...`) first runs
+  in the release job, after the release PR has merged. The tests compile the
+  code in a test configuration, but not the artifact a release ships: for
+  TypeScript, `tsc --noEmit` checks types, and the build's own emit options
+  (output directory, declaration files, a build-only tsconfig) are never
+  exercised. This epic adds a BUILD check kind, language-neutral in
+  vergil-tooling, that runs the language's build command, the same one the
+  release job runs. It is turned on for TypeScript only, and the fixtures
+  prove it. Turning it on for Rust belongs to the Rust validation epic
+  (vergil-project/.github#1087), and for Python to its own task (§6.10), each
+  with a fixture run.
 - **`cd-release`** accepts `typescript` at line 615, and the description at
   line 7 says so. The publish step stays off: `publish_cmd` stays `None`, and
   `registry-publish` stays `false`. A TypeScript release produces what a Rust
@@ -490,14 +538,20 @@ states the rule and how to apply it to a new language:
   language. Until it lands, the guideline page claims only what the lockfile
   records (§6.2).
 - **TypeScript 7:** deferred as vergil-project/.github#1181.
+- **The BUILD check for Python:** a task to turn on §6.5's BUILD check for
+  Python (`uv build` in `vrg-validate`), with a Python fixture run.
+- **Effective-config auditing of TypeScript overrides:** recorded as a comment
+  on epic vergil-project/.github#375, whose TypeScript plug-in it is (§6.4).
 - Epic 4 is vergil-project/.github#959, already in planning.
 
 ## 7. Failure model
 
 - A missing or out-of-range required devDependency, a `tsconfig.json` or
-  `eslint.config.mjs` that does not extend Vergil's managed base, a missing
-  `build` script and an unparseable `package.json` all fail with a message
-  that names the fix. None falls back.
+  `eslint.config.mjs` that does not extend Vergil's managed base, a second
+  Prettier config source, a missing `build` script and an unparseable
+  `package.json` all fail with a message that names the fix. None falls back.
+- A TypeScript build that fails, fails the BUILD check on the PR, before any
+  release.
 - A gate never runs a global binary in place of the repo's tool, and never
   downloads one.
 - A drifted managed file is reported by the audit and fixed by the nightly
