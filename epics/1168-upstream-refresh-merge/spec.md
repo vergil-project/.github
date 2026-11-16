@@ -76,7 +76,7 @@ workflow logic of its own.
   a mechanized PR can take longer than one token's life to merge. The logic
   lives in Python, and a workflow that uses it stays declarative.
 - G1a. The key boundary (§6) holds: the App's private key never shares a
-  runner with repo-supplied or third-party code.
+  runner with the work, that is, the repo hook and what it loads.
 - G2. `vrg-upstream-refresh` opens its PR through the building block. Its
   run succeeds only when the PR has merged into `develop`, or when there was
   nothing to change.
@@ -117,10 +117,13 @@ workflow logic of its own.
 
 Outcomes that count as failure even if the feature works:
 
-- The App's private key on a runner that runs repo-supplied or third-party
-  code, or reaching any child process (`git`, `gh`), a log line, argv or a
-  file.
+- The App's private key on a runner that runs the work (§6, the key
+  boundary), in the environment a child process (`git`, `gh`) starts with,
+  or in a log line, argv or a file.
 - The hook holding a write token.
+- An unattended refresh merging a change outside the paths its repo's
+  `develop` allows (§6.2, the path fence), and above all any change to
+  `.github/**`, to the tooling pin, or to the refresh's own configuration.
 - A token left live after the tool has replaced it, or after the tool has
   ended by success, failure or cancellation. A hard kill is the one
   accepted exception (§6.1).
@@ -249,10 +252,17 @@ How upstream-refresh opens its PR:
 ## 6. Design
 
 **The key boundary.** This is a rule for every mechanized job that holds
-the automation App's private key, now and later. The key exists only in a
-process that runs nothing but our own released code. It never shares a
-machine with code that the repo supplies or that comes from a third party:
-a repo hook, a generator, or any package such code installs or loads.
+the automation App's private key, now and later. It separates the trusted
+platform from the work the job performs:
+
+- **the trusted platform:** the GitHub runner, our released container
+  images and the released toolchains in them, and released vergil-tooling.
+  Every job, attended or not, already rests on these release processes;
+- **the work:** code the job runs to produce its change, which is a repo
+  hook, a generator, and any package such code installs or loads at run
+  time.
+
+The key never shares a runner with the work.
 
 A job that needs both therefore runs as two GitHub Actions jobs, each on a
 fresh runner:
@@ -260,9 +270,9 @@ fresh runner:
 - **prepare** runs that code with no secrets and a read-only
   `GITHUB_TOKEN`, and hands on **data only**: a patch and notes, as an
   artifact;
-- **publish** holds the key, runs only our code, and treats what it
-  receives as data. It never executes it, and never runs git inside a tree
-  that `prepare` touched.
+- **publish** holds the key, runs only the trusted platform, and treats
+  what it receives as data. It never executes it, and never runs git
+  inside a tree that `prepare` touched.
 
 Separate steps in one job are not enough. Steps share the runner's
 filesystem, so code in an earlier step could rewrite the tool, its
@@ -325,28 +335,40 @@ tokens for one repo, and hands out a current token on demand.
   the job's `timeout-minutes`, so the normal path always reaches that
   revocation. Only a hard kill (the runner lost, or the kill after the cancel
   grace period) skips it. The token is then left to expire within its hour,
-  in the memory of a runner that ran no code but ours. A revocation that
-  fails fails the run, naming the step.
+  in the memory of a runner that never ran the work. A revocation that
+  fails fails the run, naming the step. Revocation is its own call, not the
+  shared `gh` retry path, which retries HTTP 401 as transient. It retries
+  only network errors and 5xx responses, and treats a 401 on a retry as
+  "already revoked", since an earlier attempt's response may have been
+  lost. A unit test covers that lost-response case.
 - **Identity.** Each token the source mints is checked against
   `VRG_AUTOMATION_APP`, as `automation_identity` does today for `GH_TOKEN`.
   The mode resolves to `automation` only after the first token passes.
   A token from any other App fails the run.
 - **Key hygiene.** The key reaches the tool only in the publish job, through
-  an environment variable set only on the step that runs the tool. No
-  repo-supplied or third-party code runs anywhere in that job (§6, the key
-  boundary). The tool reads the key once, at startup, and removes the
-  variable from its own environment before doing anything else, so its
-  child processes (`git`, `gh`) are started without it. It never appears in
-  a log line, an exception message, argv or a file. The client ID is not
-  secret, but follows the same path.
+  an environment variable set only on the step that runs the tool. The work
+  never runs anywhere in that job (§6, the key boundary). The tool reads
+  the key once, at startup, and removes the variable from its own
+  environment before doing anything else, so its child processes (`git`,
+  `gh`) are started without it. It never appears in a log line, an
+  exception message, argv or a file. The client ID is not secret, but
+  follows the same path.
+  - **Accepted risk:** on Linux, removing a variable does not erase the
+    process's original environment block, so a process running as the same
+    user could still read the key from `/proc`. In the publish job, the only
+    such processes are the trusted platform (the tool's own `git` and `gh`,
+    and the step's shell). No re-exec or file-descriptor hand-off is added.
 - **The wait.** With a token source, the building block's wait-until-merged
   deadline is the caller's, not tied to one token. For upstream-refresh it
-  is 120 minutes, counted from the moment publish starts, not from the
-  start of the wait. The clone, the patch and the push are inside it, so
-  publish always ends, and logs how the wait ended, a fixed margin before
-  the job's `timeout-minutes`. That covers vergil-containers' CI, with one
-  branch update and its CI re-run, with room to spare. It is a ceiling:
-  the wait ends the moment the PR merges. The branch-update cap
+  is 120 minutes, counted from the tool's own start in the publish job, not
+  from the start of the wait. The clone, the patch and the push are inside
+  it. The publish job's `timeout-minutes` is that deadline plus a stated
+  budget for the steps before the tool (guard, checkout, install, artifact
+  download) plus a margin, with the numbers fixed in the plan. So publish
+  always ends, and logs how the wait ended, before GitHub kills the job.
+  120 minutes covers vergil-containers' CI, with one branch update and its
+  CI re-run, with room to spare. It is a ceiling: the wait ends the moment
+  the PR merges. The branch-update cap
   (`_MAX_BRANCH_UPDATES`) and every terminal outcome (closed, draft,
   conflict, failed check) are unchanged.
 - **Without a token source,** the building block behaves exactly as today:
@@ -367,10 +389,41 @@ tokens for one repo, and hands out a current token on demand.
     if the App's key variable is present in its environment, so the
     boundary cannot be broken by a wiring mistake.
   - **publish** reads that output as data. It takes its own fresh clone of
-    `develop` and applies the patch with `git apply`. It refuses a patch
-    that does not apply cleanly, or that adds untracked paths outside the
-    listed changes. It then hands the clone to the building block. It never
+    `develop`, fetches the recorded `develop` commit into it, and applies
+    the patch there with `git apply`. So the patch lands on exactly the tree
+    the hook ran against, and the PR's commit has that commit as its parent.
+    If `develop` has moved since, for example because the same nightly run's
+    `github-config` sync PR merged, the wait's existing branch update merges
+    it in, and CI decides. A recorded commit that is no longer on `develop`
+    is refused. It refuses a patch that does not apply cleanly, or that
+    adds untracked paths outside the listed changes. It then hands the
+    clone to the building block, which accepts a base commit other than the
+    tip for this. It never
     runs the hook, and never runs git in the tree prepare worked in.
+- **What a refresh may change (the path fence).** With no human merge, the
+  patch is untrusted data. A compromised package in the hook could write
+  anything into it, and PR CI is no gate against a change to the workflows
+  that CI itself runs. So publish checks every path the patch touches
+  before it pushes anything, against rules it reads only from its own
+  `develop` clone, never from prepare's output:
+  - **The allowlist.** Each repo's `[upstream-refresh]` table in
+    `vergil.toml` lists the paths, as glob patterns, that its hook may
+    change. For example, vergil-containers lists `docker/pins/**`,
+    `docker/common/*` and `docker/versions/matrix.json`, and vergil-python
+    lists `runtime.toml` and `vergil.toml`. A path outside the list is
+    refused. A repo with no list refuses every patch. Each repo's PR adds
+    its list.
+  - **`.github/**` is always refused**, whatever the allowlist says.
+  - **`vergil.toml`, where allowed, may change only in its `[[package]]`
+    tables.** Publish parses the file before and after the patch, and
+    refuses any other difference: above all `[dependencies]` (the tooling
+    pin) and `[upstream-refresh]` (the hook and this allowlist).
+    vergil-python's hook rewrites its `[[package]]` entries with
+    `runtime.toml`, which is why the file cannot simply be refused.
+
+  A refused patch fails the run, naming each path or table and the rule.
+  Nothing is pushed. Workflows write stays on the token for the wait's
+  branch update alone (§6.1), and no patch can use it.
   - The scratch linked worktree, the "clean checkout at `origin/<base>`"
     check and `--base` are removed. The base is always `develop`, as with
     every mechanized PR. The tool never touches the caller's checkout.
@@ -462,9 +515,10 @@ or state passed between steps beyond one artifact.
 git-identity step are removed: the tool now does each of them itself (§6.1,
 §6.2). The workflow also gets:
 
-- `timeout-minutes` on publish a little above the tool's 120-minute
-  deadline (the plan fixes the number), so a hung run cannot hold the
-  concurrency group for GitHub's six-hour default;
+- `timeout-minutes` on publish, set as §6.1 ("The wait") says: the tool's
+  120-minute deadline plus a budget for the earlier steps plus a margin. A
+  hung run then cannot hold the concurrency group for GitHub's six-hour
+  default;
 - `concurrency: group: ${{ github.repository }}/upstream-refresh`,
   `cancel-in-progress: false`, at the workflow level, so a run's prepare
   and publish never interleave with another run's;
