@@ -3,9 +3,13 @@ repository-type = "documentation"
 versioning-scheme = "none"
 branching-model = "docs-single-branch"
 release-model = "none"
+
 [ci]
-versions = ["latest"]
 integration-tests = false
+
+[publish]
+release = false
+docs = false
 
 [dependencies]
 vergil = "v2.1"
