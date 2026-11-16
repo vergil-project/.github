@@ -344,11 +344,11 @@ tokens for one repo, and hands out a current token on demand.
   is 120 minutes, counted from the moment publish starts, not from the
   start of the wait. The clone, the patch and the push are inside it, so
   publish always ends, and logs how the wait ended, a fixed margin before
-  the job's `timeout-minutes`. That covers vergil-containers' CI, with one branch update
-  and its CI re-run, with room to spare. It is a ceiling: the wait ends the
-  moment the PR merges. The branch-update cap (`_MAX_BRANCH_UPDATES`) and
-  every terminal outcome (closed, draft, conflict, failed check) are
-  unchanged.
+  the job's `timeout-minutes`. That covers vergil-containers' CI, with one
+  branch update and its CI re-run, with room to spare. It is a ceiling:
+  the wait ends the moment the PR merges. The branch-update cap
+  (`_MAX_BRANCH_UPDATES`) and every terminal outcome (closed, draft,
+  conflict, failed check) are unchanged.
 - **Without a token source,** the building block behaves exactly as today:
   it uses the ambient `GH_TOKEN` or the human's credentials, with the
   40-minute default deadline. `github-config`'s `update` is unchanged.
@@ -525,11 +525,12 @@ No step can merge a refresh before the guarded workflow is in place:
 
 A human running `vrg-upstream-refresh` locally uses the default mode,
 prepare and publish in one process, under the human's own credentials, with
-no token source. The key boundary does not apply: no App key is involved. Those credentials
-are not bound to one hour, and `$VRG_MECHANIZED_PR_DEADLINE` can raise the
-wait. The `automation/**` ruleset admits the admin role, so the human's push
-is accepted. As with `update` (epic #1064, spec §6.5), the tool works in its
-own temporary clone and never touches the human's checkout.
+no token source. The key boundary does not apply: no App key is involved.
+Those credentials are not bound to one hour, and
+`$VRG_MECHANIZED_PR_DEADLINE` can raise the wait. The `automation/**`
+ruleset admits the admin role, so the human's push is accepted. As with
+`update` (epic #1064, spec §6.5), the tool works in its own temporary clone
+and never touches the human's checkout.
 
 ## 7. Validation
 
