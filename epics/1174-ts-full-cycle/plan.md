@@ -2,7 +2,7 @@
 
 - **Epic:** vergil-project/.github#1174
 - **Planning issue:** vergil-project/.github#1161 (review history is in its comments)
-- **Status:** draft
+- **Status:** approved
 
 > **For agentic workers:** each task is one issue and one PR in the repo named
 > in its heading, worked with `issue-implement`; operational tasks are worked
