@@ -69,7 +69,7 @@ typescript-eslint, Prettier, Vitest.
 | 9 | vergil-tooling | task | `vrg-version` supports `package.json` | — |
 | 10 | vergil-tooling | task | TypeScript evidence files, ignored by the fragment | 7 |
 | 11 | vergil-tooling | task | TypeScript build command, BUILD on for TypeScript, `build` script check | 5, 7 |
-| 12a | vergil-actions | task | `cd-release` releases TypeScript; build without persisted credentials | — |
+| 12a | vergil-actions | task | `cd-release` releases TypeScript | — |
 | 12b | vergil-actions | task | The TypeScript row in the report contract | 10 |
 | 13 | vergil-claude-plugin | task | `fixture-run` learns the TypeScript fixtures; per-gap known-gap records | — |
 | 14 | .github | deployment | Tooling, actions and plugin releases attested; plugin deployed | 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10, 11, 12a, 12b, 13 |
@@ -99,8 +99,6 @@ rule and the detection fix ship without waiting on the fixtures.
   (TypeScript lifecycle and enforcement), epic 3 (TypeScript supply chain and
   the npm updater), the Python tool migration, and turning on the BUILD check
   for Python. Epic 4 is vergil-project/.github#959.
-- The advisory GHSA-wcrj-cxcp-wpmp, tracked by the planning issue, is
-  retargeted to Tasks 7, 11 and 12a, which implement its fix.
 
 ---
 
@@ -109,7 +107,7 @@ rule and the detection fix ship without waiting on the fixtures.
 **Files:**
 
 - Modify: `src/vergil_tooling/lib/versions/resolve.py` (`_is_family_keyed`, the unpinned error message)
-- Modify: `docs/site/docs/guides/consuming-repo-setup.md`, `docs/site/docs/standards/development/runtime-version-support-policy.md`, `docs/site/docs/standards/development/typescript/overview.md` (where they say a TypeScript repo must pin)
+- Modify: `docs/site/docs/guides/consuming-repo-setup.md`, `docs/site/docs/guides/ci-architecture.md`, `docs/site/docs/reference/lint/repo-profile.md`, `docs/site/docs/standards/development/runtime-version-support-policy.md`, `docs/site/docs/standards/development/typescript/overview.md` (where they say a TypeScript repo must pin)
 - Test: `tests/vergil_tooling/test_versions_resolve.py`, `tests/vergil_tooling/test_repo_init.py`
 
 **Interfaces:**
@@ -119,7 +117,7 @@ rule and the detection fix ship without waiting on the fixtures.
 
 - [ ] **Step 1: Write the failing tests.** Replace `test_prefixed_single_family_unpinned_is_fatal` (`test_versions_resolve.py:139`) with `test_prefixed_single_family_unpinned_library_resolves_every_version` (versions `("node-24", "node-22")`, primary `node-24`) and `test_prefixed_single_family_unpinned_app_resolves_newest` (versions `("node-24",)`). `test_cpp_unpinned_is_fatal` asserts the message contains `more than one family (cpp-clang, cpp-gcc)`. `test_unpinned_family_language_stops_the_wizard` (`test_repo_init.py:1086`) keeps C++ and matches the new text.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the TypeScript tests to fail with the old "until its lifecycle turn" error.
-- [ ] **Step 3: Implement** the predicate and message. Update the three docs pages: a pin is an exception, required only for a multi-family language (C++ today).
+- [ ] **Step 3: Implement** the predicate and message. Update the five docs pages: a pin is an exception, required only for a multi-family language (C++ today).
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 5: Commit** `vrg-commit --type fix --scope versions --message "require a CI version pin only for a multi-family window"`, then report-ready.
 
@@ -127,15 +125,18 @@ rule and the detection fix ship without waiting on the fixtures.
 
 **Files:**
 
-- Modify: `src/vergil_tooling/lib/container.py` (`_package_json_has_typescript_dep`, `detect_language`)
-- Test: `tests/vergil_tooling/test_container.py`
+- Modify: `src/vergil_tooling/lib/container.py` (`_package_json_has_typescript_dep`, `detect_language`; a new `PackageJsonError`)
+- Modify: the call sites of `resolve_language`/`detect_language` that reach a user: `src/vergil_tooling/bin/vrg_container_run.py` (around line 142), `src/vergil_tooling/bin/vrg_container_cache.py` (around lines 113, 127, 144), `src/vergil_tooling/bin/vrg_finalize_pr.py` (around lines 1645, 1738)
+- Test: `tests/vergil_tooling/test_container.py`, `tests/vergil_tooling/test_vrg_container_run.py`
 
 **Interfaces:**
 
-- Produces: `read_package_json(path: Path) -> dict[str, object]`, the one parser of `package.json` that Tasks 7 and 11 reuse. It raises the error type `detect_language`'s callers already handle, with `package.json at <path> cannot be parsed: <reason>. Fix: correct the JSON`, when the file cannot be read, is not JSON, or is not a JSON object.
+- Produces: `class PackageJsonError(ValueError)` in `lib/container.py`.
+- Produces: `read_package_json(path: Path) -> dict[str, object]`, the one parser of `package.json` that Tasks 7 and 11 reuse. It raises `PackageJsonError("package.json at <path> cannot be parsed: <reason>. Fix: correct the JSON")` when the file cannot be read, is not JSON, or is not a JSON object.
+- Produces: each call site above catches `PackageJsonError`, prints `ERROR: <message>` to stderr and exits 1. No traceback reaches the user.
 - Produces: `detect_language` reads `package.json`, whenever it exists, before the `tsconfig.json` shortcut.
 
-- [ ] **Step 1: Write the failing tests:** `test_malformed_package_json_errors`; `test_malformed_package_json_with_tsconfig_errors` (a `tsconfig.json` does not hide it); `test_package_json_array_errors`; `test_package_json_without_typescript_is_not_typescript` (returns `""`); `test_declared_language_skips_detection` (`resolve_language` with `primary-language = "typescript"` and a broken `package.json` still returns `typescript`, as today).
+- [ ] **Step 1: Write the failing tests:** `test_malformed_package_json_errors`; `test_malformed_package_json_with_tsconfig_errors` (a `tsconfig.json` does not hide it); `test_package_json_array_errors`; `test_package_json_without_typescript_is_not_typescript` (returns `""`); `test_declared_language_skips_detection` (`resolve_language` with `primary-language = "typescript"` and a broken `package.json` still returns `typescript`, as today); `test_container_run_reports_broken_package_json` (in `test_vrg_container_run.py`: exit 1, stderr starts `ERROR: package.json at`, no traceback).
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the error cases to fail (they return `False`/`""` today).
 - [ ] **Step 3: Implement** `read_package_json` and the new order; drop the "bounded, documented fallback" docstring.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
@@ -180,18 +181,20 @@ rule and the detection fix ship without waiting on the fixtures.
 
 **Files:**
 
-- Modify: `.github/workflows/ci-quality.yml` (a `build` job; the `evidence` job's `needs`)
+- Modify: `.github/workflows/ci-quality.yml` (a `build` job; the `evidence` job's `needs` and its "Assert all required legs succeeded" step)
 - Modify: the CI workflow docs page that lists the quality jobs
 
 **Interfaces:**
 
 - Consumes: Task 5's `vrg-validate --check build`.
 - Produces: job `build`, named `build / ${{ matrix.version }}`, on the collapsed `once` matrix (the primary version), with the same checkout, setup and `assert-toolchain` steps as `typecheck`, running `vrg-validate --check build`. `evidence` needs `build`. No ruleset change: `quality / evidence` already gates the quality workflow.
-- The job runs only for the languages whose BUILD check is on, listed in the workflow as `contains(fromJSON('["typescript"]'), inputs.language)`, the way `ci-quality.yml` already branches on `inputs.language`. Each later language adds itself to that list when it turns BUILD on. For every other language the job is skipped, and `evidence` treats a skipped `build` as success. So no repo calls `--check build` before a vergil-tooling release supports it.
+- The job runs only for the languages whose BUILD check is on, listed in the workflow as `contains(fromJSON('["typescript"]'), inputs.language)`, the way `ci-quality.yml` already branches on `inputs.language`. Each later language adds itself to that list when it turns BUILD on. For every other language the job is skipped. So no repo calls `--check build` before a vergil-tooling release supports it.
+- Produces: the `evidence` job's assert step adds `build=${{ needs.build.result }}` to the results it checks. It accepts `skipped` for `build` only when `inputs.language` is not in the BUILD language list. A skipped, failed or cancelled `build` for a listed language fails the gate, as any other leg's does.
 
-- [ ] **Step 1: Implement** the job and the `needs` edge.
-- [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect PASS (actionlint and the workflow tests).
-- [ ] **Step 3: Commit** `vrg-commit --type feat --scope ci --message "run the BUILD check in the quality workflow"`, then report-ready. The push is refused for `.github/workflows/**`; report-ready records it and the human's `vrg-submit-pr` pushes.
+- [ ] **Step 1: Implement** the job, the `needs` edge and the assert-step rule.
+- [ ] **Step 2: Prove both directions** with the workflow's existing test harness or a smoke case: a Python caller (build skipped) gets a green `quality / evidence`, and a TypeScript caller whose build fails gets a red one.
+- [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect PASS (actionlint and the workflow tests).
+- [ ] **Step 4: Commit** `vrg-commit --type feat --scope ci --message "run the BUILD check in the quality workflow"`, then report-ready. The push is refused for `.github/workflows/**`; report-ready records it and the human's `vrg-submit-pr` pushes.
 
 ### Task 7: TypeScript tools from the repo, with accepted ranges (vergil-tooling)
 
@@ -208,10 +211,10 @@ rule and the detection fix ship without waiting on the fixtures.
 
 - Consumes: Task 3's `read_package_json`.
 - Produces: `dev-dependencies.json`, mapping each required devDependency to its accepted major: `typescript` 6; `typescript-eslint` 8; `eslint` and `@eslint/js` one shared major that typescript-eslint 8 supports (`^8.57.0 || ^9.0.0 || ^10.0.0`); `vitest` and `@vitest/coverage-v8` one shared major. The implementer sets the eslint and vitest majors to the newest ones that satisfy every peer range, and names the sources in the commit body.
-- Produces: `typescript_tools.load_required() -> dict[str, int]` and `typescript_tools.check_dev_dependencies(repo_root: Path) -> list[str]`, one problem per package, empty when all pass. A package fails when it is missing from `devDependencies`; when its declared range is not `^M…`, `~M…` or `M…` with `M` the accepted major; or when the version `package-lock.json` installs (`packages["node_modules/<name>"].version`) has another major. The `vrg-validate` failure lists every problem and one fix line: `npm install --save-dev <name>@^<M> …`.
-- Produces: INSTALL `npm ci --ignore-scripts`; ESLint, `tsc` and Vitest run as `npx --no-install <tool>`. Prettier and license-checker stay bare image binaries. ESLint's config staging stays until Task 8b.
+- Produces: `typescript_tools.load_required() -> dict[str, int]` and `typescript_tools.check_dev_dependencies(repo_root: Path) -> list[str]`, one problem per package, empty when all pass. A package fails when it is missing from `devDependencies`; when its declared range is not `^M…`, `~M…` or `M…` with `M` the accepted major; when it is not installed (`node_modules/<name>/package.json` is absent); or when the installed version (that file's `version`) has another major. The `vrg-validate` failure lists every problem and one fix line: `npm install --save-dev <name>@^<M> …`.
+- Produces: INSTALL `npm ci --ignore-scripts`; ESLint, `tsc` and Vitest run by path, as `node_modules/.bin/<tool>`, so a tool missing from the repo fails instead of falling back to a global binary (`npx` falls back to the global `bin` even with `--no-install`). Prettier and license-checker stay bare image binaries. ESLint's config staging stays until Task 8b.
 
-- [ ] **Step 1: Write the failing tests:** `test_all_required_present_passes`; `test_missing_package_named_in_problem`; `test_typescript_5_range_rejected` (`^5.9.0`); `test_latest_star_and_open_ranges_rejected` (`latest`, `*`, `>=5`); `test_installed_major_mismatch_rejected` (range `^6.0.0`, lock `7.0.2`); `test_fix_line_lists_every_problem_package`; `test_typescript_install_ignores_scripts` (INSTALL is `["npm", "ci", "--ignore-scripts"]`); `test_typescript_gates_use_no_install_npx` (no TYPECHECK, TEST or ESLint argv starts with a bare `tsc`, `vitest` or `eslint`).
+- [ ] **Step 1: Write the failing tests:** `test_all_required_present_passes`; `test_missing_package_named_in_problem`; `test_typescript_5_range_rejected` (`^5.9.0`); `test_latest_star_and_open_ranges_rejected` (`latest`, `*`, `>=5`); `test_installed_major_mismatch_rejected` (range `^6.0.0`, installed `7.0.2`); `test_declared_and_locked_but_not_installed_rejected` (in `package-lock.json`, absent from `node_modules`); `test_fix_line_lists_every_problem_package`; `test_typescript_install_ignores_scripts` (INSTALL is `["npm", "ci", "--ignore-scripts"]`); `test_typescript_gates_run_repo_binaries_by_path` (every TYPECHECK, TEST and ESLint argv starts with `node_modules/.bin/`).
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect them to fail.
 - [ ] **Step 3: Implement** the module, the data file, the commands and the pre-gate call. Docs: the required devDependencies and their majors, that tool versions float through the lockfile (drop "the same pinned tool versions"), and that install scripts never run, with a needed one declared as an exception (#375).
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
@@ -223,19 +226,21 @@ rule and the detection fix ship without waiting on the fixtures.
 
 - Modify: `src/vergil_tooling/lib/repo_config.py` (a per-language managed-file table and its drift function; `audit_local_config`)
 - Modify: `src/vergil_tooling/lib/repo_config_fixes.py` (one fixer and its `FIXERS` entry)
+- Modify: `src/vergil_tooling/lib/repo_init.py` (the config-files step, around lines 1455-1486, that writes every other managed file at creation)
 - Modify: `src/vergil_tooling/configs/typescript/eslint.config.mjs` (it becomes the base a repo spreads: a default-exported array, no reference to its own file name)
 - Modify: `docs/site/docs/reference/config-audit.md` (the managed-file list)
-- Test: `tests/vergil_tooling/test_repo_config.py`, `tests/vergil_tooling/test_repo_config_fixes.py`
+- Test: `tests/vergil_tooling/test_repo_config.py`, `tests/vergil_tooling/test_repo_config_fixes.py`, `tests/vergil_tooling/test_repo_init.py`
 
 **Interfaces:**
 
 - Produces: `LANGUAGE_MANAGED_FILES: dict[str, tuple[LanguageManagedFile, ...]]`, with `LanguageManagedFile(repo_path: str, master: str)`. TypeScript's entries: `tsconfig.vergil.json` from `configs/typescript/tsconfig.base.json`, `eslint.vergil.config.mjs` from `configs/typescript/eslint.config.mjs`, `.prettierrc.json` from `configs/typescript/prettier.config.json`. The master copies stay where the gates already read them, so there is one copy of each.
 - Produces: `language_files_drift(root: Path) -> list[ManagedFileDrift]`, for the repo's `[project].primary-language`, on the existing `ManagedFileDrift` shape. Drift means missing or differs from the master. A `vergil.toml` that fails to load is drift with no fix, so the fixer raises `CannotFix`, as for `.gitignore`.
 - Produces: `fix_language_files(root: Path) -> …`, in `FIXERS`, which writes each drifted file whole. Another language adds managed files with a table entry.
+- Produces: `vrg-github-repo-init` writes the language's managed files from the same table in its config-files step, beside `.gitignore` and `dependabot.yml`. A new TypeScript repo is born without drift, with no wait for the nightly sync.
 
-- [ ] **Step 1: Write the failing tests:** `test_typescript_repo_missing_files_is_drift`; `test_edited_managed_file_is_drift`; `test_matching_files_no_drift`; `test_non_typescript_repo_gets_none`; `test_same_named_file_in_python_repo_untouched`; `test_unloadable_vergil_toml_cannot_fix`; `test_fixer_writes_master_bytes`.
+- [ ] **Step 1: Write the failing tests:** `test_typescript_repo_missing_files_is_drift`; `test_edited_managed_file_is_drift`; `test_matching_files_no_drift`; `test_non_typescript_repo_gets_none`; `test_same_named_file_in_python_repo_untouched`; `test_unloadable_vergil_toml_cannot_fix`; `test_fixer_writes_master_bytes`; `test_fresh_typescript_init_passes_audit` (in `test_repo_init.py`: the files repo-init writes give an empty `audit_local_config` for the managed files).
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect them to fail.
-- [ ] **Step 3: Implement** the table, the drift function, the audit entry and the fixer. Docs: the three files.
+- [ ] **Step 3: Implement** the table, the drift function, the audit entry, the fixer and the repo-init write. Docs: the three files.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 5: Commit** `vrg-commit --type feat --scope repo-config --message "manage the TypeScript base configs as per-language files"`, then report-ready.
 
@@ -255,7 +260,7 @@ rule and the detection fix ship without waiting on the fixtures.
 - Produces: `load_jsonc(text: str) -> object`, which parses as `tsc` does: `//` and `/* */` comments outside strings, and trailing commas.
 - Produces: `check_entry_points(repo_root: Path) -> list[str]`. `tsconfig.json` must exist and its `extends` must be `"./tsconfig.vergil.json"`, or an array containing it. `eslint.config.mjs` must exist, import a binding from `"./eslint.vergil.config.mjs"`, and spread that binding into its default export.
 - Produces: `check_prettier_single_source(repo_root: Path) -> list[str]`, which fails on a `"prettier"` key in `package.json`, or on any `.prettierrc`, `.prettierrc.*` or `prettier.config.*` other than `.prettierrc.json`.
-- Produces: LINT is `prettier --check . --config .prettierrc.json`, then `npx --no-install eslint .`, with no staging and no `--config`.
+- Produces: LINT is `prettier --check . --config .prettierrc.json`, then `node_modules/.bin/eslint .`, with no staging and no `--config`.
 
 - [ ] **Step 1: Write the failing tests:** `test_tsconfig_with_comments_and_trailing_comma_passes`; `test_extends_array_containing_base_passes` (Review Focus 1); `test_tsconfig_without_base_fails`; `test_eslint_config_without_spread_fails`; `test_eslint_config_spreading_base_with_ignores_passes`; `test_prettier_key_in_package_json_fails` (Review Focus 3); `test_extra_prettierrc_fails`; `test_lint_has_no_staging` (no LINT argv mentions `.vergil-eslint.config.mjs`).
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect them to fail.
@@ -293,7 +298,7 @@ rule and the detection fix ship without waiting on the fixtures.
 
 **Interfaces:**
 
-- Consumes: Task 7's `npx --no-install vitest` TEST argv.
+- Consumes: Task 7's `node_modules/.bin/vitest` TEST argv.
 - Produces: `NPM_AUDIT_REPORT = "npm-audit.json"`; `TYPESCRIPT_REPORT_FILES = (COVERAGE_REPORT, JUNIT_REPORT, NPM_AUDIT_REPORT)`.
 - Produces: TEST writes `junit.xml` (Vitest's JUnit reporter) and Cobertura `coverage.xml` beside its console output, at 100% lines, both even when a test fails. AUDIT writes `npm audit --json` to `npm-audit.json` from the run that gates, and exits with its status. The fragment adds `npm-audit.json` and `coverage/`. `base` already ignores `coverage.xml` and `junit.xml`.
 
@@ -324,35 +329,36 @@ rule and the detection fix ship without waiting on the fixtures.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 5: Commit** `vrg-commit --type feat --scope typescript --message "build TypeScript in validate and at release"`, then report-ready.
 
-### Task 12a: `cd-release` releases TypeScript; build without persisted credentials (vergil-actions)
+### Task 12a: `cd-release` releases TypeScript (vergil-actions)
 
 **Files:**
 
-- Modify: `.github/workflows/cd-release.yml` (the description at line 7; the language list at line 615; the release job's checkout)
+- Modify: `.github/workflows/cd-release.yml` (the description at line 7; the language list at line 615)
+- Modify: `actions/cd/release/registry-publish/action.yml` (the `language` input's description, which reads "Primary language (python, rust, go)")
 - Modify: the `cd-release` docs page
 
 **Interfaces:**
 
-- Produces: "Build and publish" runs for `["python","rust","go","typescript"]`. `registry-publish` stays `false` by default, so TypeScript builds and is never published.
-- Produces: the Build step runs with no persisted git credentials (`persist-credentials: false` on the checkout it builds from). Any later step that pushes uses the token it is given explicitly. The implementer confirms that every push in the job still works, and says how in the PR.
+- Produces: "Build and publish" runs for `["python","rust","go","typescript"]`. `registry-publish` stays `false` by default, so TypeScript builds and is never published. The release job's checkout and push paths are unchanged.
 
-- [ ] **Step 1: Implement** the list, the description and the credential change.
-- [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect PASS. If a smoke workflow exercises the release job (`smoke-cd-release.yml`), it still passes.
+- [ ] **Step 1: Implement** the list and both descriptions.
+- [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect PASS. Then run `smoke-cd-release.yml` on the branch and confirm it passes.
 - [ ] **Step 3: Commit** `vrg-commit --type feat --scope release --message "release TypeScript repos"`, then report-ready. The push is refused for `.github/workflows/**`; the human's `vrg-submit-pr` pushes.
 
 ### Task 12b: The TypeScript row in the report contract (vergil-actions)
 
 **Files:**
 
-- Modify: `actions/ci/evidence/reports/reports.sh` (the table, `has_contract`, `report_files`; the TypeScript warning removed)
+- Modify: `actions/ci/evidence/reports/reports.sh` (the table, `has_contract`, `report_files`, `report_tools`; the TypeScript warning removed)
 - Test: the reports action's test script, beside `reports.sh`
 
 **Interfaces:**
 
 - Consumes: Task 10's file names: test `coverage.xml`, `junit.xml`; audit `npm-audit.json`.
-- Produces: `report_files typescript test` gives `coverage.xml junit.xml`; `report_files typescript audit` gives `npm-audit.json`. Go and C++ still warn. The "keep the two in step" note now names `TYPESCRIPT_REPORT_FILES`. If vergil-tooling#4416 has landed by then, the row is derived from it instead.
+- Produces: `report_files typescript test` gives `coverage.xml junit.xml`; `report_files typescript audit` gives `npm-audit.json`. Go and C++ still warn.
+- Produces: `report_tools` gains `typescript/test` (`vitest`, `@vitest/coverage-v8`) and `typescript/audit` (`npm audit`) branches, and a default branch that fails as an internal error when a language with a contract has no tools entry. A contract language can then never emit an empty `tools` silently. The "keep the two in step" note now names `TYPESCRIPT_REPORT_FILES`. If vergil-tooling#4416 has landed by then, the row is derived from it instead.
 
-- [ ] **Step 1: Write the failing cases:** the two `report_files` results, and no warning for typescript.
+- [ ] **Step 1: Write the failing cases:** the two `report_files` results; the two `report_tools` results; no warning for typescript; and a contract language with no `report_tools` branch failing as an internal error.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect them to fail.
 - [ ] **Step 3: Implement** the row.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
@@ -394,7 +400,7 @@ Blocked by 14.
   - `vergil-project/vergil-fixture-ts-app` with `--repository-type application`.
 
   Add the `APP_CLIENT_ID` and `APP_PRIVATE_KEY` secrets (no npm token), and run `vrg-adhoc-epic` on each.
-- **Procedure (agent-safe):** confirm on each repo that `vergil.toml` has `primary-language = "typescript"` and no `[ci].versions`. After the first nightly sync, confirm that `tsconfig.vergil.json`, `eslint.vergil.config.mjs` and `.prettierrc.json` are present and match their masters. Then file Tasks 16a and 16b in the new repos, linked under #1174.
+- **Procedure (agent-safe):** confirm on each repo's `develop` that `vergil.toml` has `primary-language = "typescript"` and no `[ci].versions`, and that `tsconfig.vergil.json`, `eslint.vergil.config.mjs` and `.prettierrc.json` are present and match their masters, as repo-init wrote them (Task 8a). Then file Tasks 16a and 16b in the new repos, linked under #1174.
 - **SUCCESS:** both repos exist, carry the managed files, and have their program tasks filed.
 
 ### Tasks 16a and 16b: The fixture programs (vergil-fixture-ts-lib, vergil-fixture-ts-app)
@@ -430,7 +436,7 @@ Blocked by Run 1's validation tasks.
 - Modify: `docker/ts-node/smoke/run-in-container.sh`, the smoke project's `package.json` (declares the repo-side tools at the accepted majors) and `docker/ts-node/checks.sh` (`typescript_tools_run` checks `prettier` and `license-checker` only)
 - Modify: `docs/site/docs/languages/ts-node.md` (what the image carries)
 
-- [ ] **Step 1: Implement** the three changes. The smoke test runs `npm ci --ignore-scripts`, then `npx --no-install` for tsc, eslint and vitest, and fails if any of them resolves outside the smoke project.
+- [ ] **Step 1: Implement** the three changes. The smoke test runs `npm ci --ignore-scripts`, then `node_modules/.bin/` tsc, eslint and vitest, and fails if any of them is missing from the smoke project.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect PASS, the ts-node image build and smoke included.
 - [ ] **Step 3: Commit** `vrg-commit --type feat --scope ts-node --message "leave repo-declared TypeScript tools to the repo"`, then report-ready.
 

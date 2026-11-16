@@ -313,8 +313,10 @@ states the rule and how to apply it to a new language:
 ### 6.3 TypeScript tools follow the rule (vergil-tooling, vergil-containers)
 
 - **Gates run the repo's tools.** LINT's ESLint step, TYPECHECK and TEST call
-  the repo-local binaries, with no implicit download (for example
-  `npx --no-install`). Prettier and license-checker stay image tools;
+  the repo-local binaries by path (`node_modules/.bin/<tool>`), with no
+  implicit download and no fallback to a global binary: `npx` falls back to
+  the global `bin` even with `--no-install`. Prettier and license-checker
+  stay image tools;
   Prettier runs with `--config .prettierrc.json`, the repo's managed copy
   (§6.4).
 - **No install scripts.** Every `npm ci` Vergil runs for TypeScript (INSTALL,
@@ -338,7 +340,7 @@ states the rule and how to apply it to a new language:
 - **The image drops the repo-side tools.** `typescript-analysis.dockerfile`
   keeps prettier and license-checker and removes the rest. The smoke test and
   `checks.sh` change to match: the smoke project declares the repo-side tools
-  and runs them through `npx`, and the image check covers the image tools
+  and runs them from `node_modules/.bin`, and the image check covers the image tools
   only.
 - **Order.** The vergil-tooling release whose gates call the repo's tools
   ships, and the fixtures and the smoke project pass with it, before the
@@ -423,8 +425,7 @@ states the rule and how to apply it to a new language:
 - **The build command installs from the lockfile first:**
   `npm ci --ignore-scripts`, then `npm run build`. The release job's Build
   step runs on a fresh checkout with no `node_modules` (§4), and a library's
-  `tsc` must resolve its dependencies. The release build runs without
-  persisted checkout credentials.
+  `tsc` must resolve its dependencies.
 - **A TypeScript repo must define a `build` script,** and `vrg-validate`
   checks for it.
 - **A generic BUILD check in `vrg-validate`.** Today no language's release
@@ -583,9 +584,6 @@ states the rule and how to apply it to a new language:
 ## 10. Left to the builder
 
 - The guideline page's file name and title.
-- The exact repo-local invocation (`npx --no-install`, or
-  `node_modules/.bin/…`), as long as nothing is downloaded and a missing tool
-  fails per §6.3.
 - The exact wording of the fix messages, following the shape of the existing
   resolver messages.
 - The Vitest reporter flags, and how the Cobertura file lands at
