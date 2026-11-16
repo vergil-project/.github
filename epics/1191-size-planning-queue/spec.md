@@ -214,6 +214,11 @@ Reason: <one sentence>
   comment from anyone else is ignored, so it can neither change a size nor
   make the view fail. Trusted authors that are not configured, or are
   configured invalidly, fail the run loudly; there is no default.
+- **The route's own identity must be trusted.** The login the route's
+  comments post as (the item owner's App token) must be one
+  `load_trusted_authors()` lists, or every sizing it writes reads as "label
+  without comment". The rollout checks this before the backfill's bulk write
+  (6.10).
 - **A malformed latest sizing comment is an error**, never skipped in favour
   of an earlier one: a missing key, a value outside its set, a non-integer or
   an `Epic-size` that is not the one the task count derives (a comment
@@ -295,13 +300,20 @@ estimate ends there, on every path:
 - **Transfer, or a one-off within the item's own repo:** once the item has
   settled under its target epic, the route removes every `epic-size:*` label
   from the final issue, the way it already removes `in-progress`.
-- **Every path:** when the item carried a size (a label or a sizing comment),
-  the route posts a trusted cleared marker on the final issue,
+- **Every path:** when the item carried a size (an `epic-size:*` label, or a
+  comment whose first line starts `Sized YYYY-MM-DD:`, whoever wrote it: an
+  extra marker is harmless, so this check needs no trusted authors), the
+  route posts a trusted cleared marker on the final issue,
   `Size cleared YYYY-MM-DD: moved out of planning as a one-off.`, so the
   carried sizing comments no longer count (6.3). A recreated issue carries no
   comments, so it needs only the label rule.
 - A failure here raises the same way as the route's other post-move steps,
   naming the item and the command that finishes it.
+
+This applies to a one-off from every container that allows one (intake,
+planning, deferred). A sized deferred item revived to intake keeps its size
+(the intake route reparents in place); intake shows no size and refuses
+`size`, and a one-off from intake clears it like any other.
 
 A later return to planning or deferred starts unsized, and is sized afresh.
 
@@ -318,8 +330,11 @@ A later return to planning or deferred starts unsized, and is sized afresh.
   Items in error are **always listed**, whatever the filter, so a filter never
   hides a problem.
 - Each text line shows the size and task count, as `M/14`, `?` for unsized
-  and `!` for an item in error, whose note then names the error instead of
-  the latest comment.
+  and `!` for an item in error. The error replaces a latest-comment note; a
+  held note (`held: …`) or a deferral note is kept, with `| size: <error>`
+  appended.
+- With a `--size` filter, the header reads `planning queue for <name> in
+  <home>: <N> open item(s), <M> shown`, so a filter that hid items says so.
 - `--json` adds `epic_size` (`"S"` … `"XL"` or `null`), `estimated_tasks`
   (integer or `null`), `confidence` (string or `null`) and `size_error`
   (string or `null`) to each item.
@@ -338,17 +353,24 @@ the same way; its order does not change.
 - **2:** every queue was read and one or more items are in error (6.4); the
   output is complete and usable, `--json` included, and each item in error
   is named on stderr.
-- **1:** a queue could not be read; as today, a bare text run lists what it
-  read and a bare `--json` run prints nothing.
+- **1:** a queue could not be read, or the command line was invalid; as
+  today, a bare text run lists what it read and a bare `--json` run prints
+  nothing.
 
-Exit 1 wins over 2 when both apply.
+Exit 1 wins over 2 when both apply. **Usage errors exit 1, never 2**:
+argparse's default exit 2 for an unknown flag or a bad choice (`--sort
+bogus`) would otherwise read as a complete listing, so `vrg-queue`'s parser
+overrides `error` to exit 1.
 
 ### 6.9 The skills (vergil-claude-plugin)
 
-- **Exit 2 is not a failure.** `epic-review` step 2 (every mode) and
-  `epic-create`'s no-argument summary treat a `vrg-queue` exit 2 as "show the
-  list, flag the `!` items, carry on"; exit 1 other than the missing-queue
-  message stays a real failure.
+- **Exit 2 is not a failure,** at every `vrg-queue` call in both skills:
+  `epic-review`'s no-argument counts, its step 2 (every mode) and planning
+  mode's end-of-pass list; `epic-create`'s no-argument summary and step 10
+  (closing a ready planning issue). Each treats exit 2 as "show the list,
+  flag the `!` items, carry on"; exit 1 other than the missing-queue message
+  stays a real failure. The skills' description of the output names the size
+  column, the JSON keys and the filtered header.
 - **The notes' rule** "do not invent fields, labels or priority scores" gains
   one exception: the `epic-size:*` family, written only through
   `vrg-intake-route`.
@@ -359,13 +381,16 @@ Exit 1 wins over 2 when both apply.
   batch; the confirmed sizes are applied with
   `vrg-intake-route <ref> size --tasks …`. Sizing is not a
   fifth outcome; it rides alongside leave (and is skipped for an item being
-  deferred, dropped or moved out).
+  deferred, dropped or moved out). A `!` item in any state, in-progress and
+  ready-to-close included, gets a recommended `size` re-run, confirmed with
+  the batch.
 - **Its end-of-pass list** can be shown by size (`vrg-queue planning --sort
   size`) when the human asks, oldest first being the default.
 - **Intake mode** always passes `--tasks` and `--reason` when it
   routes an item to planning, recommending them in the item's paragraph.
 - **Deferred mode** passes a size when it revives an unsized item to
-  planning.
+  planning, and recommends a `size` re-run for a `!` item it keeps or
+  refreshes.
 - **`epic-create`'s "Choosing what to plan next"** gains one line: `vrg-queue
   planning --sort size --size S` lists the small items oldest first, for the
   small-end cadence.
@@ -375,16 +400,25 @@ Exit 1 wins over 2 when both apply.
 1. The vergil-tooling changes land and ship in a vergil-tooling release (a
    human-gated precondition), and are deployed to the host and VMs.
 2. The vergil-claude-plugin changes land and ship in a plugin release.
-3. **Backfill**, an operational task blocked by the tooling deployment: for
-   each line of the 2026-11-16 TSV on the planning issue whose item is still
-   open in planning or deferred, run `vrg-intake-route <ref> size --tasks
-   <n> --confidence <c> --reason "<reason>"`, and check the size it derives
-   against the TSV's size column; a mismatch is reported, not applied. Items
-   closed or moved out since are skipped and listed in the results comment.
-   The TSV's own line for this planning issue is skipped too: it closes when
-   this epic's docs land. Then `vrg-queue planning --sort size` must exit 0
-   and list no item in error; the remaining unsized items are listed for the
-   next `epic-review planning` pass.
+3. **Backfill**, an operational task blocked by the tooling deployment.
+   Before it, the deployment confirms that a comment the route itself posted
+   (a `Deferred …` record) has a trusted author (6.3). The backfill sizes the
+   first TSV item alone and stops before any other if `vrg-queue planning`
+   does not show it sized. Then, for each line of the 2026-11-16 TSV on the
+   planning issue whose item is still open in planning or deferred, it runs
+   `vrg-intake-route <ref> size --tasks <n> --confidence <c> --reason
+   <reason>`, every field passed as its own argument (never through shell
+   double quotes), and checks the size it derives against the TSV's size
+   column; a mismatch is reported, not applied. Items closed or moved out
+   since are skipped and listed in the results comment. The TSV's own line
+   for this planning issue is skipped too: it closes when this epic's docs
+   land. Then `vrg-queue planning --sort size` and `vrg-queue deferred` run,
+   and their exit statuses are recorded. No TSV item may be in error. An item
+   in error that is not a TSV item (a label edited by hand, say) is reported
+   by ref and error for the next `epic-review` pass rather than holding the
+   epic open: the backfill's job is the TSV, and the skills repair such
+   items. The remaining unsized items are listed for the next
+   `epic-review planning` pass.
 
 ## 7. Failure model
 

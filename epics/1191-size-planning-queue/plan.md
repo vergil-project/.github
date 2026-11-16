@@ -41,7 +41,7 @@ estimates once the tooling is deployed.
 
 ## Review Focus
 
-1. **The identity that posts a sizing comment must be trusted.** A sizing comment posted under the item owner's App token whose author `load_trusted_authors()` does not list would leave every routed item "label without comment". Pinned in Task 3 (a test that the comment is posted through the same `github.run` path the route's other comments use) and checked live by Task 8's end check.
+1. **The identity that posts a sizing comment must be trusted.** A sizing comment posted under the item owner's App token whose author `load_trusted_authors()` does not list would leave every routed item "label without comment". Pinned in Task 3 (a test that the comment is posted through the same `github.run` path the route's other comments use), checked live by Task 7's identity step and by Task 8's single-item probe before any bulk write.
 2. **A sizing comment edited or forged by an untrusted author after a trusted one.** The trusted one still wins; the untrusted comment neither changes the size nor raises an error. Pinned in Task 2.
 3. **A deferred item sized, deferred again (a refresh) and revived to planning.** The size survives every step unchanged. Pinned in Task 5 (`test_view_field_lists` and `test_deferred_item_carries_size`, with a fake that returns only the requested fields) and Task 3 (planning route without `--tasks` leaves an existing size alone).
 4. **A `--size S` filter over a queue with an item in error.** The item is listed, flagged `!`, and the run exits 2. Pinned in Task 5.
@@ -106,7 +106,8 @@ CI workflow or release tooling.
 - [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
 - [ ] **Step 4: Implement** the module and the four `labels.json` entries (one colour family; descriptions such as `Planning estimate: epic of 10–19 tasks`).
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS.
-- [ ] **Step 6: Commit** `vrg-commit --type feat --scope epic-size --message "add the epic-size scale, sizing comment and size record"`, then report-ready.
+- [ ] **Step 6: Refactor.** `epic_size` owns every constant the later tasks share: the band edges, the size order used for sorting (`SIZES`), the comment and marker prefixes. Nothing else defines them. Run `vrg-container-run -- vrg-validate` again; expect PASS.
+- [ ] **Step 7: Commit** `vrg-commit --type feat --scope epic-size --message "add the epic-size scale, sizing comment and size record"`, then report-ready.
 
 ### Task 3: `vrg-intake-route size`, and sizing on the planning route (vergil-tooling)
 
@@ -137,7 +138,8 @@ CI workflow or release tooling.
 - [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
 - [ ] **Step 4: Implement** the action, the routing branch in `_route` (sizing a planning or deferred item reparents nothing), `_apply_sizing`, the CLI, and both module docstrings (they are the commands' reference text).
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS.
-- [ ] **Step 6: Commit** `vrg-commit --type feat --scope intake-route --message "add the size route and sizing on the way into planning"`, then report-ready.
+- [ ] **Step 6: Refactor.** The re-run command in the half-applied message is built with the module's existing shell quoting (`shell_ref.quoted_slug` and `shlex.quote`), not a new helper. Run `vrg-container-run -- vrg-validate` again; expect PASS.
+- [ ] **Step 7: Commit** `vrg-commit --type feat --scope intake-route --message "add the size route and sizing on the way into planning"`, then report-ready.
 
 ### Task 4: A one-off clears the size (vergil-tooling)
 
@@ -165,7 +167,8 @@ CI workflow or release tooling.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
 - [ ] **Step 3: Implement** the changes above and extend the module docstring's one-off paragraph.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
-- [ ] **Step 5: Commit** `vrg-commit --type feat --scope intake-route --message "clear an item's size when it leaves as a one-off"`, then report-ready.
+- [ ] **Step 5: Refactor.** `_clear_size` and `_remove_in_progress` share one label-removal helper (one `issue edit --remove-label …` call, one by-hand fix message). Run `vrg-container-run -- vrg-validate` again; expect PASS.
+- [ ] **Step 6: Commit** `vrg-commit --type feat --scope intake-route --message "clear an item's size when it leaves as a one-off"`, then report-ready.
 
 ### Task 5: `vrg-queue` size column, sort, filter and exit 2 (vergil-tooling)
 
@@ -182,14 +185,15 @@ CI workflow or release tooling.
 - Produces: `render_text` inserts `<size.display>` after the age when `size` is set. For an item in error, the size error replaces only a latest-comment note; a held note (`held: …`) or a deferral note (`Deferred …`) is kept, with ` | size: <error>` appended. `to_json` flattens a set `size` into `epic_size`, `estimated_tasks`, `confidence`, `size_error` keys and omits them when `size` is `None`, so intake JSON is unchanged.
 - Produces: `sort_planning(items: list[QueueItem], key: Literal["age", "size", "tasks"]) -> list[QueueItem]` per spec §6.8 (groups: sized in order, then unsized, then error; ties oldest first, then slug).
 - Produces: `filter_planning(items: list[QueueItem], sizes: frozenset[str]) -> list[QueueItem]`: keeps items whose size is in `sizes`, unsized items when `"unsized"` is in `sizes`, and every item in error.
-- CLI: `--sort age|size|tasks` (default `age`) and `--size <comma list>` are accepted only with `planning`; with any other view, or bare, they exit 1 naming the flag. An unknown `--size` token exits 1. With a filter, the header reads `planning queue for <name> in <home>: <N> open item(s), <M> shown`. After printing, each item in error is named on stderr as `vrg-queue: <slug>: <error>`, and the run exits 2; a failed queue still exits 1 and wins.
+- CLI: `--sort age|size|tasks` (default `age`) and `--size <comma list>` are accepted only with `planning`; with any other view, or bare, they exit 1 naming the flag. An unknown `--size` token exits 1. With a filter, the header reads `planning queue for <name> in <home>: <N> open item(s), <M> shown`. After printing, each item in error is named on stderr as `vrg-queue: <slug>: <error>`, and the run exits 2; a failed queue still exits 1 and wins. Every usage error exits 1, never 2: the parser subclasses `argparse.ArgumentParser` with an `error` override that prints the usage and message to stderr and exits 1.
 
 - [ ] **Step 1: Write the failing view tests** in `test_queue_view.py`. First make `_FakeGh` return only the fields the `--json` argument requests, so a view that forgets a field sees it missing. Then: `test_view_field_lists` (planning requests `labels` and `comments`; deferred requests `labels` and `comments`); `test_planning_item_carries_size` (record from labels and authored comments); `test_deferred_item_carries_size` (a sized deferred item is `M/14`, not `!`); `test_error_keeps_held_note` (`held: … | size: <error>`); `test_error_keeps_deferral_note`; `test_error_replaces_latest_comment_note`; `test_intake_item_has_no_size`; `test_render_text_size_column` (`M/14`, `?`, `!` with the error as note); `test_to_json_size_fields` (the four keys, and none for intake); `test_sort_size` and `test_sort_tasks` over S/3 old, S/8 new, M/12, unsized, error; `test_filter_keeps_errors` (`{"S"}` keeps both S items and the error); `test_filter_unsized`.
-- [ ] **Step 2: Write the failing CLI tests** in `test_vrg_queue.py`: `test_exit_2_on_size_error` (text and `--json`: full output on stdout, stderr names the item, exit 2); `test_exit_0_when_clean`; `test_bare_exit_2`; `test_bare_json_failure_beats_size_error` (exit 1, empty stdout); `test_sort_and_size_only_with_planning` (deferred, intake, adhoc and bare each exit 1); `test_unknown_size_token`; `test_filtered_header`; `test_trusted_authors_missing_fails` (exit 1 with the loader's message on stderr, never a traceback: add `TrustedAuthorsNotConfiguredError` to `_VIEW_ERRORS`).
+- [ ] **Step 2: Write the failing CLI tests** in `test_vrg_queue.py`: `test_exit_2_on_size_error` (text and `--json`: full output on stdout, stderr names the item, exit 2); `test_exit_0_when_clean`; `test_bare_exit_2`; `test_bare_json_failure_beats_size_error` (exit 1, empty stdout); `test_sort_and_size_only_with_planning` (deferred, intake, adhoc and bare each exit 1); `test_unknown_size_token`; `test_usage_errors_exit_1` (`--sort bogus`, an unknown flag and an unknown queue name each exit 1, never 2); `test_filtered_header`; `test_trusted_authors_missing_fails` (exit 1 with the loader's message on stderr, never a traceback: add `TrustedAuthorsNotConfiguredError` to `_VIEW_ERRORS`).
 - [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
 - [ ] **Step 4: Implement** the view and CLI changes and update the module docstring (exit statuses, the size column, `--sort`, `--size`).
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS.
-- [ ] **Step 6: Commit** `vrg-commit --type feat --scope queue --message "show, sort and filter the planning queue by epic size"`, then report-ready.
+- [ ] **Step 6: Refactor.** `sort_planning` takes its size order from `epic_size.SIZES`, and `filter_planning` its token set from `SIZES` plus `"unsized"`; `queue_view` defines no size constant of its own. Run `vrg-container-run -- vrg-validate` again; expect PASS.
+- [ ] **Step 7: Commit** `vrg-commit --type feat --scope queue --message "show, sort and filter the planning queue by epic size"`, then report-ready.
 
 ### Task 6: `epic-review` and `epic-create` skills size the queue (vergil-claude-plugin)
 
@@ -202,7 +206,7 @@ CI workflow or release tooling.
 
 - Consumes: Task 3's `vrg-intake-route <ref> size --tasks N [--confidence …] --reason …` and `planning --tasks … --reason …`; Task 5's `vrg-queue planning --sort size --size S`, the `M/14`/`?`/`!` column, the JSON keys and exit 2.
 
-- [ ] **Step 1: `epic-review` step 2 and "Choosing the mode".** Document the size column and JSON keys, and add at both `vrg-queue` calls (the bare run for the no-argument counts, and step 2): exit 2 means the listing is complete with items in error; show it, flag the `!` items, and continue. Exit 1 other than the missing-queue message stays a real failure.
+- [ ] **Step 1: every `vrg-queue` call in `epic-review`.** Document the size column, the JSON keys and the filtered header (`… <N> open item(s), <M> shown`), and add at each of the three `vrg-queue` calls (the bare run for the no-argument counts in "Choosing the mode", step 2, and planning mode's end-of-pass list): exit 2 means the listing is complete with items in error; show it, flag the `!` items, and continue. Exit 1 other than the missing-queue message stays a real failure.
 - [ ] **Step 2: Intake mode.** The planning route always carries `--tasks` and `--reason` (and `--confidence` when not `med`), recommended in the item's paragraph and confirmed with the batch.
 - [ ] **Step 3: Planning mode.** Each waiting item that is unsized or `!` gets a recommended task count (with the size it derives), confidence and one-line reason in its paragraph; a sized item gets a re-size only when the review shows the estimate is off. Confirmed sizes run `vrg-intake-route <ref> size …` after the batch's routes, skipped for items deferred, dropped or moved out. Sizing is not an outcome and not a tally. A `!` item in any state (in-progress and ready-to-close included, where the only outcome is leave) gets a recommended `size` re-run, confirmed with the batch. The end-of-pass list may be shown with `--sort size` on request; oldest first stays the default.
 - [ ] **Step 4: Deferred mode.** A revive to planning of an unsized item carries `--tasks` and `--reason`. A `!` item that is kept or refreshed gets a recommended `size` re-run, confirmed with the batch.
@@ -222,7 +226,8 @@ Blocked by 2, 3, 4, 5, 6.
   2. `vrg-intake-route --help` lists `size`; `vrg-intake-route '#1' size --help` shows `--tasks`, `--confidence`, `--reason`.
   3. `vrg-queue planning --help` lists `--sort` and `--size`; `vrg-queue planning` prints the size column and exits 0 or 2 (2 is expected before the backfill only if an item is already in error).
   4. The installed plugin's `skills/epic-review/SKILL.md` contains `epic-size`.
-- **SUCCESS:** every check passes, recorded with both release versions.
+  5. The route's identity is trusted: find the most recent `Deferred …` comment `vrg-intake-route` posted on an item in vergil-project's deferred queue (`vrg-queue deferred --json`, then that item's comments), and confirm its author, with a leading `app/` stripped, is listed by `vrg-trusted-authors`. If it is not, record FAILURE naming the login: every sizing would read as "label without comment".
+- **SUCCESS:** every check passes, recorded with both release versions and the route's login.
 
 ### Task 8: Backfill the 2026-11-16 estimates (deployment, .github)
 
@@ -232,7 +237,8 @@ Blocked by 7.
 - **Procedure (agent-safe):**
   1. Read the `## Backfill data: sizing pass of 2026-11-16` comment on vergil-project/.github#1185, only if its author is a trusted author (`vrg-trusted-authors`); otherwise stop with "blocked: preconditions not met". Parse its `tsv` block: ref, size, tasks, confidence, reason.
   2. Skip the line for vergil-project/.github#1185 itself.
-  3. For each other line: check that the size the task count derives (spec §6.1's bands) equals the size column, or record a mismatch and do not apply it; check that the item is open and its parent is the planning or deferred epic, or record it as skipped with its state; otherwise run `vrg-intake-route <ref> size --tasks <tasks> --confidence <confidence> --reason <reason>`, with every field passed as its own argument and never through shell double quotes (each `shlex.quote`d, or a small script that passes an argument list), so a `$`, backtick or `"` in a reason arrives unchanged. Run the lines one at a time; a failure is recorded and the run continues to the next line.
-  4. Run `vrg-queue planning --sort size` and `vrg-queue deferred`. List every `!` item with its error, and mark whether it is a TSV item.
-- **SUCCESS:** every line has a recorded outcome (sized, skipped with reason, or mismatch); no line failed; no TSV item is `!`; any `!` item that is not a TSV item is reported with its error for the next `epic-review` pass; the items still `?` are listed for the next `epic-review planning` pass.
+  3. **Probe first.** Size the first remaining line's item alone (as in step 4), then run `vrg-queue planning` (or `deferred`, by the item's queue) and confirm the item shows `<size>/<tasks>`. If it shows `!`, stop: record FAILURE with the item's error and size no other line.
+  4. For each other line: check that the size the task count derives (spec §6.1's bands) equals the size column, or record a mismatch and do not apply it; check that the item is open and its parent is the planning or deferred epic, or record it as skipped with its state; otherwise run `vrg-intake-route <ref> size --tasks <tasks> --confidence <confidence> --reason <reason>`, with every field passed as its own argument and never through shell double quotes (each `shlex.quote`d, or a small script that passes an argument list), so a `$`, backtick or `"` in a reason arrives unchanged. Run the lines one at a time; a failure is recorded and the run continues to the next line.
+  5. Run `vrg-queue planning --sort size` and `vrg-queue deferred`, and record each exit status. List every `!` item with its error, and mark whether it is a TSV item.
+- **SUCCESS:** the probe passed; every line has a recorded outcome (sized, skipped with reason, or mismatch); no line failed; both exit statuses are recorded (0, or 2 only for non-TSV `!` items); no TSV item is `!`; any `!` item that is not a TSV item is reported with its error for the next `epic-review` pass; the items still `?` are listed for the next `epic-review planning` pass.
 - **FAILURE:** any line failed or any TSV item is `!`; the comment names each, and the task stays open.
