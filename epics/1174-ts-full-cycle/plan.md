@@ -492,3 +492,17 @@ Blocked by 17.
 - **Precondition (human-attested):** a vergil-containers release carrying Task 17 is published, and its version is named in a comment.
 - **Procedure (agent-safe):** for each window series, in the published prod `ts-node` image, `command -v tsc eslint vitest` finds nothing, and `prettier --version` and `license-checker --version` succeed.
 - **SUCCESS:** both checks pass on every window image, recorded with the digests.
+
+## Evolution during execution
+
+### 2026-11-16: Task 10 runs after Task 8b
+
+**What changed:**
+
+- **Task 10 (vergil-project/vergil-tooling#4508) is dispatched only once Task 8b (vergil-project/vergil-tooling#4506) has merged.** #4508 carries `Blocked-by: vergil-project/vergil-tooling#4506`. Tasks 9 and 11 still run in parallel with Task 8b.
+- The delivery table and the Task 8b and Task 10 sections above are unchanged. The plan froze when its first task merged.
+
+**Why:**
+
+- **Both tasks rewrite the TypeScript LINT command** in `src/vergil_tooling/lib/languages.py`. Task 8b drops the per-run ESLint config staging and the `--config` argument; Task 10 adds report output. Run in parallel, their PRs would conflict on the same lines, which a rebase cannot resolve mechanically. The plan listed Task 10 as blocked only by Task 7, and Task 10's interfaces left the overlap to whichever task landed second.
+- The dependency was found during execution and approved at the epic's gate: [the ruling on the epic](https://github.com/vergil-project/.github/issues/1174#issuecomment-6928260800).
