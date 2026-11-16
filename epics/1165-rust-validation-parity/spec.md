@@ -43,8 +43,10 @@ a Python repo:
    loudly, naming `Cargo.lock`. Libraries commit `Cargo.lock` too.
 2. The Rust test gate requires 100% line coverage **and** 100% region
    coverage.
-3. cargo-deny and cargo-llvm-cov are installed at pinned versions that are
-   verified at install time, and the pin automation keeps them current.
+3. cargo-deny, cargo-llvm-cov and cargo-nextest are installed at pinned
+   versions that are verified at install time against checksums held in
+   source or in the crates.io index, and the pin automation keeps them
+   current.
 4. Rust validation covers every crate in a workspace, and `vrg-version` reads
    and bumps a workspace's version.
 5. The CI evidence bundle's `quality` gate, for a Rust repo, holds Rust's lint
@@ -178,7 +180,8 @@ vergil-actions `4f76bf326`, vergil-containers `2dde127`.
   (<https://doc.rust-lang.org/rustc/instrument-coverage.html>). Region coverage
   and `--fail-under-regions` work on stable.
 - **cargo-deny 0.20.2** publishes `x86_64-` and `aarch64-unknown-linux-musl`
-  tarballs, each with a `.sha256`. That matches the nextest pattern.
+  tarballs, each with a `.sha256` that the refresh can read when it pins a
+  version.
 - **cargo-llvm-cov v0.9.1** publishes unversioned asset names
   (`cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz`) with no checksum files,
   only GitHub artifact attestations. Its README's from-source install is
@@ -248,9 +251,15 @@ For coverage, the options considered were:
 ### 6.2 Coverage: 100% lines and regions (vergil-tooling)
 
 - `_RUST_TEST_SCRIPT`'s report step gates on both `--fail-under-lines 100`
-  and `--fail-under-regions 100`. Missing regions are shown as missing lines
-  are (`--show-missing-lines`). The builder confirms whether cargo-llvm-cov
-  can show anything finer.
+  and `--fail-under-regions 100`.
+- **A failing gate says where.** `--show-missing-lines` lists only lines that
+  never ran. A missed region on a line that did run, such as an untested `?`
+  error path or `else` arm, would not appear there. So when the gate fails,
+  the report step also prints each uncovered region with its file, line and
+  column, taken from cargo-llvm-cov's own report (for example `report
+  --json` or the annotated `--text` output). Because the gate allows no
+  exclusions, locating the miss is the only way to fix it, and a gate that
+  fails without saying where invites pressure to weaken it.
 - **Regions are the stable stand-in for branches.** Each arm of an `if`, a
   `match` or a `?` early return is its own region. So 100% regions requires
   the cases Python's branch gate requires, as far as stable Rust can measure
@@ -268,16 +277,29 @@ For coverage, the options considered were:
 
 ### 6.3 Pinned, verified validation tools (vergil-containers)
 
-- **cargo-deny** follows the cargo-nextest pattern:
-  - a new `docker/common/cargo-deny.dockerfile`;
-  - `ARG CARGO_DENY_VERSION`;
-  - the release's `<arch>-unknown-linux-musl` tarball, verified with
-    `sha256sum -c` against its `.sha256`;
+- **Prebuilt tools carry their digests in source.** A prebuilt tool's
+  per-architecture sha256 is pinned in the repo beside its version, as the
+  toolchain's `rustup-init` digests are (`RUSTUP_INIT_SHA256_AMD64` and
+  `_ARM64` in `docker/rust/Dockerfile.template`). The image build verifies
+  the tarball against the pinned digest. The daily refresh writes the new
+  digests whenever it floats the version, so every digest change appears in
+  the refresh PR and is reviewed there. A tarball that does not match its
+  pinned digest fails the build.
+- **cargo-deny** gets a new `docker/common/cargo-deny.dockerfile` in this
+  shape:
+  - `ARG CARGO_DENY_VERSION` and one pinned sha256 argument per architecture;
+  - the release's `<arch>-unknown-linux-musl` tarball, verified against the
+    pinned digest;
   - an auto-managed `pins.yml` entry, floated by the daily upstream refresh,
-    with its latest version resolved in `resolve_latest.py`.
+    with its latest version and digests resolved in `resolve_latest.py`.
+- **cargo-nextest moves to the same shape.** Its fragment,
+  `docker/common/cargo-nextest.dockerfile`, gains pinned per-architecture
+  digests, written by the same refresh. It is already a Rust validation tool,
+  so the same rule applies to it.
 - **cargo-llvm-cov** is built from crates.io, because its release assets
-  have no checksum files and their names carry no version. It still follows
-  nextest's shape, so the existing refresh path floats it unchanged:
+  have no checksum files and their names carry no version. It still uses a
+  `docker/common` fragment with an `ARG`, so the existing refresh path floats
+  it unchanged:
   - a new `docker/common/cargo-llvm-cov.dockerfile` with `ARG
     CARGO_LLVM_COV_VERSION` and `cargo install --locked
     cargo-llvm-cov@${CARGO_LLVM_COV_VERSION}`;
@@ -298,9 +320,12 @@ For coverage, the options considered were:
 
 ### 6.4 Workspaces (vergil-tooling)
 
-- **Every crate is validated.** clippy, check, the coverage test run and
-  `cargo test --doc` run with `--workspace`. That way a workspace whose root
-  is a package also validates its member crates, not just the root.
+- **Every crate is validated.** clippy, check, the coverage test run,
+  `cargo test --doc` and the `cargo deny` audit (`_RUST_AUDIT_SCRIPT`) run
+  with `--workspace`, so the audit covers every member's dependency graph.
+  That way a workspace whose root is a package also validates its member
+  crates, not just the root. A unit test checks that each of these built
+  commands carries the flag.
   - `_skip_rust_doctests_without_lib` checks every workspace member, not just
     the default members, to match.
   - The doctest command is defined once and shared by `languages.py` and
@@ -311,16 +336,25 @@ For coverage, the options considered were:
     doctest command is dropped for a binary-only crate.
   - A single-crate repo behaves as it does today.
 - **`vrg-version` reads a workspace version.**
-  - With no `[package]` table, it reads `[workspace.package].version`.
+  - The source is chosen by the value, not by which tables exist:
+    `[package].version` when it is a string, and `[workspace.package].version`
+    when there is no `[package]` table, or when `[package]` inherits its
+    version (`version.workspace = true`). The inheriting root is the usual
+    layout for a workspace whose root is also a crate.
   - A bump writes the version back into the TOML table it was read from,
     never the first text match of `version = "<old>"`. Today
     `_write_version` (`lib/version.py`) replaces the first match, which in a
     workspace root can be a `[workspace.dependencies]` entry. Member crates
     that use `version.workspace = true` follow the bump.
   - Unit tests cover a workspace root that has `[workspace.dependencies]`
-    entries and member path dependencies that carry a `version`.
+    entries and member path dependencies that carry a `version`, and a root
+    `[package]` that inherits its version from `[workspace.package]`.
   - A `Cargo.toml` with neither table fails with a clear error naming both
-    tables, not a `KeyError`.
+    tables, not a `KeyError`. The error reaches the user from both `show`
+    and `bump`. `bump()` today wraps the language-file update in `except
+    (FileNotFoundError, ValueError): pass`, and that handler must not catch
+    it, so a bump never updates `VERSION` while leaving `Cargo.toml`
+    untouched. A unit test bumps such a manifest and expects the failure.
 
 ### 6.5 The `quality` gate's evidence is per-language (vergil-tooling, vergil-actions)
 
@@ -380,16 +414,26 @@ For coverage, the options considered were:
 - **The held-back report.** The updater reads each direct dependency of every
   workspace member, from the normal, dev and build dependency tables. A
   dependency is held back when, after `cargo update`, its locked version is
-  below the newest stable version on crates.io.
+  below the newest stable, unyanked version in the sparse index.
   - Each held-back dependency becomes a `HeldBack` entry with its locked and
     latest versions. Its `note` gives the reason: the newest version is
     outside the `Cargo.toml` requirement, or it needs a newer Rust than the
-    package's `rust-version`, or both.
+    package's `rust-version`, or both. When neither applies, the note says
+    "held by the resolver: another requirement in the dependency graph" (for
+    example another crate's `=` or `<` requirement on the same dependency).
+    Every entry carries a reason.
   - Path, git and workspace-inherited dependencies resolve to the requirement
     they actually carry, or are skipped with a reason that the builder records
     in the code.
-  - crates.io is queried with a generic client `User-Agent`, as crates.io
-    requires of automated clients. No personal or project detail goes in it.
+  - **The latest versions come from Cargo's sparse index**
+    (`https://index.crates.io`), not the crates.io web API. The index is
+    the static, CDN-served data `cargo update` itself reads. Each version's
+    entry carries its number, its `yanked` flag and its `rust_version`,
+    which is what the held-back note needs. Yanked versions and pre-releases
+    never count as the newest. The API is avoided because crates.io's
+    policy caps API clients at one request per second and asks for an
+    identifying User-Agent with contact details (RFC 3463,
+    <https://rust-lang.github.io/rfcs/3463-crates-io-policy-update.html>).
 - **The minimum supported Rust version.** Cargo's resolver may prefer older
   versions compatible with a package's `rust-version`. Edition 2024 turns
   this on by default, and `vergil-fixture-rust-lib` (`rust-version =
@@ -399,9 +443,9 @@ For coverage, the options considered were:
 - **Failures are loud.** These all fail the updater's result:
   - a failed `cargo update`;
   - an unreadable `Cargo.toml` or `Cargo.lock`;
-  - a crates.io query that fails.
+  - a sparse-index read that fails.
 
-  None of them reads as "no change". A crates.io failure is an error, not a
+  None of them reads as "no change". An index failure is an error, not a
   silently empty held-back list.
 
 ### 6.7 Docs
@@ -446,12 +490,12 @@ human-facing docs for every change above. That covers at least:
 - **`Cargo.lock` missing or stale when the dev image builds:** the warmup
   skips or prefetches unlocked, and `vrg-container-run` still works, so the
   lockfile can be created or refreshed in the container.
-- **Region coverage below 100%:** the test gate fails, listing what is
-  missing.
+- **Region coverage below 100%:** the test gate fails and prints each
+  uncovered region with its file, line and column (§6.2).
 - **Tool checksum mismatch or missing asset:** the image build fails.
 - **`cargo update` fails:** the Cargo updater's result fails, never "no
   change".
-- **crates.io unreachable during the held-back check:** the updater fails
+- **The sparse index unreachable during the held-back check:** the updater fails
   loudly. The held-back list is never silently empty.
 - **A lint or typecheck report is missing in CI after a passing leg**
   (Rust or Python): the leg's staging step fails. Today a missing Python
