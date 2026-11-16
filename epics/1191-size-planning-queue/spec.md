@@ -93,8 +93,10 @@ Sorting by age alone cannot support that. The queue needs a size.
 - **The planning route** reparents an intake, deferred or unparented item, or
   a follow-on brainstorm under a development epic, onto the planning epic of
   the same queue home. `defer` and `planning` reparent in place, so an item's
-  labels survive them; a `one-off` transfers the issue (labels survive only if
-  they exist in the target repo) or recreates it (no labels carried).
+  labels survive them. A `one-off` transfers the issue (comments move with
+  it; labels survive only if they exist in the target repo) or, when GitHub
+  refuses the transfer, recreates it (`_recreate` carries every registered
+  label except the retired ones and `in-progress`, and no comments).
 - **Labels.** `data/labels.json` is the canonical registry, and
   `labels.ensure_labels(repo, names)` is the point-of-use primitive every
   label-applying command calls: it creates a registered label in the repo the
@@ -107,7 +109,12 @@ Sorting by age alone cannot support that. The queue needs a size.
   planning `QueueItem` has `ref`, `title`, `created_at`, `state`, `note` and
   `epic`; the text line is `<slug>  <age>  <state>  <title>[  — <note>]`;
   planning is oldest first, deferred least recently deferred first. A queue
-  that cannot be read is named on stderr and the run exits 1.
+  that cannot be read is named on stderr and the run exits 1; a bare
+  `--json` run then prints nothing on stdout.
+- **The skills' error rule.** `epic-review` step 2 ("Collect the queue") and
+  `epic-create`'s no-argument summary forgive exactly one exit 1 from
+  `vrg-queue`, the missing-queue message; any other is a real failure that
+  stops them.
 - **Comment parsing** in `queue_view` (`parse_latest_deferral`,
   `parse_planning_markers`) reads every comment body, **whatever its author**.
 - **`lib/trusted_authors.load_trusted_authors()`** returns the configured
@@ -166,7 +173,9 @@ the planning issue.
 | `epic-size:XL` | 40+ | a wave of several epics |
 
 The count includes the standard bookends (documentation, documentation
-review, retrospective) and any deployment and validation tasks. The name
+review, retrospective) and any deployment and validation tasks. **The task
+count is the estimate; the size is derived from it** by this table, so every
+count has exactly one size and no caller states both. The name
 `epic-size` is deliberate: Kubernetes' `size/*` labels PRs by lines changed,
 a different meaning, so a bare `size` is ruled out.
 
@@ -180,7 +189,8 @@ rest of the fleet; nothing waits on that.
 
 ### 6.3 The sizing comment
 
-One comment per sizing, posted by the tool:
+One comment per sizing, posted by the tool, which derives the size from the
+task count:
 
 ```text
 Sized 2026-11-16: epic-size M, about 14 tasks.
@@ -206,12 +216,16 @@ Reason: <one sentence>
   configured invalidly, fail the run loudly; there is no default.
 - **A malformed latest sizing comment is an error**, never skipped in favour
   of an earlier one: a missing key, a value outside its set, a non-integer or
-  a task count outside the size's band.
+  an `Epic-size` that is not the one the task count derives (a comment
+  written by hand).
+- **The cleared marker.** A trusted comment whose first line matches
+  `Size cleared YYYY-MM-DD:` (posted by a one-off, 6.7) ends the item's
+  sizing history: only sizing comments after the latest such marker count.
 
 ### 6.4 The item's size and its consistency check (vergil-tooling)
 
 `queue_view` derives one **size record** per item from its labels and its
-latest trusted sizing comment:
+latest trusted sizing comment after the latest cleared marker (6.3):
 
 | Labels | Latest sizing comment | Result |
 | --- | --- | --- |
@@ -223,15 +237,15 @@ latest trusted sizing comment:
 | two or more | any | **error**: several labels |
 | any | malformed | **error**: malformed comment |
 
-An error never resolves to a size. The listings show it (6.7) and the run
-exits 1 after printing everything, naming each such item and what is wrong on
-stderr.
+An error never resolves to a size. The listings show it (6.8), each such
+item and what is wrong is named on stderr, and the run exits **2**, a status
+of its own (6.8): the listing is complete and usable, and some items in it
+need fixing. Exit 1 keeps its meaning, a queue that could not be read.
 
 ### 6.5 `vrg-intake-route <ref> size` (vergil-tooling)
 
 ```text
-vrg-intake-route <ref> size <S|M|L|XL> --tasks N \
-    [--confidence high|med|low] --reason TEXT
+vrg-intake-route <ref> size --tasks N [--confidence high|med|low] --reason TEXT
 ```
 
 - **Allowed from planning and deferred**, in any planning state: re-sizing
@@ -239,9 +253,9 @@ vrg-intake-route <ref> size <S|M|L|XL> --tasks N \
   intake, ad hoc, a development epic or an unparented item, through the same
   `ROUTES` table as every other route. It is the one route that neither moves
   nor closes the item.
-- **Refused before any change** when `N` is outside the size's band, or is
-  not a positive integer, or the reason is empty or spans several lines. The
-  refusal names the band the count falls in.
+- The size is derived from `N` (6.1).
+- **Refused before any change** when `N` is not a positive integer, or the
+  reason is empty or spans several lines.
 - `--confidence` defaults to `med`; the comment always carries the line.
 - **Order of writes:** post the sizing comment first (it is the record), then
   set the label in one edit that adds `epic-size:X` and removes every other
@@ -255,25 +269,43 @@ vrg-intake-route <ref> size <S|M|L|XL> --tasks N \
 ### 6.6 Sizing on the way into planning (vergil-tooling)
 
 ```text
-vrg-intake-route <ref> planning \
-    [--size S|M|L|XL --tasks N [--confidence …] --reason TEXT]
+vrg-intake-route <ref> planning [--tasks N [--confidence …] --reason TEXT]
 ```
 
-- `--size`, `--tasks` and `--reason` are given **all together or not at
-  all**; any one alone is refused before any change. `--confidence` needs
-  `--size`.
+- `--tasks` and `--reason` are given **together or not at all**; either one
+  alone is refused before any change. `--confidence` needs `--tasks`.
 - **Optional in the tool.** Without them the route behaves as today and the
   item arrives unsized (`?`). Callers with no sizing judgment to hand — the
   follow-on-brainstorm handoff, a bare revival of a deferred item — never have
-  to make up a number. The `epic-review` skill always passes a size (6.8).
+  to make up a number. The `epic-review` skill always passes a size (6.9).
 - With them, the route reparents the item first, then applies the same sizing
   as 6.5, validated before the reparent so a bad size refuses before any
   change. A sizing that fails after the reparent raises naming the item (now
   in planning, unsized or half-sized) and the `size` command that finishes it.
-- A deferred item that already carries a size keeps it; giving `--size` on
+- A deferred item that already carries a size keeps it; giving `--tasks` on
   its way back re-sizes it.
 
-### 6.7 `vrg-queue` (vergil-tooling)
+### 6.7 A one-off clears the size (vergil-tooling)
+
+An item routed out as a one-off is no longer an epic candidate, so its
+estimate ends there, on every path:
+
+- **Recreate:** `_recreate` adds the `epic-size:*` family to the labels it
+  does not carry, beside the retired labels and `in-progress`.
+- **Transfer, or a one-off within the item's own repo:** once the item has
+  settled under its target epic, the route removes every `epic-size:*` label
+  from the final issue, the way it already removes `in-progress`.
+- **Every path:** when the item carried a size (a label or a sizing comment),
+  the route posts a trusted cleared marker on the final issue,
+  `Size cleared YYYY-MM-DD: moved out of planning as a one-off.`, so the
+  carried sizing comments no longer count (6.3). A recreated issue carries no
+  comments, so it needs only the label rule.
+- A failure here raises the same way as the route's other post-move steps,
+  naming the item and the command that finishes it.
+
+A later return to planning or deferred starts unsized, and is sized afresh.
+
+### 6.8 `vrg-queue` (vergil-tooling)
 
 **Planning view:**
 
@@ -299,21 +331,38 @@ the same way; its order does not change.
 
 **Intake and ad-hoc views:** unchanged.
 
-### 6.8 The `epic-review` skill (vergil-claude-plugin)
+**Exit status**, for every view and a bare `vrg-queue`:
 
+- **0:** every queue was read and no item is in error; the output is
+  complete.
+- **2:** every queue was read and one or more items are in error (6.4); the
+  output is complete and usable, `--json` included, and each item in error
+  is named on stderr.
+- **1:** a queue could not be read; as today, a bare text run lists what it
+  read and a bare `--json` run prints nothing.
+
+Exit 1 wins over 2 when both apply.
+
+### 6.9 The skills (vergil-claude-plugin)
+
+- **Exit 2 is not a failure.** `epic-review` step 2 (every mode) and
+  `epic-create`'s no-argument summary treat a `vrg-queue` exit 2 as "show the
+  list, flag the `!` items, carry on"; exit 1 other than the missing-queue
+  message stays a real failure.
 - **The notes' rule** "do not invent fields, labels or priority scores" gains
   one exception: the `epic-size:*` family, written only through
   `vrg-intake-route`.
 - **Planning mode** sizes every waiting item it reviews that is unsized or in
   error, and re-sizes a sized item when the review shows the estimate is off.
-  Each item's paragraph recommends a size, a task count, a confidence and a
-  one-line reason for the human to confirm with the batch; the confirmed
-  sizes are applied with `vrg-intake-route <ref> size …`. Sizing is not a
+  Each item's paragraph recommends a task count (with the size it derives),
+  a confidence and a one-line reason for the human to confirm with the
+  batch; the confirmed sizes are applied with
+  `vrg-intake-route <ref> size --tasks …`. Sizing is not a
   fifth outcome; it rides alongside leave (and is skipped for an item being
   deferred, dropped or moved out).
 - **Its end-of-pass list** can be shown by size (`vrg-queue planning --sort
   size`) when the human asks, oldest first being the default.
-- **Intake mode** always passes `--size`, `--tasks` and `--reason` when it
+- **Intake mode** always passes `--tasks` and `--reason` when it
   routes an item to planning, recommending them in the item's paragraph.
 - **Deferred mode** passes a size when it revives an unsized item to
   planning.
@@ -321,34 +370,38 @@ the same way; its order does not change.
   planning --sort size --size S` lists the small items oldest first, for the
   small-end cadence.
 
-### 6.9 Rollout and backfill
+### 6.10 Rollout and backfill
 
 1. The vergil-tooling changes land and ship in a vergil-tooling release (a
    human-gated precondition), and are deployed to the host and VMs.
 2. The vergil-claude-plugin changes land and ship in a plugin release.
 3. **Backfill**, an operational task blocked by the tooling deployment: for
    each line of the 2026-11-16 TSV on the planning issue whose item is still
-   open in planning or deferred, run `vrg-intake-route <ref> size <size>
-   --tasks <n> --confidence <c> --reason "<reason>"`. Items closed or moved
-   out since are skipped and listed in the results comment. The TSV's own line
-   for this planning issue is skipped too: it closes when this epic's docs
-   land. Then `vrg-queue planning --sort size` must exit 0 and list no item in
+   open in planning or deferred, run `vrg-intake-route <ref> size --tasks
+   <n> --confidence <c> --reason "<reason>"`, and check the size it derives
+   against the TSV's size column; a mismatch is reported, not applied. Items
+   closed or moved out since are skipped and listed in the results comment.
+   The TSV's own line for this planning issue is skipped too: it closes when
+   this epic's docs land. Then `vrg-queue planning --sort size` must exit 0 and list no item in
    error; the remaining unsized items are listed for the next
    `epic-review planning` pass.
 
 ## 7. Failure model
 
 - **Disagreeing or malformed data** (6.4) is listed, flagged `!`, named on
-  stderr, and the run exits 1. It is never resolved silently.
+  stderr, and the run exits 2. It is never resolved silently, and it never
+  stops the review that fixes it.
 - **A half-applied sizing** (comment posted, label edit failed) raises
   naming the state and the finishing command; until then the item shows as an
   error.
 - **Trusted authors not configured** fail `vrg-queue planning` and
   `vrg-queue deferred` with the loader's message; the views do not fall back
   to counting every comment.
-- **A label removed by hand, or lost in a transfer**, shows as "comment
-  without label" if the item is still in planning or deferred; re-running
-  `size` fixes it.
+- **A label removed or added by hand** shows as "comment without label" or
+  "label without comment" while the item is in planning or deferred;
+  re-running `size` fixes it.
+- **A one-off** clears the size on every path (6.7), so a moved item never
+  carries a stale or half-carried estimate.
 
 ## 8. Constraints
 
