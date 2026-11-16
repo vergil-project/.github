@@ -61,6 +61,9 @@ a Python repo:
 - Taking the Rust lifecycle window from Rust's release channel:
   vergil-project/vergil-containers#910.
 - Merging lifecycle PRs automatically: vergil-project/.github#1128.
+- Full support for the Rust workspace model (releases, publishing several
+  crates, per-crate versions), and whether the two Rust fixtures should
+  become one workspace fixture: vergil-project/.github#1179.
 - Editing `Cargo.toml` requirements to newer major versions (the equivalent of
   `cargo upgrade`). Python's updater does not edit `pyproject.toml` either.
 - C++, TypeScript and Go parity; a cargo builder for `vrg-package`; the Rust
@@ -72,8 +75,10 @@ a Python repo:
 - A gate quietly re-resolves or rewrites `Cargo.lock` during validation.
 - A Rust check is weakened to pass: a lower threshold, a skipped crate, or an
   exclusion that hides untested code.
-- A Python gate changes behaviour. The per-language changes leave Python's
-  commands, reports and evidence byte-for-byte as they are.
+- A Python gate changes behaviour, except where this spec names a Python
+  defect to fix. The per-language changes otherwise leave Python's commands,
+  reports and evidence byte-for-byte as they are. The one named Python fix is
+  §6.5's: a passing lint or typecheck leg with no report fails.
 - A tool is installed unverified, or a verification failure is downgraded to
   a warning.
 - The Cargo updater swallows a failure, or reports "no change" when `cargo
@@ -225,6 +230,18 @@ For coverage, the options considered were:
 - **Stale `Cargo.lock` fails.** A `Cargo.toml` change that needs a lockfile
   update fails the install step. Cargo's own error, which names `--locked`,
   is surfaced unchanged.
+- **The dev container never depends on the lockfile.** The image warmup
+  (vergil-tooling `lib/container_cache.py`, `_warmup_command`) prefetches
+  dependencies only, and a missing or stale `Cargo.lock` never blocks
+  `vrg-container-run`. Otherwise the commands that create or refresh the
+  lockfile (`cargo generate-lockfile`, and the `cargo update --workspace`
+  of a version bump) could not run in the container at all.
+  - `Cargo.lock` joins `Cargo.toml` in Rust's warmup requirements
+    (`_WARMUP_REQUIRES["rust"]`), as `uv.lock` and `conan.lock` do for
+    Python and C++. A repo with no lockfile skips the warmup.
+  - The warmup's fetch never passes `--locked`, so a stale lockfile cannot
+    fail the image build. `--locked` belongs to validation's install step
+    and the commands after it.
 - The Rust standards page in the vergil-tooling site docs says `Cargo.lock` is
   committed and enforced.
 
@@ -258,14 +275,23 @@ For coverage, the options considered were:
     `sha256sum -c` against its `.sha256`;
   - an auto-managed `pins.yml` entry, floated by the daily upstream refresh,
     with its latest version resolved in `resolve_latest.py`.
-- **cargo-llvm-cov** is installed with `cargo install --locked
-  cargo-llvm-cov@<version>`. Its release assets have no checksum files, and
-  their names carry no version.
+- **cargo-llvm-cov** is built from crates.io, because its release assets
+  have no checksum files and their names carry no version. It still follows
+  nextest's shape, so the existing refresh path floats it unchanged:
+  - a new `docker/common/cargo-llvm-cov.dockerfile` with `ARG
+    CARGO_LLVM_COV_VERSION` and `cargo install --locked
+    cargo-llvm-cov@${CARGO_LLVM_COV_VERSION}`;
+  - `taiki-e/cargo-llvm-cov` registered with the daily refresh
+    (`resolve_latest.py`, `TOOL_REPOS` and `TOOL_ARGS`), which rewrites the
+    fragment's `ARG` line;
+  - an auto-managed `pins.yml` entry.
   - Cargo verifies the crate checksum against the crates.io index, and
-    `--locked` builds it from its own published lockfile.
-  - The version is a pin that `extract_pins.py` reads, auto-managed and
-    floated the same way.
-  - The registry cache is removed afterwards, as it is today.
+    `--locked` builds it from its own published lockfile. The registry cache
+    is removed afterwards, as it is today.
+- **This reverses a recorded decision.** The `pins.yml` header records that
+  the WS2 audit (#418) left cargo-installed tools unpinned. The new entries
+  say why that no longer holds: a validation tool decides whether a Rust
+  repo passes its gate, so it is pinned and verified like the toolchain.
 - A pin change rebuilds the Rust images like any other auto-managed pin. A
   checksum mismatch, a missing asset, or a failed install fails the image
   build.
@@ -277,11 +303,22 @@ For coverage, the options considered were:
   is a package also validates its member crates, not just the root.
   - `_skip_rust_doctests_without_lib` checks every workspace member, not just
     the default members, to match.
+  - The doctest command is defined once and shared by `languages.py` and
+    `vrg_validate.py`. Today the skip matches the exact list `["cargo",
+    "test", "--doc"]`, so adding `--locked` and `--workspace` to it in one
+    place only would silently disable the skip. A unit test builds the
+    commands from the real `languages.py` Rust TEST list and checks that the
+    doctest command is dropped for a binary-only crate.
   - A single-crate repo behaves as it does today.
 - **`vrg-version` reads a workspace version.**
   - With no `[package]` table, it reads `[workspace.package].version`.
-  - A bump writes the version back where it was read from. Member crates that
-    use `version.workspace = true` follow it.
+  - A bump writes the version back into the TOML table it was read from,
+    never the first text match of `version = "<old>"`. Today
+    `_write_version` (`lib/version.py`) replaces the first match, which in a
+    workspace root can be a `[workspace.dependencies]` entry. Member crates
+    that use `version.workspace = true` follow the bump.
+  - Unit tests cover a workspace root that has `[workspace.dependencies]`
+    entries and member path dependencies that carry a `version`.
   - A `Cargo.toml` with neither table fails with a clear error naming both
     tables, not a `KeyError`.
 
@@ -297,18 +334,34 @@ For coverage, the options considered were:
   output in the check's log stays as it is today, so nobody loses the
   readable diagnostics. A failing lint or typecheck still writes its report
   before it exits non-zero.
-- **vergil-actions derives the quality gate from `reports.sh`.**
-  - It adds `python/quality` and `rust/quality` entries to `has_contract`,
-    `report_files` and `report_tools`.
-  - Python's entry reproduces today's files and tools exactly: ruff and mypy,
-    plus the common and custom logs.
-  - Rust's entry names `vrg-validate-common`, `vrg-validate-custom`, `rustfmt`
-    and `clippy`, plus `cargo` for the typecheck. Its files are the common and
-    custom logs and the two reports above.
-  - `ci-quality.yml`'s lint and typecheck legs, and its emit step, take the
-    files and tools from `reports.sh` instead of hardcoding them.
-  - A Rust leg's reports are staged with the leg's version suffix, as Python's
-    are.
+- **vergil-actions derives the quality gate's legs from `reports.sh`.** In
+  `ci-quality.yml`, the common check, the custom check, each lint leg and
+  each typecheck leg are separate jobs, and each writes only its own file. So
+  the contract is per leg, not one `quality` entry:
+  - `reports.sh` gains `lint` and `typecheck` gate names, beside `test` and
+    `audit` (`check_inputs`, `has_contract`, `report_files`,
+    `report_tools`).
+  - The entries are `python/lint` (the ruff report, tool `ruff`),
+    `python/typecheck` (the mypy report, tool `mypy`), `rust/lint` (the
+    clippy report, tools `rustfmt` and `clippy`) and `rust/typecheck` (the
+    cargo check report, tool `cargo`).
+  - Each lint and typecheck leg stages its reports through `reports.sh`
+    stage mode, with the leg's version suffix, as the `test` and `audit`
+    legs do today.
+  - The common and custom logs are not part of any leg's contract. They stay
+    on their own unsuffixed path in the emit step, as today.
+  - **Reports are required, for both languages.** A lint or typecheck leg
+    that passes but leaves no report fails its staging step. Today Python's
+    legs copy a report only if it exists, and the emit action skips missing
+    files. That tolerance is a Python defect, so a missing ruff or mypy
+    report could pass unnoticed, and this epic fixes it. vergil-tooling
+    already writes both Python reports, so a working Python repo sees no
+    change. A failing leg's missing report is not an extra failure: the leg
+    has already failed.
+  - The emit step's tools list combines `vrg-validate-common` and
+    `vrg-validate-custom` with the lint and typecheck tools from
+    `reports.sh` for the repo's language. Its report globs follow the
+    per-leg file names instead of naming ruff and mypy.
 - Languages with no quality contract keep today's warning path in
   `reports.sh`, which warns and gives an empty payload. They are not given
   Python's tools.
@@ -326,19 +379,23 @@ For coverage, the options considered were:
     in the style of the uv updater.
 - **The held-back report.** The updater reads each direct dependency of every
   workspace member, from the normal, dev and build dependency tables. A
-  dependency is held back when the newest stable version on crates.io does
-  not satisfy its requirement.
+  dependency is held back when, after `cargo update`, its locked version is
+  below the newest stable version on crates.io.
   - Each held-back dependency becomes a `HeldBack` entry with its locked and
-    latest versions.
+    latest versions. Its `note` gives the reason: the newest version is
+    outside the `Cargo.toml` requirement, or it needs a newer Rust than the
+    package's `rust-version`, or both.
   - Path, git and workspace-inherited dependencies resolve to the requirement
     they actually carry, or are skipped with a reason that the builder records
     in the code.
   - crates.io is queried with a generic client `User-Agent`, as crates.io
     requires of automated clients. No personal or project detail goes in it.
 - **The minimum supported Rust version.** Cargo's resolver may prefer older
-  versions compatible with a package's `rust-version`. If a dependency is
-  locked below what its requirement allows for that reason, the held-back
-  entry says so, so the report never misattributes a hold.
+  versions compatible with a package's `rust-version`. Edition 2024 turns
+  this on by default, and `vergil-fixture-rust-lib` (`rust-version =
+  "1.98"`, edition 2024) is subject to it. A dependency held only for that
+  reason still satisfies its requirement, so the wider rule above is what
+  makes it visible, and its note names the `rust-version` hold.
 - **Failures are loud.** These all fail the updater's result:
   - a failed `cargo update`;
   - an unreadable `Cargo.toml` or `Cargo.lock`;
@@ -377,12 +434,18 @@ human-facing docs for every change above. That covers at least:
 
    The two known-gap checks from the first fixture runs become passing checks.
 
+   Both fixtures are single-crate repos, so workspace support (§6.4) is
+   covered by unit tests only, not by the fixture runs.
+
 ## 7. Failure model
 
 - **`Cargo.lock` missing:** validation fails at install, naming `Cargo.lock`
   and how to create it.
 - **`Cargo.lock` stale:** validation fails at install with cargo's `--locked`
   error.
+- **`Cargo.lock` missing or stale when the dev image builds:** the warmup
+  skips or prefetches unlocked, and `vrg-container-run` still works, so the
+  lockfile can be created or refreshed in the container.
 - **Region coverage below 100%:** the test gate fails, listing what is
   missing.
 - **Tool checksum mismatch or missing asset:** the image build fails.
@@ -390,8 +453,9 @@ human-facing docs for every change above. That covers at least:
   change".
 - **crates.io unreachable during the held-back check:** the updater fails
   loudly. The held-back list is never silently empty.
-- **A Rust quality report is missing in CI:** the emit step fails, as a
-  missing Python report does today.
+- **A lint or typecheck report is missing in CI after a passing leg**
+  (Rust or Python): the leg's staging step fails. Today a missing Python
+  report is skipped silently. This epic makes it fail (§6.5).
 - **A `Cargo.toml` with neither `[package]` nor `[workspace.package]`:**
   `vrg-version` fails, naming both tables.
 
@@ -399,8 +463,19 @@ human-facing docs for every change above. That covers at least:
 
 - **Stable Rust only.** The Rust image pins its toolchain and turns rustup
   auto-install off (#1095). Nothing in this epic may need nightly.
-- **Python stays unchanged.** Python's gate commands, report names, evidence
-  files and tools stay byte-for-byte the same (an anti-goal, §3).
+- **Each language's own practice comes first.** Vergil follows each
+  language's best practices and deviates only where it can justify the
+  deviation. For Rust, that includes the workspace model (§6.4).
+- **Nothing may make Rust workspaces harder to adopt.** This epic adds only
+  unit-tested workspace basics, and full workspace support is a follow-on
+  (vergil-project/.github#1179). Every change here works for a workspace as
+  well as a single crate, and assumes neither one crate per repo nor a
+  library/application split between repos.
+- **Python is the model, not the ceiling.** Rust follows Python's behaviour,
+  except where that behaviour turns out to be a defect. Then the defect is
+  fixed for Python too, in this epic, and the spec names it. Otherwise
+  Python's gate commands, report names, evidence files and tools stay
+  byte-for-byte the same (an anti-goal, §3).
 - **Validation runs through `vrg-validate`.** CI calls `vrg-validate --check
   …` and holds no cargo commands of its own. This epic keeps that split.
 - **Releases are human actions.** Agents never cut a release.
@@ -417,6 +492,8 @@ human-facing docs for every change above. That covers at least:
 - vergil-project/vergil-containers#910: the Rust window from Rust's own
   channel.
 - vergil-project/.github#1128: automatic merging of lifecycle PRs.
+- vergil-project/.github#1179: Rust workspace support, and the lib/app
+  fixture split.
 
 ## 10. Left to the builder
 
