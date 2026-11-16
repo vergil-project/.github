@@ -3921,7 +3921,7 @@ if TYPE_CHECKING:
     from vergil_tooling.lib.exceptions.fleet import Fleet
     from vergil_tooling.lib.exceptions.model import AuditResult, Register
 
-STANDARD_URL = "https://vergil-project.github.io/vergil-tooling/standards/development/exceptions/"
+STANDARD_URL = "https://vergil-project.github.io/vergil-tooling/latest/standards/development/exceptions/"
 NONE = "_None._"
 
 
@@ -4208,7 +4208,7 @@ entry. Widening a rule-level scope is an exception change too.
 Approved exceptions are documented in `vergil-exceptions.toml` and tagged in code
 with a separate `# vrg-exc: EXC-NNN` comment. `vrg-validate` runs
 `vrg-exceptions audit`, which fails on any undocumented exception. See the
-exceptions standard: <https://vergil-project.github.io/vergil-tooling/standards/development/exceptions/>.
+exceptions standard: <https://vergil-project.github.io/vergil-tooling/latest/standards/development/exceptions/>.
 ```
 
 (Verify the docs URL pattern against an existing link in the same template
