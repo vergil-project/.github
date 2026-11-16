@@ -137,8 +137,8 @@ retargeted to the task or tasks that fix it.
 | 3a | GHSA-jc62-q496-8pc2, GHSA-vq8h-h7qr-4v7q |
 | 3a | GHSA-fvr8-fc3j-8h46, GHSA-jhm6-x586-6965 |
 | 3b | GHSA-rp3h-jvjv-3jw7, GHSA-vv3j-95jg-7m6v, GHSA-jp84-c599-qqvv |
-| C1 | GHSA-jhm6-x586-6965 |
-| A1 | GHSA-rp3h-jvjv-3jw7 |
+| C1 | GHSA-jhm6-x586-6965, GHSA-rxw3-347f-hfhr |
+| A1 | GHSA-rp3h-jvjv-3jw7, GHSA-pfp8-v4q6-vxc8 |
 
 ### Task 1: The App token source
 
