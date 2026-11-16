@@ -399,6 +399,10 @@ states the rule and how to apply it to a new language:
   `repo_config.py`, a `_check_*`, a fixer in `FIXERS`, and an entry in
   `audit_local_config`, following the existing pattern. Drift is "differs from
   the master copy". The fixer rewrites the whole file.
+- **Born without drift.** `vrg-github-repo-init` writes the language's managed
+  files from the same table when it creates a repo, as it already writes
+  `.gitignore` and `dependabot.yml`, so a new TypeScript repo passes its
+  config audit from its first commit, with no wait for the nightly sync.
 - **Scoping.** A non-TypeScript repo gets none of the files. A file of the
   same name in a non-TypeScript repo is left alone. A repo that changes its
   language away from TypeScript is out of scope.
@@ -413,8 +417,16 @@ states the rule and how to apply it to a new language:
   - `package.json` joins the version-file map and the set of languages with
     a separate version file;
   - `_read_version` and `_write_version` gain a JSON `"version"` branch for
-    `package.json`, as the plugin manifest already has, so `vrg-version show`
-    reads it and a bump rewrites only that field;
+    `package.json`, so `vrg-version show` reads it and a bump rewrites only
+    that field. The write finds the top-level `version` value's exact place
+    by parsing the file, so any key spacing works, and it fails naming the
+    file when it cannot, never a silent no-op;
+  - for TypeScript, a missing or unwritable `package.json`, or one with no
+    `version` key, fails the bump with a `VersionSyncError` naming the fix.
+    Other languages keep `bump()`'s existing handling (§6.10);
+  - a `package.json` version that differs from `VERSION` fails
+    `vrg-validate` on the PR, the same cross-check `vrg-version show` makes,
+    so it is never found first at `vrg-release`;
   - the lockfile step rewrites only `package-lock.json`'s root version fields
     (the top-level `version` and `packages[""].version`) with a direct JSON
     edit. It runs no npm, so no script runs and nothing is re-resolved, and no
@@ -437,10 +449,10 @@ states the rule and how to apply it to a new language:
   (output directory, declaration files, a build-only tsconfig) are never
   exercised. This epic adds a BUILD check kind, language-neutral in
   vergil-tooling, that runs the language's build command, the same one the
-  release job runs. It is turned on for TypeScript only, and the fixtures
+  release job runs. This epic turns it on for TypeScript, and the fixtures
   prove it. Turning it on for Rust belongs to the Rust validation epic
-  (vergil-project/.github#1165), and for Python to its own task (§6.10), each
-  with a fixture run. CI runs the BUILD check for exactly the languages
+  (vergil-project/.github#1165), and for Python to its own planning item
+  (§6.10), each with a fixture run. CI runs the BUILD check for exactly the languages
   vergil-tooling turns it on for, read from vergil-tooling's own output, so
   turning it on for a language needs no vergil-actions change.
 - **`cd-release`** accepts `typescript` at line 615, and the description at
@@ -456,20 +468,23 @@ states the rule and how to apply it to a new language:
   100% line gate is unchanged. Both files are written even when a test fails,
   as for Python and Rust.
 - **AUDIT** writes `npm audit`'s JSON as `npm-audit.json`, from the same run
-  that gates.
-- **`TYPESCRIPT_REPORT_FILES`** in `languages.py` names the three files.
-  `reports.sh`'s table gets the matching TypeScript row and stops warning for
-  TypeScript, with the existing "keep the two in step" note. If
-  vergil-tooling#4416 lands first, the row comes from there instead.
+  that gates, at the unchanged `--audit-level=high` threshold.
+- **LINT and TYPECHECK** write their reports too, under the `quality-*` names
+  the report contract uses for Python and Rust (`quality-ruff.json`,
+  `quality-clippy.json` and the rest): an ESLint JSON report from LINT, and a
+  `tsc` report from TYPECHECK.
+- **`TYPESCRIPT_REPORT_FILES`** in `languages.py` names every TypeScript
+  report. `reports.sh` gets TypeScript `test`, `audit`, `lint` and
+  `typecheck` contracts, on the per-language pattern the Rust validation epic
+  (vergil-project/.github#1165) added, and stops warning for TypeScript on
+  every gate.
 - **The report files are ignored.** The managed TypeScript gitignore
-  fragment adds `npm-audit.json` and Vitest's report output (`coverage/` and
-  wherever the JUnit file is written) in the same change that makes the gates
-  write them, with a test. Prettier reads `.gitignore`, so a second local
+  fragment adds `npm-audit.json`, the `quality-*` reports and Vitest's report
+  output (`coverage/` and wherever the JUnit file is written) in the same
+  change that makes the gates write them, with a test. Prettier reads `.gitignore`, so a second local
   `vrg-validate` does not lint the first run's reports, and they are never
   committed. This follows the Rust precedent, which added `cargo-deny.json` to
   its fragment when the gate began writing it.
-- **Known gap, shared with Rust:** quality-gate evidence (lint and typecheck
-  reports) stays in vergil-tooling#4416's scope.
 
 ### 6.7 A malformed `package.json` is an error (vergil-tooling)
 
@@ -495,21 +510,20 @@ states the rule and how to apply it to a new language:
   least one real runtime dependency, 100% line coverage, a docs site, and no
   `[ci].versions`. The app is a command-line tool, the shape of the planned
   mnemosys CLI. Both declare the required devDependencies within their
-  accepted ranges (TypeScript 6), extend Vergil's managed configs (§6.4), and
-  define a `build` script.
+  accepted ranges (TypeScript 6), extend Vergil's managed configs (§6.4),
+  define a `build` script, and set `package.json`'s `version` to match
+  `VERSION`.
 - **`fixture-run`** (vergil-claude-plugin) gains `ts-lib` and `ts-app` rows,
-  a TypeScript rollback paragraph, and the TypeScript known gaps:
-  - no npm dependency updater (epic 3), so the lockfile-rollback check proves
-    nothing yet, as it was for Rust before its updater;
-  - quality-gate evidence (vergil-tooling#4416).
+  a TypeScript rollback paragraph, and the one TypeScript known gap: no npm
+  dependency updater (epic 3), so the lockfile-rollback check proves nothing
+  yet, as it was for Rust before its updater.
 - **Where a known gap is recorded.** The skill today records every known gap,
   and posts its evidence, on vergil-project/.github#410, the Rust planning
   issue. It changes so that each known-gap row names the issue that will
   close that gap, and the evidence comment is posted there: epic 3's planning
-  item for the npm updater, vergil-tooling#4416 for the quality gate. The
-  Rust rows keep #410.
-- **Each fixture releases `v0.1.0`** and records `Outcome: SUCCESS` on a
-  fixture-run validation.
+  item for the npm updater. The Rust rows keep #410.
+- **The first fixture run releases each fixture's `v0.1.0`** and records
+  `Outcome: SUCCESS` on its validation.
 
 ### 6.9 Rollout and validation
 
@@ -520,10 +534,9 @@ states the rule and how to apply it to a new language:
 4. **Release and deployment** (operational task, human-gated releases):
    vergil-tooling, vergil-actions and vergil-claude-plugin releases carrying
    steps 1 to 3, with the plugin deployed to the host and the VMs.
-5. **Fixtures created** (human), then their programs land by agent PRs, then
-   each releases `v0.1.0`.
+5. **Fixtures created** (human), then their programs land by agent PRs.
 6. **Fixture runs** on both fixtures, filed with `fixture-run`, `--after` the
-   step 4 deployment task.
+   step 4 deployment task. Each run's release is that fixture's `v0.1.0`.
 7. **vergil-containers:** the image drops the repo-side tools, and the smoke
    test and `checks.sh` follow (§6.3). This merges only after step 6 passes.
    It is released and deployed in its own operational task.
@@ -536,23 +549,33 @@ states the rule and how to apply it to a new language:
   and pip-licenses into the image under §6.2, across every Python repo
   (vergil-tooling included).
 - **Epic 2 and epic 3 planning items**, as §2 lists them.
-- **Image-tool versions in the evidence:** recorded as a comment on
-  vergil-tooling#4416, since the report contract is the same for every
-  language. Until it lands, the guideline page claims only what the lockfile
-  records (§6.2).
+- **Image-tool versions in the evidence:** already recorded, as a comment on
+  vergil-tooling#4416 (2026-11-16). Until it lands, the guideline page claims
+  only what the lockfile records (§6.2). At filing, check that #4416 is still
+  where the report contract's tool list is designed, and move the record if
+  not.
 - **TypeScript 7:** deferred as vergil-project/.github#1181.
-- **The BUILD check for Python:** a task to turn on §6.5's BUILD check for
-  Python (`uv build` in `vrg-validate`), with a Python fixture run.
-- **Effective-config auditing of TypeScript overrides:** recorded as a comment
-  on epic vergil-project/.github#375, whose TypeScript plug-in it is (§6.4).
+- **The BUILD check for Python:** a planning item to turn on §6.5's BUILD
+  check for Python (`uv build` in `vrg-validate`), with a Python fixture run.
+- **Effective-config auditing of TypeScript overrides:** already recorded, as
+  a comment on epic vergil-project/.github#375 (2026-11-16), whose TypeScript
+  plug-in it is (§6.4).
+- **`bump()`'s swallowed errors for every language:** an intake item to
+  remove the `except (FileNotFoundError, ValueError): pass` in `bump()` and
+  `bump_paths()` fleet-wide, by making "this language has no version file" an
+  explicit case, so a real write failure always surfaces. It reconciles with
+  the Rust validation epic, which kept the handler on purpose.
 - Epic 4 is vergil-project/.github#959, already in planning.
 
 ## 7. Failure model
 
 - A missing or out-of-range required devDependency, a `tsconfig.json` or
   `eslint.config.mjs` that does not extend Vergil's managed base, a second
-  Prettier config source, a missing `build` script and an unparseable
+  Prettier config source, a missing `build` script, a `package.json` version
+  that differs from `VERSION` or is missing, and an unparseable
   `package.json` all fail with a message that names the fix. None falls back.
+- A TypeScript version bump that cannot write `package.json` fails, naming
+  the file.
 - A TypeScript build that fails, fails the BUILD check on the PR, before any
   release.
 - A gate never runs a global binary in place of the repo's tool, and never
