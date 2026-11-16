@@ -862,3 +862,40 @@ standard trio, each run checks:
   `--locked`.
 - `vrg-validate` runs the BUILD stage with `cargo build --release --locked
   --workspace`, and it passes before the release PR merges.
+
+## Evolution during execution
+
+### 2026-11-16: Task 3's region locator follows llvm-cov's own count
+
+**What changed:**
+
+- **Task 3's `rust_coverage.uncovered_regions` no longer merges a
+  region's count across a generic function's instantiations.** It
+  reproduces `cargo llvm-cov`'s own count. It groups a function's
+  instantiations by source function (file and start position), takes the
+  instantiation with the most covered code regions (ties go to the first
+  in export order), and reports that instantiation's kind 0 regions with
+  count 0. A function with one instantiation is handled as before. The
+  authoritative scope is the human's
+  [scope change on vergil-project/vergil-tooling#4472](https://github.com/vergil-project/vergil-tooling/issues/4472#issuecomment-6924781131).
+- **Task 3's tests change to match.**
+  `test_uncovered_regions_covered_in_one_instantiation` is replaced by a
+  case in which a region at count 0 in the best-covered instantiation is
+  listed even though another instantiation ran it. A new test checks the
+  listing against the export's region totals: for an export below 100%
+  regions, the listing is non-empty and its length equals the number of
+  regions the totals count as missed.
+- Task 3's own text above is unchanged. The plan froze when its first
+  task to merge, Task 8 (vergil-project/vergil-actions#1249), merged.
+
+**Why:**
+
+- **The planned merge disagrees with the gate.** Measured on
+  vergil-project/vergil-fixture-rust-app#18
+  ([item N0.1](https://github.com/vergil-project/vergil-fixture-rust-app/issues/18#issuecomment-6923613164),
+  [the human's ruling](https://github.com/vergil-project/vergil-fixture-rust-app/issues/18#issuecomment-6924742223)):
+  for a generic function, llvm-cov's summary counts only the regions of
+  its best-covered instantiation. The plan said the merge matched
+  llvm-cov's summary, but it does not. With the planned merge, where a
+  region counts as covered if any instantiation ran it,
+  `--fail-under-regions 100` could fail while the listing was empty.
