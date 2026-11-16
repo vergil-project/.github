@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1218
 - **Planning issue:** vergil-project/.github#1213 (review history is in its
   comments)
-- **Status:** draft
+- **Status:** draft, in design review
 
 ## 1. Intent
 
@@ -207,7 +207,7 @@ For CD, three options were weighed:
   cancel stale runs;
 - (chosen) the same, but leave the concurrency settings alone.
 
-Cancelling was first chosen, then dropped. It would bring back the lost
+Cancelling stale runs is rejected. It would bring back the lost
 publishes recorded in vergil-containers#879 and #820. It would let a develop
 push kill the nightly rebuild or, through vergil-actions' shared groups, a
 `main` release. Once finalize no longer waits on CD, it gains nothing either:
