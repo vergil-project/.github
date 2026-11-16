@@ -188,6 +188,11 @@ Spec §6.1.
   other failure (a registry or network outage, or a git dependency that
   cannot be fetched) fails the build loudly with cargo's output, as a
   warmup failure does today. The warmup never writes `Cargo.lock`.
+- Produces: the skip is visible even when the warmup's output is captured
+  (`quiet_warmup=True`, as `vrg-finalize-pr` provisions). The warmup shell
+  writes a fixed marker line with the notice, and the host side
+  (`_build_cached_image`) finds it in the captured output and prints the
+  notice itself.
 
 - [ ] **Step 1: Write the failing tests.**
   - `test_rust_lockfile_commands_are_locked`: each command listed above
@@ -205,6 +210,8 @@ Spec §6.1.
     continues, and `Cargo.lock` is byte-identical afterwards.
   - `test_rust_warmup_other_failure_fails_build`: a locked fetch that fails
     with a network error fails the image build and shows cargo's output.
+  - `test_rust_warmup_skip_visible_when_quiet`: with `quiet_warmup=True`,
+    the stale-lockfile skip still prints its notice.
   - `test_cargo_metadata_locked`: the metadata call carries `--locked`.
   - The existing binary-only doctest-skip tests in `test_vrg_validate.py`
     pass unchanged against the locked command.
@@ -363,8 +370,10 @@ Spec §6.4, second half.
 - `bump()` resolves `cargo_version_table` before it writes any file,
   `VERSION` included. A manifest with no version table therefore fails with
   nothing changed.
-- Before writing anything, `bump()` also checks the `[workspace.dependencies]`
-  entries whose `path` is a workspace member and that carry a `version`. If
+- Before writing anything, `bump()` also checks every versioned path
+  dependency on a workspace member: the `[workspace.dependencies]` entries
+  whose `path` is a member, and path dependencies in member crates' own
+  manifests that carry a `version` (spec §6.4). If
   the new version does not satisfy an entry's requirement (for example
   `0.1.3` to `0.2.0` under `^0.1.3`), it raises `CargoVersionError` naming
   each such entry and writes nothing. Cargo would reject the bumped
@@ -400,6 +409,9 @@ Spec §6.4, second half.
     `foo = { path = "foo", version = "0.1.3" }` and a workspace at `0.1.3`,
     a minor bump raises `CargoVersionError` naming `foo`, and `VERSION` and
     `Cargo.toml` are unchanged. A patch bump succeeds.
+  - `test_bump_breaking_member_manifest_requirement_fails_first`: the same
+    check for a member crate's own `bar = { path = "../foo", version =
+    "0.1.3" }`.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expect the new
   tests to fail.
 - [ ] **Step 3: Implement** the interfaces above. Edit the table with a
@@ -442,6 +454,9 @@ Spec §6.5, vergil-tooling half. Blocked by 3.
     to `quality-clippy.json`, and still carries `--all-targets --locked
     --workspace -- -D warnings`.
   - `test_rust_typecheck_writes_report`
+  - `test_failing_lint_still_writes_report`: a failing clippy still writes
+    `quality-clippy.json` and exits with cargo's status. The same for a
+    failing `cargo check` and `quality-cargo-check.json`.
   - `test_rust_gitignore_lists_quality_reports`
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expect the new
   tests to fail.
@@ -507,7 +522,10 @@ Spec §6.6. Blocked by 5.
   - both of those, joined with `"; "`
   - `"held by the resolver: another requirement in the dependency graph"`
 
-  Path and git dependencies are skipped.
+  A workspace-inherited dependency (`foo.workspace = true`) uses the
+  requirement `cargo metadata` reports for it. Path and git dependencies
+  are skipped, with a comment in the code giving the reason: they have no
+  index entry to compare against.
 - A failed `cargo update`, an unreadable manifest or lockfile, or a
   `SparseIndexError` makes `apply` raise. It never returns "no change".
   Every one of these reaches the orchestrator as an `UpdateDepsError`, the
@@ -545,6 +563,9 @@ Spec §6.6. Blocked by 5.
     above the package's `rust-version`.
   - `test_held_back_by_resolver`: a sibling's `=1.0.150` holds it.
   - `test_not_held_back_when_only_yanked_newer`
+  - `test_inherited_dependency_uses_metadata_requirement`: `serde.workspace
+    = true` is checked against the requirement `cargo metadata` reports.
+  - `test_path_and_git_dependencies_skipped`
   - `test_cargo_in_default_registry`
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expect the new
   tests to fail.
@@ -568,6 +589,13 @@ GitHub refuses the agent push. The human's `vrg-submit-pr` pushes it.
   staging, and the "Emit ci-evidence-quality artifact" step)
 - Modify: `actions/ci/evidence/reports/action.yml` (the gate input's allowed
   values)
+- Modify: `docs/site/docs/actions/ci-evidence-reports.md`,
+  `docs/site/docs/actions/ci-evidence-emit.md` and
+  `docs/site/docs/workflows/ci-quality.md` (the lint and typecheck
+  contracts, the required reports, and the `quality-*` emit glob)
+- Modify: `docs/site/docs/actions/cd-release-registry-publish.md` (Rust's
+  build is `cargo build --release --locked --workspace` and its publish
+  `cargo publish --locked`, from Tasks 2 and 13)
 - Test: `actions/ci/evidence/reports/tests/reports.test.sh`
 
 **Interfaces:**
@@ -610,6 +638,8 @@ GitHub refuses the agent push. The human's `vrg-submit-pr` pushes it.
     and one with the clippy report removed fails, naming it.
   - `expect_python_matches_today`: the ruff and mypy reports, as staged
     today, pass.
+  - `expect_no_contract_language_warns`: for `go`, `expect` warns through
+    `warn_no_contract` and passes.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expect the new
   tests to fail.
 - [ ] **Step 3: Implement** the interfaces above in `reports.sh` and
@@ -632,6 +662,8 @@ Spec §6.3.
   `ARG CARGO_NEXTEST_SHA256_AMD64` and `_ARM64`; verifies against them, not
   against the downloaded `.sha256`)
 - Modify: `docker/pins/pins.yml` (the cargo-nextest entry's reason)
+- Modify: `docker/pins/CATALOG.md` (regenerated) and
+  `docs/site/docs/languages/rust.md` (prebuilt tools carry pinned digests)
 - Test: `docker/pins/test_resolve.py`
 
 **Interfaces:**
@@ -691,6 +723,9 @@ Spec §6.3. Blocked by 9.
   `TOOL_DIGESTS` for cargo-deny)
 - Modify: `docker/pins/pins.yml` (two auto-managed entries; the header
   note records the reversal of the WS2 decision, #418, and why)
+- Modify: `docker/pins/CATALOG.md` (regenerated) and
+  `docs/site/docs/languages/rust.md` (cargo-deny and cargo-llvm-cov are
+  pinned and refreshed)
 - Test: `docker/pins/test_resolve.py`, `docker/pins/test_pins.py`
 
 **Interfaces:**
@@ -709,6 +744,9 @@ Spec §6.3. Blocked by 9.
   - `test_template_has_no_bare_cargo_install`: `Dockerfile.template`
     contains no `cargo install` line.
   - `test_pins_entries_for_rust_tools`
+  - `test_exposure_report_resolves_rust_tools`: the pin-exposure report,
+    which builds its tool map from `TOOL_REPOS` (vergil-containers #916),
+    resolves cargo-deny and cargo-llvm-cov.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expect the new
   tests to fail.
 - [ ] **Step 3: Implement** the files above. Seed the versions and digests
@@ -811,6 +849,11 @@ standard trio, each run checks:
 - The change task rolls one crate back in `Cargo.lock`, and the release's
   `vrg-update-deps` restores it with a Cargo update commit that names the
   crate. This replaces the earlier "dependency rollback: skipped" known gap.
+  The rolled-back crate stays within its `Cargo.toml` requirement: a
+  transitive crate, or a direct dependency whose floor is below its locked
+  version. The change PR's locked install must pass on the rolled-back
+  lockfile. In `vergil-fixture-rust-lib`, every direct dependency is locked
+  at its floor, so the rollback there uses a transitive crate.
 - The evidence bundle's `quality` gate lists `rustfmt`, `clippy` and `cargo`
   beside the common and custom tools, and holds the version-suffixed
   clippy and cargo-check reports. This replaces the earlier evidence-bundle

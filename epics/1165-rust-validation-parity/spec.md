@@ -90,8 +90,18 @@ a Python repo:
 
 ## 4. Current state (facts the design builds on)
 
-Checked on `origin/develop` on 2026-11-15: vergil-tooling `60ac9e5cce`,
-vergil-actions `4f76bf326`, vergil-containers `2dde127`.
+Checked on `origin/develop` on 2026-11-15, and refreshed on 2026-11-16 at
+vergil-tooling `d9961cd2a8`, vergil-actions `a261542211` and
+vergil-containers `c2800d10d2`. The refresh found these changes:
+
+- vergil-tooling #4456 added `UpdateResult.packages` and
+  `changes.diff_versions`;
+- vergil-tooling #4452, #4461 and #4467 added semgrep, docs and trivy stages
+  to `vrg-validate`, which conflict with nothing here;
+- vergil-containers #916 dropped cargo-deny and cargo-llvm-cov from the
+  pin-exposure report. The report now builds its tool map from
+  `resolve_latest.TOOL_REPOS`, so registering the two tools there (§6.3)
+  brings them back into it.
 
 ### Already delivered (not this epic)
 
@@ -138,7 +148,9 @@ vergil-actions `4f76bf326`, vergil-containers `2dde127`.
   - **The updater protocol.** `Updater` in `updater.py` has `name`,
     `applies(ctx)` and `apply(ctx) -> UpdateResult`.
   - **The result.** `UpdateResult` carries `changed`, `summary`,
-    `commit_message`, `warnings` and `held_back: list[HeldBack]`.
+    `commit_message`, `warnings`, `held_back: list[HeldBack]` and `packages:
+    list[PackageChange] | None`, which the uv, vergil and images updaters
+    fill from `changes.diff_versions`.
   - **The held-back report.** It works for any language (`report.py`:
     `HeldBack`, `collect`, `render_markdown`), and `finalize_stage` prints it
     on every run.
@@ -250,7 +262,9 @@ For coverage, the options considered were:
     skipped with a loud notice ("warmup skipped: Cargo.lock does not match
     Cargo.toml"), and the image build continues. A stale lockfile therefore
     neither fails the image build nor gets silently re-resolved in the
-    worktree.
+    worktree. Any other fetch failure fails the build, as today. The notice
+    is printed even when the warmup's output is captured quietly (as
+    `vrg-finalize-pr` does), so the skip is never silent.
 - The Rust standards page in the vergil-tooling site docs says `Cargo.lock` is
   committed and enforced.
 
@@ -361,6 +375,17 @@ For coverage, the options considered were:
     (FileNotFoundError, ValueError): pass`, and that handler must not catch
     it, so a bump never updates `VERSION` while leaving `Cargo.toml`
     untouched. A unit test bumps such a manifest and expects the failure.
+  - **A bump never breaks a member's version requirement.** Before writing
+    any file, a bump checks every versioned path dependency on a workspace
+    member, both in `[workspace.dependencies]` and in member crates' own
+    manifests. If the new version would not satisfy one of them (for
+    example `0.1.3` to `0.2.0` under `^0.1.3`), the bump fails, naming each
+    entry, and writes nothing. Rewriting those entries belongs to the
+    workspace follow-on, vergil-project/.github#1179.
+  - Cargo's version-requirement rules (caret, tilde, wildcards, comparison
+    operators, comma-joined comparators, `=`, pre-releases) live in one
+    shared matcher, `lib/cargo_semver.py`, used here and by the Cargo
+    updater (§6.6). `packaging` implements Python's rules, not Cargo's.
 
 ### 6.5 The `quality` gate's evidence is per-language (vergil-tooling, vergil-actions)
 
@@ -404,7 +429,8 @@ For coverage, the options considered were:
     per-leg file names instead of naming ruff and mypy.
 - Languages with no quality contract keep today's warning path in
   `reports.sh`, which warns and gives an empty payload. They are not given
-  Python's tools.
+  Python's tools, and the emit step's report check warns and passes for
+  them.
 
 ### 6.6 The Cargo updater (vergil-tooling)
 
@@ -428,9 +454,10 @@ For coverage, the options considered were:
     "held by the resolver: another requirement in the dependency graph" (for
     example another crate's `=` or `<` requirement on the same dependency).
     Every entry carries a reason.
-  - Path, git and workspace-inherited dependencies resolve to the requirement
-    they actually carry, or are skipped with a reason that the builder records
-    in the code.
+  - A workspace-inherited dependency (`foo.workspace = true`) uses the
+    requirement `cargo metadata` reports for it. Path and git dependencies
+    are skipped, with the reason recorded in the code. Requirements are
+    matched with `lib/cargo_semver.py` (§6.4).
   - **The latest versions come from Cargo's sparse index**
     (`https://index.crates.io`), not the crates.io web API. The index is
     the static, CDN-served data `cargo update` itself reads. Each version's
@@ -456,14 +483,21 @@ For coverage, the options considered were:
 
 ### 6.7 Docs
 
-The documentation review (vergil-project/vergil-tooling#4443) sweeps the
-human-facing docs for every change above. That covers at least:
+Each change updates its own repo's docs in the same PR, because a task
+lives in the repo its PR lands in (§8):
 
-- the Rust standards page and the validation reference: lockfile, coverage and
-  workspaces;
-- the `vrg-update-deps` page: the Cargo updater and its held-back report;
-- vergil-actions' evidence docs: the per-language `quality` gate;
-- vergil-containers' image docs: the tool pins.
+- vergil-tooling: the Rust standards page and the validation reference
+  (lockfile, coverage, workspaces and the release build), and the
+  `vrg-update-deps` page (the Cargo updater and its held-back report);
+- vergil-actions: the evidence docs (the per-language lint and typecheck
+  contracts, and the `quality` gate), and the registry-publish page's Rust
+  build and publish commands;
+- vergil-containers: the Rust language page and the pin catalog (the tool
+  pins and their digests).
+
+The documentation review (vergil-project/vergil-tooling#4443) then sweeps
+for what those PRs missed. It covers vergil-tooling's docs itself, and files
+a per-repo doc task, in that repo, for anything missing elsewhere.
 
 ### 6.8 Rollout and validation
 
@@ -477,7 +511,12 @@ human-facing docs for every change above. That covers at least:
 3. **Fixture runs** on `vergil-fixture-rust-lib` and `vergil-fixture-rust-app`,
    blocked by the deployment task, filed with `fixture-run`. Each run:
    - rolls one crate back in `Cargo.lock`, and checks that the release's
-     `vrg-update-deps` restores it with a Cargo update commit;
+     `vrg-update-deps` restores it with a Cargo update commit. The rollback
+     stays within the `Cargo.toml` requirement, so the rolled-back lockfile
+     still passes the locked install (§6.1). That means a transitive crate,
+     or a direct dependency whose requirement's floor is below its locked
+     version. A crate locked at its own floor cannot be rolled back without
+     editing `Cargo.toml`, which is a non-goal;
    - checks the evidence bundle's `quality` gate names Rust's tools and holds
      its reports;
    - passes the new coverage gate and the locked install;
@@ -533,6 +572,8 @@ human-facing docs for every change above. That covers at least:
   report is skipped silently. This epic makes it fail (§6.5).
 - **A `Cargo.toml` with neither `[package]` nor `[workspace.package]`:**
   `vrg-version` fails, naming both tables.
+- **A bump that would break a member's versioned path dependency:** the bump
+  fails before writing anything, naming each entry (§6.4).
 
 ## 8. Constraints
 
