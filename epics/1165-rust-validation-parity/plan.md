@@ -75,11 +75,11 @@ Each line gives the task, its repo and kind, what it delivers, and what it is
 blocked by.
 
 - **1** (.github, task #1166): spec and plan, this PR.
-- **2** (vergil-tooling): lockfile enforced; the warmup stays off it.
+- **2** (vergil-tooling): lockfile enforced; the warmup never rewrites it.
 - **3** (vergil-tooling): coverage gate, 100% lines and regions, misses
   located. Blocked by 11a and 11b.
-- **4** (vergil-tooling): `--workspace` on every Rust gate command; shared
-  doctest command. Blocked by 2.
+- **4** (vergil-tooling): `--workspace` on every Rust gate command.
+  Blocked by 2.
 - **5** (vergil-tooling): `vrg-version` reads and bumps workspace versions.
 - **6** (vergil-tooling): Rust lint and typecheck reports. Blocked by 4.
 - **7** (vergil-tooling): Cargo updater with the held-back report.
@@ -118,13 +118,9 @@ blocked by.
     --after vergil-project/.github#<Task 12>
   ```
 
-- **Security advisories.** Two advisories recorded on #1087 are handed to
-  their fix tasks at filing: GHSA-9c2c-5wg3-w8cf goes to Tasks 9 and 10, and
-  GHSA-6vxr-wphj-h4pg goes to Task 4.
-
 ---
 
-### Task 2: Lockfile enforced; the warmup stays off it (vergil-tooling)
+### Task 2: Lockfile enforced; the warmup never rewrites it (vergil-tooling)
 
 Spec §6.1.
 
@@ -133,7 +129,8 @@ Spec §6.1.
 - Modify: `src/vergil_tooling/lib/languages.py` (the `"rust"` entry's
   commands, and `EcosystemInfo.build_cmd` and `publish_cmd`)
 - Modify: `src/vergil_tooling/bin/vrg_validate.py` (the `cargo metadata`
-  call, and a new missing-lockfile check)
+  call; a new missing-lockfile check; `_RUST_DOCTEST_CMD` removed, so the
+  doctest skip imports `RUST_DOCTEST_CMD`)
 - Modify: `src/vergil_tooling/lib/container_cache.py`
   (`_WARMUP_REQUIRES["rust"]`, `_warmup_command`)
 - Modify: `docs/site/docs/standards/development/rust/overview.md` (the
@@ -149,13 +146,23 @@ Spec §6.1.
   coverage script's `cargo llvm-cov nextest` and `cargo llvm-cov report`,
   `cargo test --doc`, the `cargo deny` audit, `cargo build --release` and
   `cargo publish`. `cargo fmt` does not.
+- Produces: `languages.RUST_DOCTEST_CMD: list[str] == ["cargo", "test",
+  "--doc", "--locked"]`. The Rust TEST list and
+  `_skip_rust_doctests_without_lib` both use it, so adding a flag can never
+  make the skip stop matching. Task 4 adds `--workspace`.
 - Produces: `vrg_validate.check_rust_lockfile(repo_root: Path) -> None`.
   It raises `ValidationError` with the message `Cargo.lock is missing:
   run 'cargo generate-lockfile' in the container and commit it` when
   `Cargo.toml` exists and `Cargo.lock` does not. It runs before the Rust
   install stage.
-- Produces: `_WARMUP_REQUIRES["rust"] == [["Cargo.toml", "Cargo.lock"]]`.
-  `_warmup_command("rust", root)` emits `cargo fetch` with no `--locked`.
+- Produces: `_WARMUP_REQUIRES["rust"] == [["Cargo.toml"], ["Cargo.lock"]]`,
+  two groups. A group is satisfied when any of its names is present, so a
+  lockfile in the same group as `Cargo.toml` would not be required.
+- Produces: `_warmup_command("rust", root)` emits `cargo fetch --locked`.
+  When it fails, the warmup prints `warmup skipped: Cargo.lock does not
+  match Cargo.toml` and the image build continues, like the existing
+  missing-file skip (`container_cache.py`). The warmup never writes
+  `Cargo.lock`.
 
 - [ ] **Step 1: Write the failing tests.**
   - `test_rust_lockfile_commands_are_locked`: each command listed above
@@ -166,16 +173,21 @@ Spec §6.1.
     `Cargo.toml` gives the error message above.
   - `test_rust_warmup_requires_lockfile`: a repo with only `Cargo.toml`
     skips the warmup.
-  - `test_rust_warmup_never_locked`: with both files present, the warmup
-    command has no `--locked`.
+  - `test_rust_warmup_is_locked`: with both files present, the warmup
+    command is `cargo fetch --locked`.
+  - `test_rust_warmup_stale_lock_skips_loudly`: a failing locked fetch
+    gives the skip notice, the build continues, and `Cargo.lock` is
+    byte-identical afterwards.
   - `test_cargo_metadata_locked`: the metadata call carries `--locked`.
+  - The existing binary-only doctest-skip tests in `test_vrg_validate.py`
+    pass unchanged against the locked command.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expect the new
   tests to fail.
 - [ ] **Step 3: Implement** the interfaces above, and update the Rust
   standards page.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expect PASS.
 - [ ] **Step 5: Commit** `vrg-commit --type feat --scope rust --message
-  "enforce Cargo.lock in Rust validation and keep the warmup off it"`, then
+  "enforce Cargo.lock and keep the warmup from rewriting it"`, then
   report-ready.
 
 ### Task 3: Coverage gate: 100% lines and regions, misses located (vergil-tooling)
@@ -185,37 +197,54 @@ Spec §6.2. Blocked by 11a and 11b.
 **Files:**
 
 - Modify: `src/vergil_tooling/lib/languages.py` (`_RUST_TEST_SCRIPT`)
-- Create: `src/vergil_tooling/lib/rust_coverage.py` (prints the uncovered
+- Create: `src/vergil_tooling/lib/rust_coverage.py` (reads the uncovered
   regions from cargo-llvm-cov's JSON export)
+- Modify: `src/vergil_tooling/bin/vrg_validate.py` (after a failed Rust
+  TEST coverage command, run the JSON export and print the regions)
 - Modify: `docs/site/docs/standards/development/rust/overview.md` (the gate
   is lines and regions; branch coverage is deferred to
   vergil-project/.github#1171)
 - Test: `tests/vergil_tooling/test_languages.py`,
-  `tests/vergil_tooling/test_rust_coverage.py`
+  `tests/vergil_tooling/test_rust_coverage.py`,
+  `tests/vergil_tooling/test_vrg_validate.py`
 
 **Interfaces:**
 
 - Produces: `rust_coverage.uncovered_regions(export: dict) -> list[Region]`,
-  where `Region` is a dataclass with `file: str`, `line: int` and `col: int`.
-  It reads the JSON from `cargo llvm-cov report --json`: the
-  `data[].files[].segments` with a zero count that start a region, sorted
-  by file, line and column.
-- Produces: `rust_coverage.main(argv: list[str]) -> int`, the CLI that
-  `_RUST_TEST_SCRIPT` calls when the report step fails. It prints one
-  `<file>:<line>:<col>: uncovered region` line per region and exits 1.
+  where `Region` is a frozen dataclass with `file: str`, `line: int` and
+  `col: int`. It reads `data[].functions[].regions` from `cargo llvm-cov
+  report --json`. These are the records the region percentage counts.
+  Each region array is `[line_start, col_start, line_end, col_end,
+  execution_count, file_id, expanded_file_id, kind]`, and the file is
+  `filenames[file_id]`. It keeps regions with count 0 and kind 0 (code),
+  deduplicates them by file, line and column, and sorts them.
+- Produces: `rust_coverage.format_regions(regions: list[Region]) ->
+  list[str]`, one `<file>:<line>:<col>: uncovered region` line each.
 - `_RUST_TEST_SCRIPT`'s report step passes `--fail-under-lines 100
-  --fail-under-regions 100`. When it fails, the script runs the region
-  listing and exits with the report's status.
+  --fail-under-regions 100` and is otherwise unchanged.
+- Produces: in `vrg_validate.py`, when the Rust TEST stage's coverage
+  command fails, `vrg-validate` runs `cargo llvm-cov report --json
+  --output-path <tmp>` in the same environment and prints
+  `format_regions(uncovered_regions(...))`. The stage still fails with the
+  coverage command's status. The listing runs in vergil-tooling's own
+  process, because the Rust image's `python3` cannot import vergil-tooling.
+  If the export fails, that failure is reported too, and the stage still
+  fails.
 
 - [ ] **Step 1: Write the failing tests.**
   - `test_rust_gate_requires_regions`: the script contains
     `--fail-under-regions 100` and `--fail-under-lines 100`.
-  - `test_uncovered_regions_on_a_covered_line`: a JSON fixture where line 12
-    ran but a region starting at column 21 (a `?` error path) has count 0
-    gives `[Region("src/lib.rs", 12, 21)]`.
+  - `test_uncovered_regions_on_a_covered_line`: a JSON fixture in which a
+    function's region `[12, 21, 12, 30, 0, 0, 0, 0]` has count 0 while
+    line 12's other regions ran gives `[Region("src/lib.rs", 12, 21)]`.
+  - `test_uncovered_regions_ignores_non_code_kinds`: a count-0 region with
+    a non-zero kind (an expansion or gap) is not listed.
+  - `test_uncovered_regions_dedupes_instantiations`: the same region in two
+    generic instantiations is listed once.
   - `test_uncovered_regions_none`: a fully covered export gives `[]`.
-  - `test_main_prints_and_fails`: the output is `src/lib.rs:12:21:
-    uncovered region`, with exit 1.
+  - `test_failed_coverage_prints_regions`: in `test_vrg_validate.py`, with a
+    fake runner whose coverage command fails, the output contains
+    `src/lib.rs:12:21: uncovered region` and the stage fails.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expect the new
   tests to fail.
 - [ ] **Step 3: Implement** the interfaces above, and update the standards
@@ -225,27 +254,24 @@ Spec §6.2. Blocked by 11a and 11b.
   "require 100% region coverage and locate uncovered regions"`, then
   report-ready.
 
-### Task 4: `--workspace` on every Rust gate command; shared doctest command (vergil-tooling)
+### Task 4: `--workspace` on every Rust gate command (vergil-tooling)
 
 Spec §6.4, first half. Blocked by 2.
 
 **Files:**
 
 - Modify: `src/vergil_tooling/lib/languages.py` (clippy, check, the
-  coverage script, the doctest command, `_RUST_AUDIT_SCRIPT`; a new
-  `RUST_DOCTEST_CMD` constant)
-- Modify: `src/vergil_tooling/bin/vrg_validate.py` (`_RUST_DOCTEST_CMD`
-  removed, so the skip imports `RUST_DOCTEST_CMD`; the skip checks every
+  coverage script, `RUST_DOCTEST_CMD`, `_RUST_AUDIT_SCRIPT`)
+- Modify: `src/vergil_tooling/bin/vrg_validate.py` (the skip checks every
   workspace member)
 - Test: `tests/vergil_tooling/test_languages.py`,
   `tests/vergil_tooling/test_vrg_validate.py`
 
 **Interfaces:**
 
-- Consumes: Task 2's `--locked` commands.
-- Produces: `languages.RUST_DOCTEST_CMD: list[str] == ["cargo", "test",
-  "--doc", "--locked", "--workspace"]`, used by the TEST list and by
-  `_skip_rust_doctests_without_lib`.
+- Consumes: Task 2's `--locked` commands and `languages.RUST_DOCTEST_CMD`.
+- Produces: `RUST_DOCTEST_CMD == ["cargo", "test", "--doc", "--locked",
+  "--workspace"]`.
 - Produces: clippy, check, `cargo llvm-cov nextest` and `cargo deny … check`
   all carry `--workspace`.
 
@@ -286,6 +312,9 @@ Spec §6.4, second half.
   table `cargo_version_table` names, never the first text match.
 - `bump()` and `bump_paths()` keep their `except (FileNotFoundError,
   ValueError)` handlers, and `CargoVersionError` passes through them.
+- `bump()` resolves `cargo_version_table` before it writes any file,
+  `VERSION` included. A manifest with no version table therefore fails with
+  nothing changed.
 
 - [ ] **Step 1: Write the failing tests.**
   - `test_cargo_version_from_package`
@@ -358,6 +387,7 @@ Spec §6.6.
 
 - Create: `src/vergil_tooling/lib/update_deps/updaters/cargo.py`
 - Create: `src/vergil_tooling/lib/update_deps/sparse_index.py`
+- Create: `src/vergil_tooling/lib/update_deps/cargo_semver.py`
 - Modify: `src/vergil_tooling/lib/update_deps/orchestrator.py`
   (`DEFAULT_REGISTRY`)
 - Modify: `docs/site/docs/reference/dev/update-deps.md`
@@ -370,19 +400,33 @@ Spec §6.6.
 - Produces: `sparse_index.versions(crate: str, fetch: Fetch) -> list[IndexVersion]`.
   `IndexVersion` has `vers: str`, `yanked: bool` and `rust_version: str |
   None`. It reads `https://index.crates.io/<prefix path>/<crate>` using
-  Cargo's index path rule (`1`, `2`, `3/<first char>`, or `<ab>/<cd>`). A
-  fetch or parse failure raises `SparseIndexError`.
+  Cargo's index path rule (`1`, `2`, `3/<first char>`, or `<ab>/<cd>`),
+  applied to the lowercased crate name. A fetch or parse failure raises
+  `SparseIndexError`.
+- Produces: `cargo_semver.matches(req: str, version: str) -> bool`,
+  following Cargo's documented requirement rules: caret (the default, so
+  bare `1.2` means `^1.2`), tilde, `*` wildcards, comparison operators,
+  comma-joined comparators, `=` exact, and pre-release matching. An
+  unparseable requirement raises `UpdateDepsError`. `packaging` is not
+  used, because it implements Python's version rules, not Cargo's.
 - Produces: `sparse_index.newest_stable(versions) -> IndexVersion | None`,
   the highest non-yanked, non-pre-release version.
 - Produces: `CargoUpdater` with `name = "cargo"`.
   - `applies(ctx)` requires `Cargo.toml` and `Cargo.lock`.
-  - `apply(ctx)` runs `vrg-container-run -- cargo update` and diffs
-    `Cargo.lock`'s packages before and after. It returns an `UpdateResult`
-    whose `summary` and `commit_message` list `<crate> <old> -> <new>`.
+  - `apply(ctx)` runs `vrg-container-run -- cargo update`. It parses
+    `Cargo.lock`'s `[[package]]` entries before and after into
+    name-to-versions maps (a crate can be locked at several versions), and
+    sets `packages=changes.diff_versions(before, after)`, the helper the uv,
+    vergil and images updaters already use (vergil-tooling #4456). The
+    `summary` and `commit_message` are derived from that list, as
+    `<crate> <old> -> <new>`.
   - It fills `held_back` from `held_back(ctx, fetch)`.
 - Produces: `cargo.held_back(ctx, fetch) -> list[HeldBack]` over every
-  workspace member's normal, dev and build dependencies (from `cargo
-  metadata --format-version 1 --locked`). Each entry has `source="cargo"`
+  workspace member's normal, dev and build dependencies. These come from
+  `vrg-container-run -- cargo metadata --format-version 1 --locked`, run
+  in the container like `cargo update` (host tooling never needs a Rust
+  toolchain), with stdout captured and parsed. A non-zero exit raises
+  `UpdateDepsError`. Each entry has `source="cargo"`
   and a `note` that is one of:
   - `"outside the Cargo.toml requirement"`
   - `"needs a newer Rust than rust-version"`
@@ -392,16 +436,35 @@ Spec §6.6.
   Path and git dependencies are skipped.
 - A failed `cargo update`, an unreadable manifest or lockfile, or a
   `SparseIndexError` makes `apply` raise. It never returns "no change".
+  Every one of these reaches the orchestrator as an `UpdateDepsError`, the
+  type `run_updaters_stage` records as a failure (`orchestrator.py`):
+  - `SparseIndexError` subclasses `UpdateDepsError`, with `phase="update"`
+    and `command` set to the URL fetched;
+  - `OSError` and `tomllib.TOMLDecodeError` from reading `Cargo.toml` or
+    `Cargo.lock` are wrapped in `UpdateDepsError`, naming the file.
 
 - [ ] **Step 1: Write the failing tests,** with a fake fetch and a fake
   container runner:
-  - `test_index_path_rule`: `a`, `ab`, `abc` and `serde` map to `1/a`,
-    `2/ab`, `3/a/abc` and `se/rd/serde`.
+  - `test_index_path_rule`: `a`, `ab`, `abc`, `serde` and `Inflector` map
+    to `1/a`, `2/ab`, `3/a/abc`, `se/rd/serde` and `in/fl/inflector`.
+  - `test_cargo_semver_matches`: `^1.2`, bare `1.2`, `~1.2`, `1.*`,
+    `>=1.2, <1.5` and `=1.2.3`, each against versions just inside and just
+    outside the requirement, plus a pre-release case.
   - `test_newest_stable_skips_yanked_and_prerelease`
   - `test_index_failure_raises`
   - `test_cargo_applies_needs_lockfile`
-  - `test_cargo_update_reports_moved_crates`
+  - `test_metadata_runs_in_container`: the fake runner sees
+    `vrg-container-run -- cargo metadata --format-version 1 --locked`, and
+    no bare `cargo` call. Its failure raises `UpdateDepsError`.
+  - `test_cargo_update_reports_moved_crates`: `result.packages` lists the
+    moved crate with its old and new versions, and the summary names it.
+  - `test_cargo_update_multi_version_crate`: a crate locked at two versions,
+    one of them moved, is itemized correctly.
   - `test_cargo_update_failure_raises`
+  - `test_orchestrator_records_cargo_failures`: in
+    `test_update_deps_orchestrator.py`, an index failure, an unreadable
+    `Cargo.lock` and a corrupt `Cargo.toml` each produce a recorded failure,
+    and the held-back report still prints.
   - `test_held_back_outside_requirement`: `serde = "1"` locked at
     `1.0.200`, newest `2.0.0`.
   - `test_held_back_rust_version`: the newest version's `rust_version` is

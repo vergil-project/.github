@@ -239,12 +239,16 @@ For coverage, the options considered were:
   `vrg-container-run`. Otherwise the commands that create or refresh the
   lockfile (`cargo generate-lockfile`, and the `cargo update --workspace`
   of a version bump) could not run in the container at all.
-  - `Cargo.lock` joins `Cargo.toml` in Rust's warmup requirements
-    (`_WARMUP_REQUIRES["rust"]`), as `uv.lock` and `conan.lock` do for
+  - `Cargo.lock` becomes its own group in Rust's warmup requirements
+    (`_WARMUP_REQUIRES["rust"]`), as `uv.lock` and `conan.lock` are for
     Python and C++. A repo with no lockfile skips the warmup.
-  - The warmup's fetch never passes `--locked`, so a stale lockfile cannot
-    fail the image build. `--locked` belongs to validation's install step
-    and the commands after it.
+  - **The warmup never rewrites the lockfile.** It runs with the worktree
+    mounted, so it fetches with `--locked`, as Python's warmup runs `uv sync
+    --frozen`. When that fails because `Cargo.lock` is stale, the warmup is
+    skipped with a loud notice ("warmup skipped: Cargo.lock does not match
+    Cargo.toml"), and the image build continues. A stale lockfile therefore
+    neither fails the image build nor gets silently re-resolved in the
+    worktree.
 - The Rust standards page in the vergil-tooling site docs says `Cargo.lock` is
   committed and enforced.
 
@@ -487,8 +491,9 @@ human-facing docs for every change above. That covers at least:
   and how to create it.
 - **`Cargo.lock` stale:** validation fails at install with cargo's `--locked`
   error.
-- **`Cargo.lock` missing or stale when the dev image builds:** the warmup
-  skips or prefetches unlocked, and `vrg-container-run` still works, so the
+- **`Cargo.lock` missing or stale when the dev image builds:** the warmup is
+  skipped (loudly, when the lockfile is stale) and never rewrites the
+  lockfile. `vrg-container-run` still works, so the
   lockfile can be created or refreshed in the container.
 - **Region coverage below 100%:** the test gate fails and prints each
   uncovered region with its file, line and column (§6.2).
