@@ -54,8 +54,9 @@ This is epic 1 of the TypeScript-parity wave:
 3. TypeScript's tools follow that rule. Repos declare the tools their code
    depends on. The image owns the rest. A repo missing a required tool fails
    `vrg-validate` with a message that names the fix.
-4. Every TypeScript repo gets Vergil's strict base tsconfig and ESLint config
-   as managed files, kept current by the nightly fleet sync.
+4. Every TypeScript repo gets Vergil's strict base tsconfig, ESLint config and
+   Prettier config as managed files, kept current by the nightly fleet sync.
+   The repo's own `tsconfig.json` and `eslint.config.mjs` extend them.
 5. A TypeScript repo can release. `vrg-version` bumps `package.json` and
    refreshes `package-lock.json`, and `cd-release` accepts TypeScript.
 6. The TypeScript gates write evidence files, and the CI report contract
@@ -70,8 +71,11 @@ This is epic 1 of the TypeScript-parity wave:
 - Publishing to npm. A TypeScript release is tags, a GitHub Release and its
   evidence, as for the Rust fixtures.
 - Release automation. It is separate, fleet-wide work.
-- TypeScript 7, the native compiler. The fixtures and the shared configs stay
-  on TypeScript 5.
+- TypeScript 7, the native compiler. TypeScript repos stay on TypeScript 6,
+  the newest major typescript-eslint supports
+  ([dependency versions](https://typescript-eslint.io/users/dependency-versions/):
+  `>=4.8.4 <6.1.0`). Moving to 7 is deferred to vergil-project/.github#1181,
+  to be revisited once typescript-eslint supports it.
 - Package managers other than npm.
 - Epics 2 to 5 of the wave (§2).
 - Moving Python's standalone tools into the image under the new rule. The
@@ -154,6 +158,10 @@ This is epic 1 of the TypeScript-parity wave:
   `npx tsc --noEmit` and `npx vitest run` against a project that declares
   typescript, vitest and `@vitest/coverage-v8`. `docker/ts-node/checks.sh:143-151`
   runs `--version` on `tsc`, `eslint`, `prettier` and `vitest`.
+- The `typescript@5` constraint in that install is the only thing holding
+  TypeScript to a major line today. Unconstrained, `typescript` resolves to
+  the 7.x native compiler, which ships no compiler API for typescript-eslint
+  to load.
 - Node series: 24 and 22, `automation: "report"`. Node 26 is missing
   (vergil-containers#730), which is epic 2's work.
 
@@ -163,6 +171,13 @@ This is epic 1 of the TypeScript-parity wave:
   `["python","rust","go"]`. With `registry-publish` false (the default), a
   release still builds, tags, publishes the GitHub Release with its evidence,
   back-merges and moves the `vX.Y` tag. Publishing is skipped.
+- The release job's Build step runs the language's build command on a fresh
+  checkout (`actions/cd/release/registry-publish/action.yml:84-90`). No step
+  installs npm dependencies. `uv build`, `cargo build` and `go build` fetch
+  their own; `npm run build` does not.
+- The evidence's tool list records names only (`reports.sh` `report_tools`).
+  `actions/ci/evidence/emit/action.yml:28-29` defaults it to empty, "enrich
+  as gates learn to report their tool versions".
 - `actions/ci/evidence/reports/reports.sh:10-34` is the hand-kept report
   table. Go, C++ and TypeScript emit a warning and stage nothing.
 
@@ -170,7 +185,11 @@ This is epic 1 of the TypeScript-parity wave:
 
 - `skills/fixture-run/SKILL.md:31-53` holds the fixture table and the known
   gaps. Adding fixtures is a table row, plus a rollback paragraph per language
-  (`:198-250`).
+  (`:198-250`). Its preflight refuses a fixture that is not in the table.
+- The skill treats a failing check as a known gap only when the gap is
+  recorded on vergil-project/.github#410, the Rust planning issue, and posts
+  its evidence there (`:42-56`, `:383-392`). That one issue is Rust's.
+- The plugin reaches the agents through its releases.
 
 ## 5. Approaches considered
 
@@ -249,8 +268,10 @@ states the rule and how to apply it to a new language:
   trade-off table from the planning issue: one fleet-wide version and no
   per-repo update churn, against a repo that can turn red with no commit of
   its own, and an old release that rebuilds with newer tools. Vergil floats
-  on purpose, so a break is how the leading edge is discovered. The evidence
-  records the tool versions a release ran.
+  on purpose, so a break is how the leading edge is discovered. The page says
+  what is recorded today: the versions of the repo-declared tools, through
+  the lockfile. It does not claim that the evidence records image-tool
+  versions; that is follow-on work (§6.10).
 - **The sources**, each with what it actually says:
   - [Prettier](https://prettier.io/docs/install): pin exactly, because even a
     patch release can change formatting. That is about team consistency.
@@ -289,12 +310,22 @@ states the rule and how to apply it to a new language:
 
 - **Gates run the repo's tools.** LINT's ESLint step, TYPECHECK and TEST call
   the repo-local binaries, with no implicit download (for example
-  `npx --no-install`). Prettier and license-checker stay image tools.
-- **A required devDependency that is missing fails.** Before the TypeScript
-  gates run, `vrg-validate` checks that `package.json` declares each required
-  devDependency. It fails with one message naming every missing package and
-  the `npm install --save-dev …` that fixes it. A declared tool that `npm ci`
-  did not install fails the same way. Nothing falls back to a global binary.
+  `npx --no-install`). Prettier and license-checker stay image tools;
+  Prettier reads the repo's managed `.prettierrc.json` (§6.4).
+- **A required devDependency that is missing or out of range fails.** Before
+  the TypeScript gates run, `vrg-validate` checks that `package.json` declares
+  each required devDependency, and that both the declared range and the
+  installed version fall inside Vergil's accepted range for it. It fails with
+  one message naming every missing or out-of-range package and the
+  `npm install --save-dev <package>@<range> …` that fixes it. A declared tool
+  that `npm ci` did not install fails the same way. Nothing falls back to a
+  global binary.
+- **The accepted ranges.** typescript 6.x (§3, non-goals), and for eslint,
+  typescript-eslint and the Vitest packages the majors that work together
+  with it (eslint at a major typescript-eslint supports). The ranges are kept
+  in one place in vergil-tooling, beside the shared configs (§6.4), so moving
+  to TypeScript 7 (vergil-project/.github#1181) is one edit there plus a
+  fixture run.
 - **The image drops the repo-side tools.** `typescript-analysis.dockerfile`
   keeps prettier and license-checker and removes the rest. The smoke test and
   `checks.sh` change to match: the smoke project declares the repo-side tools
@@ -304,33 +335,43 @@ states the rule and how to apply it to a new language:
   ships, and the fixtures and the smoke project pass with it, before the
   containers release that removes the globals (§6.9). No repo is left calling
   a tool the image no longer has.
-- **Docs.** The TypeScript standards pages list the required devDependencies.
+- **Docs.** The TypeScript standards pages list the required devDependencies
+  and their accepted ranges.
   They drop the claim that every repository runs "the same pinned tool
   versions", and say instead that tool versions float through the lockfile.
 
 ### 6.4 Shared TypeScript configs as managed files (vergil-tooling)
 
-- **Two new managed files**, both written whole from master copies in
+- **Three new managed files**, each written whole from a master copy in
   vergil-tooling's package data, for repos whose `[project].primary-language`
   is `typescript`:
   - `tsconfig.vergil.json`: the strict base, currently
-    `configs/typescript/tsconfig.base.json`. The repo's own `tsconfig.json`
-    holds only its paths and `"extends": "./tsconfig.vergil.json"`.
-  - `eslint.config.mjs`: the flat config, found by ESLint with no
-    `--config`. Its imports resolve from the repo's `node_modules`, which
-    hold the declared plugins, so the copy-in, delete-after staging goes away.
-- **One definition.** Each file has a `<name>_drift` in `repo_config.py`,
-  a `_check_*`, a fixer in `FIXERS`, and an entry in `audit_local_config`,
-  following the existing pattern. Drift is "differs from the master copy". The
-  fixer rewrites the whole file.
-- **The repo owns `tsconfig.json`.** The fleet sync never writes it.
-  `vrg-validate` checks that it extends `./tsconfig.vergil.json`, and fails
-  with the fix otherwise.
-- **Scoping.** A non-TypeScript repo gets neither file. A file of the same
-  name in a non-TypeScript repo is left alone. A repo that changes its
+    `configs/typescript/tsconfig.base.json`.
+  - `eslint.vergil.config.mjs`: Vergil's flat config. Its imports resolve from
+    the repo's `node_modules`, which hold the declared plugins, so the
+    copy-in, delete-after staging goes away.
+  - `.prettierrc.json`: Prettier's config, currently
+    `configs/typescript/prettier.config.json`. Prettier finds it on its own,
+    so the gate drops `--config`, and an editor or a bare `npx prettier`
+    formats exactly as the gate checks.
+- **The repo owns the entry points, and each extends Vergil's base.** The
+  fleet sync never writes them:
+  - `tsconfig.json` holds the repo's paths and
+    `"extends": "./tsconfig.vergil.json"`;
+  - `eslint.config.mjs` imports `./eslint.vergil.config.mjs` and spreads it.
+    It may add ignores (generated code, for example) and rule overrides.
+    Standing suppressions stay banned by the existing ESLint rules.
+
+  `vrg-validate` checks that `tsconfig.json` extends the base and that
+  `eslint.config.mjs` imports and spreads Vergil's config, and fails with the
+  fix otherwise.
+- **One definition.** Each managed file has a `<name>_drift` in
+  `repo_config.py`, a `_check_*`, a fixer in `FIXERS`, and an entry in
+  `audit_local_config`, following the existing pattern. Drift is "differs from
+  the master copy". The fixer rewrites the whole file.
+- **Scoping.** A non-TypeScript repo gets none of the files. A file of the
+  same name in a non-TypeScript repo is left alone. A repo that changes its
   language away from TypeScript is out of scope.
-- **Prettier's config** stays packaged and is passed with `--config`,
-  because Prettier is an image tool.
 - **This is a new kind of managed file** (whole file, per language, from a
   master copy). It is built so that another language can add one with a
   table entry, not a new mechanism.
@@ -340,11 +381,17 @@ states the rule and how to apply it to a new language:
 - **`vrg-version`** gains TypeScript in each map in `lib/version.py`:
   - version file `package.json`;
   - lockfile `package-lock.json`;
-  - lockfile refresh `npm install --package-lock-only --ignore-scripts`, run
-    in the dev container like Cargo's. It rewrites the lockfile's own version
-    fields and upgrades no dependency. A test proves no dependency moves.
-- **The build command** is `npm run build`, and a TypeScript repo must define
-  a `build` script. A missing script fails with the fix message.
+  - the version write is edit-only: `npm version <v> --no-git-tag-version`,
+    run in the dev container. It changes only the version fields of
+    `package.json` and the lockfile's root entries, and re-resolves nothing,
+    so no dependency can move. A test proves that nothing outside those
+    fields changes.
+- **The build command installs from the lockfile first:** `npm ci`, then
+  `npm run build`. The release job's Build step runs on a fresh checkout with
+  no `node_modules` (§4), and a library's `tsc` must resolve its dependencies.
+- **A TypeScript repo must define a `build` script.** `vrg-validate` checks
+  for it, so a missing script fails on the first validate with the fix
+  message, never only at release.
 - **`cd-release`** accepts `typescript` at line 615, and the description at
   line 7 says so. The publish step stays off: `publish_cmd` stays `None`, and
   `registry-publish` stays `false`. A TypeScript release produces what a Rust
@@ -363,18 +410,28 @@ states the rule and how to apply it to a new language:
   `reports.sh`'s table gets the matching TypeScript row and stops warning for
   TypeScript, with the existing "keep the two in step" note. If
   vergil-tooling#4416 lands first, the row comes from there instead.
+- **The report files are ignored.** The managed TypeScript gitignore
+  fragment adds `npm-audit.json` and Vitest's report output (`coverage/` and
+  wherever the JUnit file is written) in the same change that makes the gates
+  write them, with a test. Prettier reads `.gitignore`, so a second local
+  `vrg-validate` does not lint the first run's reports, and they are never
+  committed. This follows the Rust precedent, which added `cargo-deny.json` to
+  its fragment when the gate began writing it.
 - **Known gap, shared with Rust:** quality-gate evidence (lint and typecheck
   reports) stays in vergil-tooling#4416's scope.
 
 ### 6.7 A malformed `package.json` is an error (vergil-tooling)
 
-- Detection raises an error naming the file and the parse failure when
-  `package.json` exists but cannot be read or parsed, or is not a JSON object.
-  It no longer returns "not TypeScript".
+- Detection reads `package.json` whenever it exists, before the
+  `tsconfig.json` shortcut. It raises an error naming the file and the parse
+  failure when `package.json` cannot be read or parsed, or is not a JSON
+  object. It no longer returns "not TypeScript", and a `tsconfig.json` does
+  not hide the error.
 - A `package.json` that parses but has no `typescript` devDependency and no
   `tsconfig.json` is still "not TypeScript". That is a real answer, not a
   failure.
-- Tests cover each case.
+- Unit tests cover each case. The fixtures do not: they declare
+  `primary-language`, and detection runs only for a repo that declares none.
 
 ### 6.8 The TypeScript fixtures
 
@@ -386,13 +443,20 @@ states the rule and how to apply it to a new language:
 - **Content.** Each follows epic #1091 §6.2: a small real program with at
   least one real runtime dependency, 100% line coverage, a docs site, and no
   `[ci].versions`. The app is a command-line tool, the shape of the planned
-  mnemosys CLI. Both declare the required devDependencies, extend
-  `./tsconfig.vergil.json`, and define a `build` script.
+  mnemosys CLI. Both declare the required devDependencies within their
+  accepted ranges (TypeScript 6), extend Vergil's managed configs (§6.4), and
+  define a `build` script.
 - **`fixture-run`** (vergil-claude-plugin) gains `ts-lib` and `ts-app` rows,
   a TypeScript rollback paragraph, and the TypeScript known gaps:
   - no npm dependency updater (epic 3), so the lockfile-rollback check proves
     nothing yet, as it was for Rust before its updater;
   - quality-gate evidence (vergil-tooling#4416).
+- **Where a known gap is recorded.** The skill today records every known gap,
+  and posts its evidence, on vergil-project/.github#410, the Rust planning
+  issue. It changes so that each known-gap row names the issue that will
+  close that gap, and the evidence comment is posted there: epic 3's planning
+  item for the npm updater, vergil-tooling#4416 for the quality gate. The
+  Rust rows keep #410.
 - **Each fixture releases `v0.1.0`** and records `Outcome: SUCCESS` on a
   fixture-run validation.
 
@@ -400,16 +464,19 @@ states the rule and how to apply it to a new language:
 
 1. **vergil-tooling:** §6.1–§6.7's tooling parts and the guideline page merge.
 2. **vergil-actions:** `cd-release` and `reports.sh` merge.
-3. **Release and deployment** (operational task, human-gated releases):
-   vergil-tooling and vergil-actions releases carrying steps 1 and 2.
-4. **Fixtures created** (human), then their programs land by agent PRs, then
+3. **vergil-claude-plugin:** the `fixture-run` rows, the TypeScript rollback
+   paragraph and the known-gap changes (§6.8) merge.
+4. **Release and deployment** (operational task, human-gated releases):
+   vergil-tooling, vergil-actions and vergil-claude-plugin releases carrying
+   steps 1 to 3, with the plugin deployed to the host and the VMs.
+5. **Fixtures created** (human), then their programs land by agent PRs, then
    each releases `v0.1.0`.
-5. **Fixture runs** on both fixtures, filed with `fixture-run`, `--after` the
-   step 3 deployment task.
-6. **vergil-containers:** the image drops the repo-side tools, and the smoke
-   test and `checks.sh` follow (§6.3). This merges only after step 5 passes.
+6. **Fixture runs** on both fixtures, filed with `fixture-run`, `--after` the
+   step 4 deployment task.
+7. **vergil-containers:** the image drops the repo-side tools, and the smoke
+   test and `checks.sh` follow (§6.3). This merges only after step 6 passes.
    It is released and deployed in its own operational task.
-7. **A second fixture run** on both fixtures, `--after` step 6's deployment.
+8. **A second fixture run** on both fixtures, `--after` step 7's deployment.
    It proves the gates no longer need the image's globals.
 
 ### 6.10 Follow-on items filed with this epic's tasks
@@ -418,19 +485,25 @@ states the rule and how to apply it to a new language:
   and pip-licenses into the image under §6.2, across every Python repo
   (vergil-tooling included).
 - **Epic 2 and epic 3 planning items**, as §2 lists them.
+- **Image-tool versions in the evidence:** recorded as a comment on
+  vergil-tooling#4416, since the report contract is the same for every
+  language. Until it lands, the guideline page claims only what the lockfile
+  records (§6.2).
+- **TypeScript 7:** deferred as vergil-project/.github#1181.
 - Epic 4 is vergil-project/.github#959, already in planning.
 
 ## 7. Failure model
 
-- A missing required devDependency, a `tsconfig.json` that does not extend the
-  managed base, a missing `build` script and an unparseable `package.json` all
-  fail with a message that names the fix. None falls back.
+- A missing or out-of-range required devDependency, a `tsconfig.json` or
+  `eslint.config.mjs` that does not extend Vergil's managed base, a missing
+  `build` script and an unparseable `package.json` all fail with a message
+  that names the fix. None falls back.
 - A gate never runs a global binary in place of the repo's tool, and never
   downloads one.
 - A drifted managed file is reported by the audit and fixed by the nightly
   sync PR. A fixer that cannot apply raises `CannotFix`, as today.
-- The lockfile refresh in a version bump fails the bump if it would change any
-  dependency.
+- A version bump edits only version fields, so it cannot move a dependency
+  (§6.5).
 
 ## 8. Constraints
 
