@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1191
 - **Planning issue:** vergil-project/.github#1185 (review history is in its
   comments)
-- **Status:** draft, in design review
+- **Status:** approved
 
 ## 1. Intent
 
