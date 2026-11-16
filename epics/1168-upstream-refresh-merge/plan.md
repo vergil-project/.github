@@ -76,8 +76,10 @@ vergil-python).
 - Commits use `vrg-commit`, and handoff uses `vrg-pr-workflow
   report-ready`. Changes under `.github/workflows/**` are pushed by the
   human's `vrg-submit-pr`.
-- A red nightly upstream-refresh run between the vergil-tooling release
-  (D1) and the vergil-actions release (D2) is accepted (spec §6.4).
+- Every nightly upstream-refresh run between the vergil-tooling release
+  (D1) and the vergil-actions release (D2) is expected to be red, in both
+  repos, for the whole window, which is expected to last a few days (spec
+  §6.4). Nothing can merge in it. No step exists to keep those runs green.
 
 ## Review focus
 
@@ -212,8 +214,11 @@ retargeted to the task or tasks that fix it.
 **Files:**
 
 - Modify: `src/vergil_tooling/lib/github.py` (`_gh_env`,
-  `_run_with_retry`), `src/vergil_tooling/lib/git.py` (`_git_env` and its
-  retry loop), `src/vergil_tooling/lib/retry.py`
+  `_run_with_retry`, and every other caller that builds `env = _gh_env()`
+  once and then retries: `run_tolerating`, `post_json_once`,
+  `post_json_with_status` and the binary GET that uses
+  `retry.call_with_retry`), `src/vergil_tooling/lib/git.py` (`_git_env`
+  and its retry loop), `src/vergil_tooling/lib/retry.py`
 - Test: `tests/vergil_tooling/test_github.py`, `tests/vergil_tooling/test_git.py`
 
 **Interfaces:**
@@ -234,6 +239,10 @@ retargeted to the task or tasks that fix it.
     returns `t1`, then `t2`, run with `GH_TOKEN=t1`, then `GH_TOKEN=t2`.
   - `test_gh_retry_after_401_rebuilds_env`: the first attempt gets 401
     with `t1`, and the retry runs with `t2`.
+  - `test_run_tolerating_retry_rebuilds_env`: a 401 inside a
+    `gh pr checks` retry (the `wait_for_checks` poll) is retried with a
+    fresh token. The same holds for `post_json_once`,
+    `post_json_with_status` and the binary GET, one case each.
   - `test_git_remote_call_uses_source_header`: `git push` gets
     `GIT_CONFIG_VALUE_0` built from the source's current token (the
     `_git_auth_env` form). No git config file is written.
@@ -249,7 +258,9 @@ retargeted to the task or tasks that fix it.
 - [ ] **Step 2: Run the tests and see them fail.**
 - [ ] **Step 3: Implement.** Keep the source in a module-level
   `ContextVar`. `_gh_env` and `_git_env` check it first. `_run_with_retry`
-  and git's retry loop pass an `env_factory` in place of a fixed `env`.
+  and git's retry loop pass an `env_factory` in place of a fixed `env`, and
+  so does every other retrying caller in the Files list.
+  `retry.call_with_retry` takes the same `env_factory`.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope automation`).
 
@@ -297,7 +308,16 @@ retargeted to the task or tasks that fix it.
     applied clone). A path whose first matching rule has a `lines` regex
     is allowed only when every changed line matches it as a whole line
     (`re.fullmatch`). A binary, added or deleted file under such a rule is
-    refused.
+    refused. When the regex has a `(?P<version>…)` group, removed and
+    added lines in each hunk are paired by the text before the group, and
+    the added version, read as a tuple of integers split on `.`, must be
+    greater than or equal to the removed one. A lower version is a
+    violation naming the key and both versions. Only pairs are compared:
+    an added line with no removed counterpart (a new series block) or a
+    removed one with no added counterpart (a dropped series) is left to
+    the line rule and the other fence rules. `upstream-version` in
+    `vergil.toml` is compared the same way per entry `name`, on its
+    `<cpython>` part, then its `<pbs_tag>`.
   - `render_body(notes: list[str], paths: list[str]) -> str`, whose intro
     now says the job merges the PR itself once CI passes.
   - Removed: `REFRESH_BRANCH`, `sync`, `open_refresh_prs`,
@@ -320,6 +340,11 @@ retargeted to the task or tasks that fix it.
   - `test_fence_no_paths_refuses_everything`
   - `test_fence_vergil_toml_version_and_summary_allowed`: an existing
     `[[package]]` entry's `upstream-version` and `summary` change.
+  - `test_fence_vergil_toml_bad_upstream_version_refused`: an
+    `upstream-version` of `3.14.10+../x` is refused.
+  - `test_fence_runtime_toml_line_rule_refuses_traversal_pbs_tag`: under
+    a P1-style rule, `pbs_tag = "20261026/../x"` is refused, and a
+    well-formed `cpython`, `pbs_tag` and hash change is allowed.
   - `test_fence_vergil_toml_smoke_change_refused`
   - `test_fence_vergil_toml_build_command_change_refused`: a change to
     `staged.build-command`.
@@ -342,14 +367,27 @@ retargeted to the task or tasks that fix it.
     or a path with `..`.
   - `test_fence_line_rule_allows_version_lines`: in a
     `docker/common/x.dockerfile` covered by
-    `lines = '^ARG [A-Z0-9_]+_VERSION=\d+(\.\d+)*$'`, only an
-    `ARG FOO_VERSION=1.2.3` line changes.
+    the C1 fragment rule (below), only an `ARG FOO_VERSION=1.2.3` line
+    changes.
+  - `test_fence_line_rule_allows_paired_version_and_digest`: in one
+    fragment, `ARG CARGO_NEXTEST_VERSION`, `ARG
+    CARGO_NEXTEST_SHA256_AMD64` and `_ARM64` change together, to 64-hex
+    values.
+  - `test_fence_line_rule_refuses_malformed_digest`: a 63-character, an
+    upper-case or a non-hex digest is refused.
   - `test_fence_line_rule_refuses_value_outside_format`: the same rule
     refuses `ARG X_VERSION=1.2.3/../x` and `ARG X_VERSION=1.2.3 # x`. A
     line rule matches the whole line (`re.fullmatch`).
   - `test_fence_line_rule_refuses_run_line_change`: the same file with a
     changed `RUN` line is refused, naming the file and the line rule.
   - `test_fence_line_rule_refuses_added_file`
+  - `test_fence_version_downgrade_refused`: `ARG TRIVY_VERSION=0.60.0`
+    becoming `0.59.1` is refused. So are `cpython = "3.14.10"` becoming
+    `"3.14.9"`, a lower `pbs_tag`, and a lower `upstream-version`.
+  - `test_fence_version_equal_or_higher_allowed`, including `1.9` to
+    `1.10` (numeric, not string, comparison).
+  - `test_fence_new_series_block_allowed`: a whole new `[[series]]` block
+    in `runtime.toml`, with added lines only, passes the version check.
   - `test_config_accepts_paths_key` (strings and `{ path, lines }` tables),
     `test_config_rejects_bad_line_regex` and
     `test_config_rejects_unknown_key`.
@@ -361,6 +399,8 @@ retargeted to the task or tasks that fix it.
   - entries are matched by `name`. Within an existing entry, only
     `upstream-version` and `summary` may differ, so `smoke`, `staged` and
     every other key must be equal;
+  - every `upstream-version`, changed or new, must match
+    `\d+\.\d+\.\d+\+\d{8}` in full;
   - a removed entry is allowed;
   - a new entry, which vergil-python's hook adds when a new CPython series
     appears, is allowed only as a **series copy** of an existing entry E:
@@ -534,15 +574,22 @@ the reason is now the path fence, where `.github/**` is always refused).
   implementation time*. Read `docker/pins/upstream-refresh.sh` and each
   script it runs on `develop` then, not this plan's snapshot, which was
   taken on 2026-11-16:
-  - `resolve_latest.py`: the `docker/common/*` fragments, as one entry
-    `{ path = "docker/common/*",
-    lines = '^ARG [A-Z0-9_]+_VERSION=\d+(\.\d+)*$' }`, and
+  - `resolve_latest.py`: the `docker/common/*` fragments, whose version
+    and digest pins (`*_SHA256_AMD64` and `_ARM64`, since
+    vergil-containers#920) it writes together, as one entry
+    `{ path = "docker/common/*", lines =
+    '^ARG [A-Z0-9_]+_(VERSION=\d+(\.\d+)*|SHA256_(AMD64|ARM64)=[0-9a-f]{64})$' }`,
+    and
     `docker/pins/workflow-images.txt` (added by vergil-containers#919), as
     `{ path = "docker/pins/workflow-images.txt",
     lines = '^[A-Z0-9_]+_VERSION=\d+(\.\d+)*$' }`;
   - `resolve_toolchains.py`: `docker/pins/toolchains.yml`;
   - `generate.py`: `docker/versions/matrix.json` only;
   - `generate_catalog.py`: `docker/pins/CATALOG.md`.
+
+  Every rule marks its version values with a `(?P<version>…)` group, so the
+  fence refuses a downgrade (Task 3a). The regexes above show the formats
+  without the group.
 
   As of the snapshot, that is the whole list. Data files are listed as
   exact paths. `generate.py`
@@ -575,13 +622,28 @@ the reason is now the path fence, where `.github/**` is always refused).
 
 ### Task P1: vergil-python: the allowlist and comment updates
 
-**Files:** Modify `vergil.toml` (`[upstream-refresh]` gains
-`paths = ["runtime.toml", "vergil.toml"]`, and the comment is updated) and
-`.github/workflows/ops.yml` (the `upstream-refresh` job comment loses
-"Nothing is auto-merged"). Check `docs/runtime-package-pattern.md`, and
-update it if it describes the human merge.
+**Files:** Modify `vergil.toml` (`[upstream-refresh]` gains `paths`, and
+the comment is updated) and `.github/workflows/ops.yml` (the
+`upstream-refresh` job comment loses "Nothing is auto-merged"). Check
+`docs/runtime-package-pattern.md`, and update it if it describes the human
+merge.
 
-- [ ] **Step 1:** Edit as above.
+- [ ] **Step 1:** Set `paths` to two entries:
+  - `runtime.toml`, with a value-format line rule that admits only the
+    lines the hook writes: `[[series]]`, `[series.sha256]`,
+    `series = "\d+\.\d+"`, `cpython = "\d+\.\d+\.\d+"`,
+    `pbs_tag = "\d{8}"`, `x86_64 = "[0-9a-f]{64}"`,
+    `aarch64 = "[0-9a-f]{64}"`, and blank lines. Mark `cpython` and
+    `pbs_tag` with `(?P<version>…)`, so neither can go down. Derive the
+    exact regex
+    from the file on `develop` at implementation time;
+  - `vergil.toml`, which the `vergil.toml` rules of Task 3a govern.
+- [ ] **Step 1b: The content checks the fence relies on** (spec §6.2).
+  Name the PR CI checks that bind `runtime.toml` to `vergil.toml` (for
+  example `packaging/build.sh`'s consistency check, if PR CI runs it), and
+  confirm that the jobs running them are required status checks on
+  `develop`. Record the names in the `vergil.toml` comment beside `paths`.
+  If none is required, stop and raise it.
 - [ ] **Step 2:** Run `vrg-upstream-refresh --dry-run --rules-from
   vergil.toml` locally, and confirm it reports no violation, as in C1.
 - [ ] **Step 3: Run the tests.**
@@ -602,9 +664,11 @@ update it if it describes the human merge.
   the work)
 - Create: `actions/ops/upstream-refresh/tests/key-boundary.test.sh`, with
   git mode 100755, and a step in `.github/workflows/smoke-setup-vergil.yml`
-  that runs it (or its `validate-custom` entry, if it needs only `yq` and
-  `jq`). `scripts/bin/check-test-suites-run` fails any `*.test.sh` that
-  nothing runs.
+  that runs it by path, next to the step that runs
+  `automation-env.test.sh`. `scripts/bin/check-test-suites-run` counts a
+  suite as run only when a workflow runs it by path, so a
+  `validate-custom` entry alone would fail it. `validate-custom` runs
+  every `actions/**/tests/*.test.sh` already, with no entry needed.
 - Modify: `actions/ops/github-config/tests/automation-env.test.sh` (the
   fleet-wide rule for where `VRG_AUTOMATION_APP` may be set), its section
   in `docs/site/docs/workflows/ops-github-config.md`, and its summary in
@@ -667,7 +731,8 @@ update it if it describes the human merge.
   with what the two new jobs need (`contents: read` for prepare's
   `GITHUB_TOKEN`; nothing for publish, whose writes use the tool's own
   token). Record the result in the PR body. If a caller needs a change,
-  it goes into C1 or P1.
+  A1 files a follow-up task for it in that caller's repo, linked under the
+  epic, and D2 is then also blocked by that task.
 - [ ] **Step 4: Run the tests and see them pass.**
 - [ ] **Step 5: Commit** (`vrg-commit --type feat --scope ops`). The human's
   `vrg-submit-pr` pushes it.
@@ -694,7 +759,9 @@ Kind `validation`, filed in vergil-actions and blocked by D2.
 
 - **Procedure:** dispatch `ops.yml` in vergil-python, then in
   vergil-containers, or let the night run. Repeat a repo whose run had
-  nothing to change, until one run opens a PR.
+  nothing to change, until one run opens a PR. If a vergil-containers run
+  merges its PR before a renewal falls due, record it and repeat until a
+  run's log shows the renewal sequence.
 - **Acceptance (spec §7):**
   - **vergil-python:** the run exits 0. Either it is in sync, or its PR on
     `automation/upstream-refresh/<run-id>`, authored by

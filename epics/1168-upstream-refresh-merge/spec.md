@@ -425,13 +425,23 @@ tokens for one repo, and hands out a current token on demand.
     covers the hook, its resolvers or generators, or files the hook does
     not change. Where a file's content follows a format, a line rule pins
     it. vergil-containers' list:
-    - its `docker/common/*` fragments, with
-      `lines = '^ARG [A-Z0-9_]+_VERSION=\d+(\.\d+)*$'`;
+    - its `docker/common/*` fragments, whose version and digest pins the
+      hook moves together, with
+      `lines = '^ARG [A-Z0-9_]+_(VERSION=\d+(\.\d+)*|SHA256_(AMD64|ARM64)=[0-9a-f]{64})$'`;
     - `docker/pins/workflow-images.txt`, with a value-format rule;
     - `docker/pins/toolchains.yml`, `docker/versions/matrix.json` and
       `docker/pins/CATALOG.md`.
 
-    vergil-python lists `runtime.toml` and `vergil.toml`.
+    vergil-python lists `runtime.toml`, with a value-format rule covering
+    its `series`, `cpython`, `pbs_tag` and `sha256` lines, and
+    `vergil.toml`.
+  - **A refresh never lowers a pinned version.** Both hooks only ever move
+    pins forward, so a downgrade is never valid output. A line rule marks
+    the version in its regex with a named group, `(?P<version>…)`. Within
+    each changed hunk, removed and added lines are paired by the text
+    before that group, and the new version must compare greater than or
+    equal to the old one, as a tuple of numbers. In `vergil.toml`,
+    `upstream-version` is compared the same way per entry `name`.
   - **`.github/**` is always refused**, whatever the allowlist says.
   - **`vergil.toml`, where allowed, has its own rules.** Publish parses the
     file before and after the patch:
@@ -439,7 +449,8 @@ tokens for one repo, and hands out a current token on demand.
       covers `[dependencies]` (the tooling pin) and `[upstream-refresh]`
       (the hook and this allowlist);
     - in an existing `[[package]]` entry, only `upstream-version` and
-      `summary` may change;
+      `summary` may change, and `upstream-version` must keep its format
+      (`<cpython>+<pbs_tag>`);
     - a removed entry is allowed;
     - a new entry is allowed only as a series copy of an existing one:
       the names differ by one `\d+\.\d+` series token, and every other
@@ -610,9 +621,12 @@ No step can merge a refresh before the guarded workflow is in place:
    the `v2.1` line, so from the next nightly the old
    `ops-upstream-refresh.yml` runs the new tool. That run fails loudly and
    merges nothing: `--base` no longer exists, and the tool refuses to run
-   under Actions without the App's credentials (§6.2). At most one red
-   nightly per repo between steps 1 and 2 is accepted. The old command line
-   is not kept working.
+   under Actions without the App's credentials (§6.2). Every nightly
+   upstream-refresh run between steps 1 and 2 is expected to be red, in
+   both repos, for the whole window: the consuming repos' allowlists and
+   the new workflow land in between, as separate merged PRs. That is
+   expected to take a few days. The red runs are loud, and nothing can
+   merge in that window. The old command line is not kept working.
 2. **Workflow, with the one-time cleanup.** vergil-actions releases the new
    `ops-upstream-refresh.yml` (§6.3). From its next run, each caller runs the
    new flow. The same deployment step, before the next nightly run, closes
