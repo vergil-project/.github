@@ -74,7 +74,9 @@ workflow logic of its own.
 
 - G1. The building block renews its own automation token while it waits, so
   a mechanized PR can take longer than one token's life to merge. The logic
-  lives in Python; a workflow that uses it stays a guard plus one step.
+  lives in Python, and a workflow that uses it stays declarative.
+- G1a. The key boundary (§6) holds: the App's private key never shares a
+  runner with repo-supplied or third-party code.
 - G2. `vrg-upstream-refresh` opens its PR through the building block. Its
   run succeeds only when the PR has merged into `develop`, or when there was
   nothing to change.
@@ -115,9 +117,13 @@ workflow logic of its own.
 
 Outcomes that count as failure even if the feature works:
 
-- The App's private key reaching the repo hook, any other child process
-  (`git`, `gh`), a log line, argv or a file.
-- A token left live after the tool has replaced it or has finished.
+- The App's private key on a runner that runs repo-supplied or third-party
+  code, or reaching any child process (`git`, `gh`), a log line, argv or a
+  file.
+- The hook holding a write token.
+- A token left live after the tool has replaced it, or after the tool has
+  ended by success, failure or cancellation. A hard kill is the one
+  accepted exception (§6.1).
 - Run logic for the wait (rounds, retries, state passed between steps) in
   the workflow's YAML.
 - A refresh merging from any branch's code other than `develop`'s.
@@ -210,12 +216,13 @@ How the job keeps working past the token's one-hour life:
 - **A. Python renews the token (chosen).** The tool is given the App's
   client ID and private key, mints its own installation tokens, and renews
   them while it waits. All of the logic sits in the building block, in
-  Python, under unit tests. The workflow stays a guard plus one step, and
-  every later job (lifecycle, an automated `update-deps`) gets renewal with
-  no workflow logic of its own. The one exposure is that the key is in the
-  tool's memory; §6.1 keeps it out of every child process, log and file.
-  The `develop`-only guard keeps it to `develop`'s code, as for any step
-  that reads the App's secrets today.
+  Python, under unit tests. The workflow stays declarative, with no run
+  logic, and every later job (lifecycle, an automated `update-deps`) gets
+  renewal with no workflow logic of its own. The key is in our tool's
+  memory, so the job follows the key boundary (§6): the repo hook, and the
+  third-party packages it loads, run in a separate job that never has the
+  key. The `develop`-only guard keeps the key to `develop`'s code, as for
+  any step that reads the App's secrets today.
 - **B. Rounds in the workflow.** The workflow opens the PR in one step, then
   runs a fixed number of await steps, minting a new token before each one,
   with the outcome of each round passed to the next through step outputs
@@ -241,6 +248,27 @@ How upstream-refresh opens its PR:
 
 ## 6. Design
 
+**The key boundary.** This is a rule for every mechanized job that holds
+the automation App's private key, now and later. The key exists only in a
+process that runs nothing but our own released code. It never shares a
+machine with code that the repo supplies or that comes from a third party:
+a repo hook, a generator, or any package such code installs or loads.
+
+A job that needs both therefore runs as two GitHub Actions jobs, each on a
+fresh runner:
+
+- **prepare** runs that code with no secrets and a read-only
+  `GITHUB_TOKEN`, and hands on **data only**: a patch and notes, as an
+  artifact;
+- **publish** holds the key, runs only our code, and treats what it
+  receives as data. It never executes it, and never runs git inside a tree
+  that `prepare` touched.
+
+Separate steps in one job are not enough. Steps share the runner's
+filesystem, so code in an earlier step could rewrite the tool, its
+packages, or a git hook or config that a later step holding the key then
+runs.
+
 ### 6.1 The building block: an App token that renews itself
 
 `lib/mechanized_pr.py` (or a module beside it) gains an **App token
@@ -258,33 +286,65 @@ tokens for one repo, and hands out a current token on demand.
   the App's installation on the repo, and creates an installation token
   limited to that one repo and those permissions. The token's `expires_at`
   comes back with it.
+- **Signing in-process, with a new dependency.** The JWT is signed inside
+  the tool's process with `cryptography`, added to vergil-tooling's
+  dependencies. The token source does not reuse the existing App mode in
+  `lib/github.py` (`_load_app_config`, `_generate_jwt`,
+  `get_installation_token`). That code reads the key from a file, signs by
+  running `openssl` as a child process, and mints installation-wide tokens
+  that are cached and never revoked. It stays as it is for the agent VMs.
+  Publish refuses to run when that App mode is configured (`VRG_APP_ID` or
+  `VRG_PRIVATE_KEY_PATH` set), so the two minting paths can never mix.
 - **Renewal.** The source renews the token once it is older than a fixed
-  interval, 30 minutes, well inside its one-hour life. The wait loop asks
-  for a current token before each GitHub call or poll. Everything the tool
-  runs uses the current token: it is placed in the tool's own `GH_TOKEN`, so
-  `gh` and git's credential helper pick it up for every call. A
-  vergil-containers refresh, whose CI takes 32 to 40 minutes, therefore
-  renews at least once in a normal run. (Builder's call: the exact interval.
+  interval, 30 minutes, well inside its one-hour life.
+- **Where the token is used: every subprocess's environment.** The token
+  source is registered with the shared call layer, so the token is read
+  where every `gh` and `git` subprocess's environment is built (`_gh_env` in
+  `lib/github.py` and `_git_env` in `lib/git.py`). Each call starts with the
+  token that is current at that moment, renewing it first if it is due.
+  - `git` gets it through the existing `_git_auth_env(token)` header form,
+    which writes nothing to any git config file. That replaces the
+    `gh auth setup-git` step the workflow drops (§6.3).
+  - Calls made inside `lib/github.py`'s own loops, such as
+    `wait_for_checks`, which can poll for over an hour, therefore pick up a
+    renewed token on their next call.
+  - A retry after HTTP 401 rebuilds the environment, so it gets a current
+    token rather than repeating the expired one.
+  - With no token source registered (`github-config`, `vrg-release`,
+    `vrg-finalize-pr`, every human run), both functions behave exactly as
+    they do today.
+
+  A vergil-containers refresh, whose CI takes 32 to 40 minutes, renews at
+  least once in a normal run. (Builder's call: the exact interval.
   It must stay well inside the hour, and short enough that a
   vergil-containers run renews.)
 - **Revocation.** When the source replaces a token, it revokes the old one
-  (`DELETE /installation/token`) at once. When the tool exits, on every
-  path, it revokes the current one. A revocation that fails fails the run,
-  naming the step.
+  (`DELETE /installation/token`) at once. When the tool exits, it revokes the
+  current one: on success, on failure, and when GitHub's cancel signal
+  (SIGINT or SIGTERM) arrives. The tool's own deadline ends safely before
+  the job's `timeout-minutes`, so the normal path always reaches that
+  revocation. Only a hard kill (the runner lost, or the kill after the cancel
+  grace period) skips it. The token is then left to expire within its hour,
+  in the memory of a runner that ran no code but ours. A revocation that
+  fails fails the run, naming the step.
 - **Identity.** Each token the source mints is checked against
   `VRG_AUTOMATION_APP`, as `automation_identity` does today for `GH_TOKEN`.
   The mode resolves to `automation` only after the first token passes.
   A token from any other App fails the run.
-- **Key hygiene.** The tool reads the key once, at startup, from an
-  environment variable set only on its step, and removes that variable
-  from its own environment before doing anything else. The key then lives
-  only in the token source's memory. No child process gets it: the hook,
-  `git` and `gh` run with an environment built without it. It never
-  appears in a log line, an exception message, argv or a file. The client
-  ID is not secret, but follows the same path.
+- **Key hygiene.** The key reaches the tool only in the publish job, through
+  an environment variable set only on the step that runs the tool. No
+  repo-supplied or third-party code runs anywhere in that job (§6, the key
+  boundary). The tool reads the key once, at startup, and removes the
+  variable from its own environment before doing anything else, so its
+  child processes (`git`, `gh`) are started without it. It never appears in
+  a log line, an exception message, argv or a file. The client ID is not
+  secret, but follows the same path.
 - **The wait.** With a token source, the building block's wait-until-merged
   deadline is the caller's, not tied to one token. For upstream-refresh it
-  is 120 minutes. That covers vergil-containers' CI, with one branch update
+  is 120 minutes, counted from the moment publish starts, not from the
+  start of the wait. The clone, the patch and the push are inside it, so
+  publish always ends, and logs how the wait ended, a fixed margin before
+  the job's `timeout-minutes`. That covers vergil-containers' CI, with one branch update
   and its CI re-run, with room to spare. It is a ceiling: the wait ends the
   moment the PR merges. The branch-update cap (`_MAX_BRANCH_UPDATES`) and
   every terminal outcome (closed, draft, conflict, failed check) are
@@ -295,19 +355,31 @@ tokens for one repo, and hands out a current token on demand.
 
 ### 6.2 `vrg-upstream-refresh` on the building block
 
-- **Where the hook runs.** The tool takes a fresh clone of `develop`
-  (`develop_clone.clone_develop`) and runs the hook there, with the same
-  `bash -c` invocation and the same `$VRG_UPSTREAM_REPORT` contract. The
-  scratch linked worktree, the "clean checkout at `origin/<base>`" check,
-  and `--base` are removed. The base is always `develop`, as with every
-  mechanized PR. The tool never touches the caller's checkout.
-- **The hook contract is unchanged.** Untracked files left by the hook are
-  still refused, before anything reaches the building block, because the
-  building block commits whatever `git status` shows. The changed-paths list
-  and the hook's notes still make up the PR body. Its intro changes from
-  "a human merges" to say that the job merges the PR itself once CI passes.
-  The hook gets the current installation token as `GH_TOKEN`, as it does
-  today, and never the App's key (§6.1).
+- **Two halves, prepare and publish** (§6, the key boundary).
+  - **prepare** takes a fresh clone of `develop`
+    (`develop_clone.clone_develop`) and runs the hook there, with the same
+    `bash -c` invocation and the same `$VRG_UPSTREAM_REPORT` contract.
+    It refuses untracked files left by the hook, as today ("edit tracked
+    files only"). It writes the hook's tracked changes as a binary patch
+    against the clone's `develop` commit, along with that commit's SHA, the
+    changed-path list and the hook's notes, to an output directory. It
+    holds no App credentials and needs no write token. It refuses to run
+    if the App's key variable is present in its environment, so the
+    boundary cannot be broken by a wiring mistake.
+  - **publish** reads that output as data. It takes its own fresh clone of
+    `develop` and applies the patch with `git apply`. It refuses a patch
+    that does not apply cleanly, or that adds untracked paths outside the
+    listed changes. It then hands the clone to the building block. It never
+    runs the hook, and never runs git in the tree prepare worked in.
+  - The scratch linked worktree, the "clean checkout at `origin/<base>`"
+    check and `--base` are removed. The base is always `develop`, as with
+    every mechanized PR. The tool never touches the caller's checkout.
+- **The hook contract is unchanged.** The changed-paths list and the hook's
+  notes still make up the PR body. Its intro changes from "a human merges"
+  to say that the job merges the PR itself once CI passes. The hook gets no
+  GitHub token and never the App's key: neither repo's hook uses one today.
+  A future hook that needs to read GitHub gets a read-only token of its
+  own, never a write token.
 - **Opening the PR.** The job name is `upstream-refresh`, so its branches are
   `automation/upstream-refresh/<run-id>`. The title stays
   `chore(upstream): refresh upstream inputs`. Everything in `sync()` that
@@ -320,9 +392,16 @@ tokens for one repo, and hands out a current token on demand.
   clone's commit author and committer to the App's bot user,
   `<app-slug>[bot]`, with the bot user's noreply address, as `github-config`
   does in its workflow today. A human's local run commits as the human.
-- **The command line.** One mode: open the PR, then wait until it merges.
-  `--repo` and `--dry-run` stay. `--dry-run` runs the hook and prints the
-  PR body, pushing nothing.
+- **The command line.** The flags' spelling is the builder's call:
+  - a prepare mode, writing to an output directory;
+  - a publish mode, reading one, then opening the PR and waiting until it
+    merges;
+  - the default (no mode), which does both in one process. That is for a
+    human's local run, where the human's own trust covers the hook. It is
+    refused under Actions.
+
+  `--repo` and `--dry-run` stay. `--dry-run` runs prepare and prints the PR
+  body, pushing nothing.
 - **Exit codes**, stated in `--help`:
   - **0:** merged, or nothing to change;
   - **2:** not merged, naming the PR and the reason, a terminal outcome or
@@ -333,12 +412,13 @@ tokens for one repo, and hands out a current token on demand.
 - **Identity.** The tool accepts `human` and `automation`, and refuses the
   agent modes, as it does today. Its identity check names `automation`
   explicitly (epic #1064's rule).
-- **Under Actions, only as the automation identity.** When `GITHUB_ACTIONS`
-  is set, the tool refuses to run, before running the hook or touching
-  GitHub, unless it was given the App's credentials and resolves to
-  `automation`. A workflow without them would otherwise resolve to `human`
-  and run the merging flow with none of §6.3's guards. `--dry-run` is not
-  exempt.
+- **Under Actions.** When `GITHUB_ACTIONS` is set:
+  - publish refuses to run, before touching GitHub, unless it was given the
+    App's credentials and resolves to `automation`. A workflow without them
+    would otherwise resolve to `human` and run the merging flow with none
+    of §6.3's guards;
+  - prepare runs without credentials, and refuses if the key is present;
+  - the combined default mode is refused.
 - **Logging.** Every run prints:
   - the PR it closed, if any;
   - the PR it opened, or "in sync";
@@ -350,32 +430,46 @@ tokens for one repo, and hands out a current token on demand.
 
 ### 6.3 `ops-upstream-refresh.yml`
 
-The reusable workflow keeps one job with four steps, and no run logic:
+The reusable workflow has two jobs and no run logic: no `if:` chains, loops
+or state passed between steps beyond one artifact.
 
-1. **Guard**, before anything can reach the App's secrets: fail unless
-   `github.ref` is `refs/heads/develop` and `vars.VRG_AUTOMATION_APP` is
-   non-empty. It reads the variable as `AUTOMATION_APP`, as `github-config`'s
-   guard does. A failing step, never a job-level `if:`, so a run from
-   another ref shows up red instead of being skipped.
-2. **Checkout** of `ref: develop`, with `persist-credentials: false`. No App
-   token exists at this point. The checkout is only for installing the
-   tooling; the tool works in its own clone.
-3. **Install vergil-tooling** (`setup/vergil`, as today).
-4. **Run the refresh.** `vrg-upstream-refresh --repo "$REPO"`, with
-   `VRG_AUTOMATION_APP` and the App's client ID and private key set on this
-   step only.
+- **`prepare`** (no secrets; `permissions: contents: read`):
+  1. **Guard:** fail unless `github.ref` is `refs/heads/develop` and
+     `vars.VRG_AUTOMATION_APP` is non-empty. It reads the variable as
+     `AUTOMATION_APP`, as `github-config`'s guard does. A failing step,
+     never a job-level `if:`, so a run from another ref shows up red
+     instead of being skipped.
+  2. **Checkout** of `ref: develop`, with `persist-credentials: false`, only
+     to install the tooling.
+  3. **Install vergil-tooling** (`setup/vergil`, as today).
+  4. **Prepare:** `vrg-upstream-refresh` in prepare mode, writing its output
+     directory.
+  5. **Upload** that directory as the job's artifact.
+- **`publish`** (`needs: prepare`; the App's secrets only on its last
+  step):
+  1. **Guard**, the same as prepare's.
+  2. **Checkout** and **install**, as in prepare, on this job's own fresh
+     runner.
+  3. **Download** prepare's artifact.
+  4. **Publish:** `vrg-upstream-refresh` in publish mode on the downloaded
+     directory, with `VRG_AUTOMATION_APP` and the App's client ID and
+     private key set on this step only.
+
+  When prepare reports nothing to change, publish still runs. It closes an
+  earlier run's open PR and reports "in sync" (§6.2).
 
 `actions/create-github-app-token`, `gh auth setup-git` and the
 git-identity step are removed: the tool now does each of them itself (§6.1,
-§6.2). The job also gets:
+§6.2). The workflow also gets:
 
-- `timeout-minutes` a little above the tool's 120-minute deadline (the plan
-  fixes the number), so a hung run cannot hold the concurrency group for
-  GitHub's six-hour default;
+- `timeout-minutes` on publish a little above the tool's 120-minute
+  deadline (the plan fixes the number), so a hung run cannot hold the
+  concurrency group for GitHub's six-hour default;
 - `concurrency: group: ${{ github.repository }}/upstream-refresh`,
-  `cancel-in-progress: false`;
+  `cancel-in-progress: false`, at the workflow level, so a run's prepare
+  and publish never interleave with another run's;
 - a header comment that loses "it never merges; a human merges", and
-  explains that the tool holds the key and renews its own token.
+  explains the key boundary and the token renewal.
 
 The callers' `ops.yml` files in vergil-containers and vergil-python, and their
 `vergil.toml` comments, lose "nothing is auto-merged; a human merges". The
@@ -385,6 +479,25 @@ updated too. The callers' wiring is otherwise unchanged: both already pass
 `APP_CLIENT_ID` and `APP_PRIVATE_KEY` at `@v2.1`. Whether the caller job
 needs any new permission is for the builder to confirm against the reusable
 workflow.
+
+**Docs that state the old policy.** Each repo's change updates its own docs
+in the same PR. These pages say today that a human merges refresh PRs, or
+describe the fixed branch and its token:
+
+- vergil-tooling: `docs/site/docs/reference/dependency-update-config.md`,
+  `docs/site/docs/reference/upstream-refresh-config.md`, and
+  `vrg-upstream-refresh`'s module docstring and `--help` text ("Never
+  merges");
+- vergil-actions: `docs/site/docs/workflows/ops-upstream-refresh.md`,
+  `docs/site/docs/workflows/index.md`, and the upstream-refresh rows of
+  `docs/site/docs/configuration.md`'s permission table;
+- vergil-containers: `docs/site/docs/operations/version-management.md`.
+  Past release notes are history and stay as they are.
+
+This epic carries out the policy decided in vergil-project/.github#470
+(unattended merge of automation-authored PRs under the automation
+identity, closed). The documentation-review task sweeps for anything this
+list misses.
 
 ### 6.4 Rollout
 
@@ -410,8 +523,9 @@ No step can merge a refresh before the guarded workflow is in place:
 
 ### 6.5 Local runs
 
-A human running `vrg-upstream-refresh` locally gets the same open-and-wait,
-under the human's own credentials, with no token source. Those credentials
+A human running `vrg-upstream-refresh` locally uses the default mode,
+prepare and publish in one process, under the human's own credentials, with
+no token source. The key boundary does not apply: no App key is involved. Those credentials
 are not bound to one hour, and `$VRG_MECHANIZED_PR_DEADLINE` can raise the
 wait. The `automation/**` ruleset admits the admin role, so the human's push
 is accepted. As with `update` (epic #1064, spec §6.5), the tool works in its
@@ -426,12 +540,16 @@ A validation task, run after the vergil-actions release, proves G4 live:
   as `<org>-automation[bot]`, which merges within the run. The run is green,
   and `develop` carries the commit.
 - **vergil-containers:** a run opens a refresh PR, renews its token at least
-  once while it waits, and merges the PR. The run is green. Its log shows
-  the renewal and the revocation of the replaced token before the merge.
-  Since that token was revoked, the merge can only have used the renewed
-  one. A normal run does this, with no special settings, because its CI
-  outlasts the renewal interval. (Epic #1064's retrospective notes that its
-  branch-update path never ran live; this one must.)
+  once while it waits, and the PR merges. The run is green. Its log shows,
+  in order: the renewal, the revocation of the replaced token, polls of the
+  PR that succeed, and the merge seen by such a poll. The merge itself is no
+  proof of renewal: auto-merge, turned on with the first token, lets GitHub
+  merge on its own side. The polls are the proof. Each one ran after the old
+  token was revoked, and a revoked token fails at once. A normal run does
+  this, with no special settings, because its CI outlasts the renewal
+  interval. A write made with a renewed token (a branch update, or the
+  tool's own merge call) is covered by unit tests. If one happens during
+  the validation, its log line is extra evidence. None is forced.
 - **No legacy PRs:** neither repo has an open PR on `upstream-refresh`.
 - **The guard:** a dispatch from a branch other than `develop` fails at the
   guard step.
@@ -442,8 +560,8 @@ merge, and the job's conclusion.
 ## 8. What's left to the builder
 
 - The token source's API, and where it lives in the module family.
-- How the JWT is signed (an existing dependency or a new one), and the names
-  of the environment variables that carry the client ID and key.
+- The names of the environment variables that carry the client ID and key
+  (not `VRG_APP_ID` or `VRG_PRIVATE_KEY_PATH`, §6.1).
 - The exact renewal interval (§6.1).
 - The job's exact `timeout-minutes`.
 
@@ -456,6 +574,8 @@ merge, and the job's conclusion.
 - **Release after refresh** (vergil-project/.github#1145, second half): high
   priority, blocked on automation release rights and the release lock
   (vergil-project/.github#1088).
+- **The key boundary, fleet-wide** (vergil-project/.github#1180): apply §6's
+  rule to every job that can reach the App's credentials.
 - **`github-config` on the token source**, if its PRs ever need longer than
   one token.
 - **Logging the resolved identity mode** (vergil-project/vergil-tooling#4433,
