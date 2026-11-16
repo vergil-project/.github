@@ -382,9 +382,9 @@ Exit 1 wins over 2 when both apply.
    against the TSV's size column; a mismatch is reported, not applied. Items
    closed or moved out since are skipped and listed in the results comment.
    The TSV's own line for this planning issue is skipped too: it closes when
-   this epic's docs land. Then `vrg-queue planning --sort size` must exit 0 and list no item in
-   error; the remaining unsized items are listed for the next
-   `epic-review planning` pass.
+   this epic's docs land. Then `vrg-queue planning --sort size` must exit 0
+   and list no item in error; the remaining unsized items are listed for the
+   next `epic-review planning` pass.
 
 ## 7. Failure model
 
