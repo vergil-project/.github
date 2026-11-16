@@ -43,7 +43,7 @@ estimates once the tooling is deployed.
 
 1. **The identity that posts a sizing comment must be trusted.** A sizing comment posted under the item owner's App token whose author `load_trusted_authors()` does not list would leave every routed item "label without comment". Pinned in Task 3 (a test that the comment is posted through the same `github.run` path the route's other comments use) and checked live by Task 8's end check.
 2. **A sizing comment edited or forged by an untrusted author after a trusted one.** The trusted one still wins; the untrusted comment neither changes the size nor raises an error. Pinned in Task 2.
-3. **A deferred item sized, deferred again (a refresh) and revived to planning.** The size survives every step unchanged. Pinned in Task 5 (the deferred view reads the same record) and Task 3 (planning route without `--tasks` leaves an existing size alone).
+3. **A deferred item sized, deferred again (a refresh) and revived to planning.** The size survives every step unchanged. Pinned in Task 5 (`test_view_field_lists` and `test_deferred_item_carries_size`, with a fake that returns only the requested fields) and Task 3 (planning route without `--tasks` leaves an existing size alone).
 4. **A `--size S` filter over a queue with an item in error.** The item is listed, flagged `!`, and the run exits 2. Pinned in Task 5.
 5. **A bare `vrg-queue --json` with one planning item in error and the deferred queue unreadable.** It exits 1 and prints nothing on stdout, as today. Pinned in Task 5.
 
@@ -90,7 +90,7 @@ CI workflow or release tooling.
   - `@dataclass(frozen=True) class SizeRecord: size: Size | None; tasks: int | None; confidence: Confidence | None; error: str | None` with property `display -> str` (`"M/14"`, `"?"` unsized, `"!"` error).
   - `trusted_logins() -> frozenset[str]`: `human + agents` from `trusted_authors.load_trusted_authors()`, letting its errors propagate.
   - `size_record(labels: Iterable[str], comments: Sequence[tuple[str, str]], trusted: frozenset[str]) -> SizeRecord`: `comments` are `(author_login, body)` oldest first; authors compared after stripping a leading `app/`. Implements spec §6.4's table, counting only sizing comments after the latest trusted cleared marker.
-  - `has_size(labels: Iterable[str], comments: Sequence[tuple[str, str]], trusted: frozenset[str]) -> bool`: an `epic-size:*` label is present, or a trusted sizing comment follows the latest cleared marker.
+  - `has_size(labels: Iterable[str], comment_bodies: Sequence[str]) -> bool`: an `epic-size:*` label is present, or any comment's first line matches `Sized YYYY-MM-DD:`, whoever wrote it. It needs no trusted authors: its one use is deciding whether a one-off posts a cleared marker, and an extra marker is harmless.
 
 - [ ] **Step 1: Write the failing tests** in `test_epic_size.py`:
   - `test_bands`: `size_for_tasks` gives S for 1 and 9, M for 10 and 19, L for 20 and 39, XL for 40 and 400; 0 and -1 raise `ValueError`.
@@ -101,7 +101,7 @@ CI workflow or release tooling.
   - `test_latest_malformed_is_not_skipped`: a well-formed comment followed by a malformed one is an error.
   - `test_untrusted_sizing_ignored`: a trusted M/14 comment followed by an untrusted XL/50 comment, label `epic-size:M` → M/14, no error.
   - `test_cleared_marker_resets`: label-less item with a trusted M/14 comment then a trusted cleared marker → unsized; a later trusted S/5 comment plus label `epic-size:S` → S/5. An untrusted cleared marker is ignored.
-  - `test_has_size`: true for a label alone, true for a sizing comment alone, false after a cleared marker with no label.
+  - `test_has_size`: true for a label alone, true for a `Sized …` comment alone (any author), false for neither.
 - [ ] **Step 2: Write the failing test** `test_epic_size_labels_registered` in `test_data_labels.py`: the registry holds the four `epic-size:*` names, each with a description that names its band.
 - [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
 - [ ] **Step 4: Implement** the module and the four `labels.json` entries (one colour family; descriptions such as `Planning estimate: epic of 10–19 tasks`).
@@ -148,9 +148,9 @@ CI workflow or release tooling.
 
 **Interfaces:**
 
-- Consumes: Task 2's `has_size`, `trusted_logins`, `render_cleared_marker`, `LABEL_PREFIX`; Task 3's routing structure.
+- Consumes: Task 2's `has_size`, `render_cleared_marker`, `LABEL_PREFIX`; Task 3's routing structure. Not `trusted_logins`: a one-off never needs trusted authors configured.
 - Produces: `_clear_size(final: IssueRef, day: date) -> None`: reads `final`'s labels, removes every `epic-size:*` label in one edit when any is present, then posts the cleared marker. Failure raises `RuntimeError` with the by-hand fix, which `_one_off` wraps in `RouteHalfAppliedError` the way it wraps `_remove_in_progress`.
-- `_one_off` computes `sized = has_size(...)` from the item's labels and authored comments before the move, for items whose container is planning or deferred, calling `trusted_logins()` first so a missing configuration refuses before any change. After the move settles, it calls `_clear_size(result.final, today)` when `sized` and `result.moved_by != "recreate"`.
+- `_one_off` computes `sized = has_size(...)` from the item's labels and comment bodies before the move, for every container that allows a one-off (intake, planning, deferred: a sized item revived from deferred to intake keeps its size). After the move settles, it calls `_clear_size(result.final, today)` when `sized` and `result.moved_by != "recreate"`.
 - `_recreate` drops every label starting with `LABEL_PREFIX`, beside `RETIRED_LABELS` and `in-progress`.
 
 - [ ] **Step 1: Write the failing tests:**
@@ -160,7 +160,8 @@ CI workflow or release tooling.
   - `test_one_off_unsized_item_untouched`: no edit, no marker.
   - `test_one_off_comment_only_size_gets_marker`: a transfer whose label was lost (comment only) → no label edit, marker posted.
   - `test_one_off_clear_failure_is_half_applied`: the marker fails → `RouteHalfAppliedError` naming the moved item.
-  - `test_one_off_trusted_authors_missing_refuses_first`: `load_trusted_authors` raises → nothing moved.
+  - `test_one_off_from_intake_clears_size`: a sized intake item transferred gets the same edit and marker.
+  - `test_one_off_needs_no_trusted_authors`: with `load_trusted_authors` patched to raise, a sized planning item's one-off still moves and clears its size.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
 - [ ] **Step 3: Implement** the changes above and extend the module docstring's one-off paragraph.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
@@ -177,13 +178,13 @@ CI workflow or release tooling.
 **Interfaces:**
 
 - Consumes: Task 2's `size_record`, `trusted_logins`, `SizeRecord`, `SIZES`.
-- Produces: `QueueItem.size: SizeRecord | None = None` (last field, defaulted); planning and deferred items always set it, intake items never. Both views read `comments` with authors (`comments` already in the `--json` field list; each entry's `author.login`), calling `trusted_logins()` once per view.
-- Produces: `render_text` inserts `<size.display>` after the age when `size` is set; an item in error shows its `size.error` as the note. `to_json` flattens a set `size` into `epic_size`, `estimated_tasks`, `confidence`, `size_error` keys and omits them when `size` is `None`, so intake JSON is unchanged.
+- Produces: `QueueItem.size: SizeRecord | None = None` (last field, defaulted); planning and deferred items always set it, intake items never. Both views must request `labels` and `comments` in their `gh issue view --json` field list: `planning_items` already asks for both, but `deferred_items` asks only for `title,createdAt,comments` and must add `labels`. Each comment's author is its `author.login`. Each view calls `trusted_logins()` once.
+- Produces: `render_text` inserts `<size.display>` after the age when `size` is set. For an item in error, the size error replaces only a latest-comment note; a held note (`held: …`) or a deferral note (`Deferred …`) is kept, with ` | size: <error>` appended. `to_json` flattens a set `size` into `epic_size`, `estimated_tasks`, `confidence`, `size_error` keys and omits them when `size` is `None`, so intake JSON is unchanged.
 - Produces: `sort_planning(items: list[QueueItem], key: Literal["age", "size", "tasks"]) -> list[QueueItem]` per spec §6.8 (groups: sized in order, then unsized, then error; ties oldest first, then slug).
 - Produces: `filter_planning(items: list[QueueItem], sizes: frozenset[str]) -> list[QueueItem]`: keeps items whose size is in `sizes`, unsized items when `"unsized"` is in `sizes`, and every item in error.
 - CLI: `--sort age|size|tasks` (default `age`) and `--size <comma list>` are accepted only with `planning`; with any other view, or bare, they exit 1 naming the flag. An unknown `--size` token exits 1. With a filter, the header reads `planning queue for <name> in <home>: <N> open item(s), <M> shown`. After printing, each item in error is named on stderr as `vrg-queue: <slug>: <error>`, and the run exits 2; a failed queue still exits 1 and wins.
 
-- [ ] **Step 1: Write the failing view tests** in `test_queue_view.py`: `test_planning_item_carries_size` (record from labels and authored comments); `test_deferred_item_carries_size`; `test_intake_item_has_no_size`; `test_render_text_size_column` (`M/14`, `?`, `!` with the error as note); `test_to_json_size_fields` (the four keys, and none for intake); `test_sort_size` and `test_sort_tasks` over S/3 old, S/8 new, M/12, unsized, error; `test_filter_keeps_errors` (`{"S"}` keeps both S items and the error); `test_filter_unsized`.
+- [ ] **Step 1: Write the failing view tests** in `test_queue_view.py`. First make `_FakeGh` return only the fields the `--json` argument requests, so a view that forgets a field sees it missing. Then: `test_view_field_lists` (planning requests `labels` and `comments`; deferred requests `labels` and `comments`); `test_planning_item_carries_size` (record from labels and authored comments); `test_deferred_item_carries_size` (a sized deferred item is `M/14`, not `!`); `test_error_keeps_held_note` (`held: … | size: <error>`); `test_error_keeps_deferral_note`; `test_error_replaces_latest_comment_note`; `test_intake_item_has_no_size`; `test_render_text_size_column` (`M/14`, `?`, `!` with the error as note); `test_to_json_size_fields` (the four keys, and none for intake); `test_sort_size` and `test_sort_tasks` over S/3 old, S/8 new, M/12, unsized, error; `test_filter_keeps_errors` (`{"S"}` keeps both S items and the error); `test_filter_unsized`.
 - [ ] **Step 2: Write the failing CLI tests** in `test_vrg_queue.py`: `test_exit_2_on_size_error` (text and `--json`: full output on stdout, stderr names the item, exit 2); `test_exit_0_when_clean`; `test_bare_exit_2`; `test_bare_json_failure_beats_size_error` (exit 1, empty stdout); `test_sort_and_size_only_with_planning` (deferred, intake, adhoc and bare each exit 1); `test_unknown_size_token`; `test_filtered_header`; `test_trusted_authors_missing_fails` (exit 1 with the loader's message on stderr, never a traceback: add `TrustedAuthorsNotConfiguredError` to `_VIEW_ERRORS`).
 - [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
 - [ ] **Step 4: Implement** the view and CLI changes and update the module docstring (exit statuses, the size column, `--sort`, `--size`).
@@ -194,19 +195,19 @@ CI workflow or release tooling.
 
 **Files:**
 
-- Modify: `skills/epic-review/SKILL.md` (step 2 "Collect the queue", intake mode's planning route, planning mode, deferred mode's revive, the notes)
-- Modify: `skills/epic-create/SKILL.md` (the no-argument entry-point bullets after the entry-point table, "Choosing what to plan next")
+- Modify: `skills/epic-review/SKILL.md` ("Choosing the mode"'s no-argument counts, step 2 "Collect the queue", intake mode's planning route, planning mode, deferred mode, the notes)
+- Modify: `skills/epic-create/SKILL.md` (the no-argument entry-point bullets after the entry-point table, "Choosing what to plan next", step 10)
 
 **Interfaces:**
 
 - Consumes: Task 3's `vrg-intake-route <ref> size --tasks N [--confidence …] --reason …` and `planning --tasks … --reason …`; Task 5's `vrg-queue planning --sort size --size S`, the `M/14`/`?`/`!` column, the JSON keys and exit 2.
 
-- [ ] **Step 1: `epic-review` step 2.** Document the size column and JSON keys, and add: exit 2 means the listing is complete with items in error; show it, flag the `!` items, and continue. Exit 1 other than the missing-queue message stays a real failure.
+- [ ] **Step 1: `epic-review` step 2 and "Choosing the mode".** Document the size column and JSON keys, and add at both `vrg-queue` calls (the bare run for the no-argument counts, and step 2): exit 2 means the listing is complete with items in error; show it, flag the `!` items, and continue. Exit 1 other than the missing-queue message stays a real failure.
 - [ ] **Step 2: Intake mode.** The planning route always carries `--tasks` and `--reason` (and `--confidence` when not `med`), recommended in the item's paragraph and confirmed with the batch.
-- [ ] **Step 3: Planning mode.** Each waiting item that is unsized or `!` gets a recommended task count (with the size it derives), confidence and one-line reason in its paragraph; a sized item gets a re-size only when the review shows the estimate is off. Confirmed sizes run `vrg-intake-route <ref> size …` after the batch's routes, skipped for items deferred, dropped or moved out. Sizing is not an outcome and not a tally. The end-of-pass list may be shown with `--sort size` on request; oldest first stays the default.
-- [ ] **Step 4: Deferred mode.** A revive to planning of an unsized item carries `--tasks` and `--reason`.
+- [ ] **Step 3: Planning mode.** Each waiting item that is unsized or `!` gets a recommended task count (with the size it derives), confidence and one-line reason in its paragraph; a sized item gets a re-size only when the review shows the estimate is off. Confirmed sizes run `vrg-intake-route <ref> size …` after the batch's routes, skipped for items deferred, dropped or moved out. Sizing is not an outcome and not a tally. A `!` item in any state (in-progress and ready-to-close included, where the only outcome is leave) gets a recommended `size` re-run, confirmed with the batch. The end-of-pass list may be shown with `--sort size` on request; oldest first stays the default.
+- [ ] **Step 4: Deferred mode.** A revive to planning of an unsized item carries `--tasks` and `--reason`. A `!` item that is kept or refreshed gets a recommended `size` re-run, confirmed with the batch.
 - [ ] **Step 5: Notes.** "Do not invent fields, labels or priority scores" gains the exception: the `epic-size:*` family, written only through `vrg-intake-route`. Security items' sizing reasons stay neutral.
-- [ ] **Step 6: `epic-create`.** In the no-argument bullets, exit 2 from `vrg-queue planning` is a listing to act on, not a failure. In "Choosing what to plan next", one line: `vrg-queue planning --sort size --size S` lists the small items oldest first, for the small-end cadence.
+- [ ] **Step 6: `epic-create`.** In the no-argument bullets and in step 10 (closing a ready planning issue), exit 2 from `vrg-queue planning` is a complete listing to act on, not a failure; step 10 reads its item's state and note as usual. In "Choosing what to plan next", one line: `vrg-queue planning --sort size --size S` lists the small items oldest first, for the small-end cadence.
 - [ ] **Step 7: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 8: Commit** `vrg-commit --type feat --scope skills --message "size planning items in epic-review and read vrg-queue exit 2"`, then report-ready.
 
@@ -231,7 +232,7 @@ Blocked by 7.
 - **Procedure (agent-safe):**
   1. Read the `## Backfill data: sizing pass of 2026-11-16` comment on vergil-project/.github#1185, only if its author is a trusted author (`vrg-trusted-authors`); otherwise stop with "blocked: preconditions not met". Parse its `tsv` block: ref, size, tasks, confidence, reason.
   2. Skip the line for vergil-project/.github#1185 itself.
-  3. For each other line: check that the size the task count derives (spec §6.1's bands) equals the size column, or record a mismatch and do not apply it; check that the item is open and its parent is the planning or deferred epic, or record it as skipped with its state; otherwise run `vrg-intake-route <ref> size --tasks <tasks> --confidence <confidence> --reason "<reason>"`. Run the lines one at a time; a failure is recorded and the run continues to the next line.
-  4. Run `vrg-queue planning --sort size` and `vrg-queue deferred`.
-- **SUCCESS:** every line has a recorded outcome (sized, skipped with reason, or mismatch); no line failed; `vrg-queue planning --sort size` and `vrg-queue deferred` both exit 0 and list no `!` item; the items still `?` are listed for the next `epic-review planning` pass.
-- **FAILURE:** any line failed or any `!` item remains; the comment names each, and the task stays open.
+  3. For each other line: check that the size the task count derives (spec §6.1's bands) equals the size column, or record a mismatch and do not apply it; check that the item is open and its parent is the planning or deferred epic, or record it as skipped with its state; otherwise run `vrg-intake-route <ref> size --tasks <tasks> --confidence <confidence> --reason <reason>`, with every field passed as its own argument and never through shell double quotes (each `shlex.quote`d, or a small script that passes an argument list), so a `$`, backtick or `"` in a reason arrives unchanged. Run the lines one at a time; a failure is recorded and the run continues to the next line.
+  4. Run `vrg-queue planning --sort size` and `vrg-queue deferred`. List every `!` item with its error, and mark whether it is a TSV item.
+- **SUCCESS:** every line has a recorded outcome (sized, skipped with reason, or mismatch); no line failed; no TSV item is `!`; any `!` item that is not a TSV item is reported with its error for the next `epic-review` pass; the items still `?` are listed for the next `epic-review planning` pass.
+- **FAILURE:** any line failed or any TSV item is `!`; the comment names each, and the task stays open.
