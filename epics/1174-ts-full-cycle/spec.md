@@ -439,8 +439,10 @@ states the rule and how to apply it to a new language:
   vergil-tooling, that runs the language's build command, the same one the
   release job runs. It is turned on for TypeScript only, and the fixtures
   prove it. Turning it on for Rust belongs to the Rust validation epic
-  (vergil-project/.github#1087), and for Python to its own task (§6.10), each
-  with a fixture run.
+  (vergil-project/.github#1165), and for Python to its own task (§6.10), each
+  with a fixture run. CI runs the BUILD check for exactly the languages
+  vergil-tooling turns it on for, read from vergil-tooling's own output, so
+  turning it on for a language needs no vergil-actions change.
 - **`cd-release`** accepts `typescript` at line 615, and the description at
   line 7 says so. The publish step stays off: `publish_cmd` stays `None`, and
   `registry-publish` stays `false`. A TypeScript release produces what a Rust
