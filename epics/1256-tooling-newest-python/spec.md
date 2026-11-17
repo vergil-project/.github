@@ -76,6 +76,7 @@ The vergil-tooling and vergil-vm install changes land before the floor too.
   > resolve as an app for version resolution. The rest of #1260, its release
   > and branching model and the other follow-on effects, stays out of scope.
 - Detecting a new series and prompting a floor raise (vergil-project/.github#1261).
-- `vrg-host` handling of vergil-tooling (vergil-project/.github#1266).
+- `vrg-host` handling of vergil-tooling (vergil-project/vergil-tooling#4603;
+  corrected in the retrospective from a dead `vergil-project/.github#1266`).
 - Unifying the definitions of the core series (vergil-project/.github#1267).
 - Changing how any install path gets its interpreter beyond naming 3.15.
