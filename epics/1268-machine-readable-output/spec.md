@@ -172,7 +172,7 @@ comments. The sites that matter most:
 ### 7.4 GitHub error classification
 
 - Add one helper that classifies a failed `gh` call by the kind of call, since
-  `gh` reports errors in two shapes:
+  `gh` reports errors in three shapes:
   - REST calls (`gh api` on a REST path): the HTTP status, read from
     `gh api -i` or from the JSON error body;
   - GraphQL-backed calls (`gh pr view`, `gh issue view`, `gh repo view`,
@@ -180,7 +180,13 @@ comments. The sites that matter most:
     only in the response's `errors` list, so the helper reads the GraphQL
     error `type` (`NOT_FOUND`). A caller that cannot get the structured
     errors from its subcommand is converted to `gh api graphql` or to the
-    equivalent REST call.
+    equivalent REST call;
+  - REST-backed subcommands that report an error only as text (`gh run view`,
+    `gh release view`, `gh run watch`): each is converted to `gh api` on its
+    REST path where one exists. Where none does, as for the streamed
+    `gh run watch`, the helper matches `gh`'s `(HTTP <status>)` stderr line
+    with an anchored pattern, as `lib/rulings/draft_ref.py` and
+    `lib/epic_docs.py` already do.
 - `retry.retry_known_resource` and every caller of `retry.is_not_found` are in
   scope (among them `lib/release/merge.py`, `lib/release/confirm.py`,
   `lib/release/package_index.py`, `lib/promote.py`,
@@ -233,7 +239,17 @@ merging), which owns any change to how those rejections are read.
 ### 7.7 Cloud VM tools
 
 - `lib/vm_cloud.py`: read `cloud-init status --format json` together with the
-  exit code. A degraded result is a failure, not ready.
+  exit code. From cloud-init 23.4 on, exit code 2 and `degraded done` also
+  cover recoverable errors, which include WARNING and DEPRECATED log entries,
+  so "degraded" is defined here, and §7.10 uses the same definition:
+  - readiness fails on `status: error`, or on any `recoverable_errors` entry at
+    ERROR or CRITICAL level;
+  - WARNING and DEPRECATED entries are reported, but do not fail readiness;
+  - tests cover a clean status, an error status, an ERROR-level recoverable
+    error and a deprecation-only status.
+
+  The VM validation (§7.11) records what `recoverable_errors` holds on a fresh
+  boot.
 - `bin/vrg_vm.py`: decide that a gcloud instance or disk is missing from
   `list --filter … --format=json`, and that an az resource is missing from its
   exit code, not from `not found` text.
@@ -254,9 +270,15 @@ merging), which owns any change to how those rejections are read.
   the tool's header line, a version field that must parse, and a raise on a
   listed line that does not.
 - `lib/vm_guest.py` session probe (`vm_probe`): raise on both a failure to run
-  and a failure to parse, in place of returning `(0, 0)`. `vrg-vm list` probes
-  every running VM in parallel, so it catches the error per VM and shows an
-  explicit error marker for that VM's occupancy; the other rows still list.
+  and a failure to parse, in place of returning `(0, 0)`. The in-guest
+  occupancy script stops masking `loginctl` failures (`2>/dev/null`,
+  `|| echo ""`): a failing `loginctl` makes the script exit non-zero, so a
+  failed session query is a run failure, never a well-formed `agents=0
+  humans=0`. A session that ends mid-probe also fails that probe; that is
+  accepted, since it shows as one VM's error marker for one listing.
+  `vrg-vm list` probes every running VM in parallel, so it catches the error
+  per VM and shows an explicit error marker for that VM's occupancy; the other
+  rows still list.
 - Package queries in `lib/package/`: `rpm -qp --qf` for requires; `LC_ALL=C`
   for `rpmkeys --checksig`; the epoch in the `dpkg-query` version in
   `python_builder.py`; clean `dpkg -L` and `rpm -ql` file lists in
@@ -272,23 +294,27 @@ merging), which owns any change to how those rejections are read.
   the `sha256sum` output, and check that its input is a single JSON object.
 - `validate-custom`: run `git ls-files -z --stage` with a literal pathspec, and
   require exactly one record.
-- **Vergil-repo detection.** `block-protected-branch-work.sh` and
-  `block-worktree-bypass-write.sh` decide whether to enforce the worktree
-  convention by grepping the repo-root `.gitignore` for an exact `.worktrees/`
-  line. That line is an indirect signal: it says the repo ignores git
-  worktrees, not that it uses Vergil. Both hooks instead decide that a repo is
-  a Vergil repo by the presence of `vergil.toml` at the main worktree's root,
-  through one shared helper in `hooks/scripts/lib/`. This is a deliberate
-  change of signal, not only of parsing; every Vergil repo carries both, so
-  enforcement covers the same repos.
+- **The worktree convention is always enforced in a Vergil repo.**
+  `block-protected-branch-work.sh` and `block-worktree-bypass-write.sh` already
+  act only in a Vergil repo, through the existing `is_managed_repo` gate
+  (`hooks/scripts/lib/managed-repo-check.sh`, on the presence of
+  `vergil.toml`). Inside that gate they then grep the repo-root `.gitignore`
+  for an exact `.worktrees/` line, to choose between enforcing the worktree
+  convention and a fallback that only blocks commits on `main` and `develop`.
+  Every Vergil repo carries that line, so the fallback never runs, and the
+  line is an indirect signal (it says the repo ignores git worktrees, not that
+  it uses Vergil). Both hooks drop the `.worktrees/` grep and the fallback, and
+  enforce the convention wherever `is_managed_repo` holds. This is a
+  deliberate change of behaviour, not only of parsing; it changes nothing for
+  any repo that carries both markers today.
 - Hook tests read verdicts with `jq -e`, not by grepping jq's pretty-printed
   output.
 
 ### 7.10 vergil-vm
 
 - The readiness probe in `templates/agent.yaml.skel`:
-  - read `cloud-init status --format json` and treat a degraded result as a
-    failure, matching §7.7;
+  - read `cloud-init status --format json` and judge readiness by §7.7's
+    definition of degraded;
   - match the buildkitd and containerd processes on exact arguments or unit
     state, not `pgrep -f` substrings.
 - `40-profile.sh`:
@@ -308,17 +334,40 @@ merging), which owns any change to how those rejections are read.
 - One task per section from §7.2 to §7.10, each one PR, filed in the repo its
   PR lands in. A section too big for one reviewable PR is split into lettered
   sub-tasks, each with what it is blocked by.
-- §7.6 is blocked by §7.4. The rest are independent of each other.
+- §7.6 is blocked by §7.4. The rest are independent of each other, except
+  where they meet epic vergil-project/.github#1218 (parallel PR merging),
+  which is rewriting some of the same functions:
+  - the §7.3 item in `lib/release/preflight.py` `_check_branch_and_tree` is
+    blocked by #1218's plan Task 9, which rewrites that function;
+  - the §7.2 and §7.3 items in `bin/vrg_finalize_pr.py` are blocked by
+    #1218's plan Task 12b, which rebuilds that file's stages;
+  - `github.pr_state` keeps its current signature and return values through
+    §7.4, so the calls `lib/pr_merge.py` makes to it do not change.
+
+  The plan files each such item as its own sub-task, so the rest of its
+  section is not held up, and records the dependency as a `Blocked-by:` link
+  to the #1218 task issue.
 - The release gate follows what the release path calls, not only the files
   under `lib/release/`. §7.2 to §7.6 and §7.8 all change code a release runs:
   release tooling, the not-found and retry classifiers every release step
   uses, release tracking, and the package builders and install tests. So the
-  plan carries one vergil-tooling release after all of them, and fixture runs
+  plan carries a vergil-tooling release after all of them, and fixture runs
   on the fixtures the release path affects, each blocked by that release.
+- More than one vergil-tooling release is allowed. §7.7 does not wait for the
+  gated sections: an earlier release may carry it, so the VM validation is not
+  held up behind a long section such as §7.5. The fixture runs follow the
+  release that completes the gate.
+- Each repo whose changes must reach installed machines gets its own release,
+  carried in the plan as a deployment task whose precondition is the
+  human-cut release:
+  - **vergil-claude-plugin:** a release after §7.9 and the plugin
+    security-fix task (§8), then installed on the host (`vrg-host plugins`)
+    and the VMs (`vrg-vm update`);
+  - **vergil-vm:** a release after §7.10.
 - §7.7 and §7.10 change how a VM is judged ready, so the plan carries a
   validation that builds a fresh VM with the released vergil-tooling and
   vergil-vm and confirms it comes up ready, and that a degraded cloud-init run
-  is reported as a failure.
+  is reported as a failure. It is blocked by both of those releases.
 
 ## 8. Security
 
@@ -337,8 +386,14 @@ vergil-claude-plugin. None of them is fixed by §7.
 - **Nothing in public text.** No advisory detail appears in this spec, the
   plan, a task, a commit message, a PR or the report-ready notes.
 - **Release gate.** The vergil-tooling security-fix task is part of the
-  release gate in §7.11, since its sites are in the release and branch-handling
-  path.
+  vergil-tooling release gate in §7.11, since its sites are in the release and
+  branch-handling path, and the plugin security-fix task is part of the
+  vergil-claude-plugin release in §7.11.
+- **What closing means.** An advisory closes when the PR that fixes it merges:
+  closed means fixed in code, the industry norm, not yet deployed. The fix
+  reaches installed machines through the release and deployment tasks in
+  §7.11. Closing does not publish an advisory, and none is published before
+  the release that carries its fix.
 
 ## 9. Left to the builder
 
