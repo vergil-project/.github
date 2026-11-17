@@ -1167,3 +1167,24 @@ Blocked by D3.
 ### Fixture runs (F)
 
 Seed with `fixture-run vergil-project/.github#1218 python-app,python-lib,rust-app,rust-lib,ts-lib,ts-app --validates "vergil-tooling release 3 of epic #1218 (auto-merge submit, batch finalize, install-by-default release)" --after <D3 ref>`, once D3 is filed. The change reaches release tooling and the PR flow every fixture uses (spec §6.11).
+
+## Evolution during execution
+
+### 2026-11-17: Two follow-up tasks, a new blocker for Task 15, a new V1 step, and Task 11's recorded fixtures
+
+**What changed:**
+
+- **A new code task, vergil-project/vergil-tooling#4584:** `vrg-merge-review-request` carries every batch issue's scope for a fix to an open batch PR. It has no blockers, and D3 covers it.
+- **Task 15 (vergil-project/vergil-claude-plugin#1121) now also carries `Blocked-by: vergil-project/vergil-tooling#4584`.**
+- **A new code task, vergil-project/vergil-tooling#4585:** the release gate's ancestor-run refusal no longer reports a 0s wait. It carries `Blocked-by: vergil-project/vergil-tooling#4561` (Task 2) and `Blocked-by: vergil-project/vergil-tooling#4567` (Task 9), and D3 covers it.
+- **V1 (vergil-project/.github#1255) gains a step and an acceptance criterion:** it checks GitHub's refusal text when auto-merge is turned on for a PR that is already mergeable. The change is a [human scope change on #1255](https://github.com/vergil-project/.github/issues/1255#issuecomment-6952835283).
+- **Task 11 (vergil-project/vergil-tooling#4569) Step 1's fixtures were recorded by the human** on the throwaway PR vergil-project/vergil-fixture-python-lib#20. The real enable events are `auto_squash_enabled` and `auto_rebase_enabled`, and the disable event is `auto_merge_disabled`.
+- The delivery table and every task section above are unchanged. The plan froze when its first tasks merged (vergil-project/vergil-actions#1273 and vergil-project/vergil-claude-plugin#1122).
+
+**Why:**
+
+- **#4584:** the merge review of vergil-project/vergil-claude-plugin#1120 (Task 14) found that the whole-branch review of a fix to a batch PR diffs the whole branch under one issue's scope. The sibling issues' commits then read as out-of-scope work, so such a review could never end `eligible`. Task 14 keeps the spec §6.8 whole-branch rule, and Task 15 must not rely on fixes to batch PRs reaching `eligible` until #4584 lands. Filed on [the human's `file` ruling of R1](https://github.com/vergil-project/vergil-claude-plugin/issues/1120#issuecomment-6952696352).
+- **#4585:** in `lib/release/preflight.py`, the ancestor-run check judges the run with a zero timeout, so its refusal says the run is "still not complete after 0s". The gate still refuses safely, but the message misleads. Tasks 2 and 9 change the same file, so #4585 runs after both. Raised as [follow-up F2](https://github.com/vergil-project/.github/issues/1218#issuecomment-6952754109).
+- **V1's new step:** `lib/auto_merge.py` (Task 10, vergil-project/vergil-tooling#4568) treats GitHub's refusal text for an already-mergeable PR as the signal to merge directly. GitHub does not document that text, and no V1 step submitted a PR whose required checks were already green. Raised as [follow-up F1](https://github.com/vergil-project/.github/issues/1218#issuecomment-6952573508).
+- **Task 11's fixtures:** Step 1 is human-run, because `vrg-gh` denies the agent auto-merge and `gh api`. The recorded names replace the plan's expected list, which had also included `auto_merge_enabled` as an enable event.
+- The human ruled on F1, F2 and [the F3 proposal](https://github.com/vergil-project/.github/issues/1218#issuecomment-6952786586) (which filed this entry's task, vergil-project/.github#1264) in [the rulings on the epic](https://github.com/vergil-project/.github/issues/1218#issuecomment-6952880275).
