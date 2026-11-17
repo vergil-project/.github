@@ -81,6 +81,8 @@ comments. The sites that matter most:
   call for.
 - **Rework of sites already using a machine-readable form**, and style-only
   changes to them.
+- **The merge path in `lib/pr_merge.py`**, which epic
+  vergil-project/.github#1218 owns (§7.6).
 
 ## 5. Anti-goals
 
@@ -120,7 +122,6 @@ comments. The sites that matter most:
   - how `gh --paginate` concatenates pages, for the `vrg_docs_stage` release
     listing (§7.6);
   - that `az` exits 3 for a missing resource (§7.7);
-  - that `uv tool list` has no JSON mode (§7.8);
   - which systemd versions support `loginctl -o json`, wherever a task reads
     `loginctl`.
 
@@ -170,9 +171,24 @@ comments. The sites that matter most:
 
 ### 7.4 GitHub error classification
 
-- Add one helper that returns the HTTP status of a failed `gh` call, read from
-  `gh api -i` or from the JSON error body.
-- Use it in place of the substring matches for `404`, `not found` and `422`:
+- Add one helper that classifies a failed `gh` call by the kind of call, since
+  `gh` reports errors in two shapes:
+  - REST calls (`gh api` on a REST path): the HTTP status, read from
+    `gh api -i` or from the JSON error body;
+  - GraphQL-backed calls (`gh pr view`, `gh issue view`, `gh repo view`,
+    `gh api graphql`): these answer HTTP 200 and report a missing resource
+    only in the response's `errors` list, so the helper reads the GraphQL
+    error `type` (`NOT_FOUND`). A caller that cannot get the structured
+    errors from its subcommand is converted to `gh api graphql` or to the
+    equivalent REST call.
+- `retry.retry_known_resource` and every caller of `retry.is_not_found` are in
+  scope (among them `lib/release/merge.py`, `lib/release/confirm.py`,
+  `lib/release/package_index.py`, `lib/promote.py`,
+  `lib/upstream_refresh.py` and `lib/automation_identity.py`). Each still
+  recognises a missing resource in both shapes, so the retry that rides out
+  GitHub's list-before-readable lag (#3137) keeps working.
+- Use the helper in place of the substring matches for `404`, `not found` and
+  `422`:
   - `remote_config.is_not_found`;
   - `retry.is_not_found`;
   - `github.is_repo_not_found` and `is_http_404`;
@@ -205,10 +221,14 @@ Read structured results in place of regexes over `gh`'s messages:
 - Issue creation in `lib/release/tracking.py`: `gh api` POST, reading the JSON
   response.
 - The `vrg_docs_stage` release listing: `read_json_paginated`.
-- `lib/pr_merge.py` rejection detection: the PR's state from `gh pr view
-  --json`, not `gh`'s stderr wording.
 
 This depends on §7.4, whose helper it uses for error cases.
+
+`lib/pr_merge.py` is out of scope. Its merge-rejection handling tells apart a
+branch behind base, a branch-policy block and a moved head from the merge
+endpoint's reply, and the PR's state cannot replace that signal (#2856). The
+merge path is being reworked by epic vergil-project/.github#1218 (parallel PR
+merging), which owns any change to how those rejections are read.
 
 ### 7.7 Cloud VM tools
 
@@ -224,10 +244,19 @@ This depends on §7.4, whose helper it uses for error cases.
 ### 7.8 Guest, host and package tools
 
 - `lib/vm_packages.py`: run the apt queries under `LC_ALL=C`.
-- `lib/host_methods.py`: `brew info --json=v2` and `uv pip list --format json`
-  in place of `brew list --versions` and `uv tool list` text.
-- `lib/vm_guest.py`: stop parsing `uv tool list`, and raise on a parse failure
-  of the session probe in place of returning `(0, 0)`.
+- `lib/host_methods.py`: `brew info --json=v2` in place of
+  `brew list --versions`.
+- `uv tool list` has no machine-readable form (uv 0.13.7), so it stays text
+  under the fixed-locale-and-anchored-match rule (§3). `lib/host_methods.py`
+  already parses it strictly and raises on an unexpected line; the readers in
+  `lib/vm_guest.py` (`get_tooling_version`) and `lib/vm_packages.py`
+  (`_remove_uv_copy`) are brought to the same standard: an anchored match on
+  the tool's header line, a version field that must parse, and a raise on a
+  listed line that does not.
+- `lib/vm_guest.py` session probe (`vm_probe`): raise on both a failure to run
+  and a failure to parse, in place of returning `(0, 0)`. `vrg-vm list` probes
+  every running VM in parallel, so it catches the error per VM and shows an
+  explicit error marker for that VM's occupancy; the other rows still list.
 - Package queries in `lib/package/`: `rpm -qp --qf` for requires; `LC_ALL=C`
   for `rpmkeys --checksig`; the epoch in the `dpkg-query` version in
   `python_builder.py`; clean `dpkg -L` and `rpm -ql` file lists in
@@ -243,8 +272,15 @@ This depends on §7.4, whose helper it uses for error cases.
   the `sha256sum` output, and check that its input is a single JSON object.
 - `validate-custom`: run `git ls-files -z --stage` with a literal pathspec, and
   require exactly one record.
-- The `.gitignore` `.worktrees/` check: accept `/.worktrees/` and `.worktrees`,
-  or ask `git check-ignore`.
+- **Vergil-repo detection.** `block-protected-branch-work.sh` and
+  `block-worktree-bypass-write.sh` decide whether to enforce the worktree
+  convention by grepping the repo-root `.gitignore` for an exact `.worktrees/`
+  line. That line is an indirect signal: it says the repo ignores git
+  worktrees, not that it uses Vergil. Both hooks instead decide that a repo is
+  a Vergil repo by the presence of `vergil.toml` at the main worktree's root,
+  through one shared helper in `hooks/scripts/lib/`. This is a deliberate
+  change of signal, not only of parsing; every Vergil repo carries both, so
+  enforcement covers the same repos.
 - Hook tests read verdicts with `jq -e`, not by grepping jq's pretty-printed
   output.
 
@@ -273,9 +309,12 @@ This depends on §7.4, whose helper it uses for error cases.
   PR lands in. A section too big for one reviewable PR is split into lettered
   sub-tasks, each with what it is blocked by.
 - §7.6 is blocked by §7.4. The rest are independent of each other.
-- §7.2 and §7.3 change release tooling (`lib/release/`), so the plan carries a
-  vergil-tooling release after them and fixture runs on the fixtures that the
-  release path affects, each blocked by that release.
+- The release gate follows what the release path calls, not only the files
+  under `lib/release/`. §7.2 to §7.6 and §7.8 all change code a release runs:
+  release tooling, the not-found and retry classifiers every release step
+  uses, release tracking, and the package builders and install tests. So the
+  plan carries one vergil-tooling release after all of them, and fixture runs
+  on the fixtures the release path affects, each blocked by that release.
 - §7.7 and §7.10 change how a VM is judged ready, so the plan carries a
   validation that builds a fresh VM with the released vergil-tooling and
   vergil-vm and confirms it comes up ready, and that a degraded cloud-init run
@@ -284,9 +323,22 @@ This depends on §7.4, whose helper it uses for error cases.
 ## 8. Security
 
 The planning issue records six security advisories in the org's `.github`
-advisories. Once the fix tasks are filed, each advisory is retargeted to the
-task or tasks that fix it. Their details stay in the advisories, never in this
-spec, the plan, a task or a PR.
+advisories, three against vergil-tooling and three against
+vergil-claude-plugin. None of them is fixed by §7.
+
+- **Dedicated tasks.** The advisories are fixed by their own security-fix
+  tasks, separate from the §7 sections: one in vergil-tooling for its three
+  and one in vergil-claude-plugin for its three, each split into lettered
+  sub-tasks if it is too big for one PR. Each advisory is retargeted to the
+  task or tasks that fix it once they are filed, so their PRs close it.
+- **Design lives in the advisory.** Each advisory records its own fix. A
+  security-fix task's public title and body name it only by its GHSA IDs, and
+  say nothing of the weakness, the site or the fix.
+- **Nothing in public text.** No advisory detail appears in this spec, the
+  plan, a task, a commit message, a PR or the report-ready notes.
+- **Release gate.** The vergil-tooling security-fix task is part of the
+  release gate in §7.11, since its sites are in the release and branch-handling
+  path.
 
 ## 9. Left to the builder
 
