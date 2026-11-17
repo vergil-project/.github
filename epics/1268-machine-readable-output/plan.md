@@ -3,7 +3,14 @@
 - **Epic:** vergil-project/.github#1268
 - **Planning issue:** vergil-project/vergil-tooling#4108 (review history is in
   its comments)
-- **Status:** draft
+- **Status:** not planned; kept as a reference analysis
+
+> **Not carried out.** No task in this plan is filed, and none should be
+> worked from it as written. See the note at the top of [`spec.md`](spec.md)
+> for why, and for the standalone tasks that carry the security fixes and the
+> going-forward principle. Read it as a worked breakdown: where each kind of
+> site is, which helper and test would pin it, and which traps (error shapes,
+> case, exit codes, caller contracts) a conversion must handle.
 
 > **For agentic workers:** each task is one issue and one PR in the repo named
 > in its heading, worked with `issue-implement`. Deployment tasks are worked

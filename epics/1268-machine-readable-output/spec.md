@@ -3,7 +3,20 @@
 - **Epic:** vergil-project/.github#1268
 - **Planning issue:** vergil-project/vergil-tooling#4108 (review history is in
   its comments)
-- **Status:** approved
+- **Status:** not planned; kept as a reference analysis
+
+> **Not carried out.** This design was fully specified and its plan was
+> reviewed, then set aside: converting every site across three repos at once
+> costs far more than it gains. It is kept as an analysis of where vergil
+> parses human-readable tool output, and as a worked approach for anyone
+> converting a site later. What the review showed is that a switch is rarely
+> just adding `--json` and reading a key: error shapes, value formats, exit
+> codes and caller contracts all have to be checked. Going forward, new and
+> touched code prefers machine-readable output as a fleet engineering
+> principle (vergil-project/vergil-tooling#4645). The security-fix work in §8
+> is carried by standalone tasks, vergil-project/vergil-tooling#4644 and
+> vergil-project/vergil-claude-plugin#1141. The file paths and line numbers
+> here reflect the code as of 2026-11-17 and will drift.
 
 ## 1. Intent
 
