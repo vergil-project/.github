@@ -97,7 +97,7 @@ cloud-init, apt, rpm, dpkg, brew, uv, gcloud and az as the tools read.
 | 1 | .github | task (#1269) | Spec and plan (this PR) | — |
 | 2 | vergil-tooling | task | §7.2 git file lists and paths | — |
 | 3 | vergil-tooling | task | §7.3 git ref and format queries | 2 |
-| 3b | vergil-tooling | task | §7.2/§7.3 items in functions #1218 rewrites | 2, 3, vergil-tooling#4567, vergil-tooling#4573 |
+| 3b | vergil-tooling | task | §7.2/§7.3 items in functions #1218 rewrites | 2, 3, 9, vergil-tooling#4567, vergil-tooling#4573 |
 | 4a | vergil-tooling | task | §7.4 the gh error helper; not-found and retry_known_resource | — |
 | 4b | vergil-tooling | task | §7.4 the other classifiers, auth exit code, check rollup | 4a |
 | 5 | vergil-tooling | task | §7.5 the retry classifier | 4a |
@@ -105,7 +105,7 @@ cloud-init, apt, rpm, dpkg, brew, uv, gcloud and az as the tools read.
 | 7 | vergil-tooling | task | §7.7 cloud VM tools | — |
 | 8a | vergil-tooling | task | §7.8 host and VM guest tools | 7 |
 | 8b | vergil-tooling | task | §7.8 package tools and container-cache clean-all | — |
-| 9 | vergil-tooling | task | Security fixes (GHSA IDs below) | 2, 3, 3b |
+| 9 | vergil-tooling | task | Security fixes (GHSA IDs below) | — |
 | 11 | vergil-claude-plugin | task | Security fixes (GHSA IDs below) | — |
 | 10 | vergil-claude-plugin | task | §7.9 hook parsing; worktree convention always enforced | 11 |
 | 12 | vergil-vm | task | §7.10 readiness probe, profile checks, tests | — |
@@ -129,26 +129,26 @@ Notes on the table:
   lands second rebases:
   - `lib/retry.py`: Task 4a, then Task 5;
   - `bin/vrg_vm.py`: Task 7, then Task 8a;
-  - `lib/git.py` and the release modules: Task 2, then Task 3, then Task 9;
-  - the two worktree hooks: Task 11, then Task 10.
+  - `lib/git.py` and the release modules: Task 2, then Task 3.
+- **Security-fix tasks** (Tasks 9 and 11) go first by default and are blocked
+  by nothing; any task that meets one of them rebases onto it. The table
+  records their edges without reasons (spec §8).
 - **#1218 dependencies** (spec §7.11). Task 3b holds every item in a function
   #1218 rewrites: `lib/release/preflight.py` `_check_branch_and_tree` (#1218
   Task 9, vergil-tooling#4567) and `bin/vrg_finalize_pr.py` (#1218 Task 12b,
   vergil-tooling#4573). Task 2 and Task 3 skip those items.
-- **Task 9 waits on Task 3b**, so it is also behind #1218's Tasks 9 and 12b.
-  If #1218 slips, the human may let Task 9 go first and have #1218 rebase
-  onto it; that is a ruling, not a default.
 - **D1 is optional in effect**: if every gated task lands before Task 7, D1
   and D2 collapse into one release, and D1's issue closes on D2's evidence.
-- **The advisories tracked by #4108** are eleven: the six from the survey
-  that spec §8 names, and five recorded during design review. They are
+- **The advisories tracked by #4108** are thirteen: the six from the survey
+  that spec §8 names, and seven recorded during design review. They are
   retargeted when the tasks are filed:
   - GHSA-rp4r-x254-p53h, GHSA-f4j7-x3f8-59gv and GHSA-j7c6-37h8-hjvg to
     Task 9;
   - GHSA-cgp7-q74r-m6vh, GHSA-8mqc-j6w7-2fxp and GHSA-94p8-hq6c-5r6h to
     Task 11;
   - GHSA-ch78-r3p7-2wmx to Task 8a;
-  - GHSA-r374-jh25-85gc, GHSA-j526-gg2w-49jw and GHSA-983m-g4hq-523v, whose
+  - GHSA-r374-jh25-85gc, GHSA-j526-gg2w-49jw, GHSA-983m-g4hq-523v,
+    GHSA-c5h5-5x82-3cqv and GHSA-gc6p-jpjc-69hv, whose
     whole remedy is the published design (spec §8 and this plan), to the
     documentation task (#1269);
   - GHSA-3368-cr4q-cp5q, whose remedy is the plugin release reaching
@@ -223,7 +223,7 @@ Notes on the table:
 
 - Consumes: Task 2's `read_records`.
 - Produces: `git.current_branch_ref() -> str | None`, the full ref from
-  `symbolic-ref -q HEAD` (`None` when detached), for Tasks 3b and 9.
+  `symbolic-ref -q HEAD` (`None` when detached), for Task 3b.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_branch_lists_use_lstrip_2` (a branch named `heads/x` and a tag named
@@ -253,7 +253,7 @@ Notes on the table:
 
 ### Task 3b: items in functions #1218 rewrites (vergil-tooling)
 
-Blocked by Tasks 2 and 3, vergil-tooling#4567 and vergil-tooling#4573.
+Blocked by Tasks 2, 3 and 9, vergil-tooling#4567 and vergil-tooling#4573.
 
 **Files:**
 
@@ -288,7 +288,8 @@ Blocked by Tasks 2 and 3, vergil-tooling#4567 and vergil-tooling#4573.
 - Create: `src/vergil_tooling/lib/gh_errors.py`
 - Modify: `src/vergil_tooling/lib/retry.py` (`is_not_found`,
   `_NOT_FOUND_PATTERNS`), and each `retry_known_resource` caller that needs a
-  conversion: `lib/release/merge.py`, `lib/release/confirm.py`,
+  conversion: `lib/release/merge.py`, `lib/release/tracking.py`
+  (`read_issue_body`), `lib/release/confirm.py`,
   `lib/release/package_index.py`, `lib/promote.py`,
   `lib/upstream_refresh.py`, `lib/automation_identity.py`
 - Test: `tests/vergil_tooling/test_gh_errors.py`, `test_retry.py`, and the
@@ -328,7 +329,10 @@ Blocked by Tasks 2 and 3, vergil-tooling#4567 and vergil-tooling#4573.
 - [ ] **Step 2: Write the failing tests** in `test_retry.py`:
   - `test_known_resource_retries_graphql_not_found`;
   - `test_known_resource_retries_rest_404`;
-  - `test_known_resource_retries_run_watch_404` (streamed `gh run watch`).
+  - `test_known_resource_retries_run_watch_404` (streamed `gh run watch`);
+  - `test_read_issue_body_retries_lag_404` and
+    `test_known_pr_state_retries_lag_404` (each against a recorded `gh` 404
+    that then resolves).
 - [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect the new
   tests to fail.
 - [ ] **Step 4: Implement** the module and point `is_not_found` at it. Convert
@@ -339,8 +343,15 @@ Blocked by Tasks 2 and 3, vergil-tooling#4567 and vergil-tooling#4573.
     repos/{owner}/{repo}/actions/runs/{id}`, and its jobs from
     `…/runs/{id}/jobs` through `github.read_json_paginated`, with the field
     names the callers read mapped from the REST response;
-  - GraphQL-backed porcelain (`gh pr view` and the like) keeps its subcommand
-    where it can return the `errors` list, otherwise `gh api graphql`;
+  - GraphQL-backed porcelain reports a missing resource only as stderr text
+    (`GraphQL: Could not resolve to a …`), never as a structured `errors`
+    list, so every such read under `retry_known_resource` moves to
+    `gh api graphql` (or the REST equivalent):
+    - `gh issue view … --json body` in `lib/release/tracking.py`
+      `read_issue_body`;
+    - `gh pr view` in `lib/release/merge.py` `known_pr_state`, converted in
+      `merge.py` itself; `github.pr_state` stays unchanged, since
+      `lib/pr_merge.py` also calls it;
   - `gh run watch` stays on text, through `porcelain_status`.
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS, with
   the release tests unchanged.
@@ -372,8 +383,10 @@ Blocked by Task 4a.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_remote_config_404_in_body_is_not_not_found`;
-  - `test_repo_not_found_from_rest_404` (`is_repo_not_found` on the
-    converted `gh api repos/{owner}/{repo}` call);
+  - `test_repo_not_found_from_graphql_type` (`is_repo_not_found` on the
+    converted `gh api graphql` call's `NOT_FOUND` error);
+  - `test_repo_visibility_values_unchanged` (`PUBLIC`, `PRIVATE` and
+    `INTERNAL` come back exactly as before, and an unknown value raises);
   - `test_422_from_status_not_text` (`github_config`, `ref_refusal`,
     `repo_init`);
   - `test_missing_auth_is_exit_code_4` (and exit code 1 with the word
@@ -384,7 +397,13 @@ Blocked by Task 4a.
   tests to fail.
 - [ ] **Step 3: Implement** each site on the Task 4a helper. A site whose
   subcommand reports a missing resource only as text is converted the same
-  way as in Task 4a: `gh repo view` becomes `gh api repos/{owner}/{repo}`.
+  way as in Task 4a. `gh repo view --json visibility` in `repo_visibility`
+  becomes `gh api graphql` on `repository(owner:, name:) { visibility }`:
+  GraphQL's `visibility` is already `PUBLIC`/`PRIVATE`/`INTERNAL`, which
+  `is_public`, `security_records.advisory_home`, `vrg-dependabot-audit` and
+  epic homing compare exactly, and a missing repo arrives as a `NOT_FOUND`
+  entry in the `errors` list, which `graphql_error_types` reads.
+  `repo_visibility` raises on any other value.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 5: Commit** `vrg-commit --type fix --scope github --message
   "read gh not-found, unprocessable and auth failures from status and exit
@@ -408,13 +427,20 @@ Blocked by Task 4a.
   stream of each line taken from a real capture or from the tool's documented
   output stream, and names its source. A pattern with no recorded failure,
   or whose stream cannot be established, keeps its current matching (wording
-  and stdout-plus-stderr) and is listed in the PR body as flagged.
+  and stdout-plus-stderr) and is listed in the PR body as flagged. For the
+  bare `timeout` and `eof` patterns, which cite no incident, look beyond the
+  pattern comments too: CI logs and the incident issues #2835 and #3148.
 - [ ] **Step 2: Write the failing tests:**
   - `test_each_pattern_matches_its_recorded_failure` (parametrized over the
     data directory);
   - `test_retry_word_in_unrelated_failure_not_retried` (stderr naming a file
     `timeout_eof.py`, and stdout containing `timeout`);
   - `test_stdout_only_match_not_retried`.
+
+  These two tests, and Review Focus 3, cover only patterns that pass Step 1.
+  If `timeout` or `eof` stays flagged, the tests use the word of a converted
+  pattern instead, and the PR body records that Review Focus 3 is still open
+  for the flagged word.
 - [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect the new
   tests to fail.
 - [ ] **Step 4: Implement**: both classifiers read stderr only for every
@@ -543,8 +569,10 @@ Blocked by Task 7.
   --json=v2`; the `uv tool list` readers on the strict parse
   `host_methods` already uses; `get_tooling_version` without its
   `2>/dev/null`, `except CalledProcessError: pass` and `|| true` masks,
-  checking for `uv` with `command -v` first; the occupancy script without `2>/dev/null` and
-  `|| echo ""` on its `loginctl` calls, exiting non-zero when one fails;
+  checking for `uv` with `command -v` first; the occupancy script without
+  `2>/dev/null` and `|| echo ""` on its `loginctl` calls, exiting non-zero
+  when one fails; `vm_occupancy`'s docstring updated, since its "(0, 0) on
+  failure" contract no longer holds;
   `_probe_running` catching `ProbeError` per VM and storing it as that VM's
   entry in the mapping it returns, so `_occupancy` and `_present_spec_state`
   both see the failure and show `error`, never treating the VM as not
@@ -587,7 +615,7 @@ Blocked by Task 7.
 
 ### Task 9: security fixes (vergil-tooling)
 
-Blocked by Tasks 2, 3 and 3b.
+Not blocked.
 
 - **Advisories:** GHSA-rp4r-x254-p53h, GHSA-f4j7-x3f8-59gv,
   GHSA-j7c6-37h8-hjvg.
@@ -617,10 +645,11 @@ Blocked by Task 11.
   `hooks/scripts/block-worktree-bypass-write.sh`
 - Test: `hooks/tests/capture-merge-review-result.test.sh`,
   `hooks/tests/block-worktree-bypass-write.test.sh`,
-  `hooks/tests/hook-modes.test.sh`, and two new suites:
-  `hooks/tests/detect-deprecation-warnings.test.sh` and
-  `hooks/tests/validate-custom.test.sh` (the plugin has no `validate-custom`
-  tests today)
+  `hooks/tests/hook-modes.test.sh`, and three new suites:
+  `hooks/tests/detect-deprecation-warnings.test.sh`,
+  `hooks/tests/validate-custom.test.sh` and
+  `hooks/tests/block-protected-branch-work.test.sh` (the plugin has no tests
+  of `validate-custom` or of that hook's worktree enforcement today)
 
 - [ ] **Step 1: Write the failing tests:**
   - deprecation hook: an object-shaped `tool_response` is read, through
@@ -649,12 +678,20 @@ Blocked by Task 11.
 
 **Files:**
 
-- Create: `templates/provision/readiness-judge.sh` (the judging logic, read
-  from stdin: the `cloud-init status --format json` output; exit 0 for ready,
-  non-zero otherwise, with each warning printed), `tests/check-readiness-probe.sh`
-- Modify: `templates/agent.yaml.skel` (the readiness probe runs
-  `cloud-init status --format json` and pipes it to the judge, included
-  through `@@INCLUDE`), `templates/agent.yaml` (regenerated with
+- Create: `templates/probe/readiness-judge.sh`, outside `templates/provision/`
+  so the provision-manifest check does not apply to it. It defines one shell
+  function, `judge_readiness`, which reads the `cloud-init status --format
+  json` output on stdin and returns 0 for ready, non-zero otherwise, printing
+  each warning. Also create `tests/check-readiness-probe.sh`, which sources the
+  file directly.
+- Modify: `templates/agent.yaml.skel`. The readiness probe pulls the function
+  in through `@@INCLUDE` at the top of its script, before the `bash -c`, and
+  exports it with `export -f judge_readiness`. Inside the loop it captures the
+  status explicitly, with no pipe, so `pipefail` cannot turn cloud-init's exit
+  code 2 on a deprecation-only boot into a failure:
+  `status_json=$(cloud-init status --format json) || cloud_init_rc=$?`. It
+  then judges from the JSON alone; the recorded exit code is logged, not
+  swallowed. Also modify `templates/agent.yaml` (regenerated with
   `scripts/build-template.sh`, so `tests/check-template-generation.sh` still
   passes), `templates/provision/40-profile.sh`, the `tests/check-*.sh` scripts
   that grep `dpkg -l`, `nerdctl images`, `ss`, the login shell or `git config`
@@ -664,8 +701,8 @@ Blocked by Task 11.
 - Mirrors Task 7's definition of degraded (spec §7.7).
 
 - [ ] **Step 1: Write the failing tests** in `tests/check-readiness-probe.sh`,
-  feeding `readiness-judge.sh` recorded `cloud-init status --format json`
-  output on stdin:
+  sourcing `templates/probe/readiness-judge.sh` and feeding `judge_readiness`
+  recorded `cloud-init status --format json` output on stdin:
   clean → ready; error → not ready; an ERROR-level recoverable error → not
   ready; deprecation-only → ready, with the warning printed; buildkitd and
   containerd matched on their exact arguments or unit state (a process whose
@@ -691,7 +728,7 @@ Blocked by Task 7.
 
 - **Precondition (human-attested):** a vergil-tooling release containing
   Task 7 is published, its version named in a comment.
-- **Human-run steps:** `vrg-host upgrade` on the host.
+- **Human-run steps:** `vrg-host upgrade vergil-tooling` on the host.
 - **Procedure (agent-safe):** `vrg-vm update --all`; then on one VM,
   `dpkg-query -W -f='${Version}' vergil-tooling` names the release.
 - **SUCCESS:** the release is installed on the host and every VM, with the
@@ -703,7 +740,7 @@ Blocked by D1 and Tasks 2–6, 8a, 8b and 9.
 
 - **Precondition (human-attested):** a vergil-tooling release containing
   Tasks 2–6, 8a, 8b and 9 is published, its version named in a comment.
-- **Human-run steps:** `vrg-host upgrade` on the host.
+- **Human-run steps:** `vrg-host upgrade vergil-tooling` on the host.
 - **Procedure (agent-safe):**
   1. `vrg-vm update --all`.
   2. `vrg-vm list` shows every running VM's occupancy (no `error` marker on a
@@ -721,7 +758,9 @@ Blocked by Tasks 10 and 11.
 - **Procedure (agent-safe):**
   1. `vrg-vm update --all`.
   2. Neither installed `block-protected-branch-work.sh` nor
-     `block-worktree-bypass-write.sh` contains the `.worktrees/` grep.
+     `block-worktree-bypass-write.sh` contains the exact string
+     `grep -qxF '.worktrees/'` (the `.worktrees/` case pattern, comments and
+     deny message stay).
   3. In a scratch repo with `vergil.toml` and no `.worktrees/` line, run each
      installed hook directly on a hook-input JSON: a main-tree commit for
      `block-protected-branch-work.sh`, a main-tree file write for
