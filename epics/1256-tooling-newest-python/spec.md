@@ -165,7 +165,8 @@ changes.
     `docs/site/docs/architecture/index.md`): `uv tool install` inside the VM
     with **no `--python`**. After: §6.2.
 
-Rows 5 (its host case), 8, 9, 12 and 15 are the risk. Today `>=3.12` lets them run on almost any
+Rows 5 (its host case), 8, 9, 12 and 15 are the risk. Today `>=3.12` lets
+them run on almost any
 interpreter. Under `>=3.15` they either find a 3.15, have uv download a managed
 interpreter, or fail. A job that exports `UV_PYTHON` for an older family series,
 or `UV_PYTHON_PREFERENCE=only-system`, makes them fail.
