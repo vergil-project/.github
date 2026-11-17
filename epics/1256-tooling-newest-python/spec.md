@@ -22,10 +22,24 @@ mechanisms (packaged installs, and uv everywhere else).
 
 - **The floor.** `requires-python = ">=3.15"`, ruff `target-version =
   "py315"`, mypy `python_version = "3.15"`, `uv.lock` re-locked, and the ruff
-  `UP` rewrites the new target asks for. The CI matrix and `vrg-validate
-  --all-versions` follow `requires-python`, so they hold one series today. A
-  new series that joins the window is tested next to 3.15 until a later PR
-  raises the floor.
+  `UP` rewrites the new target asks for. vergil-tooling's
+  `[project].repository-type` is `tooling`, so the CI matrix and `vrg-validate
+  --all-versions` resolve it as an app: one series, the newest window version
+  with a published runtime, 3.15 today. When a newer series gets a published
+  runtime, CI moves to it on the next build instead of testing it next to
+  3.15.
+
+  > **Amended after implementation** (2026-11-17;
+  > vergil-project/vergil-tooling#4608, PR
+  > vergil-project/vergil-tooling#4647). The original text said the CI
+  > matrix and `vrg-validate --all-versions` follow `requires-python`, and
+  > that a new series joining the window is tested next to 3.15 until a later
+  > PR raises the floor. Neither holds: the version resolver ignores
+  > `requires-python` and narrows only by `repository-type`. By the human's
+  > ruling on vergil-tooling#4608's merge review, the single series comes
+  > from changing vergil-tooling's `repository-type` from `library` to
+  > `tooling`, so CI follows the newest window series with a published
+  > runtime.
 - **Every install names 3.15.** Each place that installs or syncs
   vergil-tooling without naming an interpreter gets `--python 3.15`:
 
@@ -55,6 +69,12 @@ The vergil-tooling and vergil-vm install changes land before the floor too.
 ## Out of scope
 
 - Reclassifying vergil-tooling as an application (vergil-project/.github#1260).
+
+  > **Amended after implementation** (2026-11-17;
+  > vergil-project/vergil-tooling#4608). The `repository-type` change from
+  > `library` to `tooling` (see the floor, above) already makes vergil-tooling
+  > resolve as an app for version resolution. The rest of #1260, its release
+  > and branching model and the other follow-on effects, stays out of scope.
 - Detecting a new series and prompting a floor raise (vergil-project/.github#1261).
 - `vrg-host` handling of vergil-tooling (vergil-project/.github#1266).
 - Unifying the definitions of the core series (vergil-project/.github#1267).
