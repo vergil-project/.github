@@ -30,9 +30,15 @@ interpreter vergil-tooling runs on, so that narrowing breaks nothing.
 
 - vergil-tooling declares `requires-python = ">=3.15"`. Its CI test matrix, and
   `vrg-validate --all-versions`, then hold one series today.
-- Every path that installs vergil-tooling names the interpreter it runs on and
-  fails loudly when that interpreter is missing. None of them leaves the choice
-  to uv's implicit discovery.
+- Every path that could otherwise land vergil-tooling on an untested
+  interpreter names the interpreter it runs on and fails loudly when that
+  interpreter is missing; none of them leaves the choice to uv's implicit
+  discovery. The deliberate exceptions are paths that run on an image's own
+  interpreter under `UV_PYTHON_PREFERENCE=only-system`: the self repo's
+  container `uv sync` (§5 row 5, container case), which runs on each test
+  leg's series, and the docs builds (row 14), which run on the base image's
+  core Python. Each is a tested series by construction, and `only-system`
+  makes uv fail rather than fetch anything else.
 - The floor is documented, along with the procedure for raising it when a new
   series joins the window.
 
@@ -54,7 +60,10 @@ interpreter vergil-tooling runs on, so that narrowing breaks nothing.
   `vergil-python` runtime), and the Vergil images pin it by hand
   (vergil-containers `docker/versions/manifest.yml`, `core: python`, which
   `base` installs and links as `/usr/local/bin/python3`). Unifying them is
-  out of scope (vergil-project/.github#1267).
+  out of scope (vergil-project/.github#1267). The host and VM installs in
+  §6.2 pick the newest series the vergil apt repository serves. That is a
+  selection rule over installable packages, not a third pin, but it tracks
+  the same thing, so #1267 folds it in too.
 - A gate that turns red on its own when the window changes. A check that fails on
   every unrelated PR the day a new runtime publishes is a broken gate, not a
   notification.
@@ -79,11 +88,14 @@ no change to vergil-tooling. Once both are reliably green, a deliberate PR raise
 the floor to `>=3.16` and the matrix returns to one series. The epic writes no
 code for that transition; it only documents it (§6.4).
 
-**The invariant:** vergil-tooling runs only on a tested series. Wherever a core
-Python is present it runs on the core series; on a host runner it runs on the
-floor series (§6.2). The core series is a tested series only while the floor
-is at or below both core definitions. Nothing enforces that automatically, so
-the floor-raise procedure checks it before every raise (§6.4).
+**The invariant:** vergil-tooling runs only on a tested series. An installed
+tool runs on the core series in an image with a core Python, and on the
+newest packaged `vergil-python` series on a host runner or a VM dev install
+(§6.2). The self repo's container test legs run on each leg's own series.
+These are all tested series only while the floor is at or below both core
+definitions and the newest packaged series. Nothing enforces that
+automatically, so the floor-raise procedure checks it before every raise
+(§6.4).
 
 ## 4. Approaches considered
 
@@ -164,6 +176,10 @@ changes.
 13. **Documented host installs** (vergil-tooling `getting-started.md`,
     `consuming-repo-setup.md`, `releasing.md`) **and the `vergil.toml`
     consumer-refresh:** a literal `--python 3.15`. Unchanged; guarded by §6.3.
+    Two documented commands name no interpreter: the dev-tree override's
+    `uv sync --group dev` in `consuming-repo-setup.md`, and the "Developer
+    host" row's `uv tool install --reinstall …` in `releasing.md`'s consumer
+    steps. After: both gain `--python <floor>`, and §6.3 guards them.
 14. **Docs builds** (vergil-actions `ci-docs.yml` and `cd-docs.yml`;
     vergil-tooling `vrg-container-docs`): `prod-base:latest`'s
     `/usr/local/bin/python3` under `only-system`, which is the core series
@@ -197,26 +213,38 @@ that exports `UV_PYTHON` for an older family series, or
 The rule: an install of vergil-tooling passes an explicit interpreter, and a
 missing interpreter fails the job loudly. Applied to the rows that break it:
 
-- **The host-runner rule.** A host runner has no core Python. Its series is
-  the **floor**, read from vergil-tooling's `requires-python`: at the checkout
-  for the self repo, at the installed tag otherwise. The floor is a value in
-  the repo, it is always a tested series, and reading it adds no definition of
-  core. Wherever a host path installs vergil-tooling, it gets an interpreter
-  of that series, passes its path explicitly, and then checks that the
-  installed tool's (or the synced venv's) interpreter is that series. There
-  are two ways to get the interpreter:
-  - **from the vergil apt repository,** for the self repo on a host runner
-    (row 5, host case) and a dev pin on a host runner (row 8, host case). The
-    job sets the repository up the way `host_install` already does
-    (`bootstrap_vergil_repository`, with its key checked against the pinned
-    fingerprint), installs `vergil-python<floor>`, and passes
-    `/opt/vergil/python/<floor>/bin/python3`. `self_repo_install` keeps
+- **The packaged-Python rule.** Where no core Python is present (a host
+  runner, a VM before its first packaged install), vergil-tooling runs on the
+  **newest packaged series**: the highest `vergil-python<x.y>` the vergil apt
+  repository serves. The job sets the repository up the way `host_install`
+  already does (`bootstrap_vergil_repository`, with its key checked against
+  the pinned fingerprint; `repo_setup.bootstrap` on a VM), lists the
+  `vergil-python<x.y>` packages it serves, installs the highest, and passes
+  `/opt/vergil/python/<x.y>/bin/python3` explicitly. No list, or no
+  `vergil-python` package in it, fails the job. The job then checks that the
+  installed tool's (or the synced venv's) interpreter is that series.
+  - **Why the newest.** It satisfies every ref's `requires-python`, before
+    and after the floor raise and for old dev refs, as long as the floor
+    never rises above it, which §6.4 checks. uv checks the ref's
+    `requires-python` against the interpreter itself and fails loudly when
+    it does not fit, so the job never reads or parses `pyproject.toml`. When
+    a new series publishes, these paths move to it at once; it is a tested
+    series, because a published runtime is in the window.
+  - **Where it applies:** the self repo on a host runner (row 5, host case);
+    a dev pin on a host runner (row 8, host case); VM dev installs (row 11,
+    dev case, below). `self_repo_install` keeps
     `UV_PYTHON_PREFERENCE=only-system` (issue #1002): the interpreter is a
-    system install, not a uv-managed one;
-  - **uv-managed,** only for `install-source: git` (row 9). This job rebuilds
-    the vergil apt index, so it cannot depend on that index for its
-    interpreter. It runs no project `uv sync`, so the #1002 pin does not
-    apply.
+    system install, not a uv-managed one.
+- **The index rebuild (row 9).** `install-source: git` is the one
+  uv-managed interpreter. The job rebuilds the vergil apt index, so it
+  cannot depend on that index for its interpreter. It installs vergil-tooling
+  with an explicit `--python` of a uv-managed interpreter of the floor series
+  at the installed tag, and checks the tool's interpreter afterwards. It
+  reads the floor with a `git` fetch of `pyproject.toml` at the resolved tag
+  (the script already resolves tags with `git ls-remote`). It accepts only a
+  bare `>=X.Y` `requires-python` and fails loudly on any other specifier or a
+  failed fetch. It runs no project `uv sync`, so the #1002 pin does not
+  apply.
 - **Container `neither` path (row 8, container case).** Since #649 every
   Vergil image carries both the apt source and a core Python. The audit
   establishes whether any live caller still runs a container job in an image
@@ -224,24 +252,38 @@ missing interpreter fails the job loudly. Applied to the rows that break it:
   ("image has neither the vergil apt source nor a core Python") in both
   `install-tooling.sh` and `container_cache.py`, instead of an install on
   whatever uv finds. If one does, the plan names that caller, and the path
-  follows the host-runner rule.
-- **VM dev installs (row 11, dev case).** `vm_packages.dev_install` passes
-  `--python` the VM's core Python under `/opt/vergil/python/`. It refuses
-  when there is none or more than one, as `container_cache.py`'s core-Python
-  check does.
-- **VM initialisation and its tests (rows 12 and 15).** `vrg-vm-init.sh` and
-  `tests/test_vergil.sh` use the packaged install that `vrg-vm update`
-  performs for a release ref. A uv copy in `~/.local/bin` would shadow the
+  follows the packaged-Python rule.
+- **VM dev installs (row 11, dev case).** `vm_packages.dev_install` follows
+  the packaged-Python rule. A fresh VM has no `vergil-python` yet, and a VM's
+  existing core Python can be older than a later dev ref's floor, so the
+  install never relies on whatever is already there.
+- **VM initialisation and its tests (rows 12 and 15).** VM initialisation
+  stops writing its own install. The plan's audit establishes whether
+  anyone runs `vrg-vm-init.sh` outside `vrg-vm create`. If no one does, the
+  script's install step is removed, and the install is `vrg-vm create`'s own
+  `install_tooling`. If someone does, the script calls `vrg-vm update` for
+  the install instead of `uv tool install`. Either way no bash copy of the
+  packaged install is written. A uv copy in `~/.local/bin` would shadow the
   packaged `/usr/bin` install without being recorded as a dev ref, and the
-  next packaged install would silently replace it. vergil-vm
-  `tests/check-vm-init-series.sh`, which asserts the exact install command,
-  changes with them.
+  next packaged install would silently replace it.
+  - `tests/test_vergil.sh` asserts the packaged install: `vrg-*` resolves
+    from `/usr/bin` on a venv whose interpreter lives under
+    `/opt/vergil/python/`. Its cleanup removes what that install adds (the
+    package, its apt pin and source, and `vergil-python`), not a
+    `uv tool uninstall`.
+  - vergil-vm `tests/check-vm-init-series.sh`, which asserts the exact
+    install command, changes with the script. So does
+    `docs/site/docs/operations/build-and-test.md`'s description of
+    `test_vergil.sh`, and the architecture doc's description of the install
+    step.
 
 ### 6.3 Drift guard on the literal host-install commands
 
 The documented host-install commands (row 13) keep a literal `--python 3.15`,
 because a human types them. A vergil-tooling test fails when any of these
-literals differs from the floor in `requires-python`:
+literals differs from the floor in `requires-python`, and when any
+`uv tool install … vergil-tooling` or documented `uv sync` line in these
+files has no `--python <floor>` at all:
 
 - the `vergil.toml` consumer-refresh;
 - `getting-started.md`, `consuming-repo-setup.md` and `releasing.md`.
@@ -261,12 +303,20 @@ validation-matrix guides:
 
 - the floor, the tested series and the core series (§3);
 - the overlap period when a new series joins the window;
-- the floor-raise procedure: confirm the new series is green; confirm that
-  both core definitions are at or above the new floor (the package's derived
-  runtime, and `core.python` in vergil-containers `manifest.yml` with the
-  images republished); raise `requires-python` together with the ruff and
-  mypy targets; update the literal host-install commands (the drift guard
-  enforces this) and `package/setup`'s default; then release.
+- the floor-raise procedure, in order:
+  1. confirm the new series is green;
+  2. confirm that the new floor is at or below both core definitions (the
+     package's derived runtime, and `core.python` in vergil-containers
+     `manifest.yml` with the images republished) and the newest packaged
+     `vergil-python` series;
+  3. bump `package/setup`'s `python` default in vergil-actions, merge it and
+     release vergil-actions so `v2.1` moves. This comes before the
+     vergil-tooling release, because a vergil-tooling that declares the new
+     floor fails every consumer's package build under the old default;
+  4. raise `requires-python` together with the ruff and mypy targets, and
+     update the literal host-install commands (the drift guard enforces
+     this);
+  5. release vergil-tooling.
 
 The documentation-review bookend (vergil-project/vergil-tooling#4578) sweeps
 the other repos.
@@ -289,6 +339,13 @@ the other repos.
 - **The audit is the first implementation task.** It confirms §5, decides §6.2's
   open point (live container `neither` callers) and records them in the plan
   before any code changes.
+- **A live check of the changed install paths before the floor raise.** The
+  fixtures pin the `v2.1` line, which takes the unchanged packaged path, so
+  no fixture run reaches the rewritten host dev-pin path (row 8) or the index
+  rebuild (row 9). After the vergil-actions release and before the floor
+  raise, a validation task runs both live: a fixture run with a dev
+  `[dependencies].vergil` pin, and a dispatched `smoke-publish-index` /
+  `build-index` run against the released vergil-actions.
 - **Fixture runs.** The narrowed tooling is installed in every fixture's CI. The
   Python fixtures are where a family's `UV_PYTHON` names an older series. The
   plan seeds a fixture run on `python-lib` and `python-app`, after the
