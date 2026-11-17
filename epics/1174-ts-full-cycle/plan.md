@@ -545,3 +545,15 @@ Blocked by 17.
 - **The fixtures exist to catch what unit tests miss, and they did.** The cache defect made both fixture programs run old tooling after the #4541 release. The missing `package.json` and the unformatted release note each break every new TypeScript repo, and no repo can fix them itself.
 - **The sequencing was needed** because the fixture-run recipe's serialization rule cannot tell two filed but not yet started runs apart. The human chose to coordinate the two runs by hand for now rather than file a task.
 - The tasks and routings were found during execution and approved by the human: for #4550, [the N0.2 ruling on vergil-project/vergil-fixture-ts-app#1](https://github.com/vergil-project/vergil-fixture-ts-app/issues/1#issuecomment-6947907559) and [the N0.1 ruling on #4550](https://github.com/vergil-project/vergil-tooling/issues/4550#issuecomment-6948580369), with [the human's scope change](https://github.com/vergil-project/vergil-tooling/issues/4550#issuecomment-6948563277); for #4552, [the N0.6 ruling](https://github.com/vergil-project/.github/issues/1174#issuecomment-6948980292); for #4553, [the N0.7 ruling](https://github.com/vergil-project/.github/issues/1174#issuecomment-6949304751); for #1250, [the N0.8 ruling](https://github.com/vergil-project/.github/issues/1174#issuecomment-6951452188); and for vergil-actions#1268, [the N0.2 ruling on the epic](https://github.com/vergil-project/.github/issues/1174#issuecomment-6931858423). The N0.3 and N0.4 rulings are linked in the entry above; the N0.4 comment also carries N0.5.
+
+### 2026-11-17: Task 8a's drift function returns one result, not a list
+
+**What changed:**
+
+- **Task 8a (vergil-project/vergil-tooling#4504, PR #4517) built `language_files_drift(repo_root: Path) -> ManagedFileDrift | None`,** not the `list[ManagedFileDrift]` its Interfaces entry gives. It returns `None` when every managed file matches its master. Otherwise it returns one `ManagedFileDrift` that carries an audit item and a fix for each missing or differing file. A `vergil.toml` that fails to load is one item with no fix, as the plan says.
+- The delivery table and every task section above are unchanged. The plan froze when its first task merged.
+
+**Why:**
+
+- **It follows the module's existing pattern.** Every other drift function in `src/vergil_tooling/lib/repo_config.py` (`gitignore_drift`, `dependabot_yml_drift`, `claude_md_drift` and the rest) returns `ManagedFileDrift | None`.
+- Task 8a's merge reviewer noted the mismatch and set it aside. The epic's documentation-review sweep (vergil-project/vergil-tooling#4451) found it and spawned vergil-project/.github#1277 to record it here.
