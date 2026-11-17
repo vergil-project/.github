@@ -522,3 +522,26 @@ Blocked by 17.
 - **Both fixture programs passed every gate except LINT.** LINT's `prettier --check .` runs over the whole repo, and Vergil had no Prettier ignore list. Under the managed `.prettierrc.json`, Prettier flags three files that `vrg-github-repo-init` writes and the fleet sync manages: `.claude/settings.json`, `.github/workflows/ops.yml`, and the managed region of `CLAUDE.md`. So every newly created TypeScript repo failed LINT, and no repo could fix that itself. The fixture programs exist to catch exactly this; Tasks 8a and 8b's unit tests did not.
 - **The fixture programs validate against installed vergil-tooling,** and v2.1.319 lacks the fix, so they wait on a release that carries it.
 - The tasks were found during execution and approved at the epic's gate: [the N0.3 ruling](https://github.com/vergil-project/.github/issues/1174#issuecomment-6932148608) and [the N0.4 ruling](https://github.com/vergil-project/.github/issues/1174#issuecomment-6935022666).
+
+### 2026-11-17: Run 1's fixes, and Run 2 goes before epic #1218's fixture run
+
+**What changed:**
+
+- **Three new vergil-tooling code tasks under the epic,** each fixing a defect Run 1 found, all released in vergil-tooling v2.1.321:
+  - **vergil-project/vergil-tooling#4550 (PR #4551):** a container cache counts as stale when the pinned vergil-tooling line has a newer release. The cache key now includes the resolved release, and a failed lookup fails hard and names `VRG_DOCKER_INSTALL_TAG`. It supersedes vergil-project/vergil-tooling#496, closed as not planned.
+  - **vergil-project/vergil-tooling#4552 (PR #4554):** repo-init writes a minimal `package.json` for a TypeScript repo, because Task 9's version check made a new repo's first CD run on `main` fail.
+  - **vergil-project/vergil-tooling#4553 (PR #4555):** release notes are written Prettier-clean, and LINT's Prettier check leaves out `CHANGELOG.md` and `releases/*.md`, because every TypeScript release failed LINT on its own generated note. Both Run 1 release tasks (vergil-project/vergil-fixture-ts-lib#3 and vergil-project/vergil-fixture-ts-app#3) gained `Blocked-by: vergil-project/vergil-tooling#4553`.
+- **Run 1's releases resumed with no change to the fixtures.** Both first failed at `merge-release` on vergil-tooling v2.1.320; they were re-checked on v2.1.321 and resumed with `vrg-release --resume`.
+- **Run 2 ran before epic vergil-project/.github#1218's fixture run on the same fixtures.** #1218 had filed its trio on both fixtures (#10 to #12 in each) before Run 2 was filed. By the human's decision, Run 2 went first, and #1218's trio waited until Run 2's validations (#15 in each) closed. The decision is recorded on both runs' change tasks: vergil-project/vergil-fixture-ts-lib#13 and #10, and vergil-project/vergil-fixture-ts-app#13 and #10. The human coordinates the two epics.
+- **Items routed out of the epic:**
+  - vergil-project/.github#1250: the BUILD check leaves no report in the evidence bundle, for any language. Captured in intake.
+  - `vrg-validate --check` passes when no language is detected. Captured in intake as vergil-project/.github#1231, since moved to vergil-project/vergil-tooling#4594.
+  - merge-reviewer replies are wrapped in a code fence. Captured in intake as vergil-project/.github#1238, since moved to vergil-project/vergil-claude-plugin#1130.
+  - vergil-project/vergil-actions#1268: the App secrets are org secrets. A doc task on vergil-actions' ad-hoc epic.
+- The delivery table and every task section above are unchanged. The plan froze when its first task merged.
+
+**Why:**
+
+- **The fixtures exist to catch what unit tests miss, and they did.** The cache defect made both fixture programs run old tooling after the #4541 release. The missing `package.json` and the unformatted release note each break every new TypeScript repo, and no repo can fix them itself.
+- **The sequencing was needed** because the fixture-run recipe's serialization rule cannot tell two filed but not yet started runs apart. The human chose to coordinate the two runs by hand for now rather than file a task.
+- The tasks and routings were found during execution and approved by the human: for #4550, [the N0.2 ruling on vergil-project/vergil-fixture-ts-app#1](https://github.com/vergil-project/vergil-fixture-ts-app/issues/1#issuecomment-6947907559) and [the N0.1 ruling on #4550](https://github.com/vergil-project/vergil-tooling/issues/4550#issuecomment-6948580369), with [the human's scope change](https://github.com/vergil-project/vergil-tooling/issues/4550#issuecomment-6948563277); for #4552, [the N0.6 ruling](https://github.com/vergil-project/.github/issues/1174#issuecomment-6948980292); for #4553, [the N0.7 ruling](https://github.com/vergil-project/.github/issues/1174#issuecomment-6949304751); for #1250, [the N0.8 ruling](https://github.com/vergil-project/.github/issues/1174#issuecomment-6951452188); and for vergil-actions#1268, [the N0.2 ruling on the epic](https://github.com/vergil-project/.github/issues/1174#issuecomment-6931858423). The N0.3 and N0.4 rulings are linked in the entry above; the N0.4 comment also carries N0.5.
