@@ -242,3 +242,23 @@ Blocked by 7.
   5. Run `vrg-queue planning --sort size` and `vrg-queue deferred`, and record each exit status. List every `!` item with its error, and mark whether it is a TSV item.
 - **SUCCESS:** the probe passed; every line has a recorded outcome (sized, skipped with reason, or mismatch); no line failed; both exit statuses are recorded (0, or 2 only for non-TSV `!` items); no TSV item is `!`; any `!` item that is not a TSV item is reported with its error for the next `epic-review` pass; the items still `?` are listed for the next `epic-review planning` pass.
 - **FAILURE:** any line failed or any TSV item is `!`; the comment names each, and the task stays open.
+
+## Evolution during execution
+
+Written at retrospective time from the execution record; the task list above
+is unchanged.
+
+- **2026-11-16 — the documentation sweep added two per-repo tasks.** The
+  review (vergil-tooling#4477) found gaps it could not fix from vergil-tooling:
+  the plugin never said a one-off clears the size, and the org docs site's
+  management pages did not describe sizing. Per the bookend convention it
+  filed vergil-claude-plugin#1112 and vergil-project/docs#120 under the epic.
+- **2026-11-16 — two follow-ups from below-the-bar review notes.** The merge
+  reviews of #4477 and docs#120 noted four small wording gaps below their bar.
+  With those branches frozen, the human ruled to file them as
+  vergil-tooling#4536 and vergil-project/docs#122 (rulings on the epic issue).
+- **2026-11-16 — the backfill surfaced a misplaced item.** Task 8's sizing
+  reason for vergil-tooling#4108 said it had been moved to ad hoc on
+  2026-11-08, though it still sat under the planning epic. The human ruled to
+  route it as a one-off; vergil-claude-plugin#1037 and #1040 stay in planning
+  (rulings on #1197).
