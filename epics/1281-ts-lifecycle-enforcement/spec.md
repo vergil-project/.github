@@ -53,13 +53,15 @@ spec §2). Epic 3 is TypeScript supply chain and the npm updater
    26/24/22 through the automation's own add PR.
 2. `vrg-validate` reports, for a TypeScript repo, each setting that names a
    Node or package-manager version as an error: a `.nvmrc` or `.node-version`
-   file, a `packageManager` field, and a `devEngines` entry for the runtime or
-   the package manager.
+   file, and in `package.json` a `packageManager` field, a `volta` field, a
+   package-manager key under `engines`, and a `devEngines` entry for the
+   runtime or the package manager.
 3. `vrg-validate` warns when the `engines.node` range admits a major below the
    window's oldest, or excludes the window's newest, as it does for Python's
    `requires-python`.
-4. `vrg-container-run` never forwards the host's Node and npm settings into the
-   container.
+4. `vrg-container-run` never forwards the host settings that change how Node
+   runs or how npm behaves (§6.3), and says so each time it withholds one.
+   The host's `NODE_PATH` stays forwarded, deliberately (§6.3).
 5. Every TypeScript CI leg asserts that it runs the Node major CI resolved for
    it, and logs the executable that ran.
 6. The docs describe the new behaviour.
@@ -82,13 +84,20 @@ spec §2). Epic 3 is TypeScript supply chain and the npm updater
   vergil-project/.github#1209.
 - Package managers other than npm. Vergil runs npm; pnpm and yarn are not
   supported, and this epic adds no support for them.
+- Version-manager files that serve several languages at once:
+  `.tool-versions` (asdf, mise) and `mise.toml` or `.mise.toml`. Python's
+  check does not read them either, and reading them for Node alone would
+  treat the two runtimes differently. Whether a runtime entry in them is an
+  error is decided for every language at once, in
+  vergil-project/.github#1289.
 
 ### Anti-goals (the epic fails if any of these happen)
 
 - A consumer repo has to name, or is exposed to, a Node release below the
   major.
-- A repo setting names a Node or package-manager version and `vrg-validate`
-  passes without reporting it.
+- A setting §6.2 lists names a Node or package-manager version and
+  `vrg-validate` passes without reporting it. (An `engines.node` range is
+  not such a setting: the floor check of Goal 3 governs it.)
 - A TypeScript CI leg runs a Node major other than the one CI resolved, and
   passes.
 - An `engines.node` range the check cannot read is treated as "no floor".
@@ -145,13 +154,24 @@ spec §2). Epic 3 is TypeScript supply chain and the npm updater
   - `container_env` hands uv the resolved version (`UV_PYTHON`) and pins the
     interpreter's source (`UV_PYTHON_PREFERENCE=only-system`). It exists
     because uv chooses among the interpreters it can find.
-- A malformed `package.json` is already an error, not "not TypeScript" (epic
-  vergil-project/.github#1174, spec §6.7).
+- `lib/container.py` `read_package_json` is the one parser of `package.json`.
+  It raises `PackageJsonError` (a `ValueError`) when the file cannot be read,
+  is not JSON, or is not a JSON object (epic vergil-project/.github#1174,
+  spec §6.7). The commands that read `package.json` today report it through
+  `report_package_json_error`, with no traceback. `vrg-validate`'s version
+  step (`_versions_resolve`) runs before any of them and catches only
+  `VersionsError`, so a `PackageJsonError` raised there would escape as a
+  traceback.
 - `lib/container.py`: `build_container_args` forwards every host variable
   matching the repo's `[container].env-prefixes` as `-e NAME`, which beats the
   image's `ENV`. `NEVER_FORWARDED` is a set of exact names
   (`VRG_VERSION_WINDOW`, `RUSTUP_TOOLCHAIN`, `RUSTUP_AUTO_INSTALL`); there is
-  no prefix exclusion. `env_names` and `extra_env` are not filtered.
+  no prefix exclusion, and a withheld name is skipped without a message.
+  `env_names` and `extra_env` are not filtered.
+- When the repo declares a build command, `build_container_args` sets
+  `NODE_PATH` in the container to the host's `NODE_PATH` if one is set, and
+  to npm's global root otherwise, so a consumer can override where global
+  modules are found (vergil-project/vergil-tooling#2781).
 - vergil-tooling's runtime dependencies are `rich`, `pyyaml`, `pyelftools`,
   `packaging` and `cryptography`. None parses npm's semver ranges.
 
@@ -171,8 +191,9 @@ spec §2). Epic 3 is TypeScript supply chain and the npm updater
 The only TypeScript-primary repos are the fixtures `vergil-fixture-ts-lib`
 and `vergil-fixture-ts-app` (`mnemosys-project/melete` is a Python repo that
 builds a TypeScript app; its primary language is Python, so these checks do
-not run on it). Neither fixture has a `.nvmrc`, `.node-version`,
-`packageManager` or `devEngines`. `vergil-fixture-ts-app` declares
+not run on it). Neither fixture has a `.nvmrc` or `.node-version` file, or a
+`packageManager`, `volta` or `devEngines` field, or a package-manager key
+under `engines`. `vergil-fixture-ts-app` declares
 `engines.node: ">=24"`, which is above the window's oldest major (allowed) and
 admits its newest. So the vergil-tooling release that adds the errors breaks
 no consumer. The plan re-checks the fleet before that release.
@@ -239,6 +260,14 @@ Node runtime through the image, and runs npm):
 - a `.node-version` file at the repo root. Fix: delete it.
 - a `packageManager` field in the root `package.json`, whatever it names,
   `npm` included. Fix: remove the field.
+- a `volta` field in the root `package.json` (Volta pins Node and package
+  managers through its `node`, `npm`, `yarn` and `pnpm` keys). Fix: remove
+  the field.
+- an `npm`, `pnpm` or `yarn` key under `engines` in the root `package.json`.
+  Vergil runs the npm bundled with each window major, and those differ
+  (Node 22 bundles npm 10; 24 and 26 bundle npm 11), so a package-manager
+  range either restates that or excludes a leg. Fix: remove the key.
+  `engines.node` is the floor check's (below).
 - a `devEngines` field in the root `package.json` with a `runtime` or a
   `packageManager` entry, in either form npm accepts (an object or an array of
   objects). Fix: remove that entry. `devEngines`' `os`, `cpu` and `libc`
@@ -253,8 +282,12 @@ error stays (the setting still names a version Vergil owns) and the spec is
 corrected in the same PR.
 
 A `devEngines` or `engines` that is not an object, or a `devEngines` array
-entry that is not an object, is a `VersionsError` naming the field. A missing
-`package.json` is not checked here; a malformed one is already an error (§4).
+entry that is not an object, is a `VersionsError` naming the field.
+
+Both checks read the root `package.json` with `read_package_json` (§4), and
+re-raise its `PackageJsonError` as a `VersionsError` with the same message,
+so a malformed file fails `vrg-validate` with an `ERROR:` line, never a
+traceback. A missing `package.json` is not checked here.
 
 **`check_floor`** reads `engines.node` from the root `package.json`:
 
@@ -279,7 +312,9 @@ The range grammar is npm's (node-semver's documented range syntax: comparators,
 builder, under one constraint: it reads that grammar faithfully, and anything
 it cannot read is an error.
 
-Tests cover each error and the allowed `devEngines` entries; the floor and
+Tests cover each error and the allowed `devEngines` entries; a malformed
+`package.json` run through `vrg-validate`, which reports an `ERROR:` line and
+no traceback; the floor and
 upper-bound warnings with `>=`, `^`, `~`, `x`, hyphen and `||` ranges; a floor
 above the oldest; no `engines.node`; and invalid values. The window used in the
 tests is 26/24/22.
@@ -297,10 +332,23 @@ The env-prefixes passthrough in `build_container_args` never forwards:
 `NEVER_FORWARDED` keeps its exact names, and a new `NEVER_FORWARDED_PREFIXES`
 holds the prefixes; both are checked in the passthrough loop. `env_names` and
 `extra_env` stay unfiltered, as today. The docstring and the module comment
-name the new entries and why. Tests use `env-prefixes = ["NODE", "npm",
-"NPM", "COREPACK", "VOLTA"]` with each excluded variable and a harmless
-variable (`NODE_ENV`) set on the host, and check that only the harmless one is
-forwarded.
+name the new entries and why.
+
+Each host variable that matches the repo's `env-prefixes` and is withheld
+prints one notice on stderr, naming the variable and the reason (it would
+override the image's toolchain, or change how Node or npm behaves inside the
+container). That covers the existing withheld names too: rustup's two and
+`VRG_VERSION_WINDOW` (whose notice says it is mounted instead). A
+withheld variable is never dropped without a message.
+
+The host's `NODE_PATH` stays forwarded when the repo declares a build
+command (§4): it moves where global modules are found, not which Node runs
+or how npm behaves, and consumers rely on overriding it (#2781).
+
+Tests use `env-prefixes = ["NODE", "npm", "NPM", "COREPACK", "VOLTA"]` with
+each excluded variable and a harmless variable (`NODE_ENV`) set on the host,
+and check that only the harmless one is forwarded and that each withheld one
+gets its notice.
 
 The exclusion applies to every repo, not only TypeScript ones, as the rustup
 exclusion does.
@@ -345,7 +393,8 @@ expected value with and without `node-`, a malformed expected value and
 
 1. vergil-tooling (§6.2, §6.3) and vergil-actions (§6.4) merge. Before the
    vergil-tooling release, the fleet is re-checked for TypeScript-primary
-   repos with a setting §6.2 reports.
+   repos with a setting §6.2 reports, and for any repo whose
+   `[container].env-prefixes` matches a variable §6.3 now withholds.
 2. **Releases** (deployment task): vergil-tooling and vergil-actions releases
    carrying step 1 are published (human-gated) and attested.
 3. vergil-containers: §6.1's switch to `pr` merges with the policy page's
