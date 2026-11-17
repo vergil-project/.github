@@ -899,3 +899,32 @@ standard trio, each run checks:
   llvm-cov's summary, but it does not. With the planned merge, where a
   region counts as covered if any instantiation ran it,
   `--fail-under-regions 100` could fail while the listing was empty.
+
+The entries below were written at the retrospective (vergil-project/.github#1167), because the epic's driver did not log them when the work was added. Each is dated to when the change happened.
+
+### 2026-11-16: the fixture-run skill change is its own task
+
+**What changed:** vergil-project/vergil-claude-plugin#1104 retires the `fixture-run` skill's two Rust known gaps and turns on the Cargo rollback. It was filed under #1165 at the filing step, blocked by Tasks 6 and 7 and by Task 8, but the delivery table above does not name it. It merged before the plugin release that the fixture runs depend on (v2.1.74).
+
+**Why:** the fixture runs could prove the two fixes only once the skill stopped excusing them. The planning issue said this addition would be logged ([comment](https://github.com/vergil-project/.github/issues/1087#issuecomment-6923249677)).
+
+### 2026-11-16: the plan amendment needed a task
+
+**What changed:** vergil-project/.github#1198 was filed under #1165 to carry the Task 3 entry above.
+
+**Why:** `vrg-git` refuses a branch named for an epic, so an edit to this plan needs a task of its own.
+
+### 2026-11-16: the fixture runs were filed at implementation time
+
+**What changed:** the two trios were filed with `fixture-run` once Task 12 (vergil-project/.github#1190) existed and plugin v2.1.74 was installed, blocked by Task 12. They are vergil-project/vergil-fixture-rust-lib#21–#23 and vergil-project/vergil-fixture-rust-app#20–#22, as the Filing note above says. Each validation task also carries this plan's four extra checks from "Fixture runs", as checks 8–11. The rust-lib change task carries the transitive-crate note.
+
+**Why:** the trio's text comes from the installed `fixture-run` skill, which had to include #1104 first.
+
+### 2026-11-16: the documentation review spawned three per-repo tasks
+
+**What changed:** the review (vergil-project/vergil-tooling#4443) fixed vergil-tooling's own pages, and spawned:
+
+- vergil-project/vergil-containers#929: comments and docs describing cargo-deny and cargo-llvm-cov as pinned Rust image tools;
+- vergil-project/vergil-fixture-rust-lib#24 and vergil-project/vergil-fixture-rust-app#23: the fixtures' docs describe the lines-and-regions gate and the release build. Each was blocked by its fixture run's validation task, so neither landed inside a run.
+
+**Why:** a review never edits across a repo boundary. Each other repo's fix is its own task, closed by a same-repo PR.
