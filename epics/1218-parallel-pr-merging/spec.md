@@ -309,8 +309,7 @@ rule an auto-merged PR would wait forever.
       adjustments:
       - if any PR's submit failed, it returns at least 3 ("not every PR
         merged"), even when finalize returned 0;
-      - a 1 from finalize (a tool error, or a validate that could not run)
-        always wins, so an unknown develop is never reported as healthy.
+      - a 1 from finalize (a tool error) always wins.
 
       Otherwise a higher code from finalize (4 or 5) wins.
     - With `--no-finalize`, a submit failure makes submit exit 3.
@@ -402,17 +401,18 @@ rule an auto-merged PR would wait forever.
   | 0 | Full success. |
   | 1 | A tool or usage error, as today. |
   | 3 | Develop is healthy, but at least one PR did not merge. |
-  | 4 | **Develop is broken:** a validate gate failed. Precedes 3. |
+  | 4 | **Develop did not validate:** the validate failed. Precedes 3. |
   | 5 | Full success, but the chained release failed. |
 
   With `--wait-cd`, a failed or timed-out CD run is also 4.
-  - **A validate that could not run is 1, not 4.** That covers a container
-    pull failure or a `vrg-container-run` error. Only a gate that ran and
-    failed is 4, so nobody is sent to fix a healthy `develop`. The report says
-    which kind of failure it was.
-  - **A broken `develop` stops everything until it is fixed.** The report
-    says so loudly, and gives the `develop` head SHA and the list of commits
-    the sync brought in.
+  - **Any non-zero validate is 4,** whether a gate failed or the validate
+    could not run (a container pull failure, a `vrg-container-run` error).
+    Either way nothing has shown that `develop` is healthy, and the report
+    carries the validate's output or the path to its log, so the cause is
+    plain.
+  - **A develop that did not validate stops everything until it is fixed.**
+    The report says so loudly, and gives the `develop` head SHA and the list
+    of commits the sync brought in.
 - **Flags removed:**
   - `--skip-post-checks`, which existed only for the per-PR subprocess loop
     that goes away;
@@ -690,8 +690,9 @@ Each is blocked by the vergil-tooling release that ships the change.
   and the summary says so.
 - **A `main` CD run is superseded before it starts.** Release's
   `confirm-main` dispatches it again.
-- **The validate cannot run** (container or tooling error). Exit 1. The report
-  says develop's health is unknown, not broken.
+- **The validate cannot run** (container or tooling error). Exit 4, like a
+  failed gate. The report carries the validate's output, which names the
+  cause.
 - **The batch deadline passes.** Pending PRs are reported *timed out*, and
   their auto-merge stays on. The settle phase runs for any that merged.
 - **A PR merged before finalize ran.** It counts as merged.
