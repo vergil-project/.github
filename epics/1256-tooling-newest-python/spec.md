@@ -69,6 +69,12 @@ The vergil-tooling and vergil-vm install changes land before the floor too.
 ## Out of scope
 
 - Reclassifying vergil-tooling as an application (vergil-project/.github#1260).
+
+  > **Amended after implementation** (2026-11-17;
+  > vergil-project/vergil-tooling#4608). The `repository-type` change from
+  > `library` to `tooling` (see the floor, above) already makes vergil-tooling
+  > resolve as an app for version resolution. The rest of #1260, its release
+  > and branching model and the other follow-on effects, stays out of scope.
 - Detecting a new series and prompting a floor raise (vergil-project/.github#1261).
 - `vrg-host` handling of vergil-tooling (vergil-project/.github#1266).
 - Unifying the definitions of the core series (vergil-project/.github#1267).
