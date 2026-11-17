@@ -59,11 +59,12 @@ spec §2). Epic 3 is TypeScript supply chain and the npm updater
 3. `vrg-validate` warns when the `engines.node` range admits a major below the
    window's oldest, or excludes the window's newest, as it does for Python's
    `requires-python`.
-4. `vrg-container-run` never forwards the host settings that change how Node
-   runs or how npm behaves (§6.3), and says so each time it withholds one.
-   The host's `NODE_PATH` stays forwarded, deliberately (§6.3).
-5. Every TypeScript CI leg asserts that it runs the Node major CI resolved for
-   it, and logs the executable that ran.
+4. `vrg-container-run` never forwards the host's `NODE_OPTIONS`, npm
+   configuration, or Corepack and Volta settings (§6.3), and says so each time
+   it withholds one. Other `NODE_*` variables, `NODE_PATH` among them, stay
+   forwarded as today.
+5. Every TypeScript CI leg asserts that the Node on its `PATH` is the major CI
+   resolved for it, and logs that executable.
 6. The docs describe the new behaviour.
 
 ### Non-goals
@@ -80,6 +81,12 @@ spec §2). Epic 3 is TypeScript supply chain and the npm updater
   `actions/setup-go`. It is a change for every language; the CI assertion is
   the backstop against a workflow that switches Node.
 - Taking the Node window from a source other than endoflife.date (§5).
+- A repo that switches Node through its own dependencies or scripts (for
+  example a devDependency that ships a `node` binary, which `npm run` puts
+  first on `PATH`, or `npx node@20` in a script). The switch is in the repo's
+  own `package.json` or scripts, visible in its source, as an explicit
+  `uv python install` is for Python. If it ever happens in practice, it is
+  handled then.
 - Supply chain, audit gating and the npm updater: epic 3,
   vergil-project/.github#1209.
 - Package managers other than npm. Vergil runs npm; pnpm and yarn are not
@@ -98,8 +105,8 @@ spec §2). Epic 3 is TypeScript supply chain and the npm updater
 - A setting §6.2 lists names a Node or package-manager version and
   `vrg-validate` passes without reporting it. (An `engines.node` range is
   not such a setting: the floor check of Goal 3 governs it.)
-- A TypeScript CI leg runs a Node major other than the one CI resolved, and
-  passes.
+- A TypeScript CI leg has a Node major on its `PATH` other than the one CI
+  resolved, and passes.
 - An `engines.node` range the check cannot read is treated as "no floor".
 - The lifecycle add PR goes red in CI for a reason the automation itself
   caused.
@@ -303,6 +310,8 @@ traceback. A missing `package.json` is not checked here.
   major, warn: "engines.node `<range>` excludes Node `<newest>`. Fix: drop the
   upper bound, or widen it to admit `<newest>`". For example `^24` excludes
   26.
+- A valid range that admits no version at all (for example `>=26 <24`) is a
+  `VersionsError`: "engines.node `<range>` admits no Node release".
 - Ranges with `||` are read as a whole: `^20 || ^24` has a floor of 20.
 - Prerelease versions play no part in either test.
 - Only the root `package.json` is read. Workspaces are not checked.
@@ -316,7 +325,8 @@ Tests cover each error and the allowed `devEngines` entries; a malformed
 `package.json` run through `vrg-validate`, which reports an `ERROR:` line and
 no traceback; the floor and
 upper-bound warnings with `>=`, `^`, `~`, `x`, hyphen and `||` ranges; a floor
-above the oldest; no `engines.node`; and invalid values. The window used in the
+above the oldest; no `engines.node`; a range that admits nothing; and invalid
+values. The window used in the
 tests is 26/24/22.
 
 ### 6.3 Node settings are never forwarded (vergil-tooling)
@@ -375,12 +385,12 @@ expected value with and without `node-`, a malformed expected value and
 
 ### 6.5 Docs
 
-- vergil-tooling site docs: the TypeScript standards page says Vergil selects
-  the Node runtime; a repo declares at most an `engines.node` range, which
-  should admit every window major; and `.nvmrc`, `.node-version`,
-  `packageManager` and `devEngines` runtime or package-manager entries are
-  errors. The validation and container pages list the new check and the new
-  passthrough exclusions.
+- vergil-tooling site docs: the TypeScript standards page
+  `docs/site/docs/standards/development/typescript/toolchain-and-strictness.md`
+  says Vergil selects the Node runtime; a repo declares at most an
+  `engines.node` range, which should admit every window major; and every
+  setting §6.2 reports is an error, listed as §6.2 lists it. The validation
+  and container pages list the new check and the new passthrough exclusions.
 - vergil-containers: the ts-node policy page and the lifecycle page describe
   `pr` automation (§6.1).
 - vergil-actions: the assert action's page and the actions index cover
@@ -391,35 +401,44 @@ expected value with and without `node-`, a malformed expected value and
 
 ### 6.6 Rollout and validation
 
-1. vergil-tooling (§6.2, §6.3) and vergil-actions (§6.4) merge. Before the
-   vergil-tooling release, the fleet is re-checked for TypeScript-primary
-   repos with a setting §6.2 reports, and for any repo whose
-   `[container].env-prefixes` matches a variable §6.3 now withholds.
-2. **Releases** (deployment task): vergil-tooling and vergil-actions releases
-   carrying step 1 are published (human-gated) and attested.
-3. vergil-containers: §6.1's switch to `pr` merges with the policy page's
-   automation text. The lifecycle job opens the Node 26 add PR; it is reviewed
-   and merged by the human. The policy page's dated facts are rewritten.
-4. **Containers release** (deployment task): a vergil-containers release
-   (human-gated) carrying the caught-up window, so consumers read 26/24/22 at
-   their `[dependencies].vergil` ref and prod images for Node 26 exist.
-5. **Fixture runs**, one on each TypeScript fixture
-   (`vergil-fixture-ts-lib`, `vergil-fixture-ts-app`), filed with the
-   `fixture-run` skill and blocked by step 4. Each checks:
-   - CI passes: the library on every window major (26, 24, 22), the app on the
-     newest (26), since an app's CI runs only the newest by design;
-   - the assertion's log reports the leg's major and the family Node's path
-     (`/opt/node/<major>/bin/node`);
-   - on a scratch branch, adding a `.nvmrc` fails `vrg-validate` with the
-     toolchain error, and an `engines.node` of `^24` produces the upper-bound
-     warning;
-   - `vrg-container-run` on the fixture, with `npm_config_registry` set on the
-     host and a matching `env-prefixes`, does not see the variable.
+Two tracks run in parallel, since neither depends on the other: the window
+catch-up needs only vergil-containers, and the enforcement needs no new
+window. Only the fixture runs wait for both.
 
-   The scratch-branch changes are never merged. Epic
-   vergil-project/.github#1218 also has runs filed on both TypeScript fixtures;
-   the human sequences the two epics' runs by hand, because the recipe's
-   serialization rule deadlocks when two runs are filed before either starts.
+- **Track A, the window catch-up (vergil-containers):**
+  1. §6.1's switch to `pr` merges with the policy page's automation text. The
+     lifecycle job opens the Node 26 add PR; it is reviewed and merged by the
+     human. The policy page's dated facts are rewritten.
+  2. **Containers release** (deployment task): a vergil-containers release
+     (human-gated) carrying the caught-up window, so consumers read 26/24/22
+     at their `[dependencies].vergil` ref and prod images for Node 26 exist.
+- **Track B, the enforcement (vergil-tooling, vergil-actions):**
+  1. vergil-tooling (§6.2, §6.3) and vergil-actions (§6.4) merge. Before the
+     vergil-tooling release, the fleet is re-checked for TypeScript-primary
+     repos with a setting §6.2 reports, and for any repo whose
+     `[container].env-prefixes` matches a variable §6.3 now withholds.
+  2. **Releases** (deployment task): vergil-tooling and vergil-actions
+     releases carrying B1 are published (human-gated) and attested.
+
+Then:
+
+- **Fixture runs**, one on each TypeScript fixture
+  (`vergil-fixture-ts-lib`, `vergil-fixture-ts-app`), filed with the
+  `fixture-run` skill and blocked by both A2 and B2. Each checks:
+  - CI passes: the library on every window major (26, 24, 22), the app on the
+    newest (26), since an app's CI runs only the newest by design;
+  - the assertion's log reports the leg's major and the family Node's path
+    (`/opt/node/<major>/bin/node`);
+  - on a scratch branch, adding a `.nvmrc` fails `vrg-validate` with the
+    toolchain error, and an `engines.node` of `^24` produces the upper-bound
+    warning;
+  - `vrg-container-run` on the fixture, with `npm_config_registry` set on the
+    host and a matching `env-prefixes`, does not see the variable.
+
+  The scratch-branch changes are never merged. Epic
+  vergil-project/.github#1218 also has runs filed on both TypeScript fixtures;
+  the human sequences the two epics' runs by hand, because the recipe's
+  serialization rule deadlocks when two runs are filed before either starts.
 
 ## 7. Failure model
 
