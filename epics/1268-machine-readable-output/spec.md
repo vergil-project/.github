@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1268
 - **Planning issue:** vergil-project/vergil-tooling#4108 (review history is in
   its comments)
-- **Status:** draft
+- **Status:** approved
 
 ## 1. Intent
 
