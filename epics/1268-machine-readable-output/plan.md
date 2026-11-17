@@ -56,7 +56,9 @@ cloud-init, apt, rpm, dpkg, brew, uv, gcloud and az as the tools read.
   keeps its signature and return values (spec §7.11).
 - **Security text stays neutral** (spec §8). Tasks 9 and 11 name their
   advisories only by GHSA ID, in their title, body, commits, PR and
-  report-ready notes.
+  report-ready notes. Task 8a, which also closes an advisory, names it only by
+  GHSA ID in the same places and describes its fix no further than spec §7.8
+  does; so does Task D3 for the advisory it closes.
 - **Refactor before commit.** Every code task ends with a refactor pass over
   what it touched, then a re-run of `vrg-container-run -- vrg-validate`,
   before its commit step. The tasks below do not repeat this step.
@@ -111,15 +113,20 @@ cloud-init, apt, rpm, dpkg, brew, uv, gcloud and az as the tools read.
 | D2 | .github | deployment | vergil-tooling release completing the gate, installed | D1, 2–6, 8a, 8b, 9 |
 | D3 | .github | deployment | vergil-claude-plugin release (Tasks 10, 11), installed | 10, 11 |
 | D4 | .github | deployment | vergil-vm release (Task 12) | 12 |
-| V1 | .github | validation | Fresh VM comes up ready; degraded boot reported | D1, D4 |
+| V1a | .github | validation | Fresh cloud VM: vrg-vm's cloud-init gate (Task 7) | D1 |
+| V1b | .github | validation | Fresh Lima VM: the template readiness probe (Task 12) | D1, D4 |
 | F | fixtures | fixture runs | python-app, python-lib, rust-app, rust-lib, ts-lib, ts-app | D2 |
 | — | vergil-tooling | bookend (#4604) | Documentation review | 2–12 |
 | — | .github | bookend (#1270) | Retrospective | all |
 
 Notes on the table:
 
-- **Ordering by shared files.** Blocked-by edges keep changes to the same
-  file apart where two tasks rewrite it:
+- **Ordering by shared files.** Blocked-by edges keep apart the tasks that
+  rewrite the same functions in these files. Other tasks that touch a shared
+  file in different functions (Tasks 3, 4a and 4b in `lib/github.py`,
+  `lib/repo_init.py`, `lib/release/merge.py` and `lib/upstream_refresh.py`;
+  Tasks 4b and 6 in `bin/vrg_docs_stage.py`) run in parallel, and the PR that
+  lands second rebases:
   - `lib/retry.py`: Task 4a, then Task 5;
   - `bin/vrg_vm.py`: Task 7, then Task 8a;
   - `lib/git.py` and the release modules: Task 2, then Task 3, then Task 9;
@@ -133,15 +140,19 @@ Notes on the table:
   onto it; that is a ruling, not a default.
 - **D1 is optional in effect**: if every gated task lands before Task 7, D1
   and D2 collapse into one release, and D1's issue closes on D2's evidence.
-- **The advisories tracked by #4108** are retargeted when the tasks are
-  filed:
+- **The advisories tracked by #4108** are eleven: the six from the survey
+  that spec §8 names, and five recorded during design review. They are
+  retargeted when the tasks are filed:
   - GHSA-rp4r-x254-p53h, GHSA-f4j7-x3f8-59gv and GHSA-j7c6-37h8-hjvg to
     Task 9;
   - GHSA-cgp7-q74r-m6vh, GHSA-8mqc-j6w7-2fxp and GHSA-94p8-hq6c-5r6h to
     Task 11;
   - GHSA-ch78-r3p7-2wmx to Task 8a;
-  - GHSA-r374-jh25-85gc and GHSA-3368-cr4q-cp5q, design-only (the spec now
-    states the requirement), to the documentation task (#1269).
+  - GHSA-r374-jh25-85gc, GHSA-j526-gg2w-49jw and GHSA-983m-g4hq-523v, whose
+    whole remedy is the published design (spec §8 and this plan), to the
+    documentation task (#1269);
+  - GHSA-3368-cr4q-cp5q, whose remedy is the plugin release reaching
+    installed machines, to Task D3.
 
 ---
 
@@ -287,13 +298,17 @@ Blocked by Tasks 2 and 3, vergil-tooling#4567 and vergil-tooling#4573.
 
 - Produces, in `vergil_tooling.lib.gh_errors`:
   - `ErrorKind = Literal["not_found", "unprocessable", "auth", "rate_limited", "server", "other"]`;
-  - `rest_status(exc: subprocess.CalledProcessError) -> int | None`: the HTTP
-    status from a `gh api -i` response's status line, or from the JSON error
-    body;
+  - `rest_status(result: subprocess.CalledProcessError | subprocess.CompletedProcess[str]) -> int | None`:
+    the HTTP status from a `gh api -i` response's status line, or from the
+    JSON error body. It takes a completed process too, for
+    `github.is_http_404`, whose `gh api -i` call returns its non-zero exit
+    as an answer;
   - `graphql_error_types(exc: subprocess.CalledProcessError) -> list[str]`:
     the `type` of each entry in the response's `errors` list;
   - `porcelain_status(exc: subprocess.CalledProcessError) -> int | None`: the
-    status from an anchored match on `gh`'s `(HTTP <status>)` stderr line;
+    status from an anchored match on the stderr line of the one subcommand
+    left on text, the streamed `gh run watch`. Its pattern is built from that
+    subcommand's recorded real 404 output, not an assumed shape;
   - `classify(exc: subprocess.CalledProcessError) -> ErrorKind`, which tries
     the three in that order. A failure none of them can read is `other`,
     never a guess.
@@ -306,7 +321,7 @@ Blocked by Tasks 2 and 3, vergil-tooling#4567 and vergil-tooling#4573.
   `tests/vergil_tooling/data/gh_errors/`:
   - `test_rest_404_is_not_found`;
   - `test_graphql_not_found_type` (`{"errors":[{"type":"NOT_FOUND",…}]}`);
-  - `test_porcelain_http_404_line` (`gh run view` and `gh release view`);
+  - `test_run_watch_404_line` (the recorded `gh run watch` 404 output);
   - `test_404_in_unrelated_message_is_other` (a body that mentions `404` in
     passing);
   - `test_unreadable_failure_is_other`.
@@ -317,9 +332,16 @@ Blocked by Tasks 2 and 3, vergil-tooling#4567 and vergil-tooling#4573.
 - [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect the new
   tests to fail.
 - [ ] **Step 4: Implement** the module and point `is_not_found` at it. Convert
-  a caller to `gh api` on its REST path, or to `gh api graphql`, only where it
-  cannot otherwise reach a structured error. `gh run watch` keeps the
-  anchored `(HTTP <status>)` match.
+  each `retry_known_resource` caller to a form with a structured error:
+  - `gh release view` (`confirm.py`) → `gh api
+    repos/{owner}/{repo}/releases/tags/{tag}`;
+  - `gh run view` (`confirm.py`, `package_index.py`) → `gh api
+    repos/{owner}/{repo}/actions/runs/{id}`, and its jobs from
+    `…/runs/{id}/jobs` through `github.read_json_paginated`, with the field
+    names the callers read mapped from the REST response;
+  - GraphQL-backed porcelain (`gh pr view` and the like) keeps its subcommand
+    where it can return the `errors` list, otherwise `gh api graphql`;
+  - `gh run watch` stays on text, through `porcelain_status`.
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS, with
   the release tests unchanged.
 - [ ] **Step 6: Commit** `vrg-commit --type fix --scope github --message
@@ -350,7 +372,8 @@ Blocked by Task 4a.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_remote_config_404_in_body_is_not_not_found`;
-  - `test_repo_not_found_from_graphql_type`;
+  - `test_repo_not_found_from_rest_404` (`is_repo_not_found` on the
+    converted `gh api repos/{owner}/{repo}` call);
   - `test_422_from_status_not_text` (`github_config`, `ref_refusal`,
     `repo_init`);
   - `test_missing_auth_is_exit_code_4` (and exit code 1 with the word
@@ -359,7 +382,9 @@ Blocked by Task 4a.
     `statusCheckRollup`).
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new
   tests to fail.
-- [ ] **Step 3: Implement** each site on the Task 4a helper.
+- [ ] **Step 3: Implement** each site on the Task 4a helper. A site whose
+  subcommand reports a missing resource only as text is converted the same
+  way as in Task 4a: `gh repo view` becomes `gh api repos/{owner}/{repo}`.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 5: Commit** `vrg-commit --type fix --scope github --message
   "read gh not-found, unprocessable and auth failures from status and exit
@@ -379,8 +404,11 @@ Blocked by Task 4a.
 
 - [ ] **Step 1: Collect** a recorded real failure for each pattern from the
   issues and incidents the pattern's comment cites (for example #2835 for the
-  502 phrasing). A pattern with no recorded failure is kept as it is and
-  listed in the PR body as flagged.
+  502 phrasing). Each fixture holds stdout and stderr separately, with the
+  stream of each line taken from a real capture or from the tool's documented
+  output stream, and names its source. A pattern with no recorded failure,
+  or whose stream cannot be established, keeps its current matching (wording
+  and stdout-plus-stderr) and is listed in the PR body as flagged.
 - [ ] **Step 2: Write the failing tests:**
   - `test_each_pattern_matches_its_recorded_failure` (parametrized over the
     data directory);
@@ -389,8 +417,10 @@ Blocked by Task 4a.
   - `test_stdout_only_match_not_retried`.
 - [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect the new
   tests to fail.
-- [ ] **Step 4: Implement**: both classifiers read stderr only, and each
-  pattern becomes an anchored or word-bounded regular expression.
+- [ ] **Step 4: Implement**: both classifiers read stderr only for every
+  pattern whose fixture establishes stderr, and each such pattern becomes an
+  anchored or word-bounded regular expression. Flagged patterns keep their
+  current matching.
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 6: Commit** `vrg-commit --type fix --scope retry --message
   "match retryable failures on stderr with anchored patterns"`, then
@@ -486,6 +516,7 @@ Blocked by Task 7.
 
 - Produces: `vm_guest.ProbeError(RuntimeError)`, raised by `vm_probe` on a run
   failure or a parse failure. `vm_probe`'s return type is unchanged.
+  `_probe_running` returns `Mapping[str, ProbeResult | ProbeError]`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_apt_query_runs_under_c_locale`;
@@ -494,19 +525,30 @@ Blocked by Task 7.
     `_remove_uv_copy`: a line `vergil-tooling-extra v1.0` is not
     vergil-tooling);
   - `test_uv_tool_list_bad_version_raises`;
+  - `test_tooling_version_uv_absent_is_checked` (no `uv` on the guest is an
+    explicit, tested absence that falls through to the deb version) and
+    `test_tooling_version_uv_failure_raises` (a `uv tool list` that fails for
+    any other reason raises, as does a failing `dpkg-query`);
   - `test_probe_raises_on_run_failure` and `test_probe_raises_on_parse_failure`;
   - `test_occupancy_script_fails_when_loginctl_fails` (a stub `loginctl` that
     exits 1 makes the script exit non-zero);
-  - `test_vm_list_shows_error_marker_for_one_vm` (one VM's probe raises; the
-    other VMs' rows list normally).
+  - `test_vm_list_shows_error_marker_for_one_vm` (one VM's probe raises; its
+    AGENTS, HUMANS and SPEC columns show `error`, and the other VMs' rows list
+    normally);
+  - `test_vm_list_spec_column_on_failed_probe` (a present dedicated VM whose
+    probe raises shows `error` in SPEC, never `ok` or `NEEDS-REBUILD`).
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new
   tests to fail.
 - [ ] **Step 3: Implement**: `LC_ALL=C` on the apt queries; `brew info
   --json=v2`; the `uv tool list` readers on the strict parse
-  `host_methods` already uses; the occupancy script without `2>/dev/null` and
+  `host_methods` already uses; `get_tooling_version` without its
+  `2>/dev/null`, `except CalledProcessError: pass` and `|| true` masks,
+  checking for `uv` with `command -v` first; the occupancy script without `2>/dev/null` and
   `|| echo ""` on its `loginctl` calls, exiting non-zero when one fails;
-  `_probe_running` catching `ProbeError` per VM and showing `error` in that
-  VM's occupancy column.
+  `_probe_running` catching `ProbeError` per VM and storing it as that VM's
+  entry in the mapping it returns, so `_occupancy` and `_present_spec_state`
+  both see the failure and show `error`, never treating the VM as not
+  running.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 5: Commit** `vrg-commit --type fix --scope vm --message "read
   host and guest tool output strictly and surface probe failures per VM"`,
@@ -529,12 +571,15 @@ Blocked by Task 7.
   - `test_install_file_lists_clean` (`dpkg -L` and `rpm -ql` lists hold only
     paths: no blank lines, no `package diverts others to:` lines);
   - `test_clean_all_matches_exact_cache_tag` (an image tagged `a--b` that is
-    not a cache tag is kept).
+    not a cache tag is kept);
+  - `test_clean_all_removes_legacy_cache_tag` (an image in the pre-#4162
+    `<base_tag>--<branch>--<hash>` shape is still removed).
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new
   tests to fail.
 - [ ] **Step 3: Implement**: `rpm -qp --qf`, `LC_ALL=C` for `rpmkeys`, the
-  epoch in the version compare, and `clean-all` matching the tag shape that
-  `lib/container_cache.py` builds.
+  epoch in the version compare, and `clean-all` matching through
+  `lib/container_cache.py`'s existing cache-ref parser, which accepts both
+  `_CACHE_REF_RE` and `_LEGACY_CACHE_REF_RE`.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 5: Commit** `vrg-commit --type fix --scope package --message
   "read package metadata through query formats and a fixed locale"`, then
@@ -572,9 +617,10 @@ Blocked by Task 11.
   `hooks/scripts/block-worktree-bypass-write.sh`
 - Test: `hooks/tests/capture-merge-review-result.test.sh`,
   `hooks/tests/block-worktree-bypass-write.test.sh`,
-  `hooks/tests/hook-modes.test.sh`, a new
-  `hooks/tests/detect-deprecation-warnings.test.sh`, and the `validate-custom`
-  tests
+  `hooks/tests/hook-modes.test.sh`, and two new suites:
+  `hooks/tests/detect-deprecation-warnings.test.sh` and
+  `hooks/tests/validate-custom.test.sh` (the plugin has no `validate-custom`
+  tests today)
 
 - [ ] **Step 1: Write the failing tests:**
   - deprecation hook: an object-shaped `tool_response` is read, through
@@ -603,17 +649,23 @@ Blocked by Task 11.
 
 **Files:**
 
-- Modify: `templates/agent.yaml.skel` (readiness probe),
-  `templates/provision/40-profile.sh`, the `tests/check-*.sh` scripts that
-  grep `dpkg -l`, `nerdctl images`, `ss`, the login shell or `git config`
-- Create: `tests/check-readiness-probe.sh`
+- Create: `templates/provision/readiness-judge.sh` (the judging logic, read
+  from stdin: the `cloud-init status --format json` output; exit 0 for ready,
+  non-zero otherwise, with each warning printed), `tests/check-readiness-probe.sh`
+- Modify: `templates/agent.yaml.skel` (the readiness probe runs
+  `cloud-init status --format json` and pipes it to the judge, included
+  through `@@INCLUDE`), `templates/agent.yaml` (regenerated with
+  `scripts/build-template.sh`, so `tests/check-template-generation.sh` still
+  passes), `templates/provision/40-profile.sh`, the `tests/check-*.sh` scripts
+  that grep `dpkg -l`, `nerdctl images`, `ss`, the login shell or `git config`
 
 **Interfaces:**
 
 - Mirrors Task 7's definition of degraded (spec §7.7).
 
 - [ ] **Step 1: Write the failing tests** in `tests/check-readiness-probe.sh`,
-  feeding the probe recorded `cloud-init status --format json` output:
+  feeding `readiness-judge.sh` recorded `cloud-init status --format json`
+  output on stdin:
   clean → ready; error → not ready; an ERROR-level recoverable error → not
   ready; deprecation-only → ready, with the warning printed; buildkitd and
   containerd matched on their exact arguments or unit state (a process whose
@@ -668,10 +720,14 @@ Blocked by Tasks 10 and 11.
 - **Human-run steps:** `vrg-host plugins` on the host.
 - **Procedure (agent-safe):**
   1. `vrg-vm update --all`.
-  2. The installed `block-protected-branch-work.sh` no longer contains the
-     `.worktrees/` grep.
-  3. In a scratch repo with `vergil.toml` and no `.worktrees/` line, a raw
-     `git commit` from the main tree is denied by the hook.
+  2. Neither installed `block-protected-branch-work.sh` nor
+     `block-worktree-bypass-write.sh` contains the `.worktrees/` grep.
+  3. In a scratch repo with `vergil.toml` and no `.worktrees/` line, run each
+     installed hook directly on a hook-input JSON: a main-tree commit for
+     `block-protected-branch-work.sh`, a main-tree file write for
+     `block-worktree-bypass-write.sh`. Each prints a
+     `permissionDecision` of `deny`, checked with `jq -e`. (A raw `git commit`
+     is not a valid check: `block-raw-git-commit.sh` denies it regardless.)
 - **SUCCESS:** all three hold, with the version recorded.
 
 ### Task D4: vergil-vm release (deployment, .github)
@@ -684,20 +740,24 @@ Blocked by Task 12.
   JSON readiness probe.
 - **SUCCESS:** that holds, with the version recorded.
 
-### Task V1: fresh VM comes up ready (validation, .github)
+### Tasks V1a and V1b: fresh VMs come up ready (validation, .github)
 
-Blocked by D1 and D4.
+Two validations, one per backend, since each readiness check runs on only one:
+**V1a** exercises `vrg-vm`'s cloud-init gate in `lib/vm_cloud.py` (Task 7) on
+a cloud VM, blocked by D1. **V1b** exercises the readiness probe in
+`templates/agent.yaml.skel` (Task 12) on a Lima VM, blocked by D1 and D4.
+Each runs the same procedure on its backend.
 
-- **Precondition (machine probe):** D1 and D4 are closed with
-  `Outcome: SUCCESS`.
+- **Precondition (machine probe):** its blocking deployment tasks are closed
+  with `Outcome: SUCCESS`.
 - **Procedure:**
-  1. Build a fresh agent VM with the released vergil-tooling and vergil-vm.
-     Record that it comes up ready, and the full
+  1. Build a fresh agent VM on the backend with the released vergil-tooling
+     (and, for V1b, vergil-vm). Record that it comes up ready, and the full
      `cloud-init status --format json` output, including what
      `recoverable_errors` holds.
-  2. On a scratch VM, force a recoverable ERROR in cloud-init (for example, a
-     failing `runcmd` entry). Record that `vrg-vm` and the in-guest probe both
-     report it as not ready.
+  2. On a scratch VM on the same backend, force a recoverable ERROR in
+     cloud-init (for example, a failing `runcmd` entry). Record that the
+     backend's readiness check reports it as not ready.
   3. If step 1's `recoverable_errors` holds WARNING or DEPRECATED entries,
      record that the VM was still judged ready and the warnings were printed.
 - **SUCCESS:** steps 1 and 2 behave as stated, and step 3's result is recorded.
