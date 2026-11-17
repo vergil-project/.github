@@ -36,6 +36,13 @@ human has judged that a revert to the Debian images is off the table
 (2026-11-17). Only one kind of image remains, so the switch has nothing left
 to choose. This epic is #649's step 12: it deletes the switch.
 
+It goes beyond step 12 as written, by the human's decision (2026-11-17).
+Step 12 drops the git-install branch for released refs and keeps the dev-ref
+path. This epic also drops the container dev-ref branch for an image with
+neither, which only the Debian images reached, and the dev-ref path's count
+of core Pythons (the "more than one core Python" refusal), since every image
+carries exactly one. The dev-ref git install itself stays.
+
 The point is to remove cutover scaffolding, not to trade it for something
 else. Nothing replaces the switch: no new check, test or guard.
 
@@ -44,9 +51,9 @@ else. Nothing replaces the switch: no new check, test or guard.
 1. In a container, a released ref (`vX.Y` or `vX.Y.Z`) goes straight to the
    packaged install, and a dev ref goes straight to `uv tool install` from git
    on the image's core Python, in both repos.
-2. The probes, the half-image refusals and the git-install branch for an
-   image with neither are gone from both repos, with their tests and every
-   doc that describes them.
+2. The probes, the half-image refusals, the git-install branch for an image
+   with neither and the core-Python count checks are gone from both repos,
+   with their tests and every doc that describes them.
 
 ## Non-goals
 
@@ -71,10 +78,14 @@ These are untouched:
 - **Adding a check in place of the switch.** An image without the vergil apt
   source already fails the packaged install on its own, at the existing
   candidate check: "no packaged vergil-tooling matching vX.Y in …". It needs
-  no probe in front of it.
-- **Over-managing the risk.** The change deletes a branch nothing reaches. A
-  break would show up in the next CI run of any consumer, and it is fixed
-  forward.
+  no probe in front of it. That message's advice (release first, or pin a git
+  ref) does not fit such an image; this is known and accepted, since no
+  Vergil image or workflow reaches it.
+- **Hardening cases no image reaches.** Every Vergil image carries the vergil
+  apt source and exactly one core Python. A container that does not fails
+  loudly wherever it fails, and nothing is added to give it a better message.
+- **Over-managing the risk.** The change deletes branches nothing reaches,
+  and a break is fixed forward (see Rollout).
 
 ## Design
 
@@ -86,16 +97,24 @@ These are untouched:
 - **Released ref:** the `_packaged_lines` path as it is today (pin, update,
   candidate check, install, the `vrg-*`-on-vergil-python check), without the
   probes in front of it.
-- **Dev ref:** the `_dev_core_lines` path as it is today: `uv tool install`
-  from git with `--python` set to the image's one core Python.
+- **Dev ref:** `uv tool install` from git with `--python` set to the image's
+  core Python, as `_dev_core_lines` does today, without its "more than one
+  core Python" refusal.
 - **Removed:** the `has_source` and `has_core` probes, both half-image
-  refusals, the git-install branch for an image with neither, and the
-  `_UV_FROM_GIT` message. `_probe_lines` either goes, or shrinks to the
-  shared preamble the two paths still need (the `$VRG_CACHE_ROOT` seam and
-  the core-Python glob).
-- **Tests:** the `tests/vergil_tooling/test_container_cache.py` cases for the
-  neither and half-image paths are deleted. The cases for the two remaining
-  paths stay.
+  refusals, the git-install branch for an image with neither, the
+  `_UV_FROM_GIT` message, and the core-Python count check. `_probe_lines`
+  either goes, or shrinks to the shared preamble the two paths still need
+  (the `$VRG_CACHE_ROOT` seam and the core-Python glob).
+- **Tests** (`tests/vergil_tooling/test_container_cache.py`): the cases for
+  the neither, half-image and more-than-one-core paths are deleted. Three
+  tests that assert removed content for a released tag are rewritten, not
+  deleted: `test_build_cached_image_uses_uv_tool_install` and
+  `test_build_cached_image_python_includes_uv_install` (which expect `uv tool
+  install` in a released-ref fragment) and
+  `test_setup_line_ref_branches_on_environment` (which asserts the probes and
+  `_UV_FROM_GIT`). Each asserts the packaged install for a released tag
+  instead, and keeps its existing `pip install` assertion. The other cases
+  for the two remaining paths stay.
 - **Site docs:** the `docs/site/docs/guides/ci-architecture.md` paragraph that
   describes the two checks ("The image chooses how vergil-tooling is
   installed …") describes the two paths instead.
@@ -108,28 +127,21 @@ cached image.
 - **Container, released ref:** `container_install` does the packaged install
   as it does today for an image with both (pin, update, candidate check,
   install, `verify_packaged`, `ensure_uv`), with no environment check.
-- **Container, dev ref:** `uv tool install` from git on the image's one core
-  Python, as `dev_install` does today for an image with both.
+- **Container, dev ref:** `uv tool install` from git on the image's core
+  Python, as `dev_install` does today for an image with both, without its
+  "exactly one core Python" check.
 - **Host runner, dev ref:** `uv tool install --python 3.15` from git, as today
   (`uv_git_install`). `dev_install` therefore branches on `is_host`, not on
   the environment check.
-- **Removed:** `environment_state`, both half-image refusals, and the
-  container git-install branch for an image with neither.
-- **Tests:** the `tests/install-tooling.test.sh` cases for the neither and
-  half-image container paths are deleted, and the host dev-ref case is kept.
+- **Removed:** `environment_state`, both half-image refusals, the container
+  git-install branch for an image with neither, and the core-Python count
+  check.
+- **Tests:** the `tests/install-tooling.test.sh` cases for the neither,
+  half-image and core-count container paths are deleted, and the host
+  dev-ref case is kept.
 - **Docs:** the header comment, `action.yml`'s description, and
   `docs/site/docs/actions/shared-setup-vergil.md` describe the paths that
   remain.
-
-### The one remaining guard on a dev ref
-
-The dev path needs exactly one core Python to name with `--python`. Both
-repos already stop when there is more than one. With the switch gone, a
-container with **none** reaches that point too. **My call:** widen the
-existing condition to "not exactly one" (`-ne 1` in place of `-gt 1` in
-`container_cache.py`; `install-tooling.sh` already tests `-ne 1`), so zero
-gives the same clear message instead of an unbound-variable error. This is
-the existing guard with its boundary corrected, not a new check.
 
 ## Rollout
 
@@ -140,11 +152,20 @@ the existing guard with its boundary corrected, not a new check.
   until that release is out. A deployment task records the release.
 - **vergil-tooling** ships the change in its next normal release, with no
   isolation and no deployment task.
-- **Verification:** each repo's own CI, and the next CI runs of the
-  consumers. No fixture runs: the change deletes code on the same path for
-  every language, its risk is low, and a break is fixed forward. This
-  departs on purpose from the fixture-run rule for changes to shared CI
-  workflows.
+- **Verification of the vergil-actions half:** its own CI, then the next CI
+  run of any consumer, since every consumer's CI installs vergil-tooling
+  through `install-tooling.sh`. The fix-forward path is reverting `v2.1` to
+  the previous release, then a fix.
+- **Verification of the vergil-tooling half:** its unit tests of the setup
+  fragment, then the first local `vrg-container-run` or `vrg-finalize-pr` on
+  a host that has the new release. Consumer CI never runs the cache build,
+  and vergil-tooling's own CI skips the install as the self-repo, so a break
+  shows up on developer and agent hosts, where it blocks the local
+  `vrg-validate` gate. The fix-forward path is a fix release, then a
+  reinstall on each host.
+- **No fixture runs:** the change deletes code on the same path for every
+  language, its risk is low, and a break is fixed forward. This departs on
+  purpose from the fixture-run rule for changes to shared CI workflows.
 
 ## Left to the builder
 
