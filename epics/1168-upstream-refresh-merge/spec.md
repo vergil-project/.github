@@ -362,20 +362,21 @@ tokens for one repo, and hands out a current token on demand.
     such processes are the trusted platform (the tool's own `git` and `gh`,
     and the step's shell). No re-exec or file-descriptor hand-off is added.
 - **The wait.** With a token source, the building block's wait-until-merged
-  deadline is the caller's, not tied to one token. For upstream-refresh it
-  is 120 minutes, counted from the tool's own start in the publish job, not
-  from the start of the wait. The clone, the patch and the push are inside
-  it. The publish job's `timeout-minutes` is that deadline plus a stated
-  budget for the steps before the tool (guard, checkout, install, artifact
-  download) plus a margin, with the numbers fixed in the plan. So publish
-  always ends, and logs how the wait ended, before GitHub kills the job.
-  120 minutes covers vergil-containers' CI, with one branch update and its
-  CI re-run, with room to spare. It is a ceiling: the wait ends the moment
-  the PR merges. The branch-update cap
-  (`_MAX_BRANCH_UPDATES`) and every terminal outcome (closed, draft,
-  conflict, failed check) are unchanged.
-- **Without a token source,** the building block behaves exactly as today:
-  it uses the ambient `GH_TOKEN` or the human's credentials, with the
+  deadline is the caller's, not tied to one token. For upstream-refresh it is
+  120 minutes, counted from the tool's own start in the publish job, not from
+  the start of the wait. The clone and the patch come out of it: publish works
+  out the time left just before handing the clone to the building block, so
+  closing the earlier PR, the push and opening the PR are not counted against it
+  (a few seconds). The publish job's `timeout-minutes` is that deadline plus a
+  stated budget for the steps before the tool (guard, checkout, install,
+  artifact download) plus a margin, with the numbers fixed in the plan. So
+  publish always ends, and logs how the wait ended, before GitHub kills the job.
+  120 minutes covers vergil-containers' CI, with one branch update and its CI
+  re-run, with room to spare. It is a ceiling: the wait ends the moment the PR
+  merges. The branch-update cap (`_MAX_BRANCH_UPDATES`) and every terminal
+  outcome (closed, draft, conflict, failed check) are unchanged.
+- **Without a token source,** the building block behaves exactly as today: it
+  uses the ambient `GH_TOKEN` or the human's credentials, with the
   40-minute default deadline. `github-config`'s `update` is unchanged.
 
 ### 6.2 `vrg-upstream-refresh` on the building block
@@ -468,6 +469,17 @@ tokens for one repo, and hands out a current token on demand.
     - **Removals are a human change.** An automated refresh never removes
       an existing anchored block. Dropping a series is a human change,
       made in an ordinary PR.
+    - **A hash changes only with its block's version.** A line rule may
+      mark hash or digest lines with `(?P<hash>…)`, or
+      `(?P<hash_<suffix>>…)` for a second one. An existing hash may change
+      only when a version in the same block (the same anchor, or the same
+      file under a rule with no anchor group) also changes in the patch. A
+      hash pinned for the first time, in a new block or as a new key, is
+      allowed. Under an anchored rule, a hash line that disappears from a
+      block that stays is refused, and a rule with hash groups but no
+      version group refuses any change to an existing hash. A rule with no
+      hash group is unaffected. (Added during execution,
+      vergil-project/vergil-tooling#4539.)
 
     In `vergil.toml`, `upstream-version` is compared the same way per
     entry `name`, on its `<cpython>` part, then its `<pbs_tag>`.
@@ -478,8 +490,8 @@ tokens for one repo, and hands out a current token on demand.
       covers `[dependencies]` (the tooling pin) and `[upstream-refresh]`
       (the hook and this allowlist);
     - in an existing `[[package]]` entry, only `upstream-version` and
-      `summary` may change, and `upstream-version` must keep its format
-      (`<cpython>+<pbs_tag>`);
+      `summary` may change, and `upstream-version` must stay present and
+      keep its format (`<cpython>+<pbs_tag>`);
     - an existing entry is never removed: dropping a series is a human
       change, as for an anchored block;
     - a new entry is allowed only as a series copy of an existing one:

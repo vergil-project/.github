@@ -842,3 +842,118 @@ Kind `validation`, filed in vergil-actions and blocked by D2.
     token is minted. Publish's own guard is defence in depth, and A1's
     `key-boundary.test.sh` already proves it is there.
   - No open PR or branch named `upstream-refresh*` remains in either repo.
+
+## Evolution during execution
+
+These entries were written in the epic's retrospective PR, since the
+documentation review had listed them for it. The plan froze when Task 1
+(PR vergil-project/vergil-tooling#4520) merged, at 2026-11-16 20:05Z.
+
+### 2026-11-16: the anchor design and the removal rule, edited in place
+
+**What changed:** vergil-project/.github#1216 (PR #1217, merged 20:56Z)
+rewrote spec §6.2's no-downgrade rule and the plan's Tasks 3a, 3b, P1 and
+C1 in place: a file under a versioned line rule is compared as a whole,
+per block named by an optional `anchor` group, and an automated refresh
+never removes an existing anchored block or `[[package]]` entry.
+
+**Why:** Task 3a's merge review found that pairing versions within each
+diff hunk, as the spec said, could be bypassed, and that the first fix
+(pairing across the whole file) still could, for files that repeat keys
+per block. The edit was made in place, not logged, because it was judged
+that nothing had shipped; Task 1 had in fact merged 51 minutes earlier, so
+it is recorded here. None of the edited tasks had started.
+
+### 2026-11-16: Task 2 adds no retry to the single-shot POST callers
+
+**What changed:** Task 2 (vergil-project/vergil-tooling#4496, PR #4530)
+did not add retries to `post_json_once` and `post_json_with_status`, which
+the Files list and `test_run_tolerating_retry_rebuilds_env` count among
+the callers that retry after a 401 with a fresh token. Each of them takes
+the token source's current token on its one attempt, and its tests pin
+both that and the no-retry rule.
+
+**Why:** both are single-shot by contract: a retry could duplicate a
+create that already landed. Found by the Task 2 run; its merge reviewer
+agreed.
+
+### 2026-11-16: Task 3a's fence keeps `upstream-version` on existing entries
+
+**What changed:** in `vergil.toml`, an existing `[[package]]` entry's
+`upstream-version` may not be deleted. Spec §6.2 now says it must stay
+present.
+
+**Why:** with the old value gone, a later run could add it back at a
+lower value, since there was nothing to compare against. Found by Task 3a's
+merge review and fixed in its branch (PR #4527).
+
+### 2026-11-16: the hash rule, its release and its adoption (four tasks added)
+
+**What changed:**
+
+- **Four tasks are added:**
+  - **vergil-project/vergil-tooling#4539:** a line rule may mark hash
+    lines with a `hash` group, and an existing hash may change only when a
+    version in the same block changes. No blockers.
+  - **vergil-project/vergil-tooling#4542** (deployment): release
+    vergil-tooling with #4539. Blocked by #4539.
+  - **vergil-project/vergil-containers#932:** mark the digest and
+    toolchain hash lines with the `hash` group. Blocked by #4542 and
+    vergil-containers#924 (Task C1).
+  - **vergil-project/vergil-python#90:** mark the `runtime.toml` checksum
+    lines with the `hash` group. Blocked by #4542.
+- **V1 (vergil-project/vergil-actions#1257) is also blocked by** #4539,
+  #932 and #90.
+- **One more task is added:** vergil-project/vergil-tooling#4543 names the
+  hash rule in the fence's refusal for a diff that is not whole-file.
+  Blocked by #4539.
+- Spec §6.2 gains the hash rule.
+
+**Why:** Task C1's merge review found that vergil-containers' hook wrote
+new digests for a tool whose version had not changed, with only a warning
+for a human to check. With no human merge, a swapped upstream asset at a
+pinned version would have merged itself. C1 now refuses that in the hook,
+but the hook is the untrusted half under spec §6's key boundary, so the
+human ruled the matching rule into the fence in `publish` too.
+
+### 2026-11-17: D2's cleanup ran after the first nightly on the new workflow
+
+**What changed:** Task D2 (vergil-project/vergil-actions#1256) was to
+close the legacy fixed-branch PRs before the next nightly run. The
+vergil-actions release (v2.1.79) landed at 01:40Z, and the first runs on
+the new workflow ran at 09:30Z (vergil-python) and 09:42Z
+(vergil-containers), before the cleanup at 12:21Z. Each repo briefly had
+two refresh PRs open (vergil-python 09:31 to 09:34Z, vergil-containers
+09:43 to 10:11Z).
+
+**Why:** closing PRs and deleting branches are human-run steps, and the
+release and the cleanup were separate steps hours apart. No harm came of
+it: the new PRs merged themselves. Next time, run the cleanup in the same
+sitting as the release.
+
+### 2026-11-17: V1 accepts the token renewal without seeing it live
+
+**What changed:** V1's vergil-containers criterion asks for a publish log
+showing a renewal and the revocation of the replaced token. No live run
+showed one, and the human accepted the renewal as covered by
+vergil-tooling's `test_wait_for_checks_poll_picks_up_renewal`, which runs
+the real `AppTokenSource` through a poll that crosses the renewal. V1
+closed as SUCCESS on that basis. The human also ruled that a
+vergil-containers run red only outside the refresh jobs counts, and that a
+vergil-python run in sync plus PR #91 meets its criterion.
+
+**Why:** vergil-containers' CI now takes about 28 minutes, so both waits
+(1682s and 1675s) ended under the 1800s renewal threshold. Contriving a
+longer wait was judged not worth the effort: a long enough wait will come
+in normal operation, and a renewal failure would show as a red refresh
+run.
+
+### 2026-11-17: two documentation tasks added by the documentation review
+
+**What changed:** the documentation review (vergil-project/vergil-tooling#4444)
+added vergil-project/vergil-containers#939 (text still saying refresh PRs
+are human-reviewed) and vergil-project/docs#125 (`ci.md`'s nightly
+governance section did not describe the upstream refresh).
+
+**Why:** the review does not reach across repos; each repo's doc fixes go
+through that repo's own PR.
