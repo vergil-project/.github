@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1292
 - **Planning issue:** vergil-project/.github#983 (review history is in its
   comments)
-- **Status:** draft, in design review
+- **Status:** approved
 - **Repos:** vergil-tooling (`container_cache.py`, site docs), vergil-actions
   (`shared/setup/vergil`, site docs)
 - **Inherited design:** epic vergil-project/.github#649,
