@@ -149,7 +149,8 @@ Notes on the table:
 - **Task 3** keeps submit's and finalize's existing `--install` working until
   Tasks 12b and 13b replace those commands' flags.
 - **Release 3 ships as one release** (spec §6.12 step 3). No task in it is
-  deployed on its own.
+  deployed on its own. Release 1 (Tasks 2 and 3) ships and is validated on
+  its own by D1, ahead of everything else.
 - **No plugin skill passes a removed flag today.** Task 15 rewrites pr-watch's
   text, and Task 17 and the documentation-review sweep cover the docs.
 - **The advisories tracked by #1213** are retargeted when the tasks are filed:
@@ -157,7 +158,8 @@ Notes on the table:
   - GHSA-gcff-v4p4-8rcr to Tasks 11 and 17;
   - GHSA-35qq-6wpw-3gfw to Task 17;
   - GHSA-fpm4-wh9m-2cm4 to Task 11;
-  - GHSA-36g5-mf7w-77cr to Task 12a;
+  - GHSA-36g5-mf7w-77cr, now design-only because finalize no longer restores
+    auto-merge, to the documentation task (#1219);
   - GHSA-vv7q-29w3-225r, a design-only accepted risk stated by the spec, to
     the documentation task (#1219).
 
@@ -210,11 +212,13 @@ Notes on the table:
   - `test_develop_cd_gate_no_run_uses_green_ancestor`;
   - `test_develop_cd_gate_no_run_red_ancestor_refuses`;
   - `test_develop_cd_gate_deferred_failure_warns`;
-  - `test_develop_cd_gate_superseded_uses_newer`.
+  - `test_develop_cd_gate_superseded_uses_newer`;
+  - `test_develop_cd_gate_skipped_on_resume`.
 - [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
 - [ ] **Step 4: Implement** the module and the move. Then call
-  `check_develop_cd` in `preflight()` right after `_check_branch_and_tree()`,
-  using local `HEAD`.
+  `check_develop_cd` in `preflight()` inside the existing `if not resume:`
+  block, after `_check_branch_and_tree()`, using local `HEAD`. A resume
+  adopts a release that already passed the gate.
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS, with finalize's existing CD tests unchanged.
 - [ ] **Step 6: Commit** `vrg-commit --type feat --scope release --message "require a green develop CD run before cutting a release"`, then report-ready.
 
@@ -225,9 +229,10 @@ Notes on the table:
 - Modify:
   - `src/vergil_tooling/bin/vrg_release.py` (parser and the install branch
     around line 105);
-  - `bin/vrg_submit_pr.py` and `bin/vrg_finalize_pr.py`, only at the lines
-    that build a `vrg-release` command (about 334, 775 and 1442 in submit;
-    357 and 1944 in finalize).
+  - `bin/vrg_submit_pr.py` and `bin/vrg_finalize_pr.py`: the lines that build
+    a `vrg-release` command (about 775 and 1442 in submit; 357 and 1944 in
+    finalize), and the hint strings that name one (finalize's dry-run line at
+    about 219 and its rerun hint at about 1953).
 - Test: `tests/vergil_tooling/test_vrg_release.py`,
   `tests/vergil_tooling/test_vrg_submit_pr.py`,
   `tests/vergil_tooling/test_vrg_finalize_pr.py`
@@ -245,13 +250,18 @@ Notes on the table:
   runs plain `vrg-release`, and their `--release` without `--install` runs
   `vrg-release --no-install`. Today's behaviour of both commands is
   unchanged.
+- **One source per command.** Each place builds its `vrg-release` command as
+  a tuple from one helper (`_release_cmd(install: bool) -> tuple[str, ...]`
+  in each file), and every hint that names the command is printed from that
+  same tuple (`shlex.join`). A hint can then never drift from what runs.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_install_runs_by_default`;
   - `test_no_install_skips`;
   - `test_install_flag_is_fatal` (exit 1, exact message);
   - `test_install_skipped_after_failed_release`;
-  - in the submit and finalize tests, `test_release_cascade_passes_no_install` and `test_install_cascade_runs_plain_release`.
+  - in the submit and finalize tests, `test_release_cascade_passes_no_install` and `test_install_cascade_runs_plain_release`;
+  - `test_rerun_hint_matches_command` and `test_dry_run_hint_matches_command` in the finalize tests.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
@@ -370,7 +380,13 @@ existing workflow lint (`actionlint` through `vrg-validate`).
 
 - Consumes: Task 2's `cd_runs` (`find_run`, `_supersede_group`).
 - Produces: in `confirm_main`, a `main` run that concluded `cancelled` and that
-  `_supersede_group` identifies as superseded is dispatched again once.
+  `_supersede_group` identifies as superseded is dispatched again once, but
+  only when its **release job** was among the superseded jobs, or every job
+  was.
+  - **Only non-release jobs superseded** (for example the docs job, whose
+    `cd-docs` group develop shares): no re-dispatch. Today's handling stays:
+    the release job is verified, and the cancelled job is recorded as
+    "publish deferred".
   - The dispatch is `gh workflow run cd.yml --ref main`. Before dispatching,
     confirm records the superseded run's ID and the dispatch time.
   - **Finding the new run.** Confirm polls for a run on `main` with the same
@@ -382,6 +398,7 @@ existing workflow lint (`actionlint` through `vrg-validate`).
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_confirm_main_redispatches_superseded_once`;
+  - `test_docs_only_supersede_no_redispatch` (the release job green, only the docs job superseded: no dispatch, publish deferred);
   - `test_redispatch_ignores_cancelled_run` (until the dispatched run registers, the only matching run is the cancelled one; confirm keeps polling and does not report a second supersede);
   - `test_confirm_main_second_supersede_fails`;
   - `test_confirm_main_other_cancel_fails`;
@@ -403,11 +420,16 @@ Blocked by D1, 4, 5, 6, 7.
 - **Human-run steps:** run the GitHub config audit with apply for the fleet,
   via the `ops.yml` workflow dispatch or the documented host command.
 - **Procedure (agent-safe):**
-  1. For every repo in the org, read the rulesets:
+  1. Read the config audit's report for the org (`vrg-github-repo-config`'s
+     audit output, which reads each repo's rulesets; the agent has no raw
+     `gh api` access). Confirm for every repo:
      - `CI gates (develop)` exists with strict `false`;
      - `CI gates (main)` exists with strict `true`, where the repo has
        `main`;
      - no `CI gates` ruleset remains.
+
+     If the report does not show strict per ruleset, the human runs the
+     ruleset read and posts its output for the agent to check.
   2. The audit's next report shows no `missing_ci_gates_ruleset` and no
      `branch_protection.develop.strict` item.
   3. In vergil-actions, `cd.yml` at the tag the latest runs used reads
@@ -432,10 +454,17 @@ Blocked by D1, 4, 5, 6, 7.
 - Produces: `checkout_lock(main_root: Path, *, purpose: str) -> ContextManager[None]`.
   - It creates `build/.vergil-state/` with the state-directory checks (real
     directories, mode 700).
-  - It opens `checkout.lock` and writes `<pid> <purpose>`.
-  - While it blocks, it prints
-    `Waiting for the checkout lock (held by pid <pid>: <purpose>)…` once.
-  - It holds `fcntl.LOCK_EX` until exit.
+  - **Order:**
+    1. open `checkout.lock` without truncating it;
+    2. try `fcntl.LOCK_EX | fcntl.LOCK_NB`;
+    3. if that fails, read the holder line, print
+       `Waiting for the checkout lock (held by pid <pid>: <purpose>)…` once,
+       then block on `LOCK_EX`;
+    4. only once it holds the lock, truncate the file and write
+       `<pid> <purpose>`.
+
+    A waiter therefore never overwrites the holder's record.
+  - It holds the lock until exit.
 - **Nesting is a bug.** A nested acquire by the same process raises
   `CheckoutLockError("checkout lock already held by this process")`.
 - **Taken only at command-level entry points:** the `--cleanup-only` path and
@@ -460,8 +489,10 @@ Blocked by D1, 4, 5, 6, 7.
 ### Task 9: Release preflight fast-forwards under the lock (vergil-tooling)
 
 **Files:** modify `src/vergil_tooling/lib/release/preflight.py`
-(`_check_branch_and_tree`, about lines 617–646); test
-`tests/vergil_tooling/test_release_preflight.py`.
+(`_check_branch_and_tree`, about lines 617–646) and
+`src/vergil_tooling/lib/update_deps/preflight.py` (about lines 142–153); test
+`tests/vergil_tooling/test_release_preflight.py`,
+`tests/vergil_tooling/test_update_deps_preflight.py`.
 
 **Interfaces:**
 
@@ -469,13 +500,18 @@ Blocked by D1, 4, 5, 6, 7.
 - Produces: `_check_branch_and_tree()`, under
   `checkout_lock(purpose="vrg-release preflight")`, does the following:
   1. refuses a dirty tree, as today;
-  2. fetches `origin develop`;
+  2. fetches `--tags --force origin develop`, as today, so the
+     already-tagged check sees remote tags;
   3. if local `develop` is an ancestor of `origin/develop`, fast-forwards it
      and prints `Fast-forwarded develop <old8>..<new8>`;
   4. otherwise refuses with
      `Local develop (<sha8>) has diverged from origin/develop (<sha8>); resolve it first.`
 
   It then releases the lock. `check_develop_cd` then runs on the new `HEAD`.
+- **Update-deps' preflight.** When the release calls it, update-deps'
+  preflight does the same: under the lock, it fast-forwards a local develop
+  that is behind `origin/develop`, instead of refusing unless the two are
+  equal. Run standalone, its behaviour is unchanged.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_preflight_fast_forwards`;
@@ -483,6 +519,9 @@ Blocked by D1, 4, 5, 6, 7.
   - `test_preflight_diverged_refuses`;
   - `test_preflight_dirty_refuses`;
   - `test_preflight_holds_lock_only_for_sync` (the lock is free when `check_develop_cd` runs);
+  - `test_preflight_fetch_keeps_tags`;
+  - `test_update_deps_preflight_fast_forwards_from_release`;
+  - `test_update_deps_preflight_standalone_unchanged`;
   - `test_cd_gate_checks_new_head`.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect FAIL.
 - [ ] **Step 3: Implement.**
@@ -548,31 +587,42 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
 **Interfaces:**
 
 - Produces:
-  - `_EVENT_MAP` maps every auto-merge timeline event name recorded in Step 1
-    (expected to include `auto_merge_enabled`, `auto_merge_disabled`,
-    `auto_squash_enabled` and `auto_rebase_enabled`) to `auto_merge_enabled`
-    or `auto_merge_disabled`.
-  - **Fail-closed fallback.** Any other timeline event whose name starts with
-    `auto_` maps to `auto_merge_unknown`. `evaluate` treats all three as
-    forbidden for agent roles, so a renamed or new auto-merge event by an
+  - `_EVENT_MAP` maps every auto-merge **enable** event name recorded in
+    Step 1 (expected to include `auto_merge_enabled`, `auto_squash_enabled`
+    and `auto_rebase_enabled`) to `auto_merge_enabled`, which `evaluate`
+    treats as forbidden for agent roles.
+  - **Fail-closed fallback.** Any other timeline event matching `auto_*_enabled`
+    maps to `auto_merge_enabled` too, so a renamed or new enable event by an
     agent identity is a violation rather than ignored.
+  - **Disable events are not mapped.** An agent turning auto-merge off is not
+    a provenance violation. Finalize reports any PR with auto-merge off as an
+    exception anyway (Task 12a).
   - `check_pr(pr: str) -> ProvenanceResult` is unchanged in signature.
     Tasks 12a and 13a call it.
 
-- [ ] **Step 1: Record the real event names.** On a scratch PR in a fixture
-  repo, enable auto-merge once with SQUASH and once with REBASE, and disable
-  it each time. Save the
-  `vrg-gh api repos/<o>/<r>/issues/<n>/timeline --paginate` output for each
-  as a fixture file. List the event names in the PR body.
+- [ ] **Step 1: Record the real event names. This step is human-run:**
+  `vrg-gh` denies the agent `pr create`, auto-merge and `gh api`.
+  1. **The human** creates a scratch PR in a fixture repo and enables
+     auto-merge on it once with SQUASH, then (after disabling it) once with
+     REBASE.
+  2. **The human** saves `gh api repos/<o>/<r>/issues/<n>/timeline --paginate`
+     output after each enable, into the agent's worktree under the fixtures
+     directory.
+  3. **The agent** commits the fixtures and lists the event names in the PR
+     body.
+
+  Until the fixtures exist, the agent stops with "blocked: awaiting the
+  human-recorded timeline fixtures". It never writes synthetic payloads in
+  their place.
 - [ ] **Step 2: Write the failing tests:**
   - `test_recorded_squash_enable_is_violation_for_agent`;
   - `test_recorded_rebase_enable_is_violation_for_agent`;
-  - `test_recorded_disable_is_violation_for_agent`;
-  - `test_unknown_auto_event_fails_closed` (a synthetic `auto_frobnicate_enabled` by an agent is a violation);
+  - `test_disable_is_not_a_violation`;
+  - `test_unknown_auto_enable_fails_closed` (a synthetic `auto_frobnicate_enabled` by an agent is a violation);
   - `test_human_auto_merge_enabled_allowed`.
 
   Each test uses a recorded fixture, not a synthetic name, except the
-  unknown-event test.
+  unknown-event and disable tests.
 - [ ] **Step 2a: Run** `vrg-container-run -- vrg-validate`; expect FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
@@ -619,8 +669,8 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
 
 **Interfaces:**
 
-- Consumes: Task 10's `enable_auto_merge`, `auto_merge_enabled`; Task 11's
-  `check_pr`.
+- Consumes: Task 10's `auto_merge_enabled` (read only: the watch never turns
+  auto-merge on); Task 11's `check_pr`.
 - Produces:
   - `Outcome = Literal["merged", "failed: CI", "failed: conflict", "failed: closed", "failed: auto-merge off", "failed: provenance", "failed: not a develop PR", "timed out"]`;
   - `@dataclass(frozen=True) class PRResult: pr: str; outcome: Outcome; detail: str; head: str`.
@@ -628,19 +678,15 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
   - `deadline_secs() -> int`, reading `$VRG_FINALIZE_DEADLINE`.
   - `watch(prs: Sequence[str], *, allow_provenance_violation: bool, poll_interval: float = 15.0) -> list[PRResult]`.
 - **What `watch` does:**
-  1. **Start-up.** For each listed PR, it runs provenance first.
-     - **A violation blocks everything else.** Unless
-       `allow_provenance_violation`, the PR ends at once as `failed:
-       provenance`, and auto-merge is left off (or turned off). It is never
-       restored.
-     - **Only develop PRs are restored.** A PR whose base is not `develop`,
-       or whose head is `release/*`, is never restored. It ends at once as
-       `failed: not a develop PR`, a reason added to `Outcome`.
-     - **Otherwise,** if the PR is open with auto-merge off, auto-merge is
-       restored with the PR's method. The method is rebase if the PR body's
-       `Closes` lines name several issues (`batch_rules.is_batch` on those
-       refs, the source submit uses), and squash otherwise. It prints
-       `Restored auto-merge on <pr> at <head8>`.
+  1. **Start-up.** For each listed PR, in this order:
+     - **Develop PRs only.** A PR whose base is not `develop`, or whose head
+       is `release/*`, ends at once as `failed: not a develop PR`, untouched.
+     - **Provenance.** A violation, unless `allow_provenance_violation`,
+       turns auto-merge off (GraphQL `disablePullRequestAutoMerge`) and ends
+       the PR at once as `failed: provenance`.
+     - **Auto-merge off.** An open PR with auto-merge off ends at once as
+       `failed: auto-merge off`. It is reported as an exception for the human
+       and never turned back on.
   2. **Polling.** It polls every open PR until each is terminal or the
      deadline passes.
      - Provenance runs again whenever a PR's head changes.
@@ -661,12 +707,11 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
   - `test_conflict`;
   - `test_closed`;
   - `test_auto_merge_turned_off_midwatch`;
-  - `test_restore_at_start_prints_head`;
-  - `test_startup_violation_blocks_restore`;
-  - `test_restore_refuses_release_branch`;
-  - `test_restore_refuses_non_develop_base`;
-  - `test_restore_method_from_closes_lines` (a PR whose commits name one issue but whose body closes two restores with REBASE);
-  - `test_restore_already_mergeable_merges`;
+  - `test_auto_merge_off_at_start_is_exception` (reported, never turned on: no enable call is made);
+  - `test_startup_violation_disables_and_fails`;
+  - `test_release_branch_not_watched`;
+  - `test_non_develop_base_not_watched`;
+  - `test_watch_never_enables_auto_merge` (no `enable_auto_merge` import or GraphQL enable call in the module);
   - `test_provenance_rechecked_on_new_head`;
   - `test_provenance_violation_disables_auto_merge`;
   - `test_allow_provenance_violation`;
@@ -726,10 +771,14 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
   - `test_removed_flags_fatal` (parametrized over `--strategy` and `--install`);
   - `test_skip_post_checks_watches_without_settling`;
   - `test_all_selects_worktree_prs`;
+  - `test_cleanup_only_settles_without_watch` (sync, cleanup, provision and validate under the lock, then the CD report; a failed validate is 4);
+  - `test_interactive_no_open_prs_offers_cleanup_only`;
   - `test_no_merge_call_anywhere` (no `pr_merge.wait_and_merge` import remains).
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect FAIL.
 - [ ] **Step 3: Implement.** Delete the tests of removed stages along with
-  the stages. Keep `--cleanup-only` on its own path.
+  the stages. Keep `--cleanup-only` on its own path, as the "settle develop
+  with no PRs" mode (spec §6.3): the settle steps with no watch, under the
+  lock, with the same exit codes.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 5: Refactor.** Update the module docstring, which is the
   command's reference text. Run `vrg-container-run -- vrg-validate` again;
@@ -809,6 +858,10 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
   `$VRG_FINALIZE_DEADLINE` exits 1 before any PR opens.
 - **Default.** One `vrg-finalize-pr <opened…> [--release] [--no-install]
   [--allow-provenance-violation]`.
+  - **Nothing opened.** When `summary.opened` is empty, finalize is not run
+    at all. Submit prints the failed submits and exits 3, or 1 if the
+    failures were tool errors. An empty list never reaches finalize's
+    interactive pick.
   - `--release` is dropped when `summary.failed` is non-empty, and the
     summary prints `Release skipped: <n> PR(s) failed to submit`.
   - After finalize's report, submit prints the failed submits.
@@ -827,6 +880,7 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_finalize_by_default_one_run_over_opened`;
+  - `test_all_submits_failed_skips_finalize`;
   - `test_release_skipped_after_failed_submit`;
   - `test_no_finalize_prints_command`;
   - `test_exit_precedence_tool_error_wins` (finalize 1 plus a failed submit → 1);
@@ -1007,9 +1061,12 @@ Blocked by D3.
 - **SUCCESS:**
   - all five PRs merged without `BEHIND`;
   - whether the second settle waited for the lock is recorded;
-  - both runs exited 0;
-  - step 4's result is recorded either way. If auto-merge turned off, the
-    next finalize restored it.
+  - both runs exited 0, except that the run watching step 4's PR may exit 3
+    with that PR *failed: auto-merge off*;
+  - step 4's result is recorded either way. If GitHub turned auto-merge off
+    on the push, the comment says so, the human turns it back on by hand,
+    and the result is proposed to the human as a follow-on finding. That
+    case does not fail V1.
 
 ### Fixture runs (F)
 

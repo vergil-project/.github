@@ -338,9 +338,11 @@ rule an auto-merged PR would wait forever.
   - **failed: CI**, naming the required check that failed;
   - **failed: conflict**: the PR can no longer merge cleanly;
   - **failed: closed** without merging;
-  - **failed: auto-merge off**: the PR is open and auto-merge is no longer
-    enabled;
+  - **failed: auto-merge off**: the PR is open and auto-merge is not enabled,
+    whether it was off when the watch started or went off during it;
   - **failed: provenance**: the provenance check (§6.7) found a violation;
+  - **failed: not a develop PR**: the PR's base is not `develop`, or its head
+    is `release/*`. Finalize does not watch it.
   - **timed out:** the batch deadline passed before the PR reached any of the
     states above.
 
@@ -351,17 +353,21 @@ rule an auto-merged PR would wait forever.
   - **Auto-merge stays on for a failed PR.** An agent fixes it, CI goes green
     and it lands by itself; the human then reruns finalize, which counts it as
     merged.
-  - **Restoring auto-merge.** When finalize starts, any listed PR that is open
-    with auto-merge off has it turned back on through the shared helper
-    (§6.2). If GitHub reports the PR already mergeable, the helper merges it
-    directly. Finalize is run by the human, so this is a human merge. Every
-    PR whose auto-merge finalize restored is printed with its head SHA. Only a
-    PR whose auto-merge goes off *during* the watch is reported as *failed:
-    auto-merge off*.
+  - **Auto-merge off is an exception, never repaired.** Finalize never turns
+    auto-merge on, and never merges a PR itself.
+    - **The one deliberate off.** Our tooling turns auto-merge off in exactly
+      one case: a provenance violation (below). That is a stop-everything
+      event for the human to investigate.
+    - **Any other off is also an exception.** A PR found with auto-merge off,
+      at the start or mid-watch, is reported loudly as *failed: auto-merge
+      off*, and is left for the human to investigate and turn back on.
+    - **Handling GitHub's own disables.** If GitHub is found to turn
+      auto-merge off in some normal scenario, handling for that scenario is
+      added then, once it is understood.
   - **Provenance during the watch.** Finalize runs the provenance check on
     every listed PR when the watch starts, and again each time it sees a new
-    head on a PR. A restore runs it first. On a violation, finalize turns that
-    PR's auto-merge off and reports it *failed: provenance*. The PR does not
+    head on a PR. On a violation, finalize turns that PR's auto-merge off and
+    reports it *failed: provenance*. The PR does not
     reach a terminal state otherwise. `--allow-provenance-violation` overrides
     this for the run, as it does today.
 - **Settle phase.** This runs only if at least one PR merged. Steps 1–5 hold
@@ -421,7 +427,12 @@ rule an auto-merged PR would wait forever.
     commands.
 - **Flags added:** `--no-install`, passed through to the chained release.
 - **Kept:**
-  - `--cleanup-only`, which takes the lock for its sync and cleanup (§6.4);
+  - `--cleanup-only`, the "settle develop with no PRs" mode. It is used after
+    an automated job merges on GitHub, and by `vrg-release`. It runs the
+    settle steps with no watch: sync, cleanup, provision and validate under
+    the lock (§6.4), then the CD report. Its exit codes are the same as a
+    watched run's, so a develop that does not validate is 4. Interactive
+    finalize with no open PRs still offers it.
   - `--allow-provenance-violation`, the conscious override for the watch
     phase's provenance check. `vrg-submit-pr` gains the same flag.
 
@@ -543,8 +554,10 @@ with the merge work.
   in finalize's watch phase (§6.3). Finalize's separate pre-merge provenance
   stage goes, since finalize no longer merges.
   - **Auto-merge events.** The check also counts an agent identity turning
-    auto-merge on or off (`auto_merge_enabled`, `auto_merge_disabled`) as a
-    forbidden action, since turning auto-merge on is now how a PR is merged.
+    auto-merge on as a forbidden action, under every event name GitHub uses
+    for it, since turning auto-merge on is now how a PR is merged. An agent
+    turning it off is not a violation: finalize reports any PR with
+    auto-merge off as an exception anyway (§6.3).
   - **Coverage.** The check runs only at submit and while a finalize run
     watches. It is not a required status check, so it does not cover a PR
     between finalize runs, or one submitted with `--no-finalize`. That is
@@ -750,8 +763,9 @@ CD state that is not green is named in the output.
   and the direct merge that follows.
 - **Auto-merge after a push.** Confirm whether GitHub keeps auto-merge enabled
   when a write-access account pushes to the PR. The design assumes it does;
-  test it during the live validation. If it does not, finalize's restore step
-  (§6.3) recovers it on the human's next run.
+  test it during the live validation. If it does not, finalize reports that PR
+  *failed: auto-merge off* (§6.3). The scenario is then a finding for
+  follow-on work, which may add handling for it once understood.
 - **The poll interval** for the watch phase, within GitHub's API rate limits
   for a batch of about ten PRs.
 - **Where the shared auto-merge and lock helpers live** in `lib/`.
