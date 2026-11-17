@@ -33,6 +33,7 @@ scripts), pytest, bash (`assert.sh`), npm semver range syntax.
 - The shared lifecycle code stays language-neutral: the `ts-node` switch is a manifest change, with no Node branch in `apply.py` or `publish.py` (spec §6.1, §8).
 - Fail loudly: an unreadable `package.json`, `engines`, `engines.node` or `devEngines`, a range that admits nothing, and a failed `node` call are errors, never skipped (spec §7, §8).
 - Lifecycle PRs stay human-merged; releases are human-gated; no agent cuts a release (spec §8).
+- **Release lock.** Before the first PR merges whose change must not be released until other tasks are done, the agent stops, tells the human loudly, and waits for an explicit go-ahead. In this plan that PR is the first of Tasks 6 and 8 to be handed off for vergil-tooling's `develop`. From that merge until Task 10's fleet re-check has posted, the human holds every vergil-tooling release, including those of other epics running in parallel, which pause their own releases until this plan's conditions are met. The human is the lock; no tooling enforces it.
 - Validation runs only through `vrg-container-run -- vrg-validate` in the task repo's worktree.
 - Commit with `vrg-commit`; hand off with `vrg-pr-workflow report-ready`.
 
@@ -69,7 +70,8 @@ Tracks A (Tasks 2–5) and B (Tasks 6–10) share nothing until the fixture run.
 
 **Filing.** Tasks 2–10 are filed at epic-create's filing step, each in its
 repo and linked under #1281, with its `Blocked-by:` refs. The fixture run is
-filed right after, once Tasks 5 and 10 exist (below).
+filed later, once Tasks 5 and 10 have closed with their release versions
+recorded (below).
 
 ---
 
@@ -159,8 +161,10 @@ Blocked by 4.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
 - [ ] **Step 3: Implement** `typescript.py`: a module docstring in `python.py`'s style stating the rule (the Node runtime belongs to Vergil, as Python's does; epic #407 spec §6.5, this epic's spec §6.2), `_package_json` and `check_toolchain`. Register the hook.
 - [ ] **Step 4: Update `toolchain-and-strictness.md`:** Vergil selects the Node runtime through the image; a repo declares at most an `engines.node` range, which should admit every window major; and every setting `check_toolchain` reports is an error, listed as spec §6.2 lists it, with its fix.
+- [ ] **Step 4b: Update `validation-matrix.md`:** its toolchain-selection paragraph (beside Python's `.python-version` and Rust's toolchain files) names TypeScript's settings and links to `toolchain-and-strictness.md`.
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS.
-- [ ] **Step 6: Commit** `vrg-commit --type feat --scope versions --message "report TypeScript settings that select Node or the package manager"`, then report-ready.
+- [ ] **Step 6: Commit** `vrg-commit --type feat --scope versions --message "report TypeScript settings that select Node or the package manager"`.
+- [ ] **Step 7: Release lock** (Global Constraints). If Task 8 has not yet been handed off, stop before report-ready: tell the human loudly that merging this PR starts the vergil-tooling release hold, and wait for an explicit go-ahead. Then report-ready, with the hold stated at the top of the notes.
 
 ### Task 7: Two-sided `engines.node` floor warning (vergil-tooling)
 
@@ -182,7 +186,7 @@ Blocked by 6.
   - `engines.node <range> excludes Node <newest>. Fix: drop the upper bound, or widen it to admit <newest>`
 - Produces (private): `_NodeRange` with `lowest() -> tuple[int, int, int] | None` (the lowest non-prerelease version admitted, `None` when none) and `admits_major(major: int) -> bool`; and `_parse_range(text: str) -> _NodeRange`, raising `VersionsError` on anything it cannot read.
 
-- [ ] **Step 1: Choose the parser** (spec §10). Check PyPI for a maintained Python implementation of npm's range grammar (<https://github.com/npm/node-semver#ranges>): a release within the last two years, and a licence vergil-tooling's licence check accepts. If one exists, wrap it behind `_parse_range`; if not, implement the reader in `typescript.py`. Record the choice and why in the PR body.
+- [ ] **Step 1: Choose the parser** (spec §10). Check PyPI for a maintained Python implementation of npm's range grammar (<https://github.com/npm/node-semver#ranges>): a release within the last two years, a licence vergil-tooling's licence check accepts, support for Python 3.15 (vergil-tooling's floor; its `requires-python` does not exclude it), and a pure-Python wheel. Confirm it with `uv lock` before choosing it. If one exists, wrap it behind `_parse_range`; if not, implement the reader in `typescript.py`. Record the choice and why in the PR body.
 - [ ] **Step 2: Write the failing tests** in `test_versions_typescript_ext.py`, window 26/24/22 (`oldest="22"`, `newest="26"`):
   - `test_floor_and_upper_bound`, parametrized on `(range, expected warnings)`: `">=24"` none (Review Focus 1); `">=22"` none; `">=20"` floor 20; `"^22 || ^24"` upper bound only (Review Focus 2); `"^20 || ^24"` floor 20 and upper bound; `"~24.1"` upper bound; `"22.x"` upper bound; `"20 - 26"` floor 20; `">=22.12.0 <27"` none; `"*"` floor 0; `"<27"` floor 0; `">=24 <26"` upper bound.
   - `test_no_engines_node_is_silent`: no `engines`, and `engines` with only `os`, give nothing.
@@ -221,7 +225,8 @@ Blocked by 6.
 - [ ] **Step 3: Implement** the constants, `withheld_reason` and the loop change.
 - [ ] **Step 4: Update `container-config.md`:** the `env-prefixes` entry lists the names and prefixes never forwarded, why, and the notice.
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS.
-- [ ] **Step 6: Commit** `vrg-commit --type fix --scope container --message "withhold Node and npm host settings from containers, with a notice"`, then report-ready.
+- [ ] **Step 6: Commit** `vrg-commit --type fix --scope container --message "withhold Node and npm host settings from containers, with a notice"`.
+- [ ] **Step 7: Release lock** (Global Constraints). If Task 6 has not yet been handed off, stop before report-ready: tell the human loudly that merging this PR starts the vergil-tooling release hold, and wait for an explicit go-ahead. Then report-ready, with the hold stated at the top of the notes.
 
 ### Task 9: TypeScript branch of the toolchain assertion (vergil-actions)
 
@@ -234,9 +239,9 @@ Blocked by 6.
 
 **Interfaces:**
 
-- Produces: for `LANGUAGE=typescript`, `assert.sh` strips a leading `node-` from `EXPECTED` and requires `^[0-9]+$` of the rest (else `::error::assert-toolchain: expected must be a Node major for typescript (got '<value>')`); runs `node --version` in the working directory and takes the major (`v26.1.0` → `26`); runs `node -p process.execPath` and logs `assert-toolchain: the job's Node is <path>`. A failed `node` call is `::error::assert-toolchain: cannot ask node for its version: <output>`; an answer with no major is an error naming it. The comparison and its mismatch message are the shared ones. No workflow file changes.
+- Produces: for `LANGUAGE=typescript`, `assert.sh` strips a leading `node-` from `EXPECTED` and requires `^[0-9]+$` of the rest (else `::error::assert-toolchain: expected must be a Node major for typescript (got '<value>')`); asks Node once, in the working directory, with `node -p 'process.versions.node + "\n" + process.execPath'`, as the Python branch asks its interpreter once for two lines; takes the major from line 1 (`26.1.0` → `26`) and logs line 2 as `assert-toolchain: the job's Node is <path>`. A failed `node` call is `::error::assert-toolchain: cannot ask node for its version: <output>`; an answer whose line 1 has no major, or with no line 2, is an error naming it. The comparison and its mismatch message are the shared ones. No workflow file changes.
 
-- [ ] **Step 1: Write the failing cases** in `assert.test.sh`, faking `node` the way `go` is faked (answering `--version` with `v26.1.0` and `-p process.execPath` with `/opt/node/26/bin/node`): `node-26` passes and logs the path; `26` passes; `node-24` fails with `CI resolved 24 but the job runs 26`; `node-x` and `24.1` fail with the expected-format error; `node` exiting 1 fails with the "cannot ask node" error; `--version` answering `garbage` fails.
+- [ ] **Step 1: Write the failing cases** in `assert.test.sh`, faking `node` the way `go` is faked, with the one answer `26.1.0` and `/opt/node/26/bin/node` on two lines: `node-26` passes and logs the path; `26` passes; `node-24` fails with `CI resolved 24 but the job runs 26`; `node-x` and `24.1` fail with the expected-format error; `node` exiting 1 fails with the "cannot ask node" error; an answer of `garbage` fails; an answer of `26.1.0` alone (no path line) fails.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the typescript cases to fail (the notice path exits 0).
 - [ ] **Step 3: Implement** the `typescript)` case, the header comment's line, and the notice text (`only python, go, rust and typescript are checked`). Update `action.yml`.
 - [ ] **Step 4: Update** `ci-toolchain-assert.md` and the actions index for TypeScript.
@@ -256,8 +261,10 @@ Blocked by 6, 7, 8, 9.
 
 ### Fixture run (FR)
 
-Filed with the `fixture-run` skill once Tasks 5 and 10 exist. The plan's
-seeding is the approval it files under.
+Filed with the `fixture-run` skill once Tasks 5 and 10 have closed with their
+release versions recorded, since `--validates` names those versions and
+drives the validation's deployed-version probe. The plan's seeding is the
+approval it files under.
 
 - `fixture-run vergil-project/.github#1281 ts-lib,ts-app --validates "vergil-tooling <v> and vergil-actions <v> (TypeScript toolchain enforcement), vergil-containers <v> (ts-node window 26/24/22)" --after <Task 5> --after <Task 10>`. The versions are those Tasks 5 and 10 record.
 - After filing, post on each validation task the checks the recipe's templates do not carry (spec §6.6):
