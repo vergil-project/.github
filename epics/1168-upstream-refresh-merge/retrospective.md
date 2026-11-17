@@ -72,8 +72,9 @@ the shape of it was:
   file, was still not enough for files that repeat keys per block, such as
   `runtime.toml`'s `[[series]]`. The second fix compares each file as a whole,
   per block, with an optional anchor group naming the block. The spec and plan
-  were updated before P1 and C1 ran (.github#1216), since nothing had shipped
-  yet.
+  were updated in place before P1 and C1 ran (.github#1216). That was done
+  believing nothing had shipped, but Task 1 had merged 51 minutes earlier, so
+  the plan's log records the edit after the fact.
 - **The removal rule came from the same thread.** A fresh review then found that
   dropping a series in one run and re-adding it lower in the next passed the
   fence. The human ruled that an automated refresh never removes an existing
