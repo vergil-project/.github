@@ -286,7 +286,8 @@ spec's builder confirms that behaviour, and the npm versions that have it,
 against npm's documentation for the npm bundled with each window major, and
 records the URLs in the PR. If the behaviour differs from this paragraph, the
 error stays (the setting still names a version Vergil owns) and the spec is
-corrected in the same PR.
+corrected in a separate `vergil-project/.github` PR, linked from the
+vergil-tooling PR.
 
 A `devEngines` or `engines` that is not an object, or a `devEngines` array
 entry that is not an object, is a `VersionsError` naming the field.
@@ -348,7 +349,8 @@ Each host variable that matches the repo's `env-prefixes` and is withheld
 prints one notice on stderr, naming the variable and the reason (it would
 override the image's toolchain, or change how Node or npm behaves inside the
 container). That covers the existing withheld names too: rustup's two and
-`VRG_VERSION_WINDOW` (whose notice says it is mounted instead). A
+`VRG_VERSION_WINDOW` (whose notice says it names a host path the container
+cannot see). A
 withheld variable is never dropped without a message.
 
 The host's `NODE_PATH` stays forwarded when the repo declares a build
@@ -370,18 +372,20 @@ exclusion does.
 - The expected version is the leg's version as CI passes it. A leading `node-`
   is stripped, and what remains must be a bare major (`^[0-9]+$`); anything
   else is an error.
-- It runs `node --version` in the repo checkout and takes the major
-  (`v26.1.0` → `26`). It also runs `node -p process.execPath` and logs the
-  path, as the Python branch logs the interpreter's, so the log shows whether
-  the family Node or another one ran.
-- A failure to run `node`, or an answer with no major, is an error.
+- It asks Node once, in the repo checkout, for two lines: its version and
+  its executable path (`node -p 'process.versions.node + "\n" +
+  process.execPath'`), as the Python branch asks its interpreter once. It
+  takes the major from the version (`26.1.0` → `26`) and logs the path, so
+  the log shows whether the family Node or another one ran.
+- A failure to run `node`, or an answer with no major or no path, is an
+  error.
 - On a mismatch it prints `CI resolved <expected> but the job runs <actual>`,
   as the other branches do.
 
 The header comment, the action's description, and the notice for unhandled
 languages are updated. Tests cover a match, a mismatch, a `node` failure, an
-expected value with and without `node-`, a malformed expected value and
-`v26`.
+expected value with and without `node-`, malformed expected values (`v26`
+among them), and an answer with no path.
 
 ### 6.5 Docs
 

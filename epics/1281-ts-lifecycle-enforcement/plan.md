@@ -82,15 +82,18 @@ recorded (below).
 - Modify: `docker/versions/manifest.yml` (`ts-node.automation`)
 - Modify: the files `uv run docker/versions/generate.py` regenerates
 - Modify: `docs/site/docs/languages/ts-node.md` ("Automation" section only)
-- Modify: `docs/site/docs/languages/lifecycle.md` (the per-family automation table, around line 184)
+- Modify: `docs/site/docs/languages/lifecycle.md` (the per-family automation table, around line 184; the "`pr` families" sentence, around line 45; and the sentence saying pull-request CI does not build images)
 - Test: `docker/versions/test_generate.py` (`test_real_manifest_is_valid`)
+
+This is a configuration task, exempt from test-first: it changes one
+manifest value and docs, and the repo's existing checks prove it.
 
 How a `pr` family classifies, and how an add PR writes a `ts-node` pin, is
 already tested by the shared lifecycle suite (epic #1095 Task 2b's
 `test_unresolvable_pin_is_apply_error` covers a ts-node add). This task adds
 no lifecycle code.
 
-- [ ] **Step 1: Implement** `automation: "pr"` for `ts-node`; regenerate with `uv run docker/versions/generate.py`. In `ts-node.md`, "Automation" says **`pr`**: the lifecycle job opens add and drop PRs, human-merged, each carrying its toolchain pin. Leave "Current out-of-policy versions" for Task 4. In `lifecycle.md`, the table row for `ts-node` says `pr`.
+- [ ] **Step 1: Implement** `automation: "pr"` for `ts-node`; regenerate with `uv run docker/versions/generate.py`. In `ts-node.md`, "Automation" says **`pr`**: the lifecycle job opens add and drop PRs, human-merged, each carrying its toolchain pin. Leave "Current out-of-policy versions" for Task 4. In `lifecycle.md`, the table row for `ts-node` says `pr`, the "`pr` families" sentence names TypeScript beside Python, Go and Rust, and the sentence on pull-request CI says what `ci-images.yml`'s `images` job does today: PR CI builds, scans and smoke-tests the images a change affects.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 3: Commit** `vrg-commit --type feat --scope versions --message "move ts-node to pr lifecycle automation"`, then report-ready.
 
@@ -101,6 +104,7 @@ Blocked by 2.
 - **Precondition (machine probe):** Task 2 is merged, and a lifecycle run since then has opened the Node 26 add PR: `vrg-gh pr list --repo vergil-project/vergil-containers --search "head:lifecycle/ts-node-"` lists it.
 - **Procedure:** the human merges; the agent checks. Merging is a human action.
   1. Agent: confirm the PR adds only `ts-node` 26: the manifest entry, its `toolchains.yml` pin, and the regenerated files. Confirm its CI is green, including the ts-node 26 image build, `checks.sh` and the smoke test. Report it ready to merge.
+     - **If its CI is red:** report the failing job and its cause. This is the first run of the ts-node smoke project (repo-declared TypeScript 6, ESLint 10 and Vitest 5, installed with `npm ci`) on Node 26 and npm 11. Propose the fix to the human and, on their ruling, file it as a vergil-containers task linked under #1281, and record it here as `Blocked-by:`. This task stays open until the fix has merged and the lifecycle job's next run has rebuilt the PR green.
   2. Human: merge it.
   3. Agent: confirm `dev-ts-node` images for 26 are published from `develop`, and that vergil-project/vergil-containers#730 is closed (the job stops reporting the add).
   4. Agent: post the add PR's vergil-vm follow-up line as a comment on epic 4's planning item, vergil-project/.github#959, where lining vergil-vm up with the window belongs (spec §6.1).
@@ -112,9 +116,9 @@ Blocked by 3.
 
 **Files:**
 
-- Modify: `docs/site/docs/languages/ts-node.md` ("Support rule" paragraph that says "On 2026-10-21 that is 24 and 22", and "Current out-of-policy versions")
+- Modify: `docs/site/docs/languages/ts-node.md` (the header's "checked on 2026-10-21" date, the "Support rule" paragraph that says "On 2026-10-21 that is 24 and 22", the "Adapter quirks" line on vergil-vm's Node pin, and "Current out-of-policy versions")
 
-- [ ] **Step 1:** The support-rule paragraph gives the window as 26, 24 and 22, dated the day Task 3 closed. "Current out-of-policy versions" says that under `pr` automation a major outside the window is dropped through a lifecycle PR, so there is none, and that the open lifecycle PRs show any pending change. Remove the "manifest is behind until 26 is built" paragraph.
+- [ ] **Step 1:** The support-rule paragraph gives the window as 26, 24 and 22, dated the day Task 3 closed. "Current out-of-policy versions" says that under `pr` automation a major outside the window is dropped through a lifecycle PR, so there is none, and that the open lifecycle PRs show any pending change. Remove the "manifest is behind until 26 is built" paragraph. The header's "checked on" date becomes the day the upstream facts are re-checked for this edit. The vergil-vm line says lining vergil-vm's Node up with the window is epic 4's work (vergil-project/.github#959).
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 3: Commit** `vrg-commit --type docs --scope ts-node --message "describe the ts-node window under pr automation"`, then report-ready.
 
@@ -126,7 +130,7 @@ Blocked by 4.
 - **Procedure (agent-safe):**
   1. Confirm the release notes list Task 2's PR, the Node 26 add PR and Task 4's PR.
   2. Confirm the release's `docker/versions/window.json` lists `ts-node` 26, 24 and 22.
-  3. Confirm `prod-ts-node` images for 26, 24 and 22 are published from that release.
+  3. Confirm `prod-ts-node` images for 26, 24 and 22 are published from that release. The images carry no Vergil release label yet (vergil-project/.github#1287), so tie them to the release this way: find the prod publish run the release triggered, check that its commit is the release tag's, and record the digests it pushed for 26, 24 and 22. Prod tags are rebuilt nightly from the release commit, so a current tag digest rebuilt from that commit also counts as a match (the ruling recorded in epic #1095's plan).
 - **SUCCESS:** every check passes, recorded with the release version and image digests.
 
 ### Task 6: TypeScript toolchain-setting errors, and the standards page (vergil-tooling)
@@ -135,6 +139,7 @@ Blocked by 4.
 
 - Create: `src/vergil_tooling/lib/versions/extensions/typescript.py`
 - Modify: `src/vergil_tooling/lib/versions/extensions/__init__.py` (register `typescript` in `TOOLCHAIN_CHECKS`; not in `CONTAINER_ENVS`)
+- Modify: `src/vergil_tooling/lib/versions/floors.py` (the module docstring's list of toolchain-selection files gains TypeScript's)
 - Modify: `docs/site/docs/standards/development/typescript/toolchain-and-strictness.md`
 - Modify: `docs/site/docs/guides/validation-matrix.md` (the toolchain-selection checks, beside Python's and Rust's)
 - Test: `tests/vergil_tooling/test_versions_typescript_ext.py` (new), `tests/vergil_tooling/test_versions_floors.py` (`test_registries`), `tests/vergil_tooling/test_vrg_validate.py`
@@ -157,7 +162,7 @@ Blocked by 4.
   - `test_malformed_package_json_is_versions_error`: a `package.json` holding `[]`, and one holding `{`, each raise `VersionsError` whose message is `PackageJsonError`'s.
   - `test_no_package_json_no_files`: an empty repo gives no error.
   - `test_registries` in `test_versions_floors.py`: `TOOLCHAIN_CHECKS` keys become `{"python", "rust", "typescript"}`.
-  - In `test_vrg_validate.py`, `test_typescript_malformed_package_json_reports_error`: a TypeScript repo with `package.json` holding `[]` makes the version step print `ERROR:` with the file's path, fail, and print no `Traceback` (Review Focus 4).
+  - In `test_vrg_validate.py`, `test_typescript_malformed_package_json_reports_error`: a TypeScript repo with `package.json` holding `[]` makes the version step print `ERROR:` with the file's path, fail, and print no `Traceback` (Review Focus 4). The test asserts that the error comes from the version step: no later stage has run when it is printed. A later stage that reads `package.json` may already report the file today, so a test that only looked for `ERROR:` could pass before this task's code exists.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
 - [ ] **Step 3: Implement** `typescript.py`: a module docstring in `python.py`'s style stating the rule (the Node runtime belongs to Vergil, as Python's does; epic #407 spec §6.5, this epic's spec §6.2), `_package_json` and `check_toolchain`. Register the hook.
 - [ ] **Step 4: Update `toolchain-and-strictness.md`:** Vergil selects the Node runtime through the image; a repo declares at most an `engines.node` range, which should admit every window major; and every setting `check_toolchain` reports is an error, listed as spec §6.2 lists it, with its fix.
@@ -176,6 +181,8 @@ Blocked by 6.
 - Modify: `src/vergil_tooling/lib/versions/extensions/__init__.py` (register `typescript` in `FLOOR_CHECKS`)
 - Modify: `pyproject.toml` and `uv.lock`, only if Step 1 picks a library
 - Modify: `docs/site/docs/standards/development/typescript/toolchain-and-strictness.md` (the floor and upper-bound rule)
+- Modify: `docs/site/docs/guides/validation-matrix.md` (the floor sentence that lists `requires-python`, the `go` directive and `rust-version`)
+- Modify: `src/vergil_tooling/lib/versions/floors.py` (the module docstring's list of floors gains `engines.node`)
 - Test: `tests/vergil_tooling/test_versions_typescript_ext.py`, `tests/vergil_tooling/test_versions_floors.py` (`test_registries`)
 
 **Interfaces:**
@@ -196,7 +203,7 @@ Blocked by 6.
   - `test_registries`: `FLOOR_CHECKS` keys become `{"python", "go", "rust", "typescript"}`.
 - [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
 - [ ] **Step 4: Implement** `_parse_range` and `check_floor`. If hand-written, the reader turns each `||` alternative into one interval (desugaring `x`-ranges, `~`, `^` and hyphen ranges as node-semver's README defines them), drops an alternative whose interval is empty, and raises when every one is empty. `lowest()` is the smallest lower bound; `admits_major(n)` is whether any interval meets `[n.0.0, (n+1).0.0)`. The floor test compares `lowest()`'s major with `int(oldest)`; the upper-bound test is `admits_major(int(newest))`. Register the hook.
-- [ ] **Step 5: Update `toolchain-and-strictness.md`** with the two warnings and the two errors (an unreadable range, a range that admits nothing).
+- [ ] **Step 5: Update `toolchain-and-strictness.md`** with the two warnings and the two errors (an unreadable range, a range that admits nothing). Add `engines.node` to `validation-matrix.md`'s floor sentence and to `floors.py`'s docstring.
 - [ ] **Step 6: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 7: Commit** `vrg-commit --type feat --scope versions --message "warn on an engines.node range outside the Node window"`, then report-ready.
 
@@ -212,7 +219,7 @@ Blocked by 6.
 
 - Produces: `NEVER_FORWARDED` gains `"NODE_OPTIONS"`.
 - Produces: `NEVER_FORWARDED_PREFIXES: tuple[str, ...] = ("npm_config_", "COREPACK_", "VOLTA_")`, each matched without regard to case (npm reads its environment configuration case-insensitively).
-- Produces: `withheld_reason(name: str) -> str | None`: `None` for a name the passthrough may forward, otherwise the reason. Reasons: `RUSTUP_TOOLCHAIN` and `RUSTUP_AUTO_INSTALL`, "it would override the image's Rust toolchain"; `VRG_VERSION_WINDOW`, "a host path the container cannot see; the window file is mounted instead"; `NODE_OPTIONS` and the prefixes, "it would change how Node or npm behaves inside the container".
+- Produces: `withheld_reason(name: str) -> str | None`: `None` for a name the passthrough may forward, otherwise the reason. Reasons: `RUSTUP_TOOLCHAIN` and `RUSTUP_AUTO_INSTALL`, "it would override the image's Rust toolchain"; `VRG_VERSION_WINDOW`, "it names a host path the container cannot see"; `NODE_OPTIONS` and the prefixes, "it would change how Node or npm behaves inside the container".
 - The passthrough loop forwards a name that matches the repo's `env-prefixes` only when `withheld_reason(name)` is `None`; otherwise it prints `vrg-container-run: not forwarding <NAME> from the host: <reason>` on stderr, once per name. `NODE_PATH` handling, `env_names` and `extra_env` are unchanged.
 
 - [ ] **Step 1: Write the failing tests** in `test_container.py`:
@@ -241,7 +248,7 @@ Blocked by 6.
 
 - Produces: for `LANGUAGE=typescript`, `assert.sh` strips a leading `node-` from `EXPECTED` and requires `^[0-9]+$` of the rest (else `::error::assert-toolchain: expected must be a Node major for typescript (got '<value>')`); asks Node once, in the working directory, with `node -p 'process.versions.node + "\n" + process.execPath'`, as the Python branch asks its interpreter once for two lines; takes the major from line 1 (`26.1.0` → `26`) and logs line 2 as `assert-toolchain: the job's Node is <path>`. A failed `node` call is `::error::assert-toolchain: cannot ask node for its version: <output>`; an answer whose line 1 has no major, or with no line 2, is an error naming it. The comparison and its mismatch message are the shared ones. No workflow file changes.
 
-- [ ] **Step 1: Write the failing cases** in `assert.test.sh`, faking `node` the way `go` is faked, with the one answer `26.1.0` and `/opt/node/26/bin/node` on two lines: `node-26` passes and logs the path; `26` passes; `node-24` fails with `CI resolved 24 but the job runs 26`; `node-x` and `24.1` fail with the expected-format error; `node` exiting 1 fails with the "cannot ask node" error; an answer of `garbage` fails; an answer of `26.1.0` alone (no path line) fails.
+- [ ] **Step 1: Write the failing cases** in `assert.test.sh`, faking `node` the way `go` is faked, with the one answer `26.1.0` and `/opt/node/26/bin/node` on two lines: `node-26` passes and logs the path; `26` passes; `node-24` fails with `CI resolved 24 but the job runs 26`; `node-x`, `24.1` and `v26` fail with the expected-format error; `node` exiting 1 fails with the "cannot ask node" error; an answer of `garbage` fails; an answer of `26.1.0` alone (no path line) fails.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the typescript cases to fail (the notice path exits 0).
 - [ ] **Step 3: Implement** the `typescript)` case, the header comment's line, and the notice text (`only python, go, rust and typescript are checked`). Update `action.yml`.
 - [ ] **Step 4: Update** `ci-toolchain-assert.md` and the actions index for TypeScript.
