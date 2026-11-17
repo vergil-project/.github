@@ -95,7 +95,8 @@ vergil-tooling's next normal release and has no deployment task.
   `test_setup_dev_ref_half_environment_refuses`,
   `test_setup_half_environment_refuses` and the `_TODAYS_INSTALL` constant.
   Drop `_Env`'s `source` parameter and the `_SOURCE_REL` constant: once the
-  probe is gone nothing reads that file. `_Env` keeps its `core` parameter.
+  probe is gone nothing reads that file. `_Env` keeps its `core` parameter,
+  and every remaining `_Env(...)` call drops its `source=True`.
 
 - [ ] **Step 2: Rewrite the tests that assert removed content for a released tag**
 
@@ -110,7 +111,8 @@ vergil-tooling's next normal release and has no deployment task.
     `"install -y vergil-tooling" in setup_cmd` and
     `"uv tool install" not in setup_cmd`. The first keeps its `pip install`
     assertion and is renamed `test_build_cached_image_uses_packaged_install`;
-    the second keeps its `uv sync --frozen --group dev` assertion.
+    the second keeps its `uv sync --frozen --group dev` assertion and is
+    renamed `test_build_cached_image_python_uses_packaged_install`.
   - `test_setup_line_ref_branches_on_environment`: rename to
     `test_setup_line_ref_packaged_fragment`; assert the fragment starts with
     `bash -euo pipefail -c` and a space, contains `vergil-tooling: packaged install
@@ -133,13 +135,20 @@ vergil-tooling's next normal release and has no deployment task.
 
   Run `vrg-container-run -- uv run pytest -q` on
   `tests/vergil_tooling/test_container_cache.py`.
-  Expected: exactly three tests FAIL, because the fragment still holds the
-  probes and the neither branch:
-  `test_build_cached_image_uses_packaged_install`,
-  `test_build_cached_image_python_includes_uv_install` and
-  `test_setup_line_ref_packaged_fragment`. The five marker rewrites pass
-  both before and after the change: today's fragment already carries the
-  packaged install's log line. Every other test passes.
+  Expected FAIL, because the fragment still holds the probes and the
+  neither branch:
+
+  - the three rewritten tests `test_build_cached_image_uses_packaged_install`,
+    `test_build_cached_image_python_uses_packaged_install` and
+    `test_setup_line_ref_packaged_fragment`;
+  - every remaining `_Env`-based test (the packaged-install, packaged-check,
+    candidate-mismatch, apt-update-failure and dev-ref core-Python tests),
+    with the half-image refusal: without the apt source file, today's code
+    refuses. This red shows the remaining paths no longer need that file.
+
+  The five marker rewrites pass both before and after the change: today's
+  fragment already carries the packaged install's log line. Every other
+  test passes.
 
 - [ ] **Step 4: Remove the switch**
 
@@ -219,7 +228,20 @@ vergil-tooling's next normal release and has no deployment task.
   `scripts/bin/validate-custom` lists the suite in `CI_ONLY_ACTION_SUITES`.
   Leave that case alone.
 
-- [ ] **Step 3: Remove the container switch**
+- [ ] **Step 3: Drop the apt source from the kept container cases**
+
+  Remove the `with_vergil_source` call from every kept container case
+  (`case_container_packaged`, `case_container_candidate_mismatch`, the
+  `case_container_exact_*` cases, `case_container_apt_update_failure`,
+  `case_packaged_check_refuses_foreign_interpreter`,
+  `case_container_packaged_leaves_uv_on_path` and
+  `case_dev_tag_container_binds_core_python`). Delete the helper if nothing
+  else uses it. Run the suite as in Step 2.
+  Expected: those cases FAIL with "refusing to guess", and
+  `missing_pin_fails` fails as before. This red shows the container paths
+  no longer need the apt source file.
+
+- [ ] **Step 4: Remove the container switch**
 
   In `install-tooling.sh`:
 
@@ -227,12 +249,17 @@ vergil-tooling's next normal release and has no deployment task.
   - `container_install` does, with no state check: log `packaged install
     (<tag>)`, `write_pin`, `apt_get update`, `check_candidate`,
     `packaged_install`, `ensure_uv`;
-  - `dev_install` branches on `is_host`. On a host: the existing log line
-    for a dev ref, `ensure_uv`, `uv_git_install "$tag"`. In a container:
-    `find_core_pythons`, log `uv tool install from git on the core Python
-    (<tag>)`, `ensure_uv`, `uv tool install --python "${core_pythons[0]}"
-    …`, with no count check;
-  - keep `find_core_pythons`, which the container dev path still uses;
+  - `dev_install` branches on `is_host`. On a host: log `uv tool install
+    from git (dev ref <tag>; host runner)` (the test asserts the `dev ref
+    <tag>` part), `ensure_uv`, `uv_git_install "$tag"`. In a container: log
+    `uv tool install from git on the core Python (<tag>)`,
+    `find_core_pythons`, `ensure_uv`, `uv tool install --python
+    "${core_pythons[0]}" …`, with no count check;
+  - keep `find_core_pythons`, which the container dev path still uses, and
+    make it always return 0 (its loop's last `[ -e "$p" ] && …` returns 1
+    when nothing matches, which `set -e` would turn into a messageless exit).
+    With no core Python, the job then fails loudly at `"${core_pythons[0]}"`
+    under `set -u`, as the spec says;
   - rewrite the header comment's bullets for a dev tag and for a released
     tag in a container to the paths above;
   - grep `install-tooling.sh` and `tests/install-tooling.test.sh` for
@@ -240,14 +267,14 @@ vergil-tooling's next normal release and has no deployment task.
     describes the removed switch (the `# The environment check` banner and
     the suite's header among them).
 
-- [ ] **Step 4: Run the tests to see them pass**
+- [ ] **Step 5: Run the tests to see them pass**
 
   Run the suite again as in Step 2.
   Expected: every case passes except `missing_pin_fails`, including
   `case_container_packaged`, `case_dev_tag_container_binds_core_python`
   and `case_dev_tag_installs_pinned_uv`.
 
-- [ ] **Step 5: Update the docs**
+- [ ] **Step 6: Update the docs**
 
   `action.yml`'s description, `shared-setup-vergil.md` and the header
   comment of `smoke-setup-vergil.yml` describe the remaining paths: in a
@@ -255,7 +282,7 @@ vergil-tooling's next normal release and has no deployment task.
   the core Python for a dev tag; on a host runner, unchanged. Remove every
   mention of an image with neither or with only one of the two.
 
-- [ ] **Step 6: Validate and commit**
+- [ ] **Step 7: Validate and commit**
 
   Run: `vrg-container-run -- vrg-validate`
   Expected: PASS. It skips `install-tooling.test.sh` as CI-only, so it does
