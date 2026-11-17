@@ -61,7 +61,12 @@ gate and installs by default.
 - **The lock** is an exclusive `fcntl.flock` on
   `<main clone>/build/.vergil-state/checkout.lock`. It is not re-entrant.
   It covers only local sync, cleanup, provision, validate, release preflight's
-  sync, and update-deps' fast-forward (spec §6.4).
+  sync, and update-deps' fast-forward and preflight sync (spec §6.4).
+  Close-refs runs before it is taken.
+- **Refactor before commit.** Every code task ends with a refactor pass over
+  what it touched (stale docstrings, leftover helpers, duplicated logic),
+  then a re-run of `vrg-container-run -- vrg-validate`, before its commit
+  step. The tasks below do not repeat this step.
 - **Removed flags are fatal errors** that name the new default (spec §6.10):
   - `vrg-submit-pr`: `--finalize`, `--install`;
   - `vrg-release`: `--install`;
@@ -110,40 +115,46 @@ gate and installs by default.
 | --- | --- | --- | --- | --- |
 | 1 | .github | task (#1219) | Spec and plan (this PR) | — |
 | 2 | vergil-tooling | task | `lib/cd_runs.py` and release's develop-CD gate | — |
-| 3 | vergil-tooling | task | `vrg-release` installs by default | — |
+| 3 | vergil-tooling | task | `vrg-release` installs by default | 2 |
 | D1 | .github | deployment | Release 1 (Tasks 2–3) attested and installed | 2, 3 |
 | 4 | vergil-tooling | task | Split the CI gates ruleset; producibility covers both | — |
 | 5 | vergil-tooling | task | Audit clears classic protection's `strict` on develop | 4 |
 | 6 | vergil-actions | task | vergil-actions' own CD concurrency group per branch | — |
 | 7 | vergil-tooling | task | `confirm-main` re-dispatches a superseded main CD run | 2 |
-| D2 | .github | deployment | Release 2 (Tasks 4, 5, 7; actions Task 6) applied fleet-wide | D1, 4, 5, 6, 7 |
-| 8 | vergil-tooling | task | `lib/checkout_lock.py`; cleanup and update-deps take it | — |
+| 20 | vergil-actions | task | Ruleset docs describe the develop and main rulesets | 4 |
+| D2 | .github | deployment | Release 2 (Tasks 4, 5, 7; actions Tasks 6, 20) applied fleet-wide | D1, 4, 5, 6, 7, 20 |
+| 8 | vergil-tooling | task | `lib/checkout_lock.py`; cleanup and update-deps take it | 2, 3 |
 | 9 | vergil-tooling | task | Release preflight fast-forwards under the lock | 8 |
 | 10 | vergil-tooling | task | `lib/auto_merge.py`; mechanized PRs use it | — |
 | 11 | vergil-tooling | task | Provenance counts auto-merge events | — |
-| 12c | vergil-tooling | task | Finalize reports CD; `--wait-cd` opts in | 2 |
+| 18 | vergil-tooling | task | `vrg-pr-workflow batch-check --pr` | 2, 3 |
+| 12c | vergil-tooling | task | Finalize reports CD; `--wait-cd` opts in | 2, 3, 8, 18 |
 | 12a | vergil-tooling | task | `lib/finalize_watch.py`: the watch phase | 10, 11 |
-| 18 | vergil-tooling | task | `vrg-pr-workflow batch-check --pr` | — |
 | 12b | vergil-tooling | task | `vrg-finalize-pr` rebuilt on the watch and the lock | 8, 9, 12a, 12c, 18 |
-| 13a | vergil-tooling | task | `vrg-submit-pr`: one path, no rebase, develop only, auto-merge | 10, 11 |
+| 13a | vergil-tooling | task | `vrg-submit-pr`: one path, no rebase, develop only, auto-merge | 3, 10, 11 |
 | 13b | vergil-tooling | task | `vrg-submit-pr`: finalize by default, flags and exit status | 12b, 13a |
 | 14 | vergil-claude-plugin | task | merge-review: whole-branch review of an open PR | — |
 | 15 | vergil-claude-plugin | task | pr-watch for the auto-merge flow | 14, 18 |
 | 16 | vergil-claude-plugin | task | epic-create: the dev-image epic rule | — |
+| 19 | vergil-claude-plugin | task | Skills and the agent-merge hook describe the auto-merge flow | 15 |
 | 17 | vergil-tooling | task | Supersede the governance and batch-pipeline specs; update the permission model | 11, 12b, 13b |
-| D3 | .github | deployment | Release 3 (Tasks 8–13b, 17, 18; plugin 14–16) attested and installed | D2, 8–18 |
+| D3 | .github | deployment | Release 3 (Tasks 8–13b, 17, 18; plugin 14–16, 19) attested and installed | D2, 8–19 |
 | V1 | .github | validation | Live parallel batch, concurrent finalize, auto-merge after a push | D3 |
 | F | fixtures | fixture runs | python-app, python-lib, rust-app, rust-lib, ts-lib, ts-app | D3 |
-| — | vergil-tooling | bookend (#4529) | Documentation review | 2–18 |
+| — | vergil-tooling | bookend (#4529) | Documentation review | 2–20 |
 | — | .github | bookend (#1220) | Retrospective | all |
 
 Notes on the table:
 
-- **Ordering by shared files.** Tasks 12c, 12a and 12b all change
-  `bin/vrg_finalize_pr.py` and run in that order. Tasks 13a and 13b both
-  change `bin/vrg_submit_pr.py`. Task 13b also retires finalize's
-  `--skip-post-checks`, which Task 12b keeps so that submit's cascade works
-  in between.
+- **Ordering by shared files.** The Blocked-by edges keep changes to the same
+  file apart.
+  - **`bin/vrg_finalize_pr.py`** is changed by Tasks 2, 3, 8, 18, 12c and
+    12b, in that order. Task 12a only adds a new module.
+  - **`bin/vrg_submit_pr.py`** is changed by Tasks 3, 13a and 13b, in that
+    order.
+- **Interim flags.** Task 13b retires finalize's `--skip-post-checks` and
+  `--install`. Task 12b keeps both, so that submit's cascade works in
+  between.
 - **The retrospective** records that epic #1168's spec still says develop
   requires up-to-date checks (spec §6.9).
 - **Task 3** keeps submit's and finalize's existing `--install` working until
@@ -160,6 +171,7 @@ Notes on the table:
   - GHSA-fpm4-wh9m-2cm4 to Task 11;
   - GHSA-36g5-mf7w-77cr, now design-only because finalize no longer restores
     auto-merge, to the documentation task (#1219);
+  - GHSA-rpx5-46r2-f2qm to Task 12a;
   - GHSA-vv7q-29w3-225r, a design-only accepted risk stated by the spec, to
     the documentation task (#1219).
 
@@ -213,7 +225,8 @@ Notes on the table:
   - `test_develop_cd_gate_no_run_red_ancestor_refuses`;
   - `test_develop_cd_gate_deferred_failure_warns`;
   - `test_develop_cd_gate_superseded_uses_newer`;
-  - `test_develop_cd_gate_skipped_on_resume`.
+  - `test_develop_cd_gate_skipped_on_resume`;
+  - `test_develop_cd_gate_other_cancel_refuses` (a cancellation that is not a supersede).
 - [ ] **Step 3: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
 - [ ] **Step 4: Implement** the module and the move. Then call
   `check_develop_cd` in `preflight()` inside the existing `if not resume:`
@@ -321,6 +334,7 @@ Blocked by 2, 3.
   - `test_legacy_ci_gates_is_undesired`;
   - `test_producibility_checks_both_rulesets`;
   - `test_producibility_missing_ruleset_is_error`;
+  - `test_drift_report_names_ruleset_split` (the report names the legacy `CI gates` ruleset being replaced by the pair);
   - `test_repo_init_creates_both`;
   - `test_repo_config_reports_both`.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect FAIL.
@@ -408,14 +422,39 @@ existing workflow lint (`actionlint` through `vrg-validate`).
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 5: Commit** `vrg-commit --type feat --scope release --message "re-dispatch a main CD run superseded before it started"`, then report-ready.
 
+### Task 20: Ruleset docs describe the develop and main rulesets (vergil-actions)
+
+**Files:** modify `docs/site/docs/ci-gates/repository-rulesets.md` (about
+lines 13, 40 and 47), and `required-checks.md` and `security-scanning.md`
+where they name the `CI gates` ruleset.
+
+**Interfaces:**
+
+- Consumes: Task 4's names, `CI gates (develop)` and `CI gates (main)`.
+
+- [ ] **Step 1: Rewrite the rulesets page.** Describe two rulesets:
+  `develop`'s with "strict required status checks: no", and `main`'s with
+  "yes (branch must be up to date)". Give the reason in one paragraph, linking
+  the spec: `vergil-project/.github` `epics/1218-parallel-pr-merging/spec.md`
+  §2.
+- [ ] **Step 2: Update the links** in `required-checks.md` and
+  `security-scanning.md` to name the ruleset each page means.
+- [ ] **Step 3: Note the Scorecard change.** Where the docs discuss the
+  OpenSSF Scorecard's Branch-Protection check, note that the up-to-date item
+  for `develop` is gone, and that this is accepted.
+- [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS,
+  including the docs build.
+- [ ] **Step 5: Commit** `vrg-commit --type docs --scope ci-gates --message "describe the separate develop and main CI gates rulesets"`, then report-ready.
+
 ### Task D2: Release 2 applied fleet-wide (deployment, .github)
 
-Blocked by D1, 4, 5, 6, 7.
+Blocked by D1, 4, 5, 6, 7, 20.
 
 - **Precondition (human-attested):**
   - a vergil-tooling release containing Tasks 4, 5 and 7 is published, and
     installed on the host and VMs;
-  - the vergil-actions rolling tag carries Task 6;
+  - the vergil-actions rolling tag carries Task 6, and Task 20's docs are
+    published;
   - both versions are named in a comment.
 - **Human-run steps:** run the GitHub config audit with apply for the fleet,
   via the `ops.yml` workflow dispatch or the documented host command.
@@ -512,6 +551,9 @@ Blocked by D1, 4, 5, 6, 7.
   preflight does the same: under the lock, it fast-forwards a local develop
   that is behind `origin/develop`, instead of refusing unless the two are
   equal. Run standalone, its behaviour is unchanged.
+  - **The mechanism:** `run_update(…, fast_forward: bool = False)` passes the
+    flag to the preflight. Only `lib/release/update_deps_stage.py` passes
+    `fast_forward=True`. `vrg-update-deps` never does.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_preflight_fast_forwards`;
@@ -570,7 +612,8 @@ Blocked by D1, 4, 5, 6, 7.
   - `test_other_refusal_raises`;
   - `test_readback_mismatch_raises`;
   - `test_mechanized_uses_helper_squash`;
-  - `test_mechanized_auto_merge_refusal_is_mechanized_error`.
+  - `test_mechanized_auto_merge_refusal_is_mechanized_error`;
+  - `test_mechanized_already_mergeable_merges_directly` (the accepted behaviour change, spec §6.7).
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect FAIL.
 - [ ] **Step 3: Implement.** Record the exact GraphQL refusal string the
   helper matches in a module constant, with the GitHub docs URL in a comment.
@@ -673,7 +716,7 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
   auto-merge on); Task 11's `check_pr`.
 - Produces:
   - `Outcome = Literal["merged", "failed: CI", "failed: conflict", "failed: closed", "failed: auto-merge off", "failed: provenance", "failed: not a develop PR", "timed out"]`;
-  - `@dataclass(frozen=True) class PRResult: pr: str; outcome: Outcome; detail: str; head: str`.
+  - `@dataclass(frozen=True) class PRResult: pr: str; outcome: Outcome; detail: str; head: str; provenance_violation: bool = False`.
     `detail` names the failed check, or the provenance actions.
   - `deadline_secs() -> int`, reading `$VRG_FINALIZE_DEADLINE`.
   - `watch(prs: Sequence[str], *, allow_provenance_violation: bool, poll_interval: float = 15.0) -> list[PRResult]`.
@@ -681,7 +724,11 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
   1. **Start-up.** For each listed PR, in this order:
      - **Develop PRs only.** A PR whose base is not `develop`, or whose head
        is `release/*`, ends at once as `failed: not a develop PR`, untouched.
-     - **Provenance.** A violation, unless `allow_provenance_violation`,
+     - **Already merged.** A merged PR ends at once as `merged`. Provenance
+       still runs on it. A violation sets `provenance_violation=True` and is
+       printed loudly, and no disable call is made. Task 12b treats such a
+       run as not a full success.
+     - **Provenance.** On an open PR, a violation, unless `allow_provenance_violation`,
        turns auto-merge off (GraphQL `disablePullRequestAutoMerge`) and ends
        the PR at once as `failed: provenance`.
      - **Auto-merge off.** An open PR with auto-merge off ends at once as
@@ -703,6 +750,7 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
 
 - [ ] **Step 1: Write the failing tests**, with a fake GitHub that scripts each PR's state sequence:
   - `test_already_merged_counts`;
+  - `test_merged_pr_with_violation_flagged_not_disabled` (no disable call; outcome `merged`, `provenance_violation=True`);
   - `test_ci_failure_names_check`;
   - `test_conflict`;
   - `test_closed`;
@@ -743,17 +791,30 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
   [--yes] [--dry-run] | --cleanup-only`.
 - **The run.**
   1. `watch`.
-  2. If anything merged: `checkout_lock(purpose="vrg-finalize-pr settle")`
-     around close-refs, sync, cleanup, provision and validate.
+  2. If anything merged: close-refs, with no lock. Then
+     `checkout_lock(purpose="vrg-finalize-pr settle")` around sync, cleanup,
+     provision and validate.
   3. After the lock is released: the CD report, then `vrg-release
      [--no-install]` if `--release` and full success.
+- **Full success** means every PR merged, none with `provenance_violation`,
+  the validate is green, and, with `--wait-cd`, CD is green. A merged PR with
+  a violation makes the run exit 3, and no release runs.
+- **Report.** Each unmerged PR gets a next-step line: "hand it to an agent,
+  then rerun `vrg-finalize-pr <pr>`". For `failed: auto-merge off` and
+  `failed: provenance`, the line is "investigate before re-enabling
+  auto-merge".
 - **Exit codes** per Global Constraints. Any non-zero validate is 4, and the
   report carries the validate's log path and its last 40 lines.
-- **Removed flags.** `--strategy` and `--install` are fatal, each with a
-  message naming the new default.
-- **`--skip-post-checks` stays, for now.** It means "watch only, no settle
-  phase". Submit's batch cascade and `lib/pr_workflow/batch.py` still call it
-  until Task 13b removes them, together with this flag.
+- **Removed flags.** `--strategy` is fatal, with a message naming the new
+  default.
+- **Kept for now, until Task 13b:**
+  - **`--skip-post-checks`** means "watch only, no settle phase". Submit's
+    batch cascade and `lib/pr_workflow/batch.py` still call it.
+  - **`--install`** is still accepted and maps to a plain `vrg-release`
+    after full success, because submit's single-PR `--install` cascade
+    (`_chain_finalize`) still passes it.
+
+  Task 13b removes both, together with their callers.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_settle_once_after_mixed_batch`;
@@ -767,8 +828,12 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
   - `test_release_only_on_full_success`;
   - `test_chained_release_runs_after_lock_released`;
   - `test_report_lists_merged_and_unmerged_with_reasons`;
+  - `test_report_names_next_step_per_unmerged_pr`;
   - `test_report_broken_develop_names_head_and_commits`;
-  - `test_removed_flags_fatal` (parametrized over `--strategy` and `--install`);
+  - `test_strategy_flag_fatal`;
+  - `test_install_still_chains_plain_release` (submit's single-PR `--install` cascade works after this task);
+  - `test_merged_with_violation_blocks_release` (exit 3, no release);
+  - `test_close_refs_runs_outside_lock`;
   - `test_skip_post_checks_watches_without_settling`;
   - `test_all_selects_worktree_prs`;
   - `test_cleanup_only_settles_without_watch` (sync, cleanup, provision and validate under the lock, then the CD report; a failed validate is 4);
@@ -859,9 +924,8 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
 - **Default.** One `vrg-finalize-pr <opened…> [--release] [--no-install]
   [--allow-provenance-violation]`.
   - **Nothing opened.** When `summary.opened` is empty, finalize is not run
-    at all. Submit prints the failed submits and exits 3, or 1 if the
-    failures were tool errors. An empty list never reaches finalize's
-    interactive pick.
+    at all. Submit prints the failed submits and exits 3. An empty list never
+    reaches finalize's interactive pick.
   - `--release` is dropped when `summary.failed` is non-empty, and the
     summary prints `Release skipped: <n> PR(s) failed to submit`.
   - After finalize's report, submit prints the failed submits.
@@ -889,12 +953,16 @@ test `tests/vergil_tooling/test_pr_provenance.py`.
   - `test_exit_failed_submit_at_least_3`;
   - `test_exit_finalize_4_wins_over_3`;
   - `test_removed_and_invalid_flag_combinations_fatal` (parametrized);
-  - `test_dry_run_plans_without_side_effects`.
+  - `test_dry_run_plans_without_side_effects`;
+  - `test_single_confirmation_for_selection` (one plan and one confirmation for one PR or many; none with `--yes`).
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect FAIL.
 - [ ] **Step 3: Implement.** Remove the per-PR `--skip-post-checks` loops and
-  their post-checks step. Then make finalize's `--skip-post-checks` fatal
-  (`test_skip_post_checks_fatal` in the finalize tests, replacing Task 12b's
-  `test_skip_post_checks_watches_without_settling`).
+  their post-checks step. Change `_chain_finalize` to pass `--release` (and
+  `--no-install`) instead of `--install`. Then make finalize's
+  `--skip-post-checks` and `--install` fatal (`test_skip_post_checks_fatal`
+  and `test_finalize_install_fatal` in the finalize tests, replacing Task
+  12b's `test_skip_post_checks_watches_without_settling` and
+  `test_install_still_chains_plain_release`).
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 5: Refactor.** Update the module docstring and the printed
   hints. Run `vrg-container-run -- vrg-validate` again; expect PASS.
@@ -986,6 +1054,28 @@ lint through `vrg-validate`.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 3: Commit** `vrg-commit --type feat --scope pr-watch --message "watch PRs that auto-merge"`, then report-ready.
 
+### Task 19: Skills and the agent-merge hook describe the auto-merge flow (vergil-claude-plugin)
+
+**Files:** modify `skills/fixture-run/SKILL.md` (about line 275),
+`skills/epic-implement/SKILL.md` (about line 312),
+`skills/issue-implement/SKILL.md` (about line 821) and
+`hooks/scripts/block-agent-merge.sh` (about line 58).
+
+- [ ] **Step 1: Correct the skill text** so each describes the new flow (spec
+  §1, §6.2, §6.3):
+  - the human's `vrg-submit-pr` opens the PRs with auto-merge on and
+    finalizes by default;
+  - `vrg-finalize-pr` watches and settles, and never merges;
+  - a batch PR rebase-merges through auto-merge.
+- [ ] **Step 2: Correct the hook message** to: "Merging is a human action:
+  the human's `vrg-submit-pr` turns auto-merge on." Keep the hook's behaviour
+  unchanged.
+- [ ] **Step 3: Search the plugin** for any other description of a separate
+  finalize merge (`grep -rn "finalize" skills hooks agents`), and correct
+  each one, or list it in the PR body with why it is still accurate.
+- [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`; expect PASS.
+- [ ] **Step 5: Commit** `vrg-commit --type docs --scope skills --message "describe submit-time auto-merge in skills and the agent-merge hook"`, then report-ready.
+
 ### Task 16: epic-create: the dev-image epic rule (vergil-claude-plugin)
 
 **Files:** modify `skills/epic-create/SKILL.md` ("Operational tasks").
@@ -1006,7 +1096,9 @@ lint through `vrg-validate`.
   'Require Up to Date' Is Retained", pointing at
   `vergil-project/.github` `epics/1218-parallel-pr-merging/spec.md`. Drop the
   up-to-date line from "Rules for `develop`", and update the risks-table row
-  on merge serialization.
+  on merge serialization. Note that the OpenSSF Scorecard's Branch-Protection
+  check will no longer list "up-to-date branches required on develop", and
+  that this is accepted (spec §6.1).
 - [ ] **Step 2: Batch-pipeline spec.** Add a dated supersession note on its
   zero-waste serial design. Its merge-queue research stands.
 - [ ] **Step 3: Permission-model spec.** The provenance mitigation now names:
@@ -1020,11 +1112,11 @@ lint through `vrg-validate`.
 
 ### Task D3: Release 3 attested and installed (deployment, .github)
 
-Blocked by D2, 8–17.
+Blocked by D2, 8–19.
 
 - **Precondition (human-attested):** a vergil-tooling release containing
-  Tasks 8–13b and 17, and a vergil-claude-plugin release containing Tasks
-  14–16, are published, their versions named in a comment.
+  Tasks 8–13b, 17 and 18, and a vergil-claude-plugin release containing
+  Tasks 14–16 and 19, are published, their versions named in a comment.
 - **Human-run steps:** `vrg-host upgrade` and `vrg-host plugins` on the host;
   `vrg-vm update --all`.
 - **Procedure (agent-safe):**
@@ -1033,8 +1125,12 @@ Blocked by D2, 8–17.
   2. `vrg-finalize-pr --help` lists `--wait-cd` and not `--strategy`.
   3. `vrg-finalize-pr --no-wait-cd` exits 1 with Task 12c's message.
   4. The installed pr-watch skill mentions auto-merge and the routine rebase.
-  5. Both releases' notes list their tasks.
-- **SUCCESS:** all five hold, recorded with both versions.
+  5. `vrg-pr-workflow batch-check --help` succeeds and shows `--pr` and
+     `--head`.
+  6. The installed `block-agent-merge.sh` message describes submit-time
+     auto-merge.
+  7. Both releases' notes list their tasks.
+- **SUCCESS:** all seven hold, recorded with both versions.
 
 ### Task V1: Live parallel batch (validation, .github)
 

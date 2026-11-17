@@ -241,6 +241,10 @@ the queue is already capped at two.
   included. Those repos have no release path, so the combined-commit check is
   removed for them rather than moved later. Finalize's post-merge validate
   still covers them.
+- **The Scorecard result changes, and that is accepted.** The OpenSSF
+  Scorecard's Branch-Protection check currently lists "up-to-date branches
+  required on develop" for each repo. The next snapshots will drop that item.
+  The change is recorded (§6.9) so the score change has a stated reason.
 - **Classic protection.** The audit reads classic branch protection's `strict`
   flag on `develop`, reports `strict: true` as drift and clears it. Otherwise
   a repo with classic protection would keep requiring up-to-date branches.
@@ -367,11 +371,16 @@ rule an auto-merged PR would wait forever.
   - **Provenance during the watch.** Finalize runs the provenance check on
     every listed PR when the watch starts, and again each time it sees a new
     head on a PR. On a violation, finalize turns that PR's auto-merge off and
-    reports it *failed: provenance*. The PR does not
+    reports it *failed: provenance*.
+    - **A PR that already merged is checked first.** If a merged PR shows a
+      violation, nothing is disabled. The PR is reported as merged with a
+      loud provenance-violation flag, and the run cannot reach full success,
+      so no chained release runs. The PR does not
     reach a terminal state otherwise. `--allow-provenance-violation` overrides
     this for the run, as it does today.
-- **Settle phase.** This runs only if at least one PR merged. Steps 1–5 hold
-  the lock (§6.4); steps 6 and 7 run after it is released. In order:
+- **Settle phase.** This runs only if at least one PR merged. Step 1 runs
+  before the lock is taken, because it touches only GitHub. Steps 2–5 hold the
+  lock (§6.4). Steps 6 and 7 run after it is released. In order:
   1. **close-refs** for each merged PR, as today;
   2. **sync:** switch the main worktree to `develop` and fast-forward it to
      `origin/develop`, which picks up everything merged by anyone;
@@ -519,6 +528,12 @@ rule an auto-merged PR would wait forever.
     tree.
   - **Scope.** This applies to a standalone `vrg-release` and to a chained
     one alike.
+- **Update-deps catches up the same way.** The release's update-deps stage
+  fast-forwards `develop` under the lock. It then runs update-deps' own
+  preflight, which today refuses unless local `develop` equals
+  `origin/develop`. When the release calls it, that preflight is told to
+  fast-forward too (under the lock), because a merge can land between the two
+  fetches. Run standalone, update-deps is unchanged.
 - **The develop-CD gate (new).**
   - Before cutting a release, `vrg-release` checks the develop CD run for the
     `develop` head preflight fast-forwarded to, the same way finalize finds it.
@@ -573,9 +588,11 @@ with the merge work.
   rule. For `develop` it is harmless: once the rule is gone the path does not
   fire. vergil-project/.github#1168's mechanized PRs (upstream-refresh PRs
   that merge themselves) keep waiting through `wait_until_merged`.
-  `mechanized_pr` changes only to use the shared auto-merge helper (§6.2). Its
-  docstring is updated so it no longer says develop requires up-to-date
-  branches.
+  `mechanized_pr` changes to use the shared auto-merge helper (§6.2). That
+  changes one behaviour, which is accepted: when GitHub refuses auto-merge
+  because a mechanized PR is already mergeable, the PR is now merged
+  directly, where today the refusal is an error. Its docstring is updated so
+  it no longer says develop requires up-to-date branches.
 - **Mechanized PRs follow the same rule as every develop PR.** Each one's CI
   ran against the `develop` it was opened on. They are not merged through
   finalize, so no post-merge validate runs for them. `develop` may therefore
@@ -591,9 +608,12 @@ with the merge work.
   resolves no conflict changes no code of the branch's own, and needs no
   review.
 - **Batch PRs.** Before any push to a batch PR, pr-watch runs the batch-PR
-  check (one commit per issue, closing references, the `batch_rules` check
-  submit uses), and refuses to push on a violation. A clean rebase is checked
-  too.
+  check (one commit per issue, and the closing references) and refuses to
+  push on a violation. A clean rebase is checked too.
+  - **The hard rules are not re-checked here.** These are the `batch_rules`
+    checks of which issues are in the batch and whether they may share it.
+    They read issue state that a push cannot change, and submit has already
+    checked them.
 - **Every other fix is merge-reviewed before it is pushed.** That covers a
   resolved conflict, a CI fix or any code change.
   - **Scope.** The review covers the **whole branch** against
@@ -638,6 +658,12 @@ with the merge work.
   the actions the check reads, and the windows in which it runs. It records
   what they do not cover as an accepted gap, to be revisited if any agent
   identity is given server-side rights to act on PRs (§6.7).
+- **vergil-actions' ruleset docs.** `docs/site/docs/ci-gates/repository-rulesets.md`
+  describes one shared "CI gates" ruleset that is strict on both branches.
+  The pages that link to it by name (`required-checks.md`,
+  `security-scanning.md`) are updated with it, to describe the two rulesets
+  and develop's non-strict rule. The update also notes the Scorecard change
+  (§6.1). It ships with the ruleset split.
 - **Epic #1168's spec.** That spec states that develop requires up-to-date
   checks. The note goes in this epic's retrospective, not as an edit to that
   spec.
@@ -656,8 +682,13 @@ The callers to update are:
 
 - the code itself: `lib/release/finalize.py`'s `--no-wait-cd`, and
   `lib/pr_workflow/batch.py`;
-- skills in vergil-claude-plugin;
-- hook messages;
+- skills in vergil-claude-plugin, not only for removed flags but for any text
+  that describes the old merge flow: fixture-run, epic-implement and
+  issue-implement each describe a submit followed by a separate finalize
+  merge;
+- hook messages, including `block-agent-merge.sh`'s "merging is a human
+  action via vrg-finalize-pr", which becomes "submitting with auto-merge is
+  the human's merge action";
 - docs;
 - `vrg-submit-pr`'s printed hints.
 
@@ -676,7 +707,8 @@ Each is blocked by the vergil-tooling release that ships the change.
    install by default. They are released on their own, ahead of the rest, so
    a defect elsewhere cannot hold them back.
 2. **The ruleset split (§6.1)** is released and applied fleet-wide by the
-   config audit, and confirmed live on `develop` and `main`. The CD
+   config audit, and confirmed live on `develop` and `main`. vergil-actions'
+   ruleset docs (§6.9) are updated with it. The CD
    concurrency-group change (§6.5) can ship alongside it; it does not depend
    on it.
 3. **The submit and finalize rework (§6.2–§6.4, §6.7), release's preflight
@@ -686,7 +718,9 @@ Each is blocked by the vergil-tooling release that ships the change.
 4. **A live batch validation:** a batch of at least three independent PRs in
    one repo, submitted with the released tooling, merges without any `BEHIND`
    update. One finalize settles it, and a second finalize run on another batch
-   at the same time waits for the lock and then validates.
+   at the same time settles and validates too. The lock's serialization is
+   proven by two-process tests. The live run records whether the second run
+   waited, but does not require it, since the overlap depends on timing.
 
 ## 7. Failure model
 
