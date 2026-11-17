@@ -506,3 +506,19 @@ Blocked by 17.
 
 - **Both tasks rewrite the TypeScript LINT command** in `src/vergil_tooling/lib/languages.py`. Task 8b drops the per-run ESLint config staging and the `--config` argument; Task 10 adds report output. Run in parallel, their PRs would conflict on the same lines, which a rebase cannot resolve mechanically. The plan listed Task 10 as blocked only by Task 7, and Task 10's interfaces left the overlap to whichever task landed second.
 - The dependency was found during execution and approved at the epic's gate: [the ruling on the epic](https://github.com/vergil-project/.github/issues/1174#issuecomment-6928260800).
+
+### 2026-11-17: Prettier's check skips Vergil-managed files, and a release task gates the fixture programs
+
+**What changed:**
+
+- **A new code task, vergil-project/vergil-tooling#4541:** TypeScript LINT's Prettier check leaves out the files Vergil manages, with a test that a newly created TypeScript repo passes LINT.
+- **A new deployment task, vergil-project/.github#1223:** a vergil-tooling release carrying #4541 is attested and installed, and LINT passes on a fixture program branch. It carries `Blocked-by: vergil-project/vergil-tooling#4541`.
+- **New blockers:** Tasks 16a and 16b (vergil-project/vergil-fixture-ts-lib#1 and vergil-project/vergil-fixture-ts-app#1) and Run 1's change tasks (vergil-project/vergil-fixture-ts-lib#2 and vergil-project/vergil-fixture-ts-app#2) now also carry `Blocked-by: vergil-project/.github#1223`.
+- **Run 1's `--validates` is unchanged** (vergil-tooling v2.1.319, vergil-actions v2.1.78). Its deployed-version probe accepts a later release that contains it.
+- The delivery table and every task section above are unchanged. The plan froze when its first task merged.
+
+**Why:**
+
+- **Both fixture programs passed every gate except LINT.** LINT's `prettier --check .` runs over the whole repo, and Vergil had no Prettier ignore list. Under the managed `.prettierrc.json`, Prettier flags three files that `vrg-github-repo-init` writes and the fleet sync manages: `.claude/settings.json`, `.github/workflows/ops.yml`, and the managed region of `CLAUDE.md`. So every newly created TypeScript repo failed LINT, and no repo could fix that itself. The fixture programs exist to catch exactly this; Tasks 8a and 8b's unit tests did not.
+- **The fixture programs validate against installed vergil-tooling,** and v2.1.319 lacks the fix, so they wait on a release that carries it.
+- The tasks were found during execution and approved at the epic's gate: [the N0.3 ruling](https://github.com/vergil-project/.github/issues/1174#issuecomment-6932148608) and [the N0.4 ruling](https://github.com/vergil-project/.github/issues/1174#issuecomment-6935022666).
