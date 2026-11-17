@@ -86,3 +86,29 @@ or run uses 3.15.
   `--all-versions`, and the PR's CI shows a single `unit / 3.15` leg.
 - Release is the human's normal vergil-tooling release; its consumer-refresh
   already installs with `--python 3.15`.
+
+## Evolution during execution
+
+- **2026-11-17: Task 6 reached one series by retyping, not by `requires-python`.**
+  The resolver ignores `requires-python` and narrows only by `repository-type`,
+  so the plan's premise was wrong. A `[ci].versions = ["3.15"]` pin was ruled
+  first, then reconsidered at merge review (R1): vergil-tooling's
+  `repository-type` became `tooling` (vergil-project/vergil-tooling#4608). This
+  reverses epic vergil-project/.github#407's reason for `library`: every install
+  path now runs vergil-tooling on its own 3.15 interpreter. CI follows the
+  newest window series with a published runtime. No ruleset change was needed:
+  the required checks are the version-agnostic `<kind> / evidence` gates (epic
+  vergil-project/.github#338).
+- **2026-11-17: vergil-project/vergil-tooling#4639 filed, then closed as not
+  planned.** It would have made the resolver honour `requires-python` so the
+  pin could go; the pin never landed, and for a library it would hide breaches
+  of the library policy.
+- **2026-11-17: vergil-project/vergil-tooling#4640 split out (ad hoc).** Task 6's
+  `ruff --select UP` run surfaced pre-existing lint errors in `scripts/perf/`.
+  Its lint-gate half went to intake as vergil-project/vergil-tooling#4652.
+- **2026-11-17: tooling note.** In vergil-tooling, `vrg-container-run -- ruff …`
+  has to be `vrg-container-run -- uv run ruff …`: `ruff` is not on the dev
+  image's PATH.
+- **2026-11-17: Task 3's release-notes check dropped** by the human as an
+  invented requirement: GitHub release bodies carry only a docs link; the PR
+  list is in `releases/vX.Y.Z.md` and `CHANGELOG.md`.
