@@ -82,8 +82,11 @@ These are untouched:
   ref) does not fit such an image; this is known and accepted, since no
   Vergil image or workflow reaches it.
 - **Hardening cases no image reaches.** Every Vergil image carries the vergil
-  apt source and exactly one core Python. A container that does not fails
-  loudly wherever it fails, and nothing is added to give it a better message.
+  apt source and exactly one core Python (vergil-containers'
+  `core-python.dockerfile` installs one). A container with no core Python
+  fails loudly on a dev ref, at an unbound array element under `set -u`. One
+  with more than one would install on the first glob match; that is
+  accepted, since no image has two. Nothing is added for either case.
 - **Over-managing the risk.** The change deletes branches nothing reaches,
   and a break is fixed forward (see Rollout).
 
@@ -106,15 +109,13 @@ These are untouched:
   either goes, or shrinks to the shared preamble the two paths still need
   (the `$VRG_CACHE_ROOT` seam and the core-Python glob).
 - **Tests** (`tests/vergil_tooling/test_container_cache.py`): the cases for
-  the neither, half-image and more-than-one-core paths are deleted. Three
-  tests that assert removed content for a released tag are rewritten, not
-  deleted: `test_build_cached_image_uses_uv_tool_install` and
-  `test_build_cached_image_python_includes_uv_install` (which expect `uv tool
-  install` in a released-ref fragment) and
-  `test_setup_line_ref_branches_on_environment` (which asserts the probes and
-  `_UV_FROM_GIT`). Each asserts the packaged install for a released tag
-  instead, and keeps its existing `pip install` assertion. The other cases
-  for the two remaining paths stay.
+  the neither, half-image and more-than-one-core paths are deleted. Any
+  other test that asserts removed content for a released tag (the
+  neither-branch's `uv tool install`, the probes or `_UV_FROM_GIT`) is
+  rewritten to assert the packaged install instead, not deleted; a test that
+  uses `uv tool install` to mark where the install sits in the setup order
+  uses the packaged install's log line as its marker. The other cases for
+  the two remaining paths stay.
 - **Site docs:** the `docs/site/docs/guides/ci-architecture.md` paragraph that
   describes the two checks ("The image chooses how vergil-tooling is
   installed …") describes the two paths instead.
@@ -139,9 +140,9 @@ cached image.
 - **Tests:** the `tests/install-tooling.test.sh` cases for the neither,
   half-image and core-count container paths are deleted, and the host
   dev-ref case is kept.
-- **Docs:** the header comment, `action.yml`'s description, and
-  `docs/site/docs/actions/shared-setup-vergil.md` describe the paths that
-  remain.
+- **Docs:** the header comment, `action.yml`'s description,
+  `docs/site/docs/actions/shared-setup-vergil.md` and the header comment of
+  `.github/workflows/smoke-setup-vergil.yml` describe the paths that remain.
 
 ## Rollout
 
@@ -149,7 +150,9 @@ cached image.
 - **vergil-actions** ships the change as the only significant change in its
   release, so moving the floating `v2.1` tag back to the previous release
   stays a clean revert. The human holds other vergil-actions changes back
-  until that release is out. A deployment task records the release.
+  until that release is out. A deployment task records the release. The
+  PR touches `.github/workflows/**`, so GitHub refuses the agent's push and
+  the human's `vrg-submit-pr` pushes the branch.
 - **vergil-tooling** ships the change in its next normal release, with no
   isolation and no deployment task.
 - **Verification of the vergil-actions half:** its own CI, then the next CI
