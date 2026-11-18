@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1331
 - **Planning issue:** vergil-project/vergil-claude-plugin#828 (review history
   is in its comments)
-- **Status:** draft
+- **Status:** draft, in design review
 
 ## 1. Intent
 
