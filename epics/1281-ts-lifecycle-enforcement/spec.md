@@ -8,10 +8,18 @@
 
 Vergil owns the Node runtime of a TypeScript repo, as it owns Python's. A new
 Node major arrives, and an old one leaves, through a reviewed lifecycle pull
-request opened by the vergil-containers lifecycle job, not by hand, and Node
-catches up to 26 that way. A TypeScript repo cannot declare a Node or
-package-manager version that disagrees with the one Vergil runs, and every CI
-leg checks that it runs the Node major CI resolved for it.
+request opened by the vergil-containers lifecycle job, not by hand. Node
+caught up to 26 through a hand-made add before that switch
+(vergil-project/vergil-containers#949). A TypeScript repo cannot declare a
+Node or package-manager version that disagrees with the one Vergil runs, and
+every CI leg checks that it runs the Node major CI resolved for it.
+
+> **Amended after implementation** (2026-11-18;
+> vergil-project/vergil-containers#949). The original text said Node catches
+> up to 26 through the lifecycle job's add PR. Node 26 was instead added by
+> hand in vergil-containers#949, merged on 2026-11-17 before `ts-node` moved
+> to `pr` automation, and its report issue vergil-project/vergil-containers#730
+> closed with it. The text now says what happened (see §6.1).
 
 The consumer-facing invariant is Python's and Rust's: **a consuming repo deals
 only in the major.** It builds and tests on "Node 24", never on a release. The
@@ -49,8 +57,13 @@ spec §2). Epic 3 is TypeScript supply chain and the npm updater
 
 ### Goals
 
-1. The `ts-node` family's manifest automation is `pr`, and the window reaches
-   26/24/22 through the automation's own add PR.
+1. The `ts-node` family's manifest automation is `pr`, and the window is
+   26/24/22.
+
+   > **Amended after implementation** (2026-11-18;
+   > vergil-project/vergil-containers#949). The original goal said the window
+   > reaches 26/24/22 through the automation's own add PR. It reached 26/24/22
+   > through the hand-made add in vergil-containers#949 instead (see §6.1).
 2. `vrg-validate` reports, for a TypeScript repo, each setting that names a
    Node or package-manager version as an error: a `.nvmrc` or `.node-version`
    file, and in `package.json` a `packageManager` field, a `volta` field, a
@@ -130,6 +143,12 @@ spec §2). Epic 3 is TypeScript supply chain and the npm updater
   2029-04-30) as vergil-project/vergil-containers#730. Node 22's EOL is
   2027-04-30, so after the add the window is three majors, 26/24/22, and no
   drop is due until then.
+
+  > **Amended after implementation** (2026-11-18;
+  > vergil-project/vergil-containers#949). This was the state when the spec
+  > was written. vergil-containers#949 added Node 26 by hand on 2026-11-17 and
+  > closed vergil-containers#730, so the manifest's `ts-node` majors are now
+  > 26, 24 and 22 (see §6.1).
 - Lifecycle add and drop PRs write and remove their toolchain pins through
   shared code that dispatches to each family's resolver, node included (epic
   vergil-project/.github#1095, spec §6.1, shipped).
@@ -238,9 +257,26 @@ keeps endoflife.date.
 
 - `manifest.yml`: `ts-node.automation: "report"` → `"pr"`. From then on the
   lifecycle job opens an add PR for each window major the manifest lacks and a
-  drop PR for each manifest major outside the window. Today that is one add,
-  for Node 26, in place of vergil-project/vergil-containers#730, which closes
-  as the job stops reporting it.
+  drop PR for each manifest major outside the window. Node 26 was already
+  added by hand (vergil-project/vergil-containers#949, which closed
+  vergil-project/vergil-containers#730), so the switch opens no add PR for
+  it; the first lifecycle add PR comes with the next Node major.
+
+  > **Amended after implementation** (2026-11-18;
+  > vergil-project/vergil-containers#949). The original text said the
+  > catch-up is one add, for Node 26, through the lifecycle job's add PR, in
+  > place of vergil-containers#730, which would close as the job stopped
+  > reporting it. Before the switch to `pr` merged, vergil-containers#949
+  > (`feat(versions): add ts-node 26`) added Node 26 by hand on 2026-11-17,
+  > rendering the manifest entry, the toolchain pin and the generated files
+  > through the lifecycle check's own add path, and closed vergil-containers#730.
+  > The bullets below on "the add PR" now describe that hand-made add. It also
+  > rewrote the ts-node policy page's dated window lines. Its vergil-vm
+  > follow-up needs no change today: vergil-vm installs Node 22, which is
+  > inside the 26/24/22 window. By the human's ruling of 2026-11-18 on epic
+  > vergil-project/.github#1281, the catch-up task keeps only its remaining
+  > checks, and the policy-page task is blocked by the switch to `pr` in its
+  > place.
 - The add PR carries Node 26's toolchain pin through the shared pin mechanism
   (§4), with no Node special case, and passes CI as opened. That includes the
   ts-node image's build-time checks and smoke test on Node 26.
@@ -410,9 +446,16 @@ catch-up needs only vergil-containers, and the enforcement needs no new
 window. Only the fixture runs wait for both.
 
 - **Track A, the window catch-up (vergil-containers):**
-  1. §6.1's switch to `pr` merges with the policy page's automation text. The
-     lifecycle job opens the Node 26 add PR; it is reviewed and merged by the
-     human. The policy page's dated facts are rewritten.
+  1. §6.1's switch to `pr` merges with the policy page's automation text.
+     Node 26 is already in the manifest (vergil-project/vergil-containers#949);
+     the catch-up task checks its `dev-ts-node` images and records its
+     vergil-vm follow-up. The policy page's dated facts are rewritten.
+
+     > **Amended after implementation** (2026-11-18;
+     > vergil-project/vergil-containers#949). The original step said the
+     > lifecycle job opens the Node 26 add PR and the human reviews and
+     > merges it. Node 26 was added by hand in vergil-containers#949 before
+     > the switch, so no lifecycle add PR is opened for it (see §6.1).
   2. **Containers release** (deployment task): a vergil-containers release
      (human-gated) carrying the caught-up window, so consumers read 26/24/22
      at their `[dependencies].vergil` ref and prod images for Node 26 exist.
