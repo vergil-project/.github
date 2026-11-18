@@ -126,9 +126,29 @@ heads that day.
 - **The lockfile records each package's license.** npm 7 and later write a
   `license` field into each `packages` entry of a v2 or v3 lockfile, from
   the package's own `package.json`. `vergil-fixture-ts-app`'s lockfile
-  (v3) has 177 entries besides the root, 174 of them dev dependencies, and
+  (v3) has 176 entries besides the root, 174 of them dev dependencies, and
   every one carries a `license`: MIT, Apache-2.0, MPL-2.0, BSD-2-Clause, ISC,
   BlueOak-1.0.0, BSD-3-Clause and 0BSD, all on the allowlist.
+- **npm keeps `license` on the entries it writes.** A spike on 2026-11-18 ran
+  npm 11.20.0 (Node 26.13.1, the ts-node image `vrg-container-run` selects
+  for `vergil-fixture-ts-app`) on a scratch clone of that fixture at
+  `6b7ff21`:
+  - `npm install --package-lock-only --ignore-scripts` with no lockfile
+    wrote all 176 entries, each with a `license`;
+  - a lock-only transitive rollback (`npm install @babel/parser@7.29.13
+    --package-lock-only --save-dev --ignore-scripts`, then `package.json`
+    restored, then `npm install --package-lock-only --ignore-scripts`) left
+    `@babel/parser` at 7.29.13 with `package.json` unchanged, `npm ci
+    --ignore-scripts` passing, and every entry keeping its `license`;
+  - `npm update --ignore-scripts` on that lockfile moved `@babel/parser`
+    back to 7.29.14, left `package.json` unchanged, and kept `license` on
+    every entry;
+  - `npm outdated --json` then exited 1 and printed a JSON object with
+    `current`, `wanted` and `latest` per held dependency: `typescript`
+    6.0.3 (latest 7.0.2, held by Vergil's accepted major) and `@types/node`
+    24.19.2 (latest 26.6.6, held by its `^24` range).
+
+  Only npm 11 was tried. Node 22's npm 10 was not.
 - **`vrg-update-deps`** (`lib/update_deps/`):
   - `DEFAULT_REGISTRY` (`orchestrator.py`) holds `PythonUvUpdater`,
     `CargoUpdater`, `VergilUpdater`, `ImagesUpdater` and `RepoHookUpdater`.
@@ -187,8 +207,10 @@ heads that day.
 ### Docs that name license-checker as a gate tool
 
 - vergil-tooling: `docs/site/docs/standards/development/tool-ownership.md`
-  (the TypeScript row's image-owned tools) and
-  `docs/site/docs/standards/development/typescript/overview.md`.
+  (the TypeScript row's image-owned tools),
+  `docs/site/docs/standards/development/typescript/overview.md` and
+  `docs/site/docs/guides/ci-architecture.md` (what the ts-node image
+  includes).
 - vergil-actions: `docs/site/docs/actions/ci-evidence-reports.md` and
   `docs/site/docs/workflows/ci-audit.md` (the per-language audit evidence).
 
@@ -282,9 +304,10 @@ heads that day.
     name, the license value it excuses, then `exp:<YYYY-MM-DD> <tracking
     issue> <reason>`;
   - the license value is the lockfile's `license` string exactly as
-    recorded, or a marker for a missing field. Values can contain spaces
-    (`(MIT OR CC0-1.0)`), so the value is delimited; the exact syntax is left
-    to the builder (§10);
+    recorded; for a non-string value (a legacy object or array), its
+    canonical compact JSON serialization, with sorted keys; or a marker for
+    a missing field. Values can contain spaces (`(MIT OR CC0-1.0)`), so the
+    value is delimited; the exact syntax is left to the builder (§10);
   - an entry covers a locked package only when its name matches and its
     recorded `license` equals the entry's value exactly. It covers every
     locked version whose license is unchanged, so a version move alone needs
@@ -335,6 +358,10 @@ heads that day.
     after with `changes.diff_versions`. Its summary and commit message name
     each package that moved, from and to, in the style of the uv and Cargo
     updaters.
+  - Every entry the update added or moved must carry a `license`. One that
+    does not fails the updater, naming the package, so the cause surfaces in
+    the update rather than later as a license-gate failure on its PR (§4
+    records that npm 11 keeps the field).
 - **The held-back report uses npm's own semver.** Vergil has no npm range
   evaluator and gets none: after the update, the updater runs
   `vrg-container-run -- npm ci --ignore-scripts` and then
@@ -345,6 +372,10 @@ heads that day.
   - `current` is its locked version, `wanted` the newest version its range
     allows, and `latest` the registry's `latest` dist-tag, the version npm
     itself treats as newest;
+  - when `npm outdated` reports no `current` (an optional dependency `npm
+    ci` skipped, such as an os- or cpu-restricted package), `current` is
+    taken from the dependency's lockfile entry. A dependency missing from
+    the lockfile too fails the updater, naming it;
   - it is held back when `current` is below `latest`. Each `HeldBack` entry
     carries `current` and `latest` and a note with its reason:
     - "outside the package.json range" when `wanted` is below `latest`;
@@ -371,6 +402,7 @@ heads that day.
   - an unreadable `package.json` or `package-lock.json`, or a lockfile older
     than v2;
   - a changed `package.json`;
+  - an added or moved lockfile entry with no `license`;
   - an `npm outdated` run that fails as above, including a registry it cannot
     reach.
 
@@ -379,6 +411,9 @@ heads that day.
 - The report contract (`reports.sh`) for `typescript/audit` lists
   `npm-audit.json` and `licenses.json`, and its tools are `npm audit` and
   `vrg-npm-license-gate`. Its tests cover the new entry.
+- The staging comment in `.github/workflows/ci-audit.yml`, which names only
+  Python's and Rust's audit reports, names TypeScript's (`npm-audit.json`
+  and `licenses.json`) too.
 - The evidence docs (`ci-evidence-reports.md`, `ci-audit.md`) describe the
   TypeScript license report alongside Python's.
 - This change is released only after the vergil-tooling release that writes
@@ -401,7 +436,23 @@ heads that day.
     (declared <range>)`, or `(transitive)` for a package `package.json` does
     not name.
 
-  The exact npm command for the rollback is left to the task (§10).
+  npm has no single command that moves one locked package back without
+  saving it to `package.json`, so the paragraph names the sequence the §4
+  spike proved, as its example command, the way Python's and Rust's name
+  theirs:
+
+  ```sh
+  npm install '<package>@<older>' --package-lock-only --save-dev --ignore-scripts
+  vrg-git checkout -- package.json
+  npm install --package-lock-only --ignore-scripts
+  ```
+
+  The first command locks the older version and, as a side effect, adds it
+  to `package.json`; restoring `package.json` and re-locking keeps the older
+  version, because it still satisfies the graph. Both fixtures lock every
+  direct dependency at its range floor, so a run rolls back a transitive
+  package, which the sequence handles. The run checks that `package.json` is
+  unchanged before it commits.
 - **This plugin change is released** before the fixture runs are filed, as
   in #1165, so each run's change task is built from the new template.
 - **Fixture runs** on `vergil-fixture-ts-lib` and `vergil-fixture-ts-app`,
@@ -469,7 +520,12 @@ Each change updates its own repo's docs in the same PR (the placement law):
 - vergil-tooling: the TypeScript standards page (the license gate,
   `.npm-license-exceptions`, the updater), the validation matrix, the
   `vrg-update-deps` page (the npm updater and its held-back notes) and the
-  tool-ownership page (license-checker no longer a TypeScript gate tool);
+  tool-ownership page. These PRs change only what they say about gating:
+  license-checker no longer runs in a TypeScript gate. Where a page lists
+  what the image ships (the tool-ownership page's image-owned column, the
+  CI architecture guide), license-checker stays listed until the
+  vergil-tooling ad-hoc doc task of §6.5 removes it, so the docs stay true
+  at every release;
 - vergil-actions: the evidence docs (§6.3);
 - vergil-claude-plugin: the `fixture-run` skill itself.
 
@@ -538,7 +594,5 @@ vergil-tooling.
   recorded value is exact.
 - Whether the SPDX expression parser is Vergil's own or a vetted library, as
   long as it is strict and covers the grammar in §6.1.
-- The npm command a fixture run's change task uses to roll a package back in
-  the lockfile without touching `package.json`.
 - How the license-checker removal step is filed as an epic task (its kind and
   scaffold), within §6.5's precondition.
