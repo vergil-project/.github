@@ -28,6 +28,7 @@ organization.
 | `.github/workflows/ops.yml` | Daily GitHub config audit |
 | `.github/workflows/epic-rollup.yml` | Closes an epic when its last task closes |
 | `.github/workflows/epic-sweep.yml` | Daily sweep that closes epics and tasks a rollup missed |
+| `.github/dependabot.yml` | Report-only Dependabot config for GitHub Actions, managed by vergil-tooling (alerts only, never opens PRs) |
 
 ## How inheritance works
 
