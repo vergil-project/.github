@@ -41,11 +41,11 @@ on an agent reading the right paragraph.
 2. The scheduled security-records sync never auto-closes an advisory because
    a queue item it tracks was closed, or because a tracked issue was closed as
    not planned.
-3. `vrg-queue planning`'s advisory hold fails closed
-   (vergil-project/vergil-tooling#3996).
+3. The planning hold fails closed everywhere it is used: `vrg-queue
+   planning` and the docs-PR close (vergil-project/vergil-tooling#3996).
 4. `epic-create` checks for a security item at step 0, states the
    public-wording rule there for every public artifact, and gates the first
-   design publication on the human.
+   publication of anything about the design on the human.
 5. `epic-create` hands every advisory on, or to the human, on every path that
    closes the planning issue, and its step 8 retarget uses the new tool
    contract.
@@ -93,6 +93,11 @@ on an agent reading the right paragraph.
   It is built from `list_advisories`; a GHSA the listing does not return is
   treated as not tracking (vergil-project/vergil-tooling#3996, in the deferred
   queue).
+- The docs PR is the normal way a planning issue closes: `planning_close.find`
+  (behind `vrg-submit-pr` and report-ready's `planning_close` preview) calls
+  `tracking_advisories` directly, apart from the planning view's own hold,
+  and writes the `Planning issue: Closes <M>` line only when no advisory
+  tracks the planning issue.
 - `intake_route._security_ghsas` treats an item as a security item only with
   both the label and an advisory line, and warns on a broken pair.
 
@@ -149,29 +154,58 @@ path at once, with the skill text as the first line.
   dropping the planning issue (the `--from` of an epic-create hand-off) is
   allowed, since it is the source being handed on.
 - A re-run of an interrupted retarget with identical arguments still
-  finishes it. The `--from` check accepts an issue that is either a current
-  tracking line or a target the advisory already tracks after a partial run.
+  finishes it. Retarget rewrites the tracking lines before it unmarks the
+  dropped issues, so the `--from` check accepts an issue when either:
+  - a current `Tracking issue:` line names it; or
+  - its body still carries a `Security advisory:` line for this advisory
+    (it is still marked, as `security_issues` lists it) and every `--to` is
+    already a tracking line: the state an interrupted run with the same
+    targets leaves.
+
+  The open-issue drop check (above) applies to the same dropped set in
+  both cases.
 - The library function takes the source as a parameter, and every internal
   caller (`vrg-intake-route` split, transfer, recreate) passes the routed
-  item. The recovery commands it prints carry `--from`.
+  item as the source. Each caller's targets are the advisory's current
+  tracking set, minus the routed item, plus the new issue or issues, so a
+  route never drops another tracked issue and never meets the drop check.
+- Every retarget command the tools print carries `--from`: the recovery
+  commands (`_retarget_commands`) and the message that tells the human to
+  retarget an item naming several advisories by hand.
 
 ### 6.2 Sync close guard (vergil-tooling)
 
 - `pending_syncs` does not move an advisory to `closed` while any issue it
-  tracks is a child of an intake, planning or deferred epic, or was closed
-  with the reason `not planned`. It stays `draft`.
-- Each such advisory is reported in the sync's broken-pair output, by GHSA ID
-  and issue ref only, with the next step: retarget it to a fix task, or close
-  it with `vrg-security-record close` and a reason.
+  tracks is a queue item, or was closed with the reason `not planned`. It
+  stays `draft`. A **queue item** is an issue whose native parent is a live
+  intake, planning or deferred epic, or a queue archive epic (labelled
+  `archive` plus `intake`, `planning` or `deferred`). The tests cover a
+  closed queue item that has already been drained into its archive.
+- Only an advisory the guard actually kept from `closed` (every issue it
+  tracks is closed, and the guard fired) is reported, on its own line kind
+  (`held:`), by GHSA ID and issue ref only, with the next step: retarget it
+  to a fix task, or close it with `vrg-security-record close` and a reason.
+  Held advisories are counted apart from broken pairs, and a hold does not
+  fail the sync: it waits on a human step and is not a fault.
 - A failed parent or state lookup is an error for that advisory, reported,
   never a close.
 
 ### 6.3 Planning hold fails closed (vergil-tooling)
 
 Delivered by vergil-project/vergil-tooling#3996, routed out of the deferred
-queue into this epic. A GHSA the planning issue names that the advisory
-listing does not return keeps the item held, with a note saying the advisory
-cannot be read. Absence is never "not tracking".
+queue into this epic, with its scope widened to every user of the hold:
+
+- **One hold rule,** used by the planning view and by the docs-PR close
+  (`planning_close.find`). The view derives its hold from
+  `tracking_advisories`, or both call one shared function; there is no
+  second copy.
+- An advisory the planning issue names that cannot be read (the listing
+  does not return it) counts as tracking. The planning view keeps the item
+  held, with a note saying the advisory cannot be read, and the
+  `planning_close` skip reason says the same. Absence is never "not
+  tracking".
+- The next step the note names: re-run with a token that can read the
+  repository's advisories, or have the human check the advisory.
 
 ### 6.4 Step 0 security check (vergil-claude-plugin, epic-create)
 
@@ -184,11 +218,14 @@ cannot be read. Absence is never "not tracking".
   plan, PR bodies, report-ready notes and the retrospective. They describe
   mechanisms and refer to findings by issue ref and GHSA ID alone. Specifics
   the design needs go into the advisory, with `vrg-security-record note`.
-- **Human gate.** Before the first commit of the spec, the agent asks the
-  human whether the item is safe to describe in general terms. On yes, the
-  run continues. On no, the agent posts a neutral progress comment that the
-  run is paused for a design-placement decision and stops; nothing
-  design-shaped is published.
+- **Human gate.** At the end of step 1, once the design is approved and
+  before anything about it is published (the brainstorm-approved comment
+  and the step 2 epic included), the agent asks the human whether the item
+  is safe to describe in general terms. On yes, the run continues, and the
+  brainstorm-approved comment of a security run says only that the design
+  is approved and the epic is next. On no, the agent posts a neutral
+  progress comment that the run is paused for a design-placement decision
+  and stops; nothing design-shaped is published.
 - The round reviewers already keep security findings out of public text
   (doctrine §2.7); the rule adds nothing to the reviewer prompt.
 
@@ -215,10 +252,17 @@ cannot be read. Absence is never "not tracking".
 
 ### 6.7 Rollout
 
-The tool changes (§6.1–6.3) land first, then a vergil-tooling release as a
-**deployment** task. The skill changes (§6.4–6.6) depend on the release,
-since their text names `--from` and relies on the sync guard. Until the
-release, the current skill text stays as it is.
+The skill work ships in two parts:
+
+- **First, with no tooling dependency:** §6.4, §6.6, and §6.5's
+  not-planned branch. They use no new tool behavior, so they land at once,
+  in parallel with the tool changes.
+- **After the release:** the rest of §6.5 (the single-task hand-off and the
+  step 8 retarget), whose commands name `--from`.
+
+The tool changes (§6.1–6.3) land, then a vergil-tooling release as a
+**deployment** task, and the second skill part is blocked by that
+deployment.
 
 ### 6.8 Docs
 
