@@ -79,8 +79,8 @@ purpose:
   config audit) carries that rule, with this epic adding **creation** to its
   update and deletion rules for both patterns. Its bypass is limited to the
   Admin role and the one identity the release pipeline uses to create tags,
-  named precisely so no other workflow passes. The rule is live, and the audit enforces it, before rollout step 1
-  (§5).
+  named precisely so no other workflow passes. The rule is live, and the
+  audit enforces it, before rollout step 1 (§5).
 
 ## 2. Goals
 
