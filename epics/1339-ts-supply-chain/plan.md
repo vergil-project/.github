@@ -400,7 +400,7 @@ refuses the agent push; the human's `vrg-submit-pr` pushes it.
 - [ ] **Step 5: Commit** `vrg-commit --type feat --scope evidence
   --message "stage the TypeScript license report"`, then report-ready.
 
-### Task 6: Releases attested; the released gate writes `licenses.json` (deployment, .github)
+### Task 6: Releases attested, `licenses.json` written (deployment, .github)
 
 Blocked by 3, 4 and 5.
 
