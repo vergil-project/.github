@@ -11,6 +11,7 @@ work. The OpenSSF hardening work was tracked in epic
 and tracking issue
 [vergil-project/vergil-tooling#828](https://github.com/vergil-project/vergil-tooling/issues/828),
 both closed on 2026-10-24.
+Hardening work that a new snapshot surfaces gets its own issue.
 
 ## How to add a snapshot
 
