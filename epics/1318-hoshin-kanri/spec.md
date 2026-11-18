@@ -46,8 +46,9 @@ Background, for the builder and for the published background page:
   management. In English it is usually called *policy deployment*.
 - **Origin.** It grew out of Japan's total quality control movement in the late
   1950s and 1960s, building on Deming's plan–do–check–act cycle and Drucker's
-  management by objectives. Bridgestone Tire is usually credited with
-  formalising it in the mid-1960s; Komatsu and Toyota were early adopters.
+  management by objectives. Bridgestone Tire is usually credited with naming
+  and first using it in 1965 (one history dates the company's idea to
+  systematize it to 1962); Komatsu and Toyota were early adopters.
   Hewlett-Packard brought it to the US in the 1980s, and Danaher made it central
   to the Danaher Business System.
 - **How it works.**
@@ -70,11 +71,16 @@ Background, for the builder and for the published background page:
     Productivity Press, 1991 (English edition).
   - Lean Enterprise Institute lexicon, "Hoshin Kanri":
     <https://www.lean.org/lexicon-terms/hoshin-kanri/>
+  - Akao's book, Appendix 1, "History of Hoshin Kanri" (2020 reissue):
+    <https://www.oreilly.com/library/view/hoshin-kanri/9781000286656/xhtml/18_Appendix01.xhtml>
+  - All About Lean, "The Evolution of Strategic Management — Hoshin Kanri":
+    <https://www.allaboutlean.com/evolution-of-strategic-management-hoshin-kanri/>
   - Wikipedia, "Hoshin Kanri": <https://en.wikipedia.org/wiki/Hoshin_Kanri>
 
-  The broad history above is well documented; the Bridgestone date and the
-  exact term for the yearly review are to be checked against these sources
-  when the background page is written.
+  The Bridgestone dates come from the Akao and All About Lean histories; the
+  Lean Enterprise Institute and Wikipedia pages give no dates. The term
+  社長診断 for the yearly review is the human's own, from years of working in
+  Japanese; English sources call it the president's diagnosis.
 
 ### Terms used in this design
 
@@ -241,13 +247,15 @@ Each run:
    private repository is filed in that repository, never in a public one.
 6. **Writes one logbook file per review,** closing ones included.
 7. **Hands off one docs PR** for the run: a task issue, a worktree, a commit,
-   `vrg-container-run -- vrg-validate`, `vrg-pr-workflow report-ready`. Before
-   the commit, a gate screens the final entry text mechanically against the
-   rules under "Security" and shows the human the full text for approval, so
-   nothing that breaks a rule is ever pushed to the public repo. A logbook
-   run skips merge review on purpose: the conversation is the review, the
-   gate is the content check, and the human submitting the PR is the
-   review's sign-off.
+   `vrg-container-run -- vrg-validate`, `merge-review`, `vrg-pr-workflow
+   report-ready`. Before the commit, once validation is green, a gate screens
+   the final entry text mechanically against the rules under "Security" and
+   shows the human the full text for approval, so nothing that breaks a rule
+   is ever pushed to the public repo. Any later change to entry text, a
+   merge-review or `pr-watch` fix included, goes back through validation,
+   the screen and the approval before it is pushed. A logbook run then goes
+   through merge review like any task, and the human submitting the PR is
+   the review's sign-off.
 
 #### What each level does
 
@@ -453,7 +461,8 @@ themselves uses fixed wording that carries no review content:
   `Logbook: <date> <mode>` (for example `Logbook: 2026-11-18 start`), with the
   commit typed `docs(logbook)`;
 - the task issue's body, and the `vrg-pr-workflow report-ready` title, summary
-  and notes, say only which entries the run wrote, by path.
+  and notes, say only which entries the run wrote, by path; the notes also
+  carry the merge review's eligibility line.
 
 Findings, failures and decisions appear only in the entries, where the rules
 under "Security" apply.

@@ -41,8 +41,14 @@ plugin skills.
 - Every date and time is computed in the IANA time zone recorded in
   `logbook/index.md`, never from the host clock.
 - A run's task title and commit description are `Logbook: <date> <mode>`; its
-  task body and `report-ready` fields name only the entries written, by path.
+  task body and `report-ready` fields name only the entries written, by path,
+  except that the `--notes` also carry the merge review's eligibility line.
   Commits are typed `docs(logbook)`.
+- A logbook run goes through `merge-review` like any task, after the
+  pre-commit gate and before `report-ready`.
+- Worked examples in the skill use placeholder names (`<private-repo>`,
+  `<alert-number>`, `<advisory-id>`), never a real private repo name, alert
+  number or advisory ID.
 - The logbook is public: the "Security" rules of the spec apply to every
   public record a run creates.
 - The skill runs as the `user` agent and never submits, merges or releases.
@@ -82,9 +88,13 @@ reference, which its reviewer checks by hand.
   "a security-related failure" with a security-record ref, never the cause
   (Task 3a, `references/security.md`, examples A and B).
 - **An entry that breaks a security rule.** Before any commit, the screen
-  stops a run whose entry text holds a `GHSA-` or `CVE-` ID, an alert number,
-  a private repo's name or a per-repo alert count, naming the match; nothing
-  is committed or pushed (Task 3a, `references/security.md`, example C).
+  stops a run whose entry text holds a `GHSA-` or `CVE-` ID, an alert number
+  or alert URL the review read in this run, a private repo's name, or a line
+  pairing a repo name with "alert", "advisory" or a severity word next to a
+  number, naming the match; nothing is committed or pushed. A public `#N`
+  ref to a follow-up or security record never matches (Task 3a,
+  `references/security.md`, example C, one hit of each kind and one `#N`
+  that passes).
 
 ---
 
@@ -170,9 +180,8 @@ level heading; an entry that ran late or was not performed adds a space and
   and `No entries yet.`
 - [ ] **Step 6: Write `management/hoshin-kanri.md`:** the spec's "The model"
   background and references, the terms list, the two halves, the calendar in
-  brief, and how Vergil scales the method to one person and agents. Check
-  the Bridgestone date and the term 社長診断 against the references; state
-  each as the sources give it.
+  brief, and how Vergil scales the method to one person and agents. Use the
+  spec's terms and dates as written; they are settled.
 - [ ] **Step 7: Add the nav:** a top-level `Logbook` section listing
   `logbook/index.md`, `hoshin.md`, `fleet.md` and the five level indexes;
   `Hoshin kanri: management/hoshin-kanri.md` under Management.
@@ -213,17 +222,19 @@ level heading; an entry that ran late or was not performed adds a space and
   `references/calendar.md`); close then open in the spec's order (closing
   ends smallest first; on `start`, daily first, then yearly down to weekly);
   file follow-ups (private-repo follow-ups in that repo); write entries and
-  index lines; run the pre-commit gate; hand off one PR with the fixed
-  wording.
-  - **The pre-commit gate,** before `vrg-commit`: first the screen in
-    `references/security.md` over the final text of every entry (a hit stops
-    the run and names the match); then show the human the full final text
-    of every entry and wait for approval. Only then commit, validate and run
-    `report-ready`.
-  - **No merge review.** State that a logbook run skips `merge-review` on
-    purpose: the review conversation is the review, the gate's screen and the
-    human's approval of the final text are the content check, and the human's
-    submit is the sign-off. The handoff notes carry no eligibility line.
+  index lines; then hand off in this order:
+  1. `vrg-container-run -- vrg-validate` until green;
+  2. the screen in `references/security.md` over the final text of every
+     entry (a hit stops the run and names the match);
+  3. show the human the full final text of every entry and wait for
+     approval;
+  4. `vrg-commit`;
+  5. `merge-review`, as for any task;
+  6. `vrg-pr-workflow report-ready`, with the eligibility line in `--notes`.
+
+  Any change to entry text after the human's approval (a merge-review fix,
+  or a later fix by any skill, `pr-watch` included) goes back through steps
+  1 to 3 before it is committed or pushed.
 - [ ] **Step 3: Write `references/calendar.md`:** the spec's calendar rules
   (time zone, days, weeks, periods from the Monday, boundaries, closing an
   open period with the daily one-keystroke default, gaps at week and above,
@@ -237,14 +248,18 @@ level heading; an entry that ran late or was not performed adds a space and
 - [ ] **Step 4: Write `references/logbook.md`:** where the logbook is, the
   file-name rules, the header (Task 2), the index line, the "not performed"
   entry's shape, the fixed wording for the task, commit and handoff, the
-  kaizen prompt that ends every review, and the check format.
+  kaizen prompt that ends every review, the check format, and the rule that
+  a fix to a logbook PR's entry text, by any skill, reruns the screen and the
+  human's approval before it is pushed.
 - [ ] **Step 5: Write `references/security.md`:** the spec's Security rules,
   each as a rule plus one example of the allowed wording, with example A (a
   failed run in a private repo) and example B (a failed security job in a
-  public repo) from Review Focus; then the pre-commit screen (patterns
-  `GHSA-`, `CVE-`, alert numbers, each private repo name from the visibility
-  check, per-repo alert counts) with example C, a hit and the stop it
-  produces.
+  public repo) from Review Focus; then the pre-commit screen, its patterns
+  exactly: `GHSA-` and `CVE-` IDs; each alert number and alert URL the
+  review read in this run, matched literally; each private repo name from
+  the visibility check; a line pairing a repo name with "alert", "advisory"
+  or a severity word next to a number. Then example C, from Review Focus,
+  with placeholder names.
 - [ ] **Step 6: Register the skill** in `README.md` and
   `docs/site/docs/skills/index.md`, matching the existing entries' shape.
 - [ ] **Step 7: Validate.** `vrg-container-run -- vrg-validate`. Expected:
