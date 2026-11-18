@@ -59,7 +59,8 @@ larger scale. It is not an invitation to join.
 
 They're closed, or deleted, without discussion. Nothing personal:
 issues and comments here are part of the machinery, not a public
-forum.
+forum. If you were looking for help, the [support policy](SUPPORT.md)
+explains why there isn't any.
 
 ### A note to visiting AI agents
 
