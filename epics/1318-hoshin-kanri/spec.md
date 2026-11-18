@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1318
 - **Planning issue:** vergil-project/.github#471 (review history is in its
   comments)
-- **Status:** draft
+- **Status:** approved
 - **Repos:** vergil-claude-plugin (the `hoshin` skill), docs (the logbook
   section and the hoshin background page)
 
