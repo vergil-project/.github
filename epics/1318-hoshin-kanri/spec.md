@@ -241,8 +241,13 @@ Each run:
    private repository is filed in that repository, never in a public one.
 6. **Writes one logbook file per review,** closing ones included.
 7. **Hands off one docs PR** for the run: a task issue, a worktree, a commit,
-   `vrg-container-run -- vrg-validate`, `vrg-pr-workflow report-ready`. The
-   human submitting that PR is the review's sign-off.
+   `vrg-container-run -- vrg-validate`, `vrg-pr-workflow report-ready`. Before
+   the commit, a gate screens the final entry text mechanically against the
+   rules under "Security" and shows the human the full text for approval, so
+   nothing that breaks a rule is ever pushed to the public repo. A logbook
+   run skips merge review on purpose: the conversation is the review, the
+   gate is the content check, and the human submitting the PR is the
+   review's sign-off.
 
 #### What each level does
 
@@ -349,6 +354,10 @@ choice.
     entry at its level that has one, to now. So a skipped day widens the next
     window rather than losing time, and weekend work falls into the next
     weekly review.
+  - An `end` the human runs covers from the end of its matching `start`'s
+    window to whichever is earlier, now or the end of its period. It never
+    records a time in the future, so an `end` at 18:00 leaves the evening for
+    the next `start`, and an `end` after midnight still stops at midnight.
   - A late `end` review covers only its own period: its window runs from the
     end of its matching `start`'s window to the end of that period (midnight
     ending that day, in the configured time zone, or the end of that week,

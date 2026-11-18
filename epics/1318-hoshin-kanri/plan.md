@@ -63,8 +63,12 @@ reference, which its reviewer checks by hand.
   `references/calendar.md`, example 1).
 - **An `end` after midnight.** `end` at 00:30 on Friday, with Thursday's
   `start` the latest daily entry and no Thursday `end`, writes
-  `daily/<Thursday>-end.md` covering Thursday to midnight, and writes nothing
-  for Friday (Task 3a, example 2).
+  `daily/<Thursday>-end.md` covering Thursday to midnight, with
+  `late: false`, and writes nothing for Friday (Task 3a, example 2).
+- **An `end` on the same day.** `end` at 18:00 on Thursday writes
+  `daily/<Thursday>-end.md` with `window_to` 18:00, never midnight; Friday's
+  `start` window opens at 18:00 Thursday, so the evening is reviewed (Task
+  3a, example 4).
 - **Monday after a weekend off, Thursday left open.** `start` on Monday finds
   Thursday's `start` unclosed (offers the one-keystroke "not performed"),
   finds the week unclosed (offers late or not performed), names no days as
@@ -77,6 +81,10 @@ reference, which its reviewer checks by hand.
   one.** The entry shows "1 failed run in a private repo" with no name, and
   "a security-related failure" with a security-record ref, never the cause
   (Task 3a, `references/security.md`, examples A and B).
+- **An entry that breaks a security rule.** Before any commit, the screen
+  stops a run whose entry text holds a `GHSA-` or `CVE-` ID, an alert number,
+  a private repo's name or a per-repo alert count, naming the match; nothing
+  is committed or pushed (Task 3a, `references/security.md`, example C).
 
 ---
 
@@ -98,9 +106,9 @@ reference, which its reviewer checks by hand.
   and nav.
 - **Task 3a:** the `hoshin` skill's procedure, calendar, logbook, PR and
   security rules.
-- **Task 3b:** the `hoshin` checklists and checks, one reference per level,
-  and posting the check briefs.
-- **Task 4:** a plugin release with the skill, installed on the host and VMs.
+- **Task 3b:** the `hoshin` checklists and checks, one reference per level.
+- **Task 4:** a plugin release with the skill, installed on the host and VMs,
+  and the merged check briefs posted to their planning issues.
 - **Task 5:** the bootstrap, the first `/vergil:hoshin start` on the empty
   logbook.
 - **Bookends:** the documentation review (docs#136) and the retrospective
@@ -205,13 +213,27 @@ level heading; an entry that ran late or was not performed adds a space and
   `references/calendar.md`); close then open in the spec's order (closing
   ends smallest first; on `start`, daily first, then yearly down to weekly);
   file follow-ups (private-repo follow-ups in that repo); write entries and
-  index lines; hand off one PR with the fixed wording.
+  index lines; run the pre-commit gate; hand off one PR with the fixed
+  wording.
+  - **The pre-commit gate,** before `vrg-commit`: first the screen in
+    `references/security.md` over the final text of every entry (a hit stops
+    the run and names the match); then show the human the full final text
+    of every entry and wait for approval. Only then commit, validate and run
+    `report-ready`.
+  - **No merge review.** State that a logbook run skips `merge-review` on
+    purpose: the review conversation is the review, the gate's screen and the
+    human's approval of the final text are the content check, and the human's
+    submit is the sign-off. The handoff notes carry no eligibility line.
 - [ ] **Step 3: Write `references/calendar.md`:** the spec's calendar rules
   (time zone, days, weeks, periods from the Monday, boundaries, closing an
   open period with the daily one-keystroke default, gaps at week and above,
   windows, `end` targeting the latest open period, the first run), then the
-  three worked examples named in Review Focus, each as given date and time,
-  logbook state, and the exact files written with their windows.
+  four worked examples named in Review Focus, each as given date and time,
+  logbook state, and the exact files written with their windows. The `end`
+  window rule: an `end` the human runs covers from its matching `start`'s
+  `window_to` to whichever is earlier, now or the end of its period, with
+  `late: false`; an `end` run late by a `start` covers to the end of its
+  period, with `late: true`.
 - [ ] **Step 4: Write `references/logbook.md`:** where the logbook is, the
   file-name rules, the header (Task 2), the index line, the "not performed"
   entry's shape, the fixed wording for the task, commit and handoff, the
@@ -219,7 +241,10 @@ level heading; an entry that ran late or was not performed adds a space and
 - [ ] **Step 5: Write `references/security.md`:** the spec's Security rules,
   each as a rule plus one example of the allowed wording, with example A (a
   failed run in a private repo) and example B (a failed security job in a
-  public repo) from Review Focus.
+  public repo) from Review Focus; then the pre-commit screen (patterns
+  `GHSA-`, `CVE-`, alert numbers, each private repo name from the visibility
+  check, per-repo alert counts) with example C, a hit and the stop it
+  produces.
 - [ ] **Step 6: Register the skill** in `README.md` and
   `docs/site/docs/skills/index.md`, matching the existing entries' shape.
 - [ ] **Step 7: Validate.** `vrg-container-run -- vrg-validate`. Expected:
@@ -237,8 +262,8 @@ level heading; an entry that ran late or was not performed adds a space and
 **Interfaces:**
 
 - Consumes: Task 3a's reference names and check format.
-- Produces: the check briefs posted to vergil-project/.github#1140, #1316 and
-  #1317.
+- Produces, for Task 4: the `Tool: none yet` checks, each naming its planning
+  issue.
 
 - [ ] **Step 1: Write one reference per level,** each with a `start` and an
   `end` section carrying the spec's first checklist for that review (its
@@ -252,9 +277,6 @@ level heading; an entry that ran late or was not performed adds a space and
   pass.
 - [ ] **Step 3: Commit** with `vrg-commit --type feat --scope hoshin
   --message "add the hoshin checklists and checks for each level"`.
-- [ ] **Step 4: After report-ready,** post each `Tool: none yet` check, as
-  written, as a comment on the planning issue it names, with a link to the
-  reference file on the branch.
 
 ### Task 4: Plugin release with the skill (deployment)
 
@@ -262,12 +284,17 @@ level heading; an entry that ran late or was not performed adds a space and
   containing Tasks 3a and 3b is published; Task 2 is merged. The version is
   named in a comment on the task.
 - **Procedure:** the agent-safe install: `vrg-host plugins` on the host and
-  `vrg-vm update --all` for the VMs, then a new session.
+  `vrg-vm update --all` for the VMs, then a new session. Then post each
+  `Tool: none yet` check from Task 3b, as merged, as a comment on the
+  planning issue it names (#1140, #1316 or #1317), linking the reference file
+  at the release tag.
 - **Checks:**
   1. In the new session, the skill list includes `vergil:hoshin`.
   2. The installed plugin's `skills/hoshin/` holds `SKILL.md` and the eight
      reference files.
   3. `https://vergil-project.github.io/docs/` shows the Logbook section.
+  4. Each `Tool: none yet` check has its comment on its planning issue, and
+     each link resolves.
 - **On failure:** the task stays open; fix forward with a new task.
 
 ### Task 5: Bootstrap the logbook (validation, docs)
