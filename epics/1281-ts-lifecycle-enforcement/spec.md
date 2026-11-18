@@ -9,10 +9,12 @@
 Vergil owns the Node runtime of a TypeScript repo, as it owns Python's. A new
 Node major arrives, and an old one leaves, through a reviewed lifecycle pull
 request opened by the vergil-containers lifecycle job, not by hand. Node
-caught up to 26 through a hand-made add before that switch
-(vergil-project/vergil-containers#949). A TypeScript repo cannot declare a
-Node or package-manager version that disagrees with the one Vergil runs, and
-every CI leg checks that it runs the Node major CI resolved for it.
+caught up to 26 through a hand-made add
+(vergil-project/vergil-containers#949), before the `ts-node` family moved to
+`pr` lifecycle automation (vergil-project/vergil-containers#956). A
+TypeScript repo cannot declare a Node or package-manager version that
+disagrees with the one Vergil runs, and every CI leg checks that it runs the
+Node major CI resolved for it.
 
 > **Amended after implementation** (2026-11-18;
 > vergil-project/vergil-containers#949). The original text said Node catches
