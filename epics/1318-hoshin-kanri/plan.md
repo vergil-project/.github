@@ -47,8 +47,12 @@ plugin skills.
   for a documentation-generating run, and the gates that matter (keeping
   security content out of public records) run inside the skill before
   anything is pushed. The handoff notes carry no eligibility line.
-- `pr-watch` never fixes a logbook PR. A failing logbook PR is closed, and
-  the run is redone through `/vergil:hoshin`.
+- `pr-watch` never fixes a logbook PR: it recognises one by its `Logbook:`
+  title and stops, telling the human to close it and redo the run through
+  `/vergil:hoshin`. `epic-implement`'s adhoc mode skips tasks titled
+  `Logbook:`. Both guards are written into those skills (Task 3a).
+- A logbook task closes through `vrg-finalize-pr`, which `vrg-submit-pr` runs
+  by default after the merge.
 - Every follow-up issue a run files in a public repo is screened and shown
   to the human for approval before it is filed.
 - Worked examples in the skill use placeholder names (`<private-repo>`,
@@ -83,11 +87,27 @@ reference, which its reviewer checks by hand.
 - **Monday after a weekend off, Thursday left open.** `start` on Monday finds
   Thursday's `start` unclosed (offers the one-keystroke "not performed"),
   finds the week unclosed (offers late or not performed), names no days as
-  gaps, and opens the new week; the daily window runs from Thursday's
-  `start` window end (Task 3a, example 3).
-- **A preflight conflict.** An open logbook PR, or a logbook task still open
-  in the docs repo's ad-hoc epic, stops the run before any review, with the
-  PR or task named (Task 3a, `SKILL.md` preflight).
+  gaps, and opens the new week. If Thursday is recorded as not performed,
+  the daily window runs from Thursday's `start` window end; if it is closed
+  late, the late `end` covers Thursday to midnight and the daily window runs
+  from that midnight (Task 3a, example 3, both outcomes).
+- **`end month` with the week and day open.** It writes the daily, weekly
+  and monthly `end` entries, smallest first; `end` with nothing open
+  refuses and writes nothing (Task 3a, example 5).
+- **A gap at the week level.** `start` on Monday 2026-12-21, with the latest
+  weekly entry for the week of 2026-11-30, closes that week and names the
+  weeks of 2026-12-07 and 2026-12-14 as gaps in the new weekly `start` entry
+  (Task 3a, example 6).
+- **A preflight conflict.** An open logbook PR stops the run before any
+  review, with the PR named. An open `Logbook:` task with no open PR is
+  stale: with no live worktree for it, the run closes it with a fixed
+  comment and says so; with a live worktree, it asks the human (Task 3a,
+  `SKILL.md` preflight).
+- **A run stopped after filing its task.** On a screen hit or withheld
+  approval, the human either edits and the run loops back through
+  validation, the screen and approval, or abandons; an abandoned run closes
+  its task with a fixed comment and removes its worktree (Task 3a, example
+  7).
 - **A failed run in a private repo, and a failed security job in a public
   one.** The entry shows "1 failed run in a private repo" with no name, and
   "a security-related failure" with a security-record ref, never the cause
@@ -149,9 +169,10 @@ run machinery.
 - Create: `docs/site/docs/logbook/{daily,weekly,monthly,quarterly,yearly}/index.md`
 - Create: `docs/site/docs/management/hoshin-kanri.md`
 - Modify: `docs/site/mkdocs.yml` (nav), `docs/site/docs/management/index.md`
-  (link the new page), `docs/site/docs/management/tools-and-skills.md` (an
-  entry for `hoshin`, linking the background page and the plugin's skills
-  index, in the shape of the existing skill entries)
+  (link the new page). The `hoshin` entry on
+  `docs/site/docs/management/tools-and-skills.md` is left to the
+  documentation review (docs#136), which runs after the release, so its
+  link to the plugin's skills index anchor resolves.
 
 **Interfaces:**
 
@@ -213,7 +234,9 @@ level heading; an entry that ran late or was not performed adds a space and
 - Create: `skills/hoshin/references/logbook.md`
 - Create: `skills/hoshin/references/security.md`
 - Modify: `README.md` (skill list), `docs/site/docs/skills/index.md` (an
-  entry for the skill)
+  entry for the skill, noting that a logbook handoff carries no
+  eligibility line), `skills/pr-watch/SKILL.md` and
+  `skills/epic-implement/SKILL.md` (the logbook guards)
 
 **Interfaces:**
 
@@ -230,8 +253,11 @@ level heading; an entry that ran late or was not performed adds a space and
   week/month"), and that it runs as the user agent.
 - [ ] **Step 2: Write the procedure,** the spec's seven run steps in order:
   preflight (user agent; docs clone current with `origin/develop`; refuse on
-  an open logbook PR or open `Logbook:` task in the docs ad-hoc epic, naming
-  it; refuse if the entry to write exists); read the logbook (front matter
+  an open logbook PR, naming it; an open `Logbook:` task in the docs ad-hoc
+  epic with no open PR is stale: close it with a fixed comment and say so
+  if no live worktree exists for it, otherwise ask the human; refuse if the
+  entry to write exists; `end` with nothing open refuses); read the logbook
+  (front matter
   of each level's latest entries); decide what is due (by
   `references/calendar.md`); close then open in the spec's order (closing
   ends smallest first; on `start`, daily first, then yearly down to weekly);
@@ -250,15 +276,19 @@ level heading; an entry that ran late or was not performed adds a space and
   7. `vrg-pr-workflow report-ready`, with the fixed wording.
 
   Entry text changes only inside the run: any edit after step 5 goes back
-  through steps 3 to 5 before the commit. State that the run skips
-  `merge-review` on purpose, with the reason in Global Constraints, and that
-  `pr-watch` never fixes a logbook PR (a failing one is closed and the run
-  redone).
+  through steps 3 to 5 before the commit. A run that stops at step 3, 4 or
+  5 offers the human two choices: edit and loop back to step 3, or abandon,
+  in which case the run closes its task with a fixed comment and removes
+  its worktree. State that the run skips `merge-review` on purpose, with the
+  reason in Global Constraints; that a submitted logbook PR's task closes
+  through the default finalize; and that a failing logbook PR is closed
+  together with its task, and the run redone.
 - [ ] **Step 3: Write `references/calendar.md`:** the spec's calendar rules
   (time zone, days, weeks, periods from the Monday, boundaries, closing an
   open period with the daily one-keystroke default, gaps at week and above,
   windows, `end` targeting the latest open period, the first run), then the
-  four worked examples named in Review Focus, each as given date and time,
+  calendar examples named in Review Focus (1 to 6), each as given date and
+  time,
   logbook state, and the exact files written with their windows. The `end`
   window rule: an `end` the human runs covers from its matching `start`'s
   `window_to` to whichever is earlier, now or the end of its period, with
@@ -268,9 +298,12 @@ level heading; an entry that ran late or was not performed adds a space and
   file-name rules, the header (Task 2), the index line, the "not performed"
   entry's shape, the fixed wording for the task, commit and handoff, the
   kaizen prompt that ends every review (including the instruction to point
-  out any ad hoc query the agent found itself repeating), the check format,
-  and the rule that a failing logbook PR is closed and the run redone, never
-  fixed in place.
+  out any ad hoc query the agent found itself repeating), the check format
+  (with the rule that the plugin PR adding a new `Tool: none yet` check
+  posts its brief to its planning issue, and that a check is switched to its
+  tool once the tool ships), the stopped-run choices with example 7, and the
+  rule that a failing logbook PR is closed with its task and the run redone,
+  never fixed in place.
 - [ ] **Step 5: Write `references/security.md`:** the spec's Security rules,
   each as a rule plus one example of the allowed wording, with example A (a
   failed run in a private repo) and example B (a failed security job in a
@@ -286,7 +319,13 @@ level heading; an entry that ran late or was not performed adds a space and
   Review Focus, with placeholder names. The same screen applies to the
   title and body of every public follow-up issue before it is filed.
 - [ ] **Step 6: Register the skill** in `README.md` and
-  `docs/site/docs/skills/index.md`, matching the existing entries' shape.
+  `docs/site/docs/skills/index.md`, matching the existing entries' shape,
+  and note there that a logbook handoff carries no eligibility line.
+- [ ] **Step 6a: Add the logbook guards.** In `skills/pr-watch/SKILL.md`, a
+  check at the start: a PR whose title starts `Logbook:` is not fixed; the
+  skill tells the human to close it and redo the run through
+  `/vergil:hoshin`, and stops. In `skills/epic-implement/SKILL.md`, adhoc
+  mode skips tasks titled `Logbook:`, naming them in its summary.
 - [ ] **Step 7: Validate.** `vrg-container-run -- vrg-validate`. Expected:
   pass.
 - [ ] **Step 8: Commit** with `vrg-commit --type feat --scope hoshin

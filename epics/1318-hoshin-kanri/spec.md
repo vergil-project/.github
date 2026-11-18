@@ -223,11 +223,14 @@ Each run:
 
 1. **Preflight.** Confirms it is the `user` agent. Locates the docs repo clone
    and confirms its `develop` is current with `origin/develop`, so it reads the
-   latest logbook. Looks for any open logbook PR (or logbook task still open);
-   if one exists, it stops and tells the human to submit and merge it first,
-   since the logbook on `develop` must be the full record before a run can
-   reason about it. Refuses if the entry this run would write already exists
-   (the same mode run twice in one day).
+   latest logbook. Looks for any open logbook PR; if one exists, it stops and
+   tells the human to submit and merge it first, since the logbook on
+   `develop` must be the full record before a run can reason about it. A
+   logbook task still open with no open PR is stale (a run that stopped or
+   died): if no worktree is live for it, the run closes it with a
+   fixed-wording comment and says so; if one is, it asks the human. Refuses
+   if the entry this run would write already exists (the same mode run twice
+   in one day).
 2. **Reads the logbook** to find, for each level, the latest entry, its period,
    and the end of the window it covered.
 3. **Decides what is due** (see "The calendar" below): open periods to close,
@@ -263,8 +266,19 @@ Each run:
    for a documentation-generating run, and the gates that matter, mostly
    keeping security content out of public records, belong in the skill
    before submission rather than in reviews after it. For the same reason
-   `pr-watch` never fixes a logbook PR: a failing one is closed, and the run
-   is redone through `/vergil:hoshin`.
+   `pr-watch` never fixes a logbook PR: a failing one is closed together
+   with its task, and the run is redone through `/vergil:hoshin`. These rules
+   are enforced where the mistake would happen: `pr-watch` recognises a
+   logbook PR by its `Logbook:` title and stops, and `epic-implement`'s
+   adhoc mode skips `Logbook:` tasks, since a logbook task is controlled by
+   its run and is never ad-hoc work.
+
+   A run that stops after filing its task (a screen hit, a validation
+   failure it cannot fix, or the human withholding approval) offers two
+   choices: edit the entry text and go back through validation, the screen
+   and the approval, or abandon the run, closing its task with a
+   fixed-wording comment and removing its worktree. Preflight's stale-task
+   rule (step 1) is the backstop for a run that dies without either.
 
 #### What each level does
 
@@ -457,7 +471,9 @@ Every run hands off exactly one PR to `vergil-project/docs`, holding all of
 that run's entries and index updates (and, at the quarterly and yearly
 levels, any `hoshin.md` change). Because the next run refuses while a logbook
 PR is open, the human submits each one as the review's sign-off; the docs
-repo's checks are quick, so it merges well before the next run.
+repo's checks are quick, so it merges well before the next run. The run's
+task closes through `vrg-finalize-pr`, which `vrg-submit-pr` runs by default
+once the PR merges.
 
 Vergil's rule is one task, one PR, so each run files a task in the docs repo's
 ad-hoc epic (`vrg-issue-create --epic adhoc --repo vergil-project/docs`),
