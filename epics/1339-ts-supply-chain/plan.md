@@ -163,8 +163,11 @@ Spec §6.1, the shared parsing. A refactor with no behaviour change, so Task
   - `class ExceptionFileError(ValueError)` with `problems: list[str]`, moved
     from `npm_audit.py`; `npm_audit` re-exports it, so existing imports
     keep working.
-  - `parse_expiry(token: str) -> datetime.date | None`: `exp:YYYY-MM-DD`, or
-    `None` when malformed.
+  - `parse_expiry(token: str) -> datetime.date | str`: the date of
+    `exp:YYYY-MM-DD`, or the problem text, the same two messages
+    `npm_audit._parse_entry` emits today: `'<tok>' is not an expiry
+    (exp:YYYY-MM-DD)` for a malformed token, and `'<tok>' is not a real date`
+    for an impossible one (`exp:2026-02-30`).
   - `is_tracking_ref(token: str) -> bool`: `#N`, `owner/repo#N` or a GitHub
     issue URL.
   - `window_problem(*, key: str, expires: datetime.date, tracking: str,
@@ -175,7 +178,8 @@ Spec §6.1, the shared parsing. A refactor with no behaviour change, so Task
     stripped lines, skipping blanks and `#` comments.
 
 - [ ] **Step 1: Write the failing tests** in `test_exception_file.py`:
-  `test_parse_expiry_valid_and_malformed`, `test_tracking_ref_forms`,
+  `test_parse_expiry_valid_malformed_and_impossible` (the two messages
+  byte-for-byte), `test_tracking_ref_forms`,
   `test_window_expired_message`, `test_window_too_far_message`,
   `test_content_lines_skips_comments_and_blanks`.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expect the new
@@ -221,10 +225,13 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
   `languages._TYPESCRIPT_LICENSES_ALLOWLIST` (split on `;`).
 - Produces, in `lib/npm_licenses.py`:
   - `EXCEPTIONS_FILE = ".npm-license-exceptions"`,
-    `MAX_EXCEPTION_DAYS = 365`, `MISSING = "-"`.
-  - `license_key(value: object) -> str`: a string as recorded; a non-string
-    as `json.dumps(value, sort_keys=True, separators=(",", ":"))`; an absent
-    field as `MISSING`.
+    `MAX_EXCEPTION_DAYS = 365`, and `MISSING_TOKEN = "-"`, the bare token
+    an exception line uses for an absent field.
+  - `license_key(value: object) -> str | None`: a string as recorded; a
+    non-string as `json.dumps(value, sort_keys=True, separators=(",",
+    ":"))`; `None` for an absent field. `None` is outside the string key
+    space, so a package recording the literal string `"-"` is never
+    confused with one recording nothing.
   - `parse_expression(text: str) -> Expr`, raising `LicenseExpressionError`:
     IDs, `+`, `WITH`, `AND`, `OR`, parentheses; `AND` binds tighter than
     `OR`. Operators are upper case only. It checks syntax only: any
@@ -243,7 +250,8 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
     comment giving the reason. The name is `name` when present, else the
     last `node_modules/` segment of the key.
   - `@dataclass(frozen=True) class LicenseException: package: str;
-    license: str; expires: date; tracking: str; reason: str; line: int`.
+    license: str | None; expires: date; tracking: str; reason: str; line:
+    int` (`None` from the bare `-`, a string from a quoted value).
   - `parse_exceptions(text: str, *, today: date, source: str) ->
     list[LicenseException]`. A line is `<package> <value> exp:<date>
     <tracking> <reason>`, where `<value>` is a JSON string literal (the
@@ -265,7 +273,9 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
   the fixes. Applied and unmatched exceptions are listed, unmatched as
   warnings.
 - Produces: the TypeScript AUDIT commands are `["sh", "-c",
-  _TYPESCRIPT_AUDIT_SCRIPT]` then `["vrg-npm-license-gate"]`.
+  _TYPESCRIPT_AUDIT_SCRIPT]` then `["vrg-npm-license-gate", "--output",
+  LICENSES_REPORT]`, so the report name is in the command line, as every
+  other TypeScript report's is.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_or_any_branch`, `test_and_every_branch`,
@@ -275,7 +285,10 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
     unparseable), `test_unknown_ids_disallowed` (`UNLICENSED` and `Custom`
     parse, and fail as disallowed);
   - `test_license_key_forms`: `"MIT"`, `{"type": "MIT", "url": "u"}` as
-    `{"type":"MIT","url":"u"}`, and absent as `-`;
+    `{"type":"MIT","url":"u"}`, and absent as `None`;
+  - `test_dash_string_not_missing`: a bare `-` entry does not cover a
+    package recording `"-"`, and a quoted `"-"` entry does not cover one
+    recording nothing; the two entries for one package are not duplicates;
   - `test_read_lockfile_skips_root_and_links`,
     `test_read_lockfile_name_from_key`, `test_pre_v2_lockfile_fails`,
     `test_entry_without_version_fails`;
@@ -288,8 +301,16 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
     `test_unmatched_entry_warns`, `test_entry_for_passing_package_warns`;
   - `test_gate_writes_report_on_failure` and `test_gate_exit_codes`, through
     `main()`;
-  - `test_typescript_audit_runs_license_gate`, and
-    `test_typescript_report_files_include_licenses`.
+  - two existing tests in `test_languages.py` change, at `origin/develop`
+    `0185c9dc7b`, and neither is weakened:
+    - `test_typescript_report_files` (lines 1190–1204) expects the six names,
+      `licenses.json` added. Its invariant that every report name appears in
+      a TypeScript command reads argv as well as `sh -c` scripts (its helper
+      `_ts_script`, lines 998–1002, reads scripts only today), so the
+      gate's `--output licenses.json` satisfies it;
+    - `test_typescript_audit_commands` (line 1216) asserts the AUDIT
+      commands run `vrg-npm-license-gate --output licenses.json`, and that
+      no AUDIT command names `license-checker`.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expect the new
   tests to fail.
 - [ ] **Step 3: Implement** the interfaces above, and update the docs.
@@ -314,8 +335,9 @@ Spec §6.2 and §6.7 (vergil-tooling docs).
   its held-back notes), `docs/site/docs/standards/development/typescript/overview.md`
   (its "Dependency updates" section)
 - Test: `tests/vergil_tooling/test_update_deps_npm.py`,
-  `tests/vergil_tooling/test_update_deps_orchestrator.py`,
-  `tests/vergil_tooling/test_update_deps_registry.py`
+  `tests/vergil_tooling/test_update_deps_orchestrator.py`
+  (`test_default_registry_names`, lines 86–87 at `0185c9dc7b`, changes to
+  `["python", "cargo", "npm", "vergil", "images", "hook"]`)
 
 **Interfaces:**
 
@@ -384,7 +406,8 @@ Spec §6.2 and §6.7 (vergil-tooling docs).
     reported; `current` `2.0.0-rc.1` with `latest` `2.0.0` is;
   - `test_missing_current_from_lockfile`, `test_missing_everywhere_fails`;
   - `test_non_registry_specs_skipped`;
-  - `test_npm_in_default_registry`, and `test_orchestrator_records_npm_failures`.
+  - `test_default_registry_names` updated as above, and
+    `test_orchestrator_records_npm_failures`.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expect the new
   tests to fail.
 - [ ] **Step 3: Implement** the interfaces above, and update the docs.
@@ -458,18 +481,29 @@ refuses the agent push; the human's `vrg-submit-pr` pushes it.
 
 Blocked by 3, 4 and 5.
 
-- **Precondition (human-attested):** the releases are published and their
-  versions named in a comment: vergil-tooling (Tasks 2–4) first, then
-  vergil-actions (Task 5).
+- **Precondition (human-attested):**
+  - the releases are published and their versions named in a comment:
+    vergil-tooling (Tasks 2–4) first, then vergil-actions (Task 5);
+  - the named vergil-tooling release is installed on the host and the VMs
+    where the fixture releases run (`vrg-host`, `vrg-vm update --all`). A
+    release's dependency update runs in-process from the host install
+    (`lib/release/update_deps_stage.py` calls `orchestrator.run_update`),
+    not in the image, so an old host install has no npm updater.
 - **Procedure (agent-safe):**
   1. Confirm each release's notes list its tasks' PRs.
   2. Confirm `vergil = "v2.1"` resolves to the named vergil-tooling
      release.
-  3. In a scratch clone of `vergil-fixture-ts-app`, run
+  3. Confirm the host's installed vergil-tooling is the named release, and
+     that its `DEFAULT_REGISTRY` names `npm` (for example `python3 -c
+     "from vergil_tooling.lib.update_deps.orchestrator import
+     DEFAULT_REGISTRY; print([u.name for u in DEFAULT_REGISTRY])"` with the
+     installed package's interpreter).
+  4. In a scratch clone of `vergil-fixture-ts-app`, run
      `vrg-container-run -- vrg-validate --check audit` with the released
      vergil-tooling: it runs `vrg-npm-license-gate` and writes
      `licenses.json`.
-- **SUCCESS:** every check passes, recorded with the release versions.
+- **SUCCESS:** every check passes, recorded with the release versions and
+  the host's installed version.
 
 ### Task 7: `fixture-run` drops the TypeScript known gap (vergil-claude-plugin)
 
@@ -484,7 +518,12 @@ Spec §6.4. Blocked by 6.
   is corrected; the validation template's check 5 covers a transitive
   rollback, which has no declared range: the release's update moves the
   package to at least the version locked before the rollback, through an
-  npm update commit that names it)
+  npm update commit that names it; the learned condition "TypeScript only:
+  `develop` passes the audit" gains a branch for a license-gate failure on
+  `develop`: stop and report it to the human, and never add a
+  `.npm-license-exceptions` entry within a fixture run; and the Change
+  section's "the one exception" wording says it covers only the
+  `.npm-audit-exceptions` entry, not a license exception)
 
 **Interfaces:**
 
