@@ -44,6 +44,12 @@ path, on a uv-managed Python 3.15. The images' core Python goes to a
 uv-managed 3.15 too, so the fleet's development path stops reading the
 package repository altogether.
 
+This undoes a trade-off, not a mistake. The packages were built for the IBM
+MQ lab (epic vergil-project/.github#356 §2.1), and Vergil then adopted them
+for its own installs. They stay a product Vergil builds and publishes for
+outside consumers; Vergil itself stops consuming them, as it already
+consumes its GitHub Actions and its Claude plugin straight from git.
+
 ### 1.1 Why the move to packages was made, and how each reason is met
 
 The package solved real problems. Each must stay solved, or be given up on
@@ -79,9 +85,12 @@ purpose:
 3. The images' core Python is a uv-managed 3.15. `base` no longer installs
    vergil-python and carries no vergil apt source, so image builds do not read
    the package repository either.
-4. The existing agent VMs move over through `vrg-vm update`, with the
-   vergil-tooling package removed, and new VMs are created that way.
-5. The waits and guards whose only reason was the package install path are
+4. The existing agent VMs move over through `vrg-vm update`, and new VMs are
+   created that way. Old and new VMs end the same: no vergil-tooling package,
+   no vergil-python package, no vergil apt source.
+5. `vrg-release` no longer waits on the package index for any product, and a
+   failed index publish is still reported (§4.6).
+6. The waits and guards whose only reason was the package install path are
    removed, each after checking that nothing else needs it (§4.6).
 
 ## 3. Non-goals and anti-goals
@@ -90,7 +99,9 @@ purpose:
 
 - **Package publishing stays.** vergil-tooling and vergil-python keep being
   built, signed, attached to their releases, indexed and install-tested
-  exactly as today. That keeps the packaging pipeline dogfooded.
+  exactly as today, as a product for outside consumers. Moving package
+  publication off the release's critical path, into its own CD workflow, is
+  the follow-on vergil-project/.github#1355 (§7).
 - **The package jobs.** `actions/package/setup` already installs its driver
   vergil-tooling with `uv tool install`; the `pkg-*` images and their install
   tests are unchanged, including vergil-project/vergil-tooling#4663 (dnf
@@ -104,10 +115,6 @@ purpose:
   own environment to them (#649 §5.3.1, issue vergil-project/.github#1002).
 - **vergil-tooling's own repo.** It still syncs its checkout as the project
   under test, and `publish-index.yml` still installs from git.
-- **The VMs' vergil-python package.** The VMs keep the vergil apt source,
-  keyring and `vergil-python3.15` installed as the runtime's dogfood. Nothing
-  on the VM depends on them any more, and the vergil-tooling install never
-  reads them.
 
 ### Anti-goals
 
@@ -119,10 +126,13 @@ purpose:
   vergil-project/.github#1292 just removed one.
 - **Coupling the tooling path to vergil-python.** No install path names
   `/opt/vergil/python/…`, or any other interpreter path.
-- **Any fetch through a CDN-cached URL on an install path.** The install reads
-  git over github.com (`git ls-remote`, clone) and PyPI only, never
-  `raw.githubusercontent.com` or the package site, which carry their own
-  cache windows.
+- **Any fetch of mutable content through a CDN-cached URL on an install
+  path.** Resolving and reading the tag goes through git over github.com
+  (`git ls-remote`, clone), never `raw.githubusercontent.com` or the package
+  site, which carry their own cache windows. Immutable, versioned downloads
+  are not stale-able and are allowed: PyPI files, uv's own pinned download,
+  and the python-build-standalone files uv fetches and checks for a managed
+  interpreter.
 - **Silent downgrades.** A line pin installs the newest release of that line,
   never an older one because something lagged.
 
@@ -155,9 +165,21 @@ install and keep it in uv's Python directory.
   resolution that the lock cannot satisfy fails the install. Dev refs install
   unconstrained, as today.
 
+These rules hold on **every** install path, including the ones that are
+already uv today (§4.5): none installs from the moving `vX.Y` tag or
+upgrades in place with `uv tool upgrade`, which re-resolves the moving tag
+without a lock.
+
 One implementation of the resolve-and-install sequence lives in
-vergil-tooling (Python), used by the cache build and `vrg-vm`; the shell
-setup action carries its own, kept equivalent, as today.
+vergil-tooling (Python), used by the cache build, `vrg-vm` and `vrg-host`.
+The shell setup action carries its own, kept equivalent, as today. A shell
+script that runs before vergil-tooling exists, which is only vergil-tooling's
+first install on a fresh host, uses the same rules.
+
+The cache key's line resolution (`tooling_release.resolve_tooling_tag`,
+called from `container_cache._resolve_tooling`) reads the package index
+today. It moves to the same `git ls-remote` resolution, so the key and the
+install always name the same tag.
 
 ### 4.3 Where `vrg-*` lands, and the post-install check
 
@@ -178,9 +200,14 @@ shadows the new one fails the check.
 
 - `base` drops `core-python.dockerfile`'s vergil-python install and the vergil
   apt source and keyring it set up. It runs `uv python install 3.15` into a
-  fixed, image-wide Python directory (builder's choice of path, not under
-  `/opt/vergil/python`), persisted through `UV_PYTHON_INSTALL_DIR` so later
-  installs find it.
+  fixed Python directory (builder's choice of path, not under
+  `/opt/vergil/python`).
+- **That directory is not set image-wide.** `UV_PYTHON_INSTALL_DIR` is passed
+  only to the commands that use the core Python: the vergil-tooling install
+  and the core tools' creation. Project uv commands never see a managed
+  interpreter, so the python images' check that none is installed
+  (`docker/python/checks.sh`, from #649 §5.3.1) stays exactly as it is, and
+  still passes.
 - `/usr/local/bin/python3` links to that managed 3.15 and still promises the
   standard library only (#649 §5.2).
 - `base`'s core tools (yamllint, ansible-lint, semgrep, the mkdocs/mike
@@ -204,22 +231,45 @@ shadows the new one fails the check.
   constraints, in containers and on host runners alike. `install-source`
   keeps its `auto`/`git` input; both now install from git.
 - **VMs** (`vm_packages`, `vrg-vm update` and create, `vm_guest`,
-  `vm_cloud`): a released ref installs with uv. If the vergil-tooling package
-  is installed, `vrg-vm update` removes it first (`apt-get remove
-  vergil-tooling`, never purging vergil-python), then installs with uv, then
-  runs the §4.3 check. `_uv_tool_install`'s cache self-heal stays.
+  `vm_cloud`): a released ref installs with uv, then runs the §4.3 check.
+  `_uv_tool_install`'s cache self-heal stays.
+- **VM cleanup** (`vrg-vm update`, existing VMs): after the uv install passes
+  its check, `vrg-vm update` removes the vergil-tooling package, every
+  `vergil-python*` package, the vergil apt source and the
+  `vergil-archive-keyring`, and the apt pin file, then confirms none is left.
+  Each removal names its packages; `apt-get autoremove` is never run, as
+  today. A VM created after the change never gets any of them: `vrg-vm
+  create` no longer bootstraps the vergil apt repository.
 - **vergil-vm** (`vrg-vm-init.sh`, `tests/test_vergil.sh`, the Lima
-  template, cloud-init): already uv; each names the §4.1 interpreter rule.
-- **macOS host:** already uv. Its documented install and `vrg-host` name the
-  §4.1 rule.
+  template, cloud-init): already uv, but on the moving `vX.Y` tag with no
+  lock. Each moves to the §4.1 and §4.2 rules. Where `vrg-vm create` already
+  installs vergil-tooling, the duplicate install in a script goes, rather
+  than becoming a third copy.
+- **macOS host:** already uv, but `vrg-host` upgrades with `uv tool upgrade`
+  (`host_methods.py`, `data/host_dependencies.toml`). It moves to the shared
+  resolve-and-install code. The documented first install names the §4.1 and
+  §4.2 rules.
 
 ### 4.6 Waits and guards that lose their reason
 
-- **The release's `package-index` stage** no longer gates `promote` or
-  `close-finalize`: no consumer's vergil-tooling install waits on the index,
-  so the #4293 ordering has no reason left. The stage still runs, after
-  `consumer-refresh`, and still fails-defers on a failed or missing index
-  publish, so a broken package publish is reported, never hidden.
+- **The release's `package-index` stage is removed**, for every product
+  (vergil-tooling, vergil-python, the keyring). No consumer in Vergil waits on
+  the index, so neither of its jobs is left: making the consumer refresh wait
+  for the index to show the release, and ordering `promote` after it
+  (#4293). Dropping it takes the 20–27 minute index publish
+  (vergil-project/.github#993) out of every packaged release.
+  `wait_for_index`, its stage entry, the consumer refresh's hold on a deferred
+  `package-index`, and their tests go.
+- **A failed index publish files an issue.** With nothing in `vrg-release`
+  watching it, vergil-actions' `publish-index.yml` reports its own failure:
+  any failed run files (or comments on an open) issue naming the run and the
+  releases it was publishing, never only a red run. Where the issue lands is
+  the builder's call (§8).
+- **A plan step that needs a freshly published package checks for it.** No
+  release confirms index visibility any more. Any later plan whose step
+  depends on a just-published package carries its own check that the index
+  serves it, as a precondition of that step. This is rare, and it is the
+  price of not waiting on every release.
 - **vergil-project/vergil-tooling#4706** (wait for apt to catch up) is
   superseded: the cache build no longer reads apt. It closes as superseded by
   this epic, with nothing implemented.
@@ -233,12 +283,15 @@ Ordered, one repo at a time, with no install switch, while the rest of the
 fleet's work is frozen and this epic owns it. Each step is released and
 checked before the next starts.
 
-1. **vergil-tooling** releases the uv install in the cache build and `vrg-vm`,
-   and the release-stage change. Its own release runs the new stage order.
-2. **vergil-actions** releases the setup action change, moving `v2.1`.
+1. **vergil-tooling** releases the uv install in the cache build, `vrg-vm`
+   and `vrg-host`, and the removal of the `package-index` stage.
+2. **vergil-actions** releases the setup action change and the
+   `publish-index.yml` failure report, moving `v2.1`. Step 1's own release
+   still runs the old stage. The failure report must be live before any
+   release runs without it; the plan orders the tasks so.
 3. **The macOS host** updates vergil-tooling (already uv), and **every
-   existing VM** runs `vrg-vm update` to the new release, removing the
-   package. vergil-vm's script changes land here.
+   existing VM** runs `vrg-vm update` to the new release, removing every vergil
+   package and the vergil apt source (§4.5). vergil-vm's script changes land here.
 4. **vergil-containers** releases `base` on the managed 3.15, without
    vergil-python or the vergil apt source. This is last because any
    vergil-tooling still doing a packaged install in a container needs that
@@ -255,7 +308,7 @@ checked before the next starts.
   `/usr/bin` shim failing the post-install check; `vrg-vm update` removing the
   package.
 - A cold rebuild: a new Lima VM created from scratch has vergil-tooling from
-  uv and no vergil-tooling package; a cache build on the new `base` installs
+  uv and no vergil package or apt source; a cache build on the new `base` installs
   vergil-tooling on the managed 3.15 with no interpreter download.
 - The new `dev-` images, as published by vergil-containers' develop CD build,
   carry the managed 3.15 and no vergil apt source, checked before step 4's
@@ -267,6 +320,11 @@ checked before the next starts.
 
 ## 7. Follow-on
 
+- **Package publication in its own CD workflow**
+  (vergil-project/.github#1355). The release tags without waiting on the
+  package build and sign, the way the container images publish, with the
+  signing trust chain re-pinned to the new workflow. Planned straight after
+  this epic.
 - **Package hosting.** Replacing GitHub Pages as the package host (object
   storage, a hosted service, or the planned home hosting platform in
   February 2027) goes back to the deferred queue as its own item, with
@@ -279,8 +337,10 @@ checked before the next starts.
   `/opt/vergil/python`.
 - The exact mechanics of reading the tag's `uv.lock` over git and passing it
   as constraints (§4.2).
-- How the Python resolve-and-install code is shared between the cache build
-  and `vrg-vm`.
+- How the Python resolve-and-install code is shared between the cache build,
+  `vrg-vm` and `vrg-host`.
+- Where `publish-index.yml`'s failure issue lands, and how repeated failures
+  share one issue (§4.6).
 - Whether `--managed-python` together with the cleared variables needs any
   further override in the cache-build environment; settled by a real cache
   build, not assumed.
