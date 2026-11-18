@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1350
 - **Planning issue:** vergil-project/.github#466 (review history is in its
   comments)
-- **Status:** draft
+- **Status:** draft, in design review
 - **Repos:** vergil-tooling, vergil-actions, vergil-containers, vergil-vm
 - **Related:** epic vergil-project/.github#356 (binary package publishing,
   decision D14), epic vergil-project/.github#649 (Ubuntu base platform, §5.2
