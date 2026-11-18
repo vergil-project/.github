@@ -147,7 +147,7 @@ Notes:
 
   ```text
   fixture-run vergil-project/.github#1339 ts-lib,ts-app \
-    --validates "TypeScript supply chain: the releases named in Tasks 6a and 6b" \
+    --validates "TypeScript supply chain: the releases of Tasks 6a and 6b" \
     --after vergil-project/.github#<Task 6b> \
     --after vergil-project/.github#<Task 8>
   ```
