@@ -15,7 +15,8 @@ Code**, and development happens on **macOS**. These three couplings
 are where VERGIL stands today, not where it intends to stay.
 
 <p align="center">
-  <strong><a href="https://vergil-project.github.io/docs/">📖 Read the full project documentation, roadmap &amp; activity →</a></strong>
+  <strong><a href="https://vergil-project.github.io/docs/">📖 Read the full
+  project documentation, roadmap &amp; activity →</a></strong>
 </p>
 
 ---
@@ -69,7 +70,8 @@ soured on it. Terrain like that is exactly where you want a guide you
 can trust.
 
 [MIMIR](https://github.com/vergils-nemesis) is the **Methodical
-Infiltration Model for Identifying Resilience**. Every guide needs something to guide you away from, and
+Infiltration Model for Identifying Resilience**. Every guide needs
+something to guide you away from, and
 that foil is MIMIR: everything we hope AI never becomes — the
 hallucination, the sycophancy, the confident slop. When Tony Stark
 and Bruce Banner got careless, they built Ultron; MIMIR is our
