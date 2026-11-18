@@ -1188,3 +1188,40 @@ Seed with `fixture-run vergil-project/.github#1218 python-app,python-lib,rust-ap
 - **V1's new step:** `lib/auto_merge.py` (Task 10, vergil-project/vergil-tooling#4568) treats GitHub's refusal text for an already-mergeable PR as the signal to merge directly. GitHub does not document that text, and no V1 step submitted a PR whose required checks were already green. Raised as [follow-up F1](https://github.com/vergil-project/.github/issues/1218#issuecomment-6952573508).
 - **Task 11's fixtures:** Step 1 is human-run, because `vrg-gh` denies the agent auto-merge and `gh api`. The recorded names replace the plan's expected list, which had also included `auto_merge_enabled` as an enable event.
 - The human ruled on F1, F2 and [the F3 proposal](https://github.com/vergil-project/.github/issues/1218#issuecomment-6952786586) (which filed this entry's task, vergil-project/.github#1264) in [the rulings on the epic](https://github.com/vergil-project/.github/issues/1218#issuecomment-6952880275).
+
+### 2026-11-17: Five follow-up tasks, a release constraint, Release 3 pieces in an earlier release, and a CD report change
+
+**What changed:**
+
+- **A new code task, vergil-project/vergil-claude-plugin#1131:** the `merge-review` skill and the `merge-reviewer` agent use the new `vrg-merge-review-request --pr` batch fields. It carries `Blocked-by: vergil-project/vergil-tooling#4584`. Until it lands, a fix to a batch PR still cannot end `eligible`.
+- **Task 15 (vergil-project/vergil-claude-plugin#1121) now also carries `Blocked-by: vergil-project/vergil-claude-plugin#1131`.** D3 covers it.
+- **A release constraint between Tasks 13a and 13b:** 13a (vergil-project/vergil-tooling#4574) and 13b (vergil-project/vergil-tooling#4575) ship in the same vergil-tooling release, and no vergil-tooling release is cut after 13a merges and before 13b merges. No code works around the gap between them.
+- **Release 3 pieces shipped early in vergil-tooling v2.1.322**, the release that carried Releases 1 and 2: vergil-project/vergil-tooling#4568 (Task 10), #4569 (Task 11), #4572 (Task 12a) and #4584. They had merged before the cut.
+- **A new code task, vergil-project/vergil-tooling#4648:** `vrg-pr-await` waits for the PR to merge. It exits 0 when the PR merges, and 1, with a named reason, when it cannot merge.
+- **A new code task, vergil-project/vergil-claude-plugin#1142:** pr-watch adopts the new `vrg-pr-await` contract. It carries `Blocked-by: vergil-project/vergil-tooling#4648` and `Blocked-by: vergil-project/vergil-claude-plugin#1121` (Task 15).
+- **Task 12c (vergil-project/vergil-tooling#4571) changed its CD report:** a repo with no CD workflow gets `CD: no CD workflow in this repo`, with no warning.
+- **A new code task, vergil-project/vergil-tooling#4662:** `--allow-provenance-violation` covers only an open PR, never one that has already merged with a violation. It carries `Blocked-by: vergil-project/vergil-tooling#4573` (Task 12b), and Task 13b (vergil-project/vergil-tooling#4575) now also carries `Blocked-by: vergil-project/vergil-tooling#4662`.
+- **A new code task, vergil-project/vergil-claude-plugin#1147:** pr-watch waits on `vrg-pr-await` in the background. It carries `Blocked-by: vergil-project/vergil-claude-plugin#1142`.
+- #4648, #1142, #4662 and #1147 ship in Release 3, and D3 (vergil-project/.github#1254) covers them.
+- The delivery table and every task section above are unchanged.
+
+**Why:**
+
+- **#1131:** #4584 added the batch fields to the request, but nothing reads them until the plugin passes `--pr` on every step of an open-PR run and the reviewer judges each commit against its own issue's scope. The merge review of #4584 raised this as follow-up N0.1, and the human [ruled it `file`](https://github.com/vergil-project/vergil-tooling/issues/4584#issuecomment-6953363979): a task of its own, blocked by #4584 and not folded into Task 15. Task 15 must not rely on a fix to a batch PR reaching `eligible` before #1131 lands.
+- **The 13a and 13b constraint:** from Task 13a on, submit turns auto-merge on, but until 13b its `--finalize`, `--release` and `--install` chain still calls the old finalize, which can fail if GitHub merges the PR during its wait. The merge review of 13a raised this as R1, and the human [ruled it `keep`](https://github.com/vergil-project/vergil-tooling/issues/4574#issuecomment-6961476729): no interim special case in code, with the gap closed by release discipline instead. The rule held: 13a merged after v2.1.322 was cut, and v2.1.323 carries both 13a and 13b.
+- **The early Release 3 pieces:** they had merged before v2.1.322 was cut, so that release carried them. No behaviour regressed: #4572 and #4584 were not used yet, and #4568 and #4569 change only mechanized PRs and agent provenance. The plan said Release 3 ships as one release, so the retrospective should record the exception. It was [recorded for the sweep](https://github.com/vergil-project/vergil-tooling/issues/4529#issuecomment-6961412667).
+- **#4648 and #1142:** `vrg-pr-await` treated a merged PR as an error, but under auto-merge at submit a PR merging during a watch is the normal way it lands, so pr-watch had to read exit 1 two ways. Raised as [follow-up F5](https://github.com/vergil-project/.github/issues/1218#issuecomment-6962241909), which the human [ruled `file`](https://github.com/vergil-project/.github/issues/1218#issuecomment-6962563891): `vrg-pr-await` follows the new flow, and nothing depends on its exit code in a roundabout way.
+- **Task 12c's CD report:** a repo with no CD workflow would have warned `CD: unknown` on every finalize, where it used to pass quietly. The merge review of #4571 raised this as R1, and the human [ruled it `change`](https://github.com/vergil-project/vergil-tooling/issues/4571#issuecomment-6962616352). Any other lookup failure keeps the warning.
+- **#4662:** spec §6.3 was ambiguous about what `--allow-provenance-violation` overrides in finalize's watch phase. Task 12b applied it to an already-merged PR too, so with the flag such a run could reach full success and release. Raised as [follow-up F7](https://github.com/vergil-project/.github/issues/1218#issuecomment-6963763578), which the human ruled `file` in the same comment: a PR that has already merged with a violation always blocks full success and any chained release.
+- **#1147:** #4648 makes `vrg-pr-await` wait up to `$VRG_FINALIZE_DEADLINE` (7200s by default), but pr-watch ran it in the foreground, where a Bash call is capped at 600s, so a CI run longer than 10 minutes had its wait killed. Raised as [follow-up F6](https://github.com/vergil-project/.github/issues/1218#issuecomment-6963745209), which the human [ruled `file`](https://github.com/vergil-project/.github/issues/1218#issuecomment-6963807664): it is still one wait, with no polling.
+
+### 2026-11-18: Release 3 cut before the documentation sweep
+
+**What changed:**
+
+- **Release 3 was cut once all of its code had merged:** vergil-tooling v2.1.323 and vergil-claude-plugin v2.1.76. The documentation-review sweep (vergil-project/vergil-tooling#4529) and its per-repo doc tasks had not merged yet.
+- **The epic's one security item:** security: 1 findings: 0 fix, 0 record, 1 reject ([ruling](https://github.com/vergil-project/.github/issues/1218#issuecomment-6977495350)).
+
+**Why:**
+
+- **The early cut:** the human gave the Release 3 green light once all Release 3 code had merged, without waiting for the documentation sweep.
