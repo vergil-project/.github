@@ -136,8 +136,9 @@ Background, for the builder and for the published background page:
   which reviews are due, the discipline fails. The calendar is the skill's job.
 - **A silently skipped review.** A run that finds nothing still writes its
   entry. A period left open is detected and closed, by a late review or a
-  "not performed" entry, and a period with no entries at all is named in the
-  next entry; nothing is quietly dropped.
+  "not performed" entry, and a week or longer period with no entries at all
+  is named in the next entry; nothing is quietly dropped. (A day with no
+  entries is a day off, not a gap.)
 - **Heavy structure.** The logbook is Markdown with a minimal header, not a
   schema. Over-structuring it before it has been used would freeze the wrong
   shape.
@@ -206,8 +207,11 @@ the levels due and the window to review for itself.
 - **`end`** is optional. Plain `end` closes the day. `end week`, `end month`,
   `end quarter` or `end year` closes that period now, together with every
   smaller period still open beneath it (so `end month` also closes the week
-  and the day), when the human decides it is time to wrap it up. A period not
-  closed by `end` is closed by the next `start`.
+  and the day), when the human decides it is time to wrap it up. `end` always
+  closes the latest open period at each level it touches (the most recent
+  `start` with no `end`), whatever the current date, so an `end` run after
+  midnight still closes the day that was worked; it refuses if nothing is
+  open. A period not closed by `end` is closed by the next `start`.
 
 Each run:
 
@@ -324,22 +328,34 @@ choice.
   with the period of that level's latest `start` entry. If they differ, the
   level has crossed a boundary, and the new period's `start` review is due.
   A level with no entries at all is due too.
-- **Closing an open period.** If, at a level, the latest entry is a `start`
-  with no matching `end` (the day, week, month, quarter or year was opened and
-  never closed), the run pauses and says so, for example "Thursday was started
-  but never closed". The human chooses either to **close it now**, running
-  the missed `end` review late (its entry records that it ran late, and when),
-  or to **record it as not performed**, a short entry in the `end` slot saying
-  the review was not done, with an optional note on why. Either entry goes
-  into the same PR as the run's new `start`, so every `start` ends up with a
-  matching `end`.
-- **Gaps.** Periods that have neither a `start` nor an `end` entry (after a
-  long absence, say) are named in the new `start` entry ("no entries: weeks of
-  2026-12-07 and 2026-12-14"), so the gap is on record.
-- **Windows.** A daily review's window runs from the end of the window of the
-  latest daily entry to now, so a skipped day widens the next window rather
-  than losing time. A larger level's window runs, likewise, from its latest
-  entry to now, so weekend work falls into the next weekly review.
+- **Closing an open period.** If, at a level, the latest `start` is for a
+  period earlier than the current one and has no matching `end` (the day,
+  week, month, quarter or year was opened and never closed), the run pauses
+  and says so, for example "Thursday was started but never closed". A period
+  still in progress is never offered for closing by `start`. The human chooses
+  either to **close it now**, running the missed `end` review late (its entry
+  records that it ran late, and when), or to **record it as not performed**, a
+  short entry in the `end` slot saying the review was not done, with an
+  optional note on why. At the daily level the pause is one quick prompt whose
+  default is "not performed", so an unclosed day costs one keystroke. Either
+  entry goes into the same PR as the run's new `start`, so every `start` ends
+  up with a matching `end`.
+- **Gaps.** At the week level and above, periods that have neither a `start`
+  nor an `end` entry (after a long absence, say) are named in the new `start`
+  entry ("no entries: weeks of 2026-12-07 and 2026-12-14"), so the gap is on
+  record. Days are not gaps: a day with no entries is a day off.
+- **Windows.** Every entry that reviews something has a window, from and to.
+  - A `start` review's window runs from the end of the window of the latest
+    entry at its level that has one, to now. So a skipped day widens the next
+    window rather than losing time, and weekend work falls into the next
+    weekly review.
+  - A late `end` review covers only its own period: its window runs from the
+    end of its matching `start`'s window to the end of that period (midnight
+    ending that day, in the configured time zone, or the end of that week,
+    month, quarter or year). It never runs to now, so the overnight window is
+    left for the 朝礼 chōrei that follows.
+  - A "not performed" entry has no window. The next `start` window therefore
+    starts where the last reviewed window ended, and no time goes unreviewed.
 - **The first run.** On an empty logbook there is nothing open to close, and
   every level's `start` review is due. The first `/vergil:hoshin start` is
   therefore the bootstrap: it runs the daily, then the yearly, quarterly,
@@ -355,11 +371,11 @@ docs/site/docs/logbook/
   index.md     what the logbook is, the entry format, the time zone
   hoshin.md    the direction document: the vital few
   fleet.md     the fleet roster: each org, active or inactive
-  daily/       one file per daily review
-  weekly/      one file per weekly review
-  monthly/
-  quarterly/
-  yearly/
+  daily/       index.md, and one file per daily review
+  weekly/      index.md, and one file per weekly review
+  monthly/     index.md, ...
+  quarterly/   index.md, ...
+  yearly/      index.md, ...
 ```
 
 **File names** are ASCII and name the period the review covers, plus the mode.
@@ -379,7 +395,8 @@ only what later runs depend on:
 
 - the level and the mode;
 - the period it covers;
-- the review window (from and to, with times);
+- the review window (from and to, with times), except on a "not performed"
+  entry, which has none;
 - when it ran, and whether it ran late or records a review not performed.
 
 The body is the review: what was found, what was decided, the follow-up issues
@@ -388,10 +405,12 @@ entry, saying so. A "not performed" entry is a few lines: that the review was
 not done, and the human's note on why, if any. The entry format is described
 in the logbook's `index.md` and kept loose on purpose.
 
-**Listings are generated.** The site navigation gets a top-level **Logbook**
-section, and each level's listing of entries (newest first) is generated when
-the site is built, never edited by a run. So two logbook PRs never conflict
-over an index, and no run edits navigation.
+**Indexes.** The site navigation gets a top-level **Logbook** section, linking
+each level's `index.md`. Each `index.md` lists that level's entries, newest
+first, and the run adds its own entries to the indexes in the same PR. Because
+preflight refuses while a logbook PR is open, two runs never edit an index at
+once. If maintaining the indexes by hand proves error-prone, a small generator
+the run calls is the fallback; it is not built up front.
 
 **The direction document, `hoshin.md`,** holds the vital few: three to five
 fleet objectives, each with a line on why and how progress will be judged. It
@@ -407,18 +426,28 @@ whether the roster moves into configuration.
 ### The logbook PR
 
 Every run hands off exactly one PR to `vergil-project/docs`, holding all of
-that run's entries (and, at the quarterly and yearly levels, any `hoshin.md`
-change). Because the next run refuses while a logbook PR is open, the human
-submits each one as the review's sign-off; the docs repo's checks are quick,
-so it merges well before the next run.
+that run's entries and index updates (and, at the quarterly and yearly
+levels, any `hoshin.md` change). Because the next run refuses while a logbook
+PR is open, the human submits each one as the review's sign-off; the docs
+repo's checks are quick, so it merges well before the next run.
 
 Vergil's rule is one task, one PR, so each run files a task in the docs repo's
 ad-hoc epic (`vrg-issue-create --epic adhoc --repo vergil-project/docs`),
-titled for the run (`Logbook: 2026-11-18 start`), and works it on its own
-worktree. The commit uses a distinct type and scope
-(`docs(logbook): …`) so logbook PRs are easy to tell apart from development
-PRs. They are expected to be background noise alongside the fleet's other
-automated and routine PRs.
+and works it on its own worktree. Logbook PRs are expected to be background
+noise alongside the fleet's other automated and routine PRs, and are easy to
+tell apart from development PRs by their fixed wording.
+
+**Fixed wording.** Every public record a run creates besides the entries
+themselves uses fixed wording that carries no review content:
+
+- the task issue's title, and the commit message's description, are
+  `Logbook: <date> <mode>` (for example `Logbook: 2026-11-18 start`), with the
+  commit typed `docs(logbook)`;
+- the task issue's body, and the `vrg-pr-workflow report-ready` title, summary
+  and notes, say only which entries the run wrote, by path.
+
+Findings, failures and decisions appear only in the entries, where the rules
+under "Security" apply.
 
 ### Security
 
@@ -431,7 +460,15 @@ The logbook is public. The skill's prose states the rule plainly:
   public refs of their security records' neutral issues. An entry carries no
   alert or advisory IDs and no per-repo alert counts or severities; at most a
   single fleet-wide count. Their details stay in the review conversation.
+- A failed run whose cause is a security finding (a security scan, a
+  dependency audit, the GitHub-config audit) is reported only as "a
+  security-related failure" with the neutral ref of its security record. If
+  it has no record yet, the review creates one. The cause stays in the review
+  conversation and the private record.
 - The skill never pastes raw output from a security tool into an entry.
+- These rules cover every public record a run creates, not only the entries;
+  "Fixed wording" under "The logbook PR" keeps the others free of review
+  content.
 - **Private repositories.** Before writing, the skill checks each repo's
   visibility. A public repo is reported in detail. A private repo appears only
   as counts per org (for example "1 failed run in a private repo"): no name,
@@ -465,7 +502,5 @@ The plan sizes the tasks; the expected shape is:
   and the exact wording of each check.
 - The exact header format of an entry (front matter or a short field list),
   within the "minimal header" rule above.
-- How the listings are generated at site build (an MkDocs plugin or a build
-  step), provided no run edits an index or the navigation.
 - How the skill locates the docs repo clone, its ad-hoc epic and open logbook
   PRs.
