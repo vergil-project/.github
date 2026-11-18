@@ -38,9 +38,9 @@ on an agent reading the right paragraph.
 
 1. `vrg-security-record retarget` moves an advisory only from an issue it
    currently tracks, and never silently stops tracking an open issue.
-2. The scheduled security-records sync never auto-closes an advisory because
-   a queue item it tracks was closed, or because a tracked issue was closed as
-   not planned.
+2. The security-records sync never auto-closes an advisory because a queue
+   item it tracks was closed, or because a tracked issue was closed with any
+   reason other than completed.
 3. The planning hold fails closed everywhere it is used: `vrg-queue
    planning` and the docs-PR close (vergil-project/vergil-tooling#3996).
 4. `epic-create` checks for a security item at step 0, states the
@@ -169,18 +169,24 @@ path at once, with the skill text as the first line.
   item as the source. Each caller's targets are the advisory's current
   tracking set, minus the routed item, plus the new issue or issues, so a
   route never drops another tracked issue and never meets the drop check.
-- Every retarget command the tools print carries `--from`: the recovery
-  commands (`_retarget_commands`) and the message that tells the human to
-  retarget an item naming several advisories by hand.
+- Every retarget command or hint the tools print carries `--from`: the
+  recovery commands (`_retarget_commands`), the message that tells the human
+  to retarget an item naming several advisories by hand, the planning
+  view's `held:` note (`_held_note`) and the `planning_close` skip reason.
 
 ### 6.2 Sync close guard (vergil-tooling)
 
 - `pending_syncs` does not move an advisory to `closed` while any issue it
-  tracks is a queue item, or was closed with the reason `not planned`. It
+  tracks is a queue item, or was closed with any reason other than
+  `completed` (`not planned`, `duplicate`, or any reason GitHub adds). It
   stays `draft`. A **queue item** is an issue whose native parent is a live
   intake, planning or deferred epic, or a queue archive epic (labelled
   `archive` plus `intake`, `planning` or `deferred`). The tests cover a
   closed queue item that has already been drained into its archive.
+- The guard only stops a `draft` → `closed` move. An advisory that is
+  already `closed` (a human closed it with `vrg-security-record close`) is
+  left alone and is not reported as held; the tests cover one whose tracked
+  issue is a closed queue item.
 - Only an advisory the guard actually kept from `closed` (every issue it
   tracks is closed, and the guard fired) is reported, on its own line kind
   (`held:`), by GHSA ID and issue ref only, with the next step: retarget it
@@ -189,6 +195,9 @@ path at once, with the skill text as the first line.
   fail the sync: it waits on a human step and is not a fault.
 - A failed parent or state lookup is an error for that advisory, reported,
   never a close.
+- No schedule runs the sync: the human or the user agent runs
+  `vrg-security-record sync`, and `vrg-epic-audit` previews it read-only.
+  Holds surface there.
 
 ### 6.3 Planning hold fails closed (vergil-tooling)
 
@@ -199,19 +208,26 @@ queue into this epic, with its scope widened to every user of the hold:
   (`planning_close.find`). The view derives its hold from
   `tracking_advisories`, or both call one shared function; there is no
   second copy.
-- An advisory the planning issue names that cannot be read (the listing
-  does not return it) counts as tracking. The planning view keeps the item
-  held, with a note saying the advisory cannot be read, and the
-  `planning_close` skip reason says the same. Absence is never "not
-  tracking".
+- An advisory that a `security`-labelled planning issue names and that
+  cannot be read (the listing does not return it) counts as tracking. The
+  planning view keeps the item held, with a note saying the advisory cannot
+  be read, and the `planning_close` skip reason says the same. Absence is
+  never "not tracking".
+- The hold trusts the label and the advisories' own `Tracking issue:`
+  lines, never a body line alone. A `Security advisory:` line on an issue
+  without the `security` label is a broken pair: reported (by
+  `vrg-epic-audit` and the queue note), not held.
 - The next step the note names: re-run with a token that can read the
   repository's advisories, or have the human check the advisory.
 
 ### 6.4 Step 0 security check (vergil-claude-plugin, epic-create)
 
-- At step 0, if the planning issue carries `security` or has a
-  `Security advisory:` line, the run is a security run. A label without a
-  line, or a line without the label, is a broken pair: stop and ask the human.
+- At step 0, the run is a security run if the planning issue carries
+  `security`, has a `Security advisory:` line, or is tracked by any
+  advisory (`vrg-security-record list` shows its ref under `tracks:`). Any
+  disagreement between the three (a label without a line, a line without
+  the label, a tracking advisory the body does not name) is a broken pair:
+  stop and ask the human.
 - The public-wording rule is stated here and covers every public artifact the
   run produces: progress and round comments, the epic title and body, task
   titles and bodies, the slug and branch names, commit messages, the spec, the
@@ -233,15 +249,21 @@ queue into this epic, with its scope widened to every user of the hold:
 
 - **Step 1, single task.** File the task, retarget each advisory to it with
   `--from <M>`, then close the planning issue.
-- **Step 1, not planned.** Do not close. Stop and hand each advisory to the
-  human, who retargets or closes it; the close comment, when it comes, is
-  neutral.
+- **Step 1, not planned.** The agent does not close. It stops and hands
+  each advisory to the human, naming the two paths in order: retarget the
+  advisory to a fix task; or close the planning issue as not planned, with
+  a neutral comment, and then run `vrg-security-record close` (which
+  refuses while a tracked issue is open).
 - **Step 8.** One retarget per advisory, once, after the last fix task is
   filed, with `--from <M>` and every fix task. A fix task added later is
   added by a retarget `--from` one of the advisory's current tasks with the
   complete set as `--to`. GHSA IDs come from the advisories that track the
-  issue (the queue's held note), not from the body lines. On a failure, fix
+  issue (`vrg-security-record list`, the advisories whose `tracks:` names
+  the planning issue), not from the body lines. On a failure, fix
   the cause and re-run the identical command.
+- **Step 8's account of the close** is corrected: no scheduled sweep runs;
+  an advisory closes when someone runs `vrg-security-record sync` after
+  every issue it tracks has closed as completed (§6.2).
 
 ### 6.6 The hold in the planning states (vergil-claude-plugin)
 
@@ -254,21 +276,36 @@ queue into this epic, with its scope widened to every user of the hold:
 
 The skill work ships in two parts:
 
-- **First, with no tooling dependency:** §6.4, §6.6, and §6.5's
-  not-planned branch. They use no new tool behavior, so they land at once,
-  in parallel with the tool changes.
-- **After the release:** the rest of §6.5 (the single-task hand-off and the
-  step 8 retarget), whose commands name `--from`.
+- **First, with no tooling dependency:** §6.4, §6.6 (the hold as it is
+  today), and §6.5's not-planned branch. They use no new tool behavior, so
+  they land at once, in parallel with the tool changes.
+- **After the release:** the rest of §6.5 (the single-task hand-off, the
+  step 8 retarget and its account of the close), whose commands name
+  `--from`, and §6.6's text for the "advisory cannot be read" note that
+  §6.3 adds.
 
 The tool changes (§6.1–6.3) land, then a vergil-tooling release as a
 **deployment** task, and the second skill part is blocked by that
 deployment.
 
+From that deployment until the second part ships, a retarget command
+without `--from` is refused. The window is accepted and kept short:
+
+- the second skill part is the next task after the deployment, followed by
+  a plugin release (human-gated, like every release);
+- the retarget commands the docs show are fixed in the same window, not
+  left to the closing sweep: the vergil-tooling guides and CLI reference
+  with the tool change itself, the plugin's skills index with the second
+  skill part, and the `docs` repo's intake page in its own task, blocked by
+  the same deployment.
+
 ### 6.8 Docs
 
-The documentation-review task (vergil-project/vergil-tooling#4697) sweeps the
-security-records guide and the CLI reference in vergil-tooling, the skills
-index in vergil-claude-plugin, and the intake page in `docs`.
+The retarget commands in the docs are fixed with the rollout (§6.7). The
+documentation-review task (vergil-project/vergil-tooling#4697) then sweeps
+the security-records guide and the CLI reference in vergil-tooling, the
+skills index in vergil-claude-plugin, and the intake page in `docs` for
+everything else the epic changed.
 
 ## 7. Failure model
 
