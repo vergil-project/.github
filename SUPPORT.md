@@ -21,7 +21,7 @@ own car. That's what the license is for.
 - **Learn from it.** The docs site explains how it all fits together,
   and the specs, plans and retrospectives in each repo show how it got
   that way. Start at the
-  [VERGIL docs site](https://vergil-project.github.io/vergil-tooling/).
+  [VERGIL docs site](https://vergil-project.github.io/docs/).
 - **Argue with it.** If you think a design decision is wrong, make
   your case in
   [Discussions](https://github.com/orgs/vergil-project/discussions).
