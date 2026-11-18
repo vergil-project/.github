@@ -291,8 +291,7 @@ heads that day.
     regard to case, and the operators `AND`, `OR` and `WITH` only in upper
     case, as the SPDX license-expression syntax specifies
     ([SPDX 2.3, Annex D](https://spdx.github.io/spdx-spec/v2.3/SPDX-license-expressions/)).
-    `licenses.json` records the allowlist's canonical spelling of each ID. An
-    ID with `+` matches only an allowlist entry spelled with `+`.
+    An ID with `+` matches only an allowlist entry spelled with `+`.
   - A package passes when its expression is allowed. It fails when its
     expression is disallowed, unparseable or missing, unless a live exception
     covers it.
@@ -333,9 +332,11 @@ heads that day.
   package name and license value for licenses. A duplicate is the same key
   twice.
 - **`licenses.json`** lists every package the gate checked, with its name,
-  version, license as recorded (or none), whether it is a dev dependency, and
-  its verdict: allowed, excepted (with the entry's tracking issue and expiry),
-  or failing. It is written whenever the lockfile could be read, including
+  version, license as recorded (or none: the value an exception must match),
+  the license's canonical form when it parses (each ID in the allowlist's
+  spelling, for reading), whether it is a dev dependency, and its verdict:
+  allowed, excepted (with the entry's tracking issue and expiry), or
+  failing. It is written whenever the lockfile could be read, including
   when the gate fails, so the evidence records the failure.
 - **Output.** A failing run lists each failing package with its version, its
   license value and why it fails, and names `.npm-license-exceptions` and the
@@ -456,6 +457,12 @@ heads that day.
   direct dependency at its range floor, so a run rolls back a transitive
   package, which the sequence handles. The run checks that `package.json` is
   unchanged before it commits.
+- **The license gate in a fixture run.** The skill's TypeScript condition
+  that `develop` passes the audit also covers the license gate, which AUDIT
+  now runs. A license-gate failure on `develop` stops the run and is
+  reported to the human. A fixture run never adds a
+  `.npm-license-exceptions` entry: the one exception a run may add stays
+  the `.npm-audit-exceptions` entry for an advisory with no patched release.
 - **This plugin change is released** before the fixture runs are filed, as
   in #1165, so each run's change task is built from the new template.
 - **Fixture runs** on `vergil-fixture-ts-lib` and `vergil-fixture-ts-app`,
@@ -504,10 +511,16 @@ heads that day.
 3. **Release and deploy.** The human releases vergil-tooling, then
    vergil-actions. **Order matters:** vergil-actions' contract makes a
    missing `licenses.json` fail CI, so it must not reach repos before a
-   vergil-tooling that writes it. A deployment task records both releases
-   and that the released vergil-tooling writes `licenses.json` for a
-   TypeScript repo. Releases are human-gated preconditions, attested and
-   never cut by an agent.
+   vergil-tooling that writes it. vergil-actions is released often for
+   unrelated work, so the order is enforced by the task graph, not by
+   memory: one deployment task records the vergil-tooling release, that it
+   is installed on the hosts and VMs where fixture releases run (a release's
+   dependency update runs in-process from the host install, not in the
+   image, so an old host install has no npm updater), and that it writes
+   `licenses.json` for a TypeScript repo, the vergil-actions
+   contract change (step 2) does not merge until that task closes, and a
+   second deployment task records the vergil-actions release. Releases are
+   human-gated preconditions, attested and never cut by an agent.
 4. **vergil-claude-plugin:** the `fixture-run` change (§6.4), and its release.
 5. **Fixture runs** on both TypeScript fixtures (§6.4).
 6. **File the license-checker removal** (§6.5).
@@ -559,8 +572,9 @@ vergil-tooling.
 
 - **The lockfile is the truth.** The license gate reads only
   `package-lock.json`, and the updater changes only `package-lock.json`.
-- **No install scripts.** Every npm command Vergil runs passes
-  `--ignore-scripts`.
+- **No install scripts.** Every npm command Vergil runs that can install
+  packages or run lifecycle scripts (`ci`, `install`, `update`) passes
+  `--ignore-scripts`. Read-only commands (`audit`, `outdated`) run none.
 - **Python and Rust are untouched.** Their gate commands, reports, evidence
   and updaters stay byte-for-byte the same (an anti-goal, §3). Factoring the
   shared exception rules out of `lib/npm_audit.py` changes no behaviour of

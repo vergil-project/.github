@@ -37,7 +37,9 @@ the ts-node images, Markdown skills (vergil-claude-plugin).
 
 - The license gate reads only the committed `package-lock.json`; the
   updater changes only `package-lock.json` (spec §8).
-- Every npm command Vergil runs passes `--ignore-scripts` (spec §8).
+- Every npm command that can install packages or run lifecycle scripts
+  (`ci`, `install`, `update`) passes `--ignore-scripts`; read-only `audit`
+  and `outdated` run none (spec §8).
 - Python's and Rust's gate commands, reports, evidence and updaters stay
   byte-for-byte the same. Factoring the exception rules out of
   `lib/npm_audit.py` changes no audit-gate behaviour (spec §3, §8).
@@ -99,17 +101,20 @@ blocked by.
 - **3** (vergil-tooling): `vrg-npm-license-gate` in the TypeScript AUDIT
   check. Blocked by 2.
 - **4** (vergil-tooling): `NpmUpdater` and its held-back report.
+- **6a** (.github, deployment): the vergil-tooling release carrying Tasks
+  2–4 attested and installed on the hosts; the released gate writes
+  `licenses.json`. Blocked by 2, 3 and 4.
 - **5** (vergil-actions): `licenses.json` in the `typescript/audit`
-  contract. Blocked by 3 (the file and tool names).
-- **6** (.github, deployment): vergil-tooling and vergil-actions releases
-  attested; the released gate writes `licenses.json`. Blocked by 3, 4 and 5.
+  contract. Blocked by 6a.
+- **6b** (.github, deployment): the vergil-actions release carrying Task 5
+  attested. Blocked by 5.
 - **7** (vergil-claude-plugin): `fixture-run` drops the TypeScript
   dependency-update known gap and gains the TypeScript rollback. Blocked by
-  6.
+  6a.
 - **8** (.github, deployment): the vergil-claude-plugin release with Task 7
   attested and installed. Blocked by 7.
 - **Fixture runs** (both TypeScript fixtures): one `fixture-run` trio per
-  fixture. Blocked by 6 and 8.
+  fixture. Blocked by 6b and 8.
 - **9** (.github, validation): nothing the fleet runs calls license-checker;
   its removal filed as ad-hoc work. Blocked by both fixture validations.
 - **Documentation review** (vergil-tooling, bookend #4707). Blocked by 2–5
@@ -126,19 +131,24 @@ Notes:
   `docs/site/docs/standards/development/typescript/overview.md`, each in a
   section of its own so the PRs do not conflict: Task 3 owns a "License
   gate" section and Task 4 a "Dependency updates" section.
-- **Task 7 waits for the release, not the merge.** Other epics file
-  TypeScript fixture runs too. Removing the known-gap row before the
-  released vergil-tooling carries the updater would fail their rollback
-  check.
+- **Tasks 5 and 7 wait for the vergil-tooling release, not the merge.**
+  Both are blocked by Task 6a:
+  - Task 5: vergil-actions is released often for unrelated work. Once Task
+    5 merges, any vergil-actions release makes CI require `licenses.json`,
+    so Task 5 must not merge before a released vergil-tooling writes it,
+    or every TypeScript repo turns red (spec §3, §6.6).
+  - Task 7: other epics file TypeScript fixture runs too. Removing the
+    known-gap row before the released vergil-tooling carries the updater
+    would fail their rollback check.
 - **Filing.** Every task above is filed at epic-create's filing step, in its
   repo, linked under #1339, with its `Blocked-by:` refs. The fixture runs
-  are filed with `fixture-run` once Tasks 6 and 8 exist; Task 9 gets their
+  are filed with `fixture-run` once Tasks 6b and 8 exist; Task 9 gets their
   validation refs as `Blocked-by:` when they are filed:
 
   ```text
   fixture-run vergil-project/.github#1339 ts-lib,ts-app \
-    --validates "TypeScript supply chain: the releases named in Task 6" \
-    --after vergil-project/.github#<Task 6> \
+    --validates "TypeScript supply chain: the releases named in Tasks 6a and 6b" \
+    --after vergil-project/.github#<Task 6b> \
     --after vergil-project/.github#<Task 8>
   ```
 
@@ -188,6 +198,9 @@ Spec §6.1, the shared parsing. A refactor with no behaviour change, so Task
   on it. Every audit message stays byte-for-byte the same.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expect PASS,
   with the audit tests untouched.
+- [ ] **Step 4a: Refactor:** remove every helper left dead in `npm_audit.py`
+  by the move, keeping the `ExceptionFileError` re-export. Re-run
+  `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 5: Commit** `vrg-commit --type refactor --scope typescript
   --message "share the time-boxed exception rules"`, then report-ready.
 
@@ -262,16 +275,29 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
     an exception's `package` equals its name and `license` equals
     `license_key(package.license)`.
   - `report(verdict) -> list[dict]`, written as `licenses.json`: one object
-    per package with `name`, `version`, `license` (canonical spelling when
-    parsed, else the raw key), `dev`, `verdict` (`allowed`, `excepted` or
-    `failing`), and `exception` (`tracking`, `expires`) when excepted.
+    per package with `name`, `version`, `license` (`license_key` of the
+    recorded value, the exact value an exception matches; `null` when
+    absent), `license_canonical` (the parsed expression with each ID in the
+    allowlist's spelling, operators upper case, single spaces, parentheses
+    only where `AND` sits inside `OR`; `null` when it does not parse),
+    `dev`, `verdict` (`allowed`, `excepted` or `failing`), and `exception`
+    (`tracking`, `expires`) when excepted.
 - Produces: `vrg-npm-license-gate [--lockfile PATH] [--output PATH]`
-  (defaults `package-lock.json` and `licenses.json`). It writes the report
-  whenever the lockfile was read, then exits 1 on any failing package or bad
-  exception line, and 0 otherwise. Failures list name, version, license
-  value and reason, then name `.npm-license-exceptions` and the allowlist as
-  the fixes. Applied and unmatched exceptions are listed, unmatched as
-  warnings.
+  (defaults `package-lock.json` and `licenses.json`). Its exit status is its
+  own, never dependent on another command failing first. It exits 0 only
+  when the lockfile was read, the exceptions file (when present) parsed,
+  and no package fails:
+  - a `LockfileError` (missing, unreadable or pre-v2 lockfile, or an entry
+    with no `version`) exits 1, naming the file and `npm install
+    --package-lock-only`, and writes no report;
+  - a malformed exceptions file exits 1, naming every bad line, and still
+    writes the report, with every verdict computed against no exceptions,
+    so the evidence shows each package's real standing;
+  - otherwise it writes the report, then exits 1 on any failing package.
+
+  Failures list name, version, license value and reason, then name
+  `.npm-license-exceptions` and the allowlist as the fixes. Applied and
+  unmatched exceptions are listed, unmatched as warnings.
 - Produces: the TypeScript AUDIT commands are `["sh", "-c",
   _TYPESCRIPT_AUDIT_SCRIPT]` then `["vrg-npm-license-gate", "--output",
   LICENSES_REPORT]`, so the report name is in the command line, as every
@@ -284,6 +310,13 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
     `test_see_license_in_unparseable` (`SEE LICENSE IN LICENSE` fails as
     unparseable), `test_unknown_ids_disallowed` (`UNLICENSED` and `Custom`
     parse, and fail as disallowed);
+  - `test_report_raw_and_canonical`: `"(mit OR Apache-2.0)"` reports
+    `license` `"(mit OR Apache-2.0)"` and `license_canonical`
+    `"MIT OR Apache-2.0"`;
+  - `test_malformed_value_literal_fails`, `test_too_few_fields_fails`,
+    `test_expired_entry_fails`, and `test_every_bad_line_reported_once`
+    (three bad lines in one `.npm-license-exceptions`, all named in one
+    run);
   - `test_license_key_forms`: `"MIT"`, `{"type": "MIT", "url": "u"}` as
     `{"type":"MIT","url":"u"}`, and absent as `None`;
   - `test_dash_string_not_missing`: a bare `-` entry does not cover a
@@ -300,7 +333,10 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
   - `test_exception_window_365`, `test_duplicate_key_fails`,
     `test_unmatched_entry_warns`, `test_entry_for_passing_package_warns`;
   - `test_gate_writes_report_on_failure` and `test_gate_exit_codes`, through
-    `main()`;
+    `main()`. The exit-code cases include a missing lockfile, an unreadable
+    one and a pre-v2 one (each exits 1 with no report written), and a
+    malformed exceptions file (exits 1, report written with no exception
+    applied);
   - two existing tests in `test_languages.py` change, at `origin/develop`
     `0185c9dc7b`, and neither is weakened:
     - `test_typescript_report_files` (lines 1190–1204) expects the six names,
@@ -315,6 +351,10 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
   tests to fail.
 - [ ] **Step 3: Implement** the interfaces above, and update the docs.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expect PASS.
+- [ ] **Step 4a: Refactor:** remove the stale comments that defer gating
+  to a future `license-checker --onlyAllow`, in `lib/languages.py` and
+  `tests/vergil_tooling/test_languages.py` (line 1237 at `0185c9dc7b`).
+  Re-run `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 4b: Live check** (Global Constraints) against
   `vergil-fixture-ts-app`: AUDIT passes, and `licenses.json` lists 176
   packages, every one `allowed`. Record the output in the PR.
@@ -391,7 +431,9 @@ Spec §6.2 and §6.7 (vergil-tooling docs).
     `test_lock_rewritten_without_moves` (refresh message, `packages=[]`);
   - `test_changed_package_json_fails`;
   - `test_moved_entry_without_license_fails`;
-  - `test_update_failure_raises`, `test_pre_v2_lockfile_fails`;
+  - `test_update_failure_raises`, `test_pre_v2_lockfile_fails`,
+    `test_unreadable_package_json_fails`, `test_unreadable_lockfile_fails`,
+    and `test_added_entry_without_license_fails`;
   - `test_outdated_exit_contract`: the five exit/output cases above;
   - `test_outdated_after_header_lines`: header lines before the JSON are
     ignored;
@@ -412,6 +454,10 @@ Spec §6.2 and §6.7 (vergil-tooling docs).
   tests to fail.
 - [ ] **Step 3: Implement** the interfaces above, and update the docs.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expect PASS.
+- [ ] **Step 4a: Refactor:** import `run_captured` and `HELD_BY_RESOLVER`
+  from `updaters/cargo.py` rather than redefining them, and read
+  `dev-dependencies.json` through `typescript_tools.load_required()`.
+  Re-run `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 4b: Live check** (Global Constraints), through a host-side
   driver, never `vrg-update-deps` itself: that command refuses an agent
   identity, its preflight refuses a dirty or diverged `develop`, and past
@@ -433,8 +479,10 @@ Spec §6.2 and §6.7 (vergil-tooling docs).
 
 ### Task 5: `licenses.json` in the `typescript/audit` contract (vergil-actions)
 
-Spec §6.3. Blocked by 3. The PR touches `.github/workflows/**`, so GitHub
-refuses the agent push; the human's `vrg-submit-pr` pushes it.
+Spec §6.3. Blocked by 6a, the vergil-tooling release that writes
+`licenses.json` (see the Delivery table notes). The PR touches
+`.github/workflows/**`, so GitHub refuses the agent push; the human's
+`vrg-submit-pr` pushes it.
 
 **Files:**
 
@@ -474,23 +522,26 @@ refuses the agent push; the human's `vrg-submit-pr` pushes it.
   fail.
 - [ ] **Step 3: Implement,** and update the docs and the staging comment.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expect PASS.
+- [ ] **Step 4a: Refactor:** align the `reports.sh` header table and the
+  `actions/ci/evidence/reports/action.yml` description with the new entry.
+  Re-run `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 5: Commit** `vrg-commit --type feat --scope evidence
   --message "stage the TypeScript license report"`, then report-ready.
 
-### Task 6: Releases attested, `licenses.json` written (deployment, .github)
+### Task 6a: vergil-tooling release attested and installed (deployment, .github)
 
-Blocked by 3, 4 and 5.
+Blocked by 2, 3 and 4.
 
 - **Precondition (human-attested):**
-  - the releases are published and their versions named in a comment:
-    vergil-tooling (Tasks 2–4) first, then vergil-actions (Task 5);
+  - the vergil-tooling release carrying Tasks 2–4 is published, its version
+    named in a comment;
   - the named vergil-tooling release is installed on the host and the VMs
     where the fixture releases run (`vrg-host`, `vrg-vm update --all`). A
     release's dependency update runs in-process from the host install
     (`lib/release/update_deps_stage.py` calls `orchestrator.run_update`),
     not in the image, so an old host install has no npm updater.
 - **Procedure (agent-safe):**
-  1. Confirm each release's notes list its tasks' PRs.
+  1. Confirm the release's notes list Tasks 2–4's PRs.
   2. Confirm `vergil = "v2.1"` resolves to the named vergil-tooling
      release.
   3. Confirm the host's installed vergil-tooling is the named release, and
@@ -502,12 +553,25 @@ Blocked by 3, 4 and 5.
      `vrg-container-run -- vrg-validate --check audit` with the released
      vergil-tooling: it runs `vrg-npm-license-gate` and writes
      `licenses.json`.
-- **SUCCESS:** every check passes, recorded with the release versions and
+- **SUCCESS:** every check passes, recorded with the release version and
   the host's installed version.
+
+### Task 6b: vergil-actions release attested (deployment, .github)
+
+Blocked by 5.
+
+- **Precondition (human-attested):** the vergil-actions release carrying
+  Task 5 is published, its version named in a comment, after Task 6a's
+  vergil-tooling release.
+- **Procedure (agent-safe):**
+  1. Confirm the release's notes list Task 5's PR.
+  2. Confirm the release's `reports.sh` contracts `typescript/audit` as
+     `npm-audit.json` and `licenses.json`.
+- **SUCCESS:** both checks pass, recorded with the release version.
 
 ### Task 7: `fixture-run` drops the TypeScript known gap (vergil-claude-plugin)
 
-Spec §6.4. Blocked by 6.
+Spec §6.4. Blocked by 6a.
 
 **Files:**
 
@@ -556,7 +620,7 @@ Blocked by 7.
 
 ### Fixture runs (both TypeScript fixtures)
 
-Filed with `fixture-run` (see Filing), blocked by Tasks 6 and 8. Beyond the
+Filed with `fixture-run` (see Filing), blocked by Tasks 6b and 8. Beyond the
 standard trio, each run checks:
 
 - The change task rolls one transitive package back in `package-lock.json`
