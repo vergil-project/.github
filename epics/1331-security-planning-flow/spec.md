@@ -228,20 +228,28 @@ queue into this epic, with its scope widened to every user of the hold:
   disagreement between the three (a label without a line, a line without
   the label, a tracking advisory the body does not name) is a broken pair:
   stop and ask the human.
+- A security run records a `Security run: yes` marker line in its step 0
+  progress comment, never cleared. A resumed run reads it (from trusted
+  authors only) before posting anything, so the run stays a security run
+  after its advisories have been handed on.
 - The public-wording rule is stated here and covers every public artifact the
   run produces: progress and round comments, the epic title and body, task
   titles and bodies, the slug and branch names, commit messages, the spec, the
   plan, PR bodies, report-ready notes and the retrospective. They describe
   mechanisms and refer to findings by issue ref and GHSA ID alone. Specifics
   the design needs go into the advisory, with `vrg-security-record note`.
-- **Human gate.** At the end of step 1, once the design is approved and
-  before anything about it is published (the brainstorm-approved comment
-  and the step 2 epic included), the agent asks the human whether the item
+- **Human gate.** In step 1, once the design is approved and before any
+  step 1 outcome publishes anything about it (the single-task and
+  not-planned exits, the brainstorm-approved comment and the step 2 epic
+  included), the agent asks the human whether the item
   is safe to describe in general terms. On yes, the run continues, and the
   brainstorm-approved comment of a security run says only that the design
   is approved and the epic is next. On no, the agent posts a neutral
   progress comment that the run is paused for a design-placement decision
   and stops; nothing design-shaped is published.
+- `epic-retrospective` applies the same rule to a security epic (its
+  planning issue carries the marker, or any of its tasks carries
+  `security`), since the retrospective is written by that skill.
 - The round reviewers already keep security findings out of public text
   (doctrine §2.7); the rule adds nothing to the reviewer prompt.
 
