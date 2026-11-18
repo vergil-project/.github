@@ -244,18 +244,27 @@ Each run:
 5. **Files follow-up work** the conversation decides on, through the existing
    paths (`intake-capture` / `vrg-intake-create`, `vrg-issue-create`, a
    security record), and lists each in the entry. Follow-up work about a
-   private repository is filed in that repository, never in a public one.
+   private repository is filed in that repository, never in a public one. A
+   follow-up filed in a public repository is a public record: before it is
+   filed, its title and body pass the same screen as the entries, and the
+   human approves its text.
 6. **Writes one logbook file per review,** closing ones included.
 7. **Hands off one docs PR** for the run: a task issue, a worktree, a commit,
-   `vrg-container-run -- vrg-validate`, `merge-review`, `vrg-pr-workflow
-   report-ready`. Before the commit, once validation is green, a gate screens
-   the final entry text mechanically against the rules under "Security" and
-   shows the human the full text for approval, so nothing that breaks a rule
-   is ever pushed to the public repo. Any later change to entry text, a
-   merge-review or `pr-watch` fix included, goes back through validation,
-   the screen and the approval before it is pushed. A logbook run then goes
-   through merge review like any task, and the human submitting the PR is
-   the review's sign-off.
+   `vrg-container-run -- vrg-validate`, `vrg-pr-workflow report-ready`.
+   Before the commit, once validation is green, a gate screens the final
+   entry text mechanically against the rules under "Security" and shows the
+   human the full text for approval, so nothing that breaks a rule is ever
+   pushed to the public repo. Entry text changes only inside the run; an
+   edit after approval goes back through validation, the screen and the
+   approval before the commit. The human submitting the PR is the review's
+   sign-off.
+
+   A logbook run skips merge review on purpose. Merge review is too heavy
+   for a documentation-generating run, and the gates that matter, mostly
+   keeping security content out of public records, belong in the skill
+   before submission rather than in reviews after it. For the same reason
+   `pr-watch` never fixes a logbook PR: a failing one is closed, and the run
+   is redone through `/vergil:hoshin`.
 
 #### What each level does
 
@@ -420,7 +429,9 @@ The body is the review: what was found, what was decided, the follow-up issues
 filed, and the kaizen notes. A run where nothing happened still writes an
 entry, saying so. A "not performed" entry is a few lines: that the review was
 not done, and the human's note on why, if any. The entry format is described
-in the logbook's `index.md` and kept loose on purpose.
+in the logbook's `index.md` and kept loose on purpose. A run never edits an
+entry already merged by an earlier run; a late or "not performed" close is
+its own new file.
 
 **Indexes.** The site navigation gets a top-level **Logbook** section, linking
 each level's `index.md`. Each `index.md` lists that level's entries, newest
@@ -461,11 +472,11 @@ themselves uses fixed wording that carries no review content:
   `Logbook: <date> <mode>` (for example `Logbook: 2026-11-18 start`), with the
   commit typed `docs(logbook)`;
 - the task issue's body, and the `vrg-pr-workflow report-ready` title, summary
-  and notes, say only which entries the run wrote, by path; the notes also
-  carry the merge review's eligibility line.
+  and notes, say only which entries the run wrote, by path.
 
-Findings, failures and decisions appear only in the entries, where the rules
-under "Security" apply.
+Findings, failures and decisions appear only in the entries and in the
+follow-up issues the conversation decides on, where the rules under
+"Security" apply.
 
 ### Security
 
@@ -484,9 +495,17 @@ The logbook is public. The skill's prose states the rule plainly:
   it has no record yet, the review creates one. The cause stays in the review
   conversation and the private record.
 - The skill never pastes raw output from a security tool into an entry.
-- These rules cover every public record a run creates, not only the entries;
-  "Fixed wording" under "The logbook PR" keeps the others free of review
-  content.
+- These rules cover every public record a run creates, not only the entries:
+  follow-up issues in public repos pass the same screen and the human's
+  approval before they are filed, and "Fixed wording" under "The logbook PR"
+  keeps the task, commit and handoff free of review content.
+- **What the screen guarantees.** The mechanical screen catches advisory and
+  CVE IDs, the alert numbers and URLs the run read, private repo names and
+  the PR and issue titles and numbers the run read in them, any `#N` that
+  does not resolve to a public repo, markers of pasted security-tool output,
+  and a line pairing a repo name with an alert word and a number. Alert
+  counts or severities split across lines are not reliably caught by a
+  pattern; they are left to the human's approval of the final text.
 - **Private repositories.** Before writing, the skill checks each repo's
   visibility. A public repo is reported in detail. A private repo appears only
   as counts per org (for example "1 failed run in a private repo"): no name,
