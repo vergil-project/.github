@@ -410,10 +410,12 @@ Every run hands off exactly one PR to `vergil-project/docs`, holding all of
 that run's entries (and, at the quarterly and yearly levels, any `hoshin.md`
 change). Because the next run refuses while a logbook PR is open, the human
 submits each one as the review's sign-off; the docs repo's checks are quick,
-so it merges well before the next run. Vergil's rule is one task, one PR, so
-each run files a task in the docs repo's ad-hoc epic (`vrg-issue-create
---epic adhoc --repo vergil-project/docs`), titled for the run (`Logbook: 2026-11-18 start`), and
-works it on its own worktree. The commit uses a distinct type and scope
+so it merges well before the next run.
+
+Vergil's rule is one task, one PR, so each run files a task in the docs repo's
+ad-hoc epic (`vrg-issue-create --epic adhoc --repo vergil-project/docs`),
+titled for the run (`Logbook: 2026-11-18 start`), and works it on its own
+worktree. The commit uses a distinct type and scope
 (`docs(logbook): …`) so logbook PRs are easy to tell apart from development
 PRs. They are expected to be background noise alongside the fleet's other
 automated and routine PRs.
