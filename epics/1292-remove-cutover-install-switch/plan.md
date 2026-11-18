@@ -314,3 +314,17 @@ vergil-tooling's next normal release and has no deployment task.
 - **On failure:** revert `v2.1` to the previous release (a human action),
   then fix forward with a new task.
 - **Afterwards:** the human's hold on other vergil-actions changes ends.
+
+## Evolution during execution
+
+- **2026-11-18: vergil-project/docs#130 added by the documentation review.**
+  The review (vergil-project/vergil-tooling#4649) found one more page that
+  described the switch: the "Dev containers" row of `docs/site/docs/packages.md`
+  in the `docs` repo, which no task covered. The spec's and plan's doc lists
+  came from searching only the three member repos. The review filed a per-repo
+  doc task under the epic, closed by vergil-project/docs#131. vergil-tooling
+  and vergil-actions needed no further change.
+- **2026-11-18: Task 4's release version attested in the session, not on the
+  task.** The human named the release (vergil-actions v2.1.82, `v2.1` moved)
+  in the driving session; the deployment run recorded the version in its
+  result comment on vergil-project/vergil-actions#1298.
