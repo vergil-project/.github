@@ -278,8 +278,11 @@ heads that day.
 - **The verdict on each package's `license`:**
   - It is parsed as an SPDX license expression: license IDs, an optional `+`,
     `WITH` exceptions, `AND`, `OR` and parentheses. A legacy object or array
-    form, and any string that is not a valid expression (`SEE LICENSE IN …`,
-    `UNLICENSED`, `Custom`), is unparseable.
+    form, and any string the grammar rejects (`SEE LICENSE IN …`, several
+    IDs with no operator), is unparseable. The parse checks syntax only, not
+    membership in the SPDX License List, so a well-formed but unknown ID
+    (`UNLICENSED`, `Custom`) parses and is disallowed because the allowlist
+    does not name it. Either way the package fails unless excepted.
   - An `OR` expression is allowed when any branch is allowed. An `AND`
     expression is allowed only when every branch is. A `WITH` term is allowed
     only when the whole term, ID and exception, is on the allowlist, so a

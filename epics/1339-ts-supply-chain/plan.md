@@ -55,14 +55,19 @@ the ts-node images, Markdown skills (vergil-claude-plugin).
   `vrg-pr-workflow report-ready`.
 - **Live check for TypeScript command changes.** vergil-tooling's own
   validation runs no npm, so Tasks 3 and 4 each run the real thing before
-  report-ready:
-  - install the task branch's vergil-tooling into the current ts-node
-    image inside `vrg-container-run`, for example `uv tool install` from
-    the worktree;
-  - in a scratch clone of `vergil-fixture-ts-app`, run `vrg-validate
-    --check audit` (Task 3) or `vrg-update-deps` after the §6.4 rollback
-    (Task 4) with it;
-  - the stage the task changed must pass, and the output goes in the PR.
+  report-ready, in a scratch clone of `vergil-fixture-ts-app`, and record
+  the output in the PR:
+  - **Task 3, in the image.** `vrg-container-run` mounts only the current
+    repo at `/workspace`, and each invocation is a fresh container. So
+    build a wheel from the worktree (`uv build --wheel --out-dir
+    <clone>/build/wheel`; `build/` is ignored), then, in the clone, run
+    install and check as one invocation: `vrg-container-run -- sh -c 'uv
+    tool install ./build/wheel/<wheel> && vrg-validate --check audit'`.
+    `~/.local/bin` is first on the image's `PATH`, so the branch's
+    commands win.
+  - **Task 4, on the host.** `vrg-update-deps` itself is never run (Task 4
+    Step 4b says why); a host-side driver calls the branch's
+    `NpmUpdater().apply(ctx)`.
 
 ## Review Focus
 
@@ -115,9 +120,12 @@ blocked by.
 
 Notes:
 
-- **Tasks 3 and 4 are independent** and run in parallel. Both touch only
-  their own modules, plus `lib/languages.py` (Task 3) and
-  `lib/update_deps/orchestrator.py` (Task 4).
+- **Tasks 3 and 4 are independent** and run in parallel. Each touches its
+  own modules, plus `lib/languages.py` (Task 3) and
+  `lib/update_deps/orchestrator.py` (Task 4). Both edit
+  `docs/site/docs/standards/development/typescript/overview.md`, each in a
+  section of its own so the PRs do not conflict: Task 3 owns a "License
+  gate" section and Task 4 a "Dependency updates" section.
 - **Task 7 waits for the release, not the merge.** Other epics file
   TypeScript fixture runs too. Removing the known-gap row before the
   released vergil-tooling carries the updater would fail their rollback
@@ -193,10 +201,16 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
   `TYPESCRIPT_REPORT_FILES` gains `LICENSES_REPORT`; the allowlist and AUDIT
   comments say the gate enforces it)
 - Modify: `docs/site/docs/standards/development/typescript/overview.md`
-  (the license gate and `.npm-license-exceptions`),
+  (its "License gate" section: the gate and `.npm-license-exceptions`),
   `docs/site/docs/guides/validation-matrix.md`,
   `docs/site/docs/standards/development/tool-ownership.md` (wording on
   gating only; license-checker stays in the image-owned column, spec §6.7)
+- Modify: `docs/site/docs/reference/cli-tools-overview.md` (a `###
+  vrg-npm-license-gate` entry in the attribute-table shape #4685 used for
+  `vrg-npm-audit-gate`; `test_cli_tools_overview.py` requires one per
+  `[project.scripts]` entry), `docs/site/docs/reference/index.md` (its
+  command index row) and `docs/site/docs/guides/ci-evidence-convention.md`
+  (a `licenses.json` row in the TypeScript `audit` gate table)
 - Test: `tests/vergil_tooling/test_npm_licenses.py`,
   `tests/vergil_tooling/test_vrg_npm_license_gate.py`,
   `tests/vergil_tooling/test_languages.py`
@@ -213,13 +227,15 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
     field as `MISSING`.
   - `parse_expression(text: str) -> Expr`, raising `LicenseExpressionError`:
     IDs, `+`, `WITH`, `AND`, `OR`, parentheses; `AND` binds tighter than
-    `OR`. Operators are upper case only.
+    `OR`. Operators are upper case only. It checks syntax only: any
+    `idstring` is an ID, with no SPDX License List lookup.
   - `allowed(expr: Expr, allowlist: Iterable[str]) -> bool`: IDs compared
     case-insensitively; a `WITH` term only as a whole allowlist entry; `+`
     only against an entry spelled with `+`.
   - `@dataclass(frozen=True) class LockedPackage: name: str; version: str;
     license: object; dev: bool` (`license` is the raw value, or `None` when
-    absent).
+    absent; `dev` is true when the entry has `"dev": true` or
+    `"devOptional": true`).
   - `read_lockfile(path: Path) -> list[LockedPackage]`, raising
     `LockfileError` naming the file and `npm install --package-lock-only`
     for a missing, unreadable or pre-v2 lockfile or an entry with no
@@ -255,8 +271,9 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
   - `test_or_any_branch`, `test_and_every_branch`,
     `test_with_needs_whole_term`, `test_plus_needs_plus_entry`,
     `test_id_case_insensitive`, `test_lowercase_operator_unparseable`,
-    `test_non_spdx_strings_unparseable` (`SEE LICENSE IN LICENSE`,
-    `UNLICENSED`, `Custom`);
+    `test_see_license_in_unparseable` (`SEE LICENSE IN LICENSE` fails as
+    unparseable), `test_unknown_ids_disallowed` (`UNLICENSED` and `Custom`
+    parse, and fail as disallowed);
   - `test_license_key_forms`: `"MIT"`, `{"type": "MIT", "url": "u"}` as
     `{"type":"MIT","url":"u"}`, and absent as `-`;
   - `test_read_lockfile_skips_root_and_links`,
@@ -265,6 +282,7 @@ Spec §6.1 and §6.7 (vergil-tooling docs). Blocked by 2.
   - `test_exception_covers_only_its_value`: an entry for `"SEE LICENSE IN
     LICENSE"` does not cover the same package recorded as `GPL-3.0-only`;
   - `test_two_versions_two_verdicts`;
+  - `test_dev_flag_from_dev_or_dev_optional`;
   - `test_missing_license_needs_dash_entry`;
   - `test_exception_window_365`, `test_duplicate_key_fails`,
     `test_unmatched_entry_warns`, `test_entry_for_passing_package_warns`;
@@ -294,7 +312,7 @@ Spec §6.2 and §6.7 (vergil-tooling docs).
   (`NpmUpdater()` after `CargoUpdater()` in `DEFAULT_REGISTRY`)
 - Modify: `docs/site/docs/reference/dev/update-deps.md` (the npm updater and
   its held-back notes), `docs/site/docs/standards/development/typescript/overview.md`
-  (dependency updates)
+  (its "Dependency updates" section)
 - Test: `tests/vergil_tooling/test_update_deps_npm.py`,
   `tests/vergil_tooling/test_update_deps_orchestrator.py`,
   `tests/vergil_tooling/test_update_deps_registry.py`
@@ -329,6 +347,15 @@ Spec §6.2 and §6.7 (vergil-tooling docs).
     `optionalDependencies`. A missing `current` is taken from the lockfile's
     `node_modules/<name>` entry; a name missing there too raises. `file:`,
     `link:`, git and URL specs are skipped, with the reason in a comment.
+    An entry is held back only when `current` precedes `latest` under
+    semver precedence, prereleases included (a prerelease precedes its
+    release); one at or above `latest` is not reported. The note is
+    `OUTSIDE_RANGE` when `wanted` precedes `latest`, `HELD_BY_RESOLVER`
+    when `current` precedes `wanted`, both joined when both hold, plus the
+    Vergil-major note for a package in `dev-dependencies.json`. The
+    comparison reuses vergil-tooling's semver precedence (`cargo_semver`'s
+    or `sparse_index`'s version key, whichever implements SemVer 2.0.0
+    precedence) rather than adding a third.
   - `class NpmUpdater` with `name = "npm"`; `applies` needs `package.json`
     and `package-lock.json`; `apply` reads both, runs `UPDATE_CMD`, fails if
     `package.json` changed by a byte, fails naming any added or moved entry
@@ -352,6 +379,9 @@ Spec §6.2 and §6.7 (vergil-tooling docs).
     note `outside the package.json range; Vergil accepts typescript 6 only
     (dev-dependencies.json)`;
   - `test_held_back_by_resolver`: current below wanted;
+  - `test_current_at_or_above_latest_not_held`: `current` `2.0.0-rc.1`
+    with `latest` `1.9.0`, and `current` equal to `latest`, are not
+    reported; `current` `2.0.0-rc.1` with `latest` `2.0.0` is;
   - `test_missing_current_from_lockfile`, `test_missing_everywhere_fails`;
   - `test_non_registry_specs_skipped`;
   - `test_npm_in_default_registry`, and `test_orchestrator_records_npm_failures`.
@@ -359,11 +389,21 @@ Spec §6.2 and §6.7 (vergil-tooling docs).
   tests to fail.
 - [ ] **Step 3: Implement** the interfaces above, and update the docs.
 - [ ] **Step 4: Run** `vrg-container-run -- vrg-validate`. Expect PASS.
-- [ ] **Step 4b: Live check** (Global Constraints): roll `@babel/parser`
-  back in a scratch clone of `vergil-fixture-ts-app` with the spec §6.4
-  sequence, run `vrg-update-deps`, and confirm it restores the package, leaves
-  `package.json` unchanged, and reports `typescript` and `@types/node` held
-  back with their notes. Record the output in the PR.
+- [ ] **Step 4b: Live check** (Global Constraints), through a host-side
+  driver, never `vrg-update-deps` itself: that command refuses an agent
+  identity, its preflight refuses a dirty or diverged `develop`, and past
+  preflight it pushes a branch and opens and merges a PR on the real repo.
+  - Roll `@babel/parser` back in a scratch clone of `vergil-fixture-ts-app`
+    with the spec §6.4 sequence.
+  - From the worktree, `uv run python` a short driver that builds an
+    `UpdateDepsContext` for the scratch clone and calls
+    `NpmUpdater().apply(ctx)` with the clone as the working directory, so
+    the real `vrg-container-run` calls run. No branch, commit, PR or merge
+    is made.
+  - Confirm the result restores `@babel/parser`, `package.json` is
+    unchanged, and `held_back` lists `typescript` and `@types/node` with
+    their notes. Record the summary, commit message and held-back entries in
+    the PR.
 - [ ] **Step 5: Commit** `vrg-commit --type feat --scope update-deps
   --message "add the npm updater and its held-back report"`, then
   report-ready.
@@ -391,8 +431,22 @@ refuses the agent push; the human's `vrg-submit-pr` pushes it.
   `licenses.json`; `report_tools typescript audit` prints
   `[{"name":"npm audit"},{"name":"vrg-npm-license-gate"}]`.
 
-- [ ] **Step 1: Write the failing tests** in `reports.test.sh`: the two
-  outputs above.
+- [ ] **Step 1: Write the failing tests** in `reports.test.sh`, updating
+  the TypeScript audit cases the contract change breaks and adding the
+  failure path spec §7 names:
+  - `typescript-audit-stages-npm-audit` (line 146 at `origin/develop`
+    83c11e46e) stages both files and expects `licenses-1.0.json
+    npm-audit-1.0.json`;
+  - `typescript-audit-ignores-other-names` (lines 152–161) keeps its guard
+    with only other languages' names, `pip-audit.json` and
+    `cargo-deny.json`, in the workspace, and asserts the errors name both
+    `npm-audit.json` and `licenses.json`;
+  - the `typescript-warns-on-no-gate` loop (line 456) adds `licenses.json`
+    to its workspace;
+  - `case_tools typescript audit` (line 442) expects
+    `[{"name":"npm audit"},{"name":"vrg-npm-license-gate"}]`;
+  - new: `typescript-audit-requires-licenses`: a passing audit leg with
+    `npm-audit.json` and no `licenses.json` fails, naming `licenses.json`.
 - [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`. Expect them to
   fail.
 - [ ] **Step 3: Implement,** and update the docs and the staging comment.
@@ -427,7 +481,10 @@ Spec §6.4. Blocked by 6.
   TypeScript "Dependency update" row; the change-task template's
   `<TypeScript:>` "Dependency rollback: skipped" paragraph becomes a
   rollback paragraph; the lead-in that says TypeScript skips the rollback
-  is corrected)
+  is corrected; the validation template's check 5 covers a transitive
+  rollback, which has no declared range: the release's update moves the
+  package to at least the version locked before the rollback, through an
+  npm update commit that names it)
 
 **Interfaces:**
 
@@ -486,8 +543,7 @@ Spec §6.5. Blocked by both fixture validations (their refs are added as
   1. File the containers task: `vrg-issue-create --epic adhoc --repo
      vergil-project/vergil-containers --title "Remove license-checker from
      the ts-node images"`, its body naming `typescript-analysis.dockerfile`,
-     `checks.sh`, the smoke tests and the ts-node docs, and the vergil-tooling
-     task below.
+     `checks.sh`, the smoke tests and the ts-node docs.
   2. File the docs task: `vrg-issue-create --epic adhoc --repo
      vergil-project/vergil-tooling --title "Drop license-checker from the
      docs once the ts-node images no longer ship it" --blocked-by
@@ -495,4 +551,8 @@ Spec §6.5. Blocked by both fixture validations (their refs are added as
      `docs/site/docs/guides/ci-architecture.md`,
      `docs/site/docs/standards/development/typescript/overview.md` and the
      TypeScript row of `docs/site/docs/standards/development/tool-ownership.md`.
-- **SUCCESS:** both tasks filed, their refs recorded in the result.
+  3. Edit the containers task's body (`vrg-gh issue edit --body-file`) to
+     name the docs task by its ref, as the follow-up that lands once the
+     removal is released.
+- **SUCCESS:** both tasks filed, the containers task naming the docs task,
+  and their refs recorded in the result.
