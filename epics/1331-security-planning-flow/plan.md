@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1331
 - **Planning issue:** vergil-project/vergil-claude-plugin#828 (review history
   is in its comments)
-- **Status:** draft, in design review
+- **Status:** approved
 
 > **For agentic workers:** each task is one issue and one PR in the repo named
 > in its heading, worked with `issue-implement`; deployment tasks are worked
@@ -69,14 +69,14 @@ docs).
 | Task | Repo | Kind | What | Blocked by |
 | --- | --- | --- | --- | --- |
 | 1 | .github | task (#1332) | Spec and plan (this PR) | — |
-| 2 | vergil-tooling | task | `retarget --from`, the open-issue drop check, intake-route callers | — |
-| 3 | vergil-tooling | task | Sync close guard and `held:` report | — |
+| 2 | vergil-tooling | task (#4718) | `retarget --from`, the open-issue drop check, intake-route callers | — |
+| 3 | vergil-tooling | task (#4719) | Sync close guard and `held:` report | — |
 | 4 | vergil-tooling | task (#3996) | One fail-closed planning hold rule | 2 |
-| 5 | .github | deployment | vergil-tooling release with Tasks 2–4 attested | 2, 3, 4 |
-| 6 | vergil-claude-plugin | task | Skill part 1: step 0 check, wording rule, gate, not-planned stop, hold text | — |
-| 7 | vergil-claude-plugin | task | Skill part 2: `--from` hand-offs and the unreadable-advisory note | 5, 6 |
-| 8 | docs | task | Intake page: retarget names `--from` | 5 |
-| 9 | .github | deployment | Plugin release with Task 7 attested | 7 |
+| 5 | .github | deployment (#1360) | vergil-tooling release with Tasks 2–4 attested | 2, 3, 4 |
+| 6 | vergil-claude-plugin | task (#1178) | Skill part 1: step 0 check, wording rule, gate, not-planned stop, hold text | — |
+| 7 | vergil-claude-plugin | task (#1179) | Skill part 2: `--from` hand-offs and the unreadable-advisory note | 5, 6 |
+| 8 | docs | task (#141) | Intake page: retarget names `--from` | 5 |
+| 9 | .github | deployment (#1361) | Plugin release with Task 7 attested | 7 |
 | — | vergil-tooling | bookend (#4697) | Documentation review | 2, 3, 4, 6, 7, 8 |
 | — | .github | bookend (#1333) | Retrospective | all |
 
