@@ -320,3 +320,70 @@ approval it files under.
   move Task 4's blocker
   (<https://github.com/vergil-project/.github/issues/1281#issuecomment-6978342535>).
   The task list above is left as planned; this entry records the change.
+
+### 2026-11-18: Task 5 re-scoped to the hand-made add
+
+**What changed:**
+
+- **Task 5 (#1301) checks for vergil-project/vergil-containers#949 in
+  place of a lifecycle add PR.** Its release-notes check (step 1) looks for
+  vergil-containers#949, the hand-made Node 26 add, beside Task 2's PR
+  (vergil-project/vergil-containers#956) and Task 4's PR
+  (vergil-project/vergil-containers#957). The Architecture paragraph, the
+  Task 3 row of the delivery table and Task 5 step 1 above still name a
+  lifecycle add PR; this entry supersedes them.
+- **Task 5 gains a check:** at least one scheduled lifecycle run in
+  vergil-containers that started after vergil-containers#956 merged
+  (2026-11-18T12:24:57Z) completed and opened no `ts-node` PR. The task
+  records the run's ID, and waits for such a run if none has completed yet.
+
+**Why:**
+
+- No lifecycle add PR exists: Node 26 joined the window by hand in
+  vergil-containers#949, before `ts-node` moved to `pr` automation (see the
+  entry above).
+- Task 3's no-PR check ran before any lifecycle run had followed
+  vergil-containers#956: the last scheduled run before it started at
+  09:01Z on 2026-11-18, before the 12:24:57Z merge. That check held but
+  nothing had exercised it, so Task 5 checks a run under `pr` automation.
+- The human ruled on 2026-11-18 to make both changes
+  (<https://github.com/vergil-project/.github/issues/1281#issuecomment-6980377469>,
+  items 2 and 3), posted as a scope change on #1301
+  (<https://github.com/vergil-project/.github/issues/1301#issuecomment-6980399623>).
+  The task list above is left as planned; this entry records the change.
+
+### 2026-11-18: Task 7 reads `">=x"` as any version
+
+**What changed:**
+
+- Task 7 Step 2 lists `">=x"` among the invalid ranges for
+  `test_invalid_range_is_an_error`. The shipped code
+  (vergil-project/vergil-tooling#4659, PR
+  vergil-project/vergil-tooling#4679) treats it as `*` instead, a floor-0
+  warning, and the invalid-range test uses other invalid values.
+
+**Why:**
+
+- node-semver reads `">=x"` as `*` (any version), and spec §6.2 requires the
+  reader to read npm's range grammar faithfully. The task's merge reviewer
+  agreed that the branch is right here, and the PR body records the
+  departure.
+- The human ruled on 2026-11-18 that the departure is recorded here, with no
+  new issue
+  (<https://github.com/vergil-project/.github/issues/1281#issuecomment-6980377469>,
+  item 4).
+
+### 2026-11-18: the documentation review spawned per-repo doc tasks
+
+**What changed:**
+
+- The documentation-review sweep (vergil-project/vergil-tooling#4638)
+  filed per-repo doc tasks for the docs it found outside vergil-tooling:
+  vergil-project/vergil-containers#960, vergil-project/vergil-actions#1305,
+  vergil-project/docs#133 and vergil-project/.github#1315. The delivery
+  table above does not list them.
+
+**Why:**
+
+- Each is closed by one PR in its own repo, so the doc work outside
+  vergil-tooling is a task in each repo, not part of the bookend's PR.
