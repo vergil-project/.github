@@ -110,6 +110,8 @@ planning issue is retargeted, once, to every task that fixes it (spec §6.5):
 | GHSA-f6pf-7r3g-xfgv | 2 |
 | GHSA-c6j6-qxqp-w348 | 2, 7 |
 | GHSA-h6f6-38fj-w6g4 | 5 |
+| GHSA-642m-8772-xh5j | 2 |
+| GHSA-w5xf-7p4w-fp67 | 3 |
 
 ---
 
@@ -131,19 +133,20 @@ planning issue is retargeted, once, to every task that fixes it (spec §6.5):
 - Produces: CLI `vrg-security-record retarget <ghsa> --from <ref> --to <ref> [--to …] [--drop <ref> …]`; `--from` required, `--drop` repeatable.
 - Produces: `intake_route._retarget_commands(ghsas, source: IssueRef, targets: Mapping[str, Sequence[IssueRef]]) -> str`: one command per advisory, carrying `--from <source>` and one `--to` per ref of the same target set the internal call used for that advisory. For a transfer, `source` is the pre-transfer ref, which is still on the tracking line.
 
-**Rules** (spec §6.1). Both checks run before the first write (before any target is marked), and a refusal raises `RetargetError` naming the advisory's current tracking refs:
+**Rules** (spec §6.1). Both checks run before the first write (before any target is marked), and a refusal raises `RetargetError` naming the advisory's current tracking refs and the command that would succeed (for the source check: the same `--to` set with `--from` a current tracking ref):
 
-- **Source check:** accepted when `source` is on a current `Tracking issue:` line; or when the tracking lines are already exactly the targets (an interrupted or completed run), whether or not `source`'s body still names `ghsa_id`. In the second case the run only finishes the unmarks; it moves nothing.
+- **Source check:** accepted when `source` is on a current `Tracking issue:` line; or when the tracking lines are already exactly the targets (as a set) and `source` is tied to that move: either its body still names `ghsa_id` (an interrupted run), or it carries the comment `unmark_issue` posts (`_moved_comment`) naming exactly these targets (a completed run). In the second case the run only finishes the unmarks; it moves nothing. Every other source refuses.
 - **Unmark order:** the source is unmarked last, after every other dropped issue.
 - **Drop check:** the dropped set is (current tracking refs ∪ issues whose body names `ghsa_id`) minus targets, minus `renamed`. Each dropped issue that is open, other than `source`, refuses unless it is in `drop`. A dropped ref missing from the `security_issues` listing has its state read directly; a failed read refuses. The drop-check refusal names, as the command that would succeed, the keep form (the same targets plus one `--to` per open dropped issue), and says that `--drop` is a human decision; it never prints a `--drop` form.
 - **Internal callers** pass the routed item as `source`, and as targets the advisory's current tracking refs minus the routed item plus the new issue or issues, so a route never meets the drop check.
 
 - [ ] **Step 1: Write the failing tests**
-  - `test_retarget_refuses_untracked_source`: an advisory tracking `A`; `source=B` raises `RetargetError` naming `A`, and no mark, description write or unmark call is made.
+  - `test_retarget_refuses_untracked_source`: an advisory tracking `A`; `source=B` raises `RetargetError` naming `A` and suggesting `--from A` with the same `--to` set, and no mark, description write or unmark call is made.
   - `test_retarget_refuses_dropping_open_issue`: tracking `A` (open) and `M`; `source=M, targets=(T,)` raises, naming `A`, with the suggested command `--from M --to A --to T` and no `--drop` in the message; with `drop=(A,)` it succeeds.
   - `test_retarget_rerun_after_interrupted_unmark`: tracking lines already `(T,)`, `M`'s body still names the advisory; `source=M, targets=(T,)` unmarks `M` and succeeds (Review Focus 1).
-  - `test_retarget_rerun_after_interrupted_other_unmark`: tracking lines already `(T,)`, `M` already unmarked, `X` still marked; `source=M, targets=(T,), drop=(X,)` unmarks `X` and succeeds.
-  - `test_retarget_rerun_after_completed_run`: everything already done; the identical re-run succeeds and writes nothing.
+  - `test_retarget_rerun_after_interrupted_other_unmark`: tracking lines already `(T,)`, `X` already unmarked, `M` (the source) still marked, as the source-last order leaves it; `source=M, targets=(T,), drop=(X,)` unmarks `M` and succeeds.
+  - `test_retarget_rerun_after_completed_run`: everything done, `M` carrying the moved-to comment naming `(T,)`; the identical re-run succeeds and writes nothing.
+  - `test_retarget_refuses_unrelated_source_when_targets_match`: tracking lines already `(T,)`; `source=B`, unmarked and with no moved-to comment (or one naming other targets), refuses.
   - `test_retarget_unmarks_source_last`: with `M` and `X` dropped, `X`'s unmark comes before `M`'s.
   - `test_retarget_source_may_be_dropped`: `source=M` is dropped without `drop`.
   - `test_drop_check_reads_unlisted_issue_state`: a tracked open issue without the `security` label (absent from the listing) refuses to be dropped; a failed state read refuses.
@@ -155,9 +158,10 @@ planning issue is retargeted, once, to every task that fixes it (spec §6.5):
   - `test_transfer_and_recreate_pass_source`: each caller passes the routed item as `source`.
   - `test_recovery_commands_carry_from`: `_retarget_commands` and the several-advisories split message include `--from <item>`.
   - `test_recovery_command_keeps_other_tracked_issues`: a failed transfer of `I` whose advisory also tracks open `A` prints `--from <I's old ref> --to <A> --to <new ref>`, which the drop check accepts.
-- [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
+- [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail, because `retarget` takes no `source` and `pair` does not exist; a new test that passes here is not exercising the new checks.
 - [ ] **Step 3: Implement** the rules above in `retarget`, the CLI and `intake_route`. The `retarget` docstring states both checks and the re-run case.
 - [ ] **Step 4: Update the three docs pages:** every retarget example names `--from`; the security-records guide says what each refusal means and that `--drop` names an open issue deliberately left.
+- [ ] **Step 4b: Refactor:** fold `_retarget_commands`, `_transfer_recovery` and the several-advisories split message onto one command builder. Tests stay green.
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 6: Commit** `vrg-commit --type feat --scope security-record --message "require retarget's source and refuse to drop an open tracked issue"`, then report-ready.
 
@@ -173,7 +177,7 @@ planning issue is retargeted, once, to every task that fixes it (spec §6.5):
 
 **Interfaces:**
 
-- Produces: `epics.queue_or_archive_kind(epic: IssueRef) -> str | None`: `"intake"`, `"planning"` or `"deferred"` for a live queue epic or a queue archive epic (labelled `archive` plus the kind), else None.
+- Produces: `epics.queue_or_archive_kind(epic: IssueRef) -> str | None`: `"intake"`, `"planning"` or `"deferred"` for a live queue epic or a queue archive epic (`epics.is_archive`, which counts the `archive` label or a stamped archive title alone, plus the kind from its label or title prefix), else None.
 - Produces: `SecurityIssue` gains `state_reason: str | None` (GitHub's REST `state_reason`, lower-cased, read by the existing listing through `_SECURITY_ISSUES_JQ`; None while open). It gains no parent field: `security_issues`, which `retarget` and `close_record` also call, makes no new reads.
 - Produces: `security_records.GuardResult` (frozen dataclass): `held: list[tuple[str, tuple[IssueRef, ...]]]` (GHSA ID and the refs that fire the guard) and `errors: list[tuple[str, IssueRef, str]]` (GHSA ID, the ref whose read failed, the scrubbed error).
 - Produces: `security_records.guard_check(classification: Classification, issues: Sequence[SecurityIssue]) -> GuardResult`. Only for each `draft` paired advisory whose tracked issues are all closed, it reads each tracked issue's native parent (`epics.native_parent_of`, then `queue_or_archive_kind`). `pending_syncs` takes its result and lists no change for an advisory in `held` or `errors`.
@@ -181,7 +185,7 @@ planning issue is retargeted, once, to every task that fixes it (spec §6.5):
 **Rules** (spec §6.2). The guard fires when any tracked issue is a queue item, or closed with a `state_reason` other than `completed` (a closed issue with a null `state_reason` fires it). `pending_syncs` never lists a `closed` target for an advisory the guard fires on, and never moves a `closed` advisory to `draft` because of it. `records_pass` prints `- held: <GHSA> (<refs>): retarget it to a fix task, or close it with vrg-security-record close` per held advisory, and counts holds in the summary apart from broken pairs; a hold does not fail the pass. A failed parent read is reported for that advisory only (`- error: <GHSA> (<ref>): …`), the advisory is left unchanged, the rest are synced, and with `apply` the pass then exits 1, as it does for a broken pair.
 
 - [ ] **Step 1: Write the failing tests**
-  - `test_queue_or_archive_kind`: live planning epic, planning archive epic, development epic, a non-epic.
+  - `test_queue_or_archive_kind`: live planning epic, planning archive epic, a planning archive that has lost its `archive` label (stamped title only), development epic, a non-epic.
   - `test_guard_holds_queue_item`: tracked issue closed as completed under a planning epic; no change listed, one held.
   - `test_guard_holds_drained_queue_item`: the same item under a planning archive epic.
   - `test_guard_holds_non_completed_reasons`: parametrized over `not_planned`, `duplicate`, an unknown reason and a closed issue with a null `state_reason` (Review Focus 4).
@@ -190,9 +194,10 @@ planning issue is retargeted, once, to every task that fixes it (spec §6.5):
   - `test_records_pass_reports_held_without_failing`: output has the `- held:` line and the count; exit 0 with `apply`.
   - `test_parent_read_error_is_per_advisory`: one advisory's parent read raises `GitHubAPIError`; that advisory is reported as an error and unchanged, another advisory still syncs, and `apply` exits 1.
   - `test_security_issues_makes_no_parent_reads`: `security_issues` calls no parent or label read.
-- [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
+- [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail, because `queue_or_archive_kind`, `guard_check` and `state_reason` do not exist; a new test that passes here is not exercising the guard.
 - [ ] **Step 3: Implement** the rules above.
 - [ ] **Step 4: Update** the `sync` help and the security-records guide's sync section.
+- [ ] **Step 4b: Refactor:** build `queue_or_archive_kind` on the existing `queue_kind`, `standing_kind_of` and `is_archive` rather than a parallel classifier. Tests stay green.
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 6: Commit** `vrg-commit --type feat --scope security-record --message "hold an advisory open while a queue item or a non-completed close is all that ended it"`, then report-ready.
 
@@ -222,9 +227,10 @@ Blocked by 2 (its hints name `--from`).
   - `test_planning_items_holds_unreadable`: the queue shows the item `in-progress` with the cannot-be-read note.
   - `test_planning_close_skips_unreadable`: `find` returns a skip naming the GHSA and the cannot-be-read wording.
   - `test_held_note_names_from`: the note's command carries `--from <M>`.
-- [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail.
+- [ ] **Step 2: Run** `vrg-container-run -- vrg-validate`; expect the new tests to fail, because `advisory_hold` does not exist and the view holds on listing absence as not tracking; a new test that passes here is not exercising the new rule.
 - [ ] **Step 3: Implement** `advisory_hold` and route both callers through it; keep `tracking_advisories` as a thin wrapper if other callers use it.
 - [ ] **Step 4: Update** the security-records guide's planning-hold section, and the CLI reference's reproduced `held:` note to the new wording with `--from`.
+- [ ] **Step 4b: Refactor:** remove the duplicate tracking logic between `tracking_advisories` and `_tracking`; keep `tracking_advisories` only as a wrapper if a caller outside this task still uses it. Tests stay green.
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 6: Commit** `vrg-commit --type fix --scope queue --message "make the planning hold one rule that fails closed on an unreadable advisory"`, then report-ready.
 
@@ -268,12 +274,13 @@ Blocked by 5, 6.
 
 **Files:**
 
-- Modify: `skills/epic-create/SKILL.md` (step 1's single-task close; step 8's retarget; step 10's held bullet)
+- Modify: `skills/epic-create/SKILL.md` (step 1's single-task close; step 8's retarget; the states table, the latest-note description and step 10's held bullet)
+- Modify: `skills/epic-review/SKILL.md` (planning mode, against the new hold wording)
 - Modify: `docs/site/docs/skills/index.md` (its retarget command, around line 111)
 
 - [ ] **Step 1: Step 1, single task** (spec §6.5): after the human gate (Task 6 Step 3), file the task, retarget each advisory to it with `--from <M>`, then close the planning issue.
 - [ ] **Step 2: Step 8:** one retarget per advisory, once, after the last fix task is filed, with `--from <M>` and every fix task; GHSA IDs from `vrg-security-record list` (`tracks:` names M), never the body lines; a later fix task added `--from` a current task with the complete set; on a failure partway through (a step error), fix the cause and re-run the identical command; on a refusal (source or drop check), stop and ask the human, and never add `--drop` without the human's decision. Replace "the scheduled sweep closes an advisory" with spec §6.5's account.
-- [ ] **Step 3: Step 10's held bullet** names the cannot-be-read note and its next step (spec §6.3).
+- [ ] **Step 3: The new hold wording everywhere Task 6 placed hold text** (the states table, the latest-note description and step 10's held bullet): the cannot-be-read note and its next step (spec §6.3) and Task 4's `held:` wording with `--from`; then re-check `epic-review`'s planning mode against it.
 - [ ] **Step 4: Update** the skills index's retarget command.
 - [ ] **Step 5: Run** `vrg-container-run -- vrg-validate`; expect PASS.
 - [ ] **Step 6: Commit** `vrg-commit --type feat --scope epic-create --message "hand advisories on with retarget --from"`, then report-ready.

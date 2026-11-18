@@ -51,6 +51,8 @@ on an agent reading the right paragraph.
    contract.
 6. The planning states, wherever `epic-create` and `epic-review` describe
    them, include the advisory hold.
+7. Advisories closed before the sync guard existed are reviewed once, and
+   the human decides each one the guard would have held.
 
 ### Non-goals
 
@@ -82,6 +84,8 @@ on an agent reading the right paragraph.
   set, then unmarks every dropped issue. A re-run with the same arguments
   finishes an interrupted run. It takes the advisory ID as given.
 - `vrg-security-record retarget <ghsa> --to <ref> [--to …]` is its CLI.
+- `vrg-security-record create` writes a new advisory's first tracking line
+  through `retarget` (`_finish_pair`).
 - `vrg-intake-route` calls `retarget` internally for a split, a transfer and a
   recreate, always with the routed item as the source, and prints recovery
   commands (`_retarget_commands`) when one fails.
@@ -157,10 +161,12 @@ path at once, with the skill text as the first line.
   finishes it. Retarget rewrites the tracking lines before it unmarks the
   dropped issues, so the `--from` check accepts an issue when either:
   - a current `Tracking issue:` line names it; or
-  - its body still carries a `Security advisory:` line for this advisory
-    (it is still marked, as `security_issues` lists it) and every `--to` is
-    already a tracking line: the state an interrupted run with the same
-    targets leaves.
+  - the tracking lines are already exactly the `--to` set, and the source
+    is tied to that move: its body still carries a `Security advisory:`
+    line for this advisory (an interrupted run), or it carries the comment
+    retarget posts when it unmarks an issue, naming exactly these targets
+    (a completed run). Such a re-run only finishes the unmarks; it moves
+    nothing. Any other source is refused.
 
   The open-issue drop check (above) applies to the same dropped set in
   both cases.
@@ -169,6 +175,11 @@ path at once, with the skill text as the first line.
   item as the source. Each caller's targets are the advisory's current
   tracking set, minus the routed item, plus the new issue or issues, so a
   route never drops another tracked issue and never meets the drop check.
+- `vrg-security-record create` makes an advisory's **first pairing**, which
+  has no source, so it does not go through retarget: it has a path of its
+  own. A resumed `create` finishes its own pair. `create` refuses, before
+  it creates, marks or links any issue, an advisory that already tracks
+  another issue.
 - Every retarget command or hint the tools print carries `--from`: the
   recovery commands (`_retarget_commands`), the message that tells the human
   to retarget an item naming several advisories by hand, the planning
@@ -180,8 +191,11 @@ path at once, with the skill text as the first line.
   tracks is a queue item, or was closed with any reason other than
   `completed` (`not planned`, `duplicate`, or any reason GitHub adds). It
   stays `draft`. A **queue item** is an issue whose native parent is a live
-  intake, planning or deferred epic, or a queue archive epic (labelled
-  `archive` plus `intake`, `planning` or `deferred`). The tests cover a
+  intake, planning or deferred epic, or a queue archive epic of one of
+  those kinds. An archive is recognized as `epics.is_archive` recognizes
+  it, by its `archive` label or by its stamped archive title alone (an
+  archive can lose its label), and its kind comes from its label or its
+  title prefix. The tests cover a
   closed queue item that has already been drained into its archive.
 - The guard only stops a `draft` → `closed` move. An advisory that is
   already `closed` (a human closed it with `vrg-security-record close`) is
@@ -301,6 +315,15 @@ The skill work ships in two parts:
 The tool changes (§6.1–6.3) land, then a vergil-tooling release as a
 **deployment** task, and the second skill part is blocked by that
 deployment.
+
+The deployment also carries a **one-time review** of advisories closed
+before the guard existed. An advisory is found when the guard (§6.2) would
+have held it and no `vrg-security-record close` closed it. The human decides
+each found one: reopen it by retargeting it to an open fix task (the next
+sync moves it back to `draft`), or confirm the close with
+`vrg-security-record close`. The deployment succeeds only when every found
+advisory is decided. The findings stay private; the public record says only
+that the review is done.
 
 From that deployment until the second part ships, a retarget command
 without `--from` is refused. The window is accepted and kept short:
