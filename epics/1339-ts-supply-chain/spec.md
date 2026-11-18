@@ -58,7 +58,8 @@ the same rigour as a Python or Rust repo:
    every check, the dependency update and the license gate included, with no
    known gap.
 6. Once those runs pass, the removal of license-checker from the ts-node
-   images is filed as an ad-hoc task in vergil-containers (§6.5).
+   images is filed as an ad-hoc task in vergil-containers, with a matching
+   ad-hoc doc task in vergil-tooling (§6.5).
 
 ### Non-goals
 
@@ -80,7 +81,8 @@ the same rigour as a Python or Rust repo:
 ### Anti-goals (the epic fails if any of these happen)
 
 - A package with a disallowed, unparseable or missing license passes the
-  license gate without a live exception naming it.
+  license gate without a live exception naming it and the exact license value
+  it records.
 - The license gate reads anything but the committed `package-lock.json`, so
   its verdict depends on what happens to be installed.
 - The npm updater edits `package.json`, runs an install script, swallows a
@@ -88,7 +90,8 @@ the same rigour as a Python or Rust repo:
 - A held-back list is silently empty because a registry read failed.
 - A TypeScript repo turns red because vergil-actions requires `licenses.json`
   before the vergil-tooling release that writes it is out (§6.6).
-- license-checker leaves the images while any released gate still calls it.
+- license-checker leaves the images while the vergil-tooling version the
+  fleet's `vergil = "v2.1"` pin resolves to still calls it.
 - A Python or Rust gate, report or updater changes behaviour.
 
 ## 4. Current state (facts the design builds on)
@@ -259,8 +262,12 @@ heads that day.
     expression is allowed only when every branch is. A `WITH` term is allowed
     only when the whole term, ID and exception, is on the allowlist, so a
     bare ID never admits an exception clause the allowlist has not named.
-  - IDs are compared case-sensitively against the allowlist, as SPDX defines
-    them. An ID with `+` matches only an allowlist entry spelled with `+`.
+  - License and exception IDs are matched against the allowlist without
+    regard to case, and the operators `AND`, `OR` and `WITH` only in upper
+    case, as the SPDX license-expression syntax specifies
+    ([SPDX 2.3, Annex D](https://spdx.github.io/spdx-spec/v2.3/SPDX-license-expressions/)).
+    `licenses.json` records the allowlist's canonical spelling of each ID. An
+    ID with `+` matches only an allowlist entry spelled with `+`.
   - A package passes when its expression is allowed. It fails when its
     expression is disallowed, unparseable or missing, unless a live exception
     covers it.
@@ -271,13 +278,24 @@ heads that day.
   other.
 - **`.npm-license-exceptions`,** the license counterpart of
   `.npm-audit-exceptions`, with the same rules:
-  - one entry per line, `#` comments and blank lines ignored:
-    `<package> exp:<YYYY-MM-DD> <tracking issue> <reason>`;
-  - an entry covers every locked version of that package, and the gate logs
-    the license value it excused for each;
+  - one entry per line, `#` comments and blank lines ignored: a package
+    name, the license value it excuses, then `exp:<YYYY-MM-DD> <tracking
+    issue> <reason>`;
+  - the license value is the lockfile's `license` string exactly as
+    recorded, or a marker for a missing field. Values can contain spaces
+    (`(MIT OR CC0-1.0)`), so the value is delimited; the exact syntax is left
+    to the builder (§10);
+  - an entry covers a locked package only when its name matches and its
+    recorded `license` equals the entry's value exactly. It covers every
+    locked version whose license is unchanged, so a version move alone needs
+    no new review, and a version whose license differs is not covered and
+    fails;
+  - a package may have more than one entry, one per excused license value;
   - the tracking issue takes the same forms as the audit file's;
-  - an entry may expire at most 90 days ahead, the audit's
-    `MAX_EXCEPTION_DAYS`, shared rather than copied;
+  - an entry may expire at most 365 days ahead, a named constant of its own.
+    The audit's 90 days (`MAX_EXCEPTION_DAYS`) fit an advisory waiting on an
+    upstream fix. A license quirk, such as a non-SPDX string on an otherwise
+    allowed package, is usually permanent, so a yearly review is enough;
   - a malformed, expired, duplicate or too-long entry fails the gate by line,
     every bad entry in one run;
   - an entry that matches no package, or matches only packages that pass on
@@ -286,7 +304,8 @@ heads that day.
   The parsing rules both files share (expiry, tracking issue, the one-run
   report of every bad line) are factored out of `lib/npm_audit.py` rather
   than duplicated. Each file keeps its own key: a GHSA ID for the audit, a
-  package name for licenses.
+  package name and license value for licenses. A duplicate is the same key
+  twice.
 - **`licenses.json`** lists every package the gate checked, with its name,
   version, license as recorded (or none), whether it is a dev dependency, and
   its verdict: allowed, excepted (with the entry's tracking issue and expiry),
@@ -316,36 +335,44 @@ heads that day.
     after with `changes.diff_versions`. Its summary and commit message name
     each package that moved, from and to, in the style of the uv and Cargo
     updaters.
-- **The held-back report.** For each direct dependency in `package.json`
-  (`dependencies`, `devDependencies` and `optionalDependencies`), after the
-  update:
-  - its locked version is the lockfile's `node_modules/<name>` entry;
-  - its newest version is the registry's `latest` dist-tag, the version npm
-    itself treats as newest, read from the npm registry's package metadata;
-  - it is held back when the locked version is below the newest. Each
-    `HeldBack` entry carries both versions and a note with its reason:
-    - "outside the package.json range" when the newest version does not
-      satisfy the declared range;
-    - otherwise "held by the resolver: another requirement in the dependency
-      graph" (a peer requirement or an `overrides` entry, for example);
+- **The held-back report uses npm's own semver.** Vergil has no npm range
+  evaluator and gets none: after the update, the updater runs
+  `vrg-container-run -- npm ci --ignore-scripts` and then
+  `vrg-container-run -- npm outdated --json`, so npm itself matches every
+  range, dist-tag specs included. For each direct dependency in
+  `package.json` (`dependencies`, `devDependencies` and
+  `optionalDependencies`) that `npm outdated` reports:
+  - `current` is its locked version, `wanted` the newest version its range
+    allows, and `latest` the registry's `latest` dist-tag, the version npm
+    itself treats as newest;
+  - it is held back when `current` is below `latest`. Each `HeldBack` entry
+    carries `current` and `latest` and a note with its reason:
+    - "outside the package.json range" when `wanted` is below `latest`;
+    - "held by the resolver: another requirement in the dependency graph"
+      when `current` is below `wanted` after the update (a peer requirement
+      or an `overrides` entry, for example);
     - when the package is in `dev-dependencies.json`, the note adds that
       Vergil accepts only its listed major there, so a reader sees the hold
       is Vergil's (TypeScript at 6, for example, until
       vergil-project/.github#1181).
 
     Every entry carries a reason.
-  - Dependencies that are not registry packages (`file:`, `link:`, git and
-    URL specs, npm aliases) are skipped, with the reason recorded in the
-    code.
-  - Ranges are matched with npm's semver rules, not Python's or Cargo's.
+  - What `npm outdated` reports for a dependency that is not a registry
+    package (`file:`, `link:`, git and URL specs) is skipped, with the reason
+    recorded in the code.
+  - `npm outdated` exits non-zero whenever any dependency is outdated, so its
+    exit status alone is neither success nor failure. The updater reads its
+    JSON: a non-zero exit with a well-formed report of outdated packages is
+    the normal case, and anything else (no JSON, malformed JSON, an `error`
+    object, or a non-zero exit with nothing outdated) fails.
 - **Failures are loud.** Each of these fails the updater's result, and none
   reads as "no change":
-  - a failed `npm update`;
+  - a failed `npm update`, or a failed `npm ci` before `npm outdated`;
   - an unreadable `package.json` or `package-lock.json`, or a lockfile older
     than v2;
   - a changed `package.json`;
-  - a registry read that fails, or a dependency the registry does not know;
-  - a range that does not parse.
+  - an `npm outdated` run that fails as above, including a registry it cannot
+    reach.
 
 ### 6.3 Evidence (vergil-actions)
 
@@ -389,19 +416,31 @@ heads that day.
 
 ### 6.5 license-checker leaves the images, after the proof
 
-- Once both fixture runs pass, nothing Vergil releases calls license-checker:
-  the gate no longer does, and the tool was never a repo devDependency.
-- A step of this epic then **files** the removal as an ad-hoc task in
-  vergil-containers (`vrg-issue-create --epic adhoc --repo
-  vergil-project/vergil-containers`): take license-checker out of
-  `typescript-analysis.dockerfile`, `checks.sh`, the smoke tests and the
-  ts-node docs. The ad-hoc task is processed outside the epic, so the epic
-  never waits on an image release.
+- Once both fixture runs pass, the vergil-tooling the fleet runs no longer
+  calls license-checker: repos float on `vergil = "v2.1"`, which resolves to
+  the newest release, its gate no longer calls the tool, and the tool was
+  never a repo devDependency.
+- A step of this epic then **files** two ad-hoc tasks, each in the repo its
+  PR lands in, so the docs follow the image:
+  - in vergil-containers (`vrg-issue-create --epic adhoc --repo
+    vergil-project/vergil-containers`): take license-checker out of
+    `typescript-analysis.dockerfile`, `checks.sh`, the smoke tests and the
+    ts-node docs;
+  - in vergil-tooling: once that removal is released, drop license-checker
+    from the docs that say the image ships it (`guides/ci-architecture.md`,
+    `standards/development/typescript/overview.md` and the TypeScript row of
+    `standards/development/tool-ownership.md`, as of this spec). It is
+    blocked by the vergil-containers task, and that task's body names it and
+    lists those lines.
+
+  Both are processed outside the epic, so the epic never waits on an image
+  release.
 - **Never before the proof.** Filed any earlier, the ad-hoc task could remove
   the tool while every TypeScript repo's AUDIT still calls it.
 - The step's precondition is that both fixture validations closed on
-  `SUCCESS` and that the released vergil-tooling's TypeScript AUDIT commands
-  no longer name license-checker. Its result names the filed task.
+  `SUCCESS` and that the TypeScript AUDIT commands of the vergil-tooling
+  version `v2.1` resolves to no longer name license-checker. Its result names
+  both filed tasks.
 
 ### 6.6 Rollout and validation
 
@@ -443,16 +482,17 @@ vergil-tooling.
 - **A disallowed, unparseable or missing license:** the AUDIT check fails,
   naming the package, its version and license value, and both fixes.
 - **A bad `.npm-license-exceptions` entry** (malformed, expired, duplicate,
-  more than 90 days ahead): the gate fails, naming every bad line.
+  more than 365 days ahead): the gate fails, naming every bad line.
 - **A stale license exception:** a warning naming the entry. The gate still
   passes.
 - **A missing, unreadable or pre-v2 lockfile, or an entry with no
   version:** the license gate fails, naming the file and the fix.
 - **`npm update` fails:** the npm updater's result fails, never "no change".
 - **`package.json` changed by the update:** the updater fails, naming it.
-- **The registry unreachable, or a package unknown to it, during the
-  held-back check:** the updater fails. The held-back list is never silently
-  empty.
+- **`npm outdated` fails during the held-back check** (the registry
+  unreachable, no or malformed JSON, an `error` object): the updater fails.
+  Its non-zero exit when packages are outdated is not a failure. The
+  held-back list is never silently empty.
 - **`licenses.json` missing after a passing TypeScript audit leg in CI:** the
   staging step fails, as for every contracted report since #1165.
 
@@ -493,11 +533,11 @@ vergil-tooling.
 
 - The license gate module's name and the `licenses.json` field names, kept
   consistent across vergil-tooling and vergil-actions.
+- The syntax that delimits a license value in `.npm-license-exceptions`, and
+  the marker for a missing `license` field, as long as the match against the
+  recorded value is exact.
 - Whether the SPDX expression parser is Vergil's own or a vetted library, as
   long as it is strict and covers the grammar in §6.1.
-- How the npm updater reads the registry metadata (a direct read of the
-  registry's package document, or `npm view` in the container), as long as
-  every failure is loud.
 - The npm command a fixture run's change task uses to roll a package back in
   the lockfile without touching `package.json`.
 - How the license-checker removal step is filed as an epic task (its kind and
