@@ -282,3 +282,41 @@ approval it files under.
 
   Scratch branches are deleted, never merged.
 - Epic vergil-project/.github#1218's runs share both fixtures. The human sequences the two epics' runs by hand.
+
+## Evolution during execution
+
+### 2026-11-18: Node 26 added by hand; Task 3 re-scoped, Task 4 re-blocked
+
+**What changed:**
+
+- **Node 26 reached the window by hand, not by a lifecycle add PR.**
+  vergil-project/vergil-containers#949 (`feat(versions): add ts-node 26`)
+  merged into `develop` on 2026-11-17, before Task 2 moved `ts-node` to `pr`
+  automation, and its report issue vergil-project/vergil-containers#730
+  closed with it. The manifest's `ts-node` majors are already 26, 24 and 22,
+  so Task 2's switch opens no Node 26 add PR.
+- **Task 3 (#1300) is re-scoped to the checks that still apply:** the
+  `dev-ts-node` 26 images are published from `develop`, and the add's
+  vergil-vm follow-up line is recorded on vergil-project/.github#959. Its
+  add-PR precondition, its PR review and its human merge step no longer
+  apply.
+- **Task 4 (vergil-project/vergil-containers#952) is blocked by Task 2
+  (vergil-project/vergil-containers#951) in place of Task 3.** Its policy-page
+  wording describes `pr` automation, which Task 2 brings, and it no longer
+  waits on a merge that will not happen.
+- The spec's statements that the catch-up arrives through the lifecycle
+  job's add PR (§1, Goal 1, §4, §6.1, §6.6 Track A step 1) carry dated
+  "Amended after implementation" notes.
+
+**Why:**
+
+- vergil-containers#949 rendered the manifest entry, the toolchain pin and
+  the generated files through the lifecycle check's own add path, so the
+  change is what an automated add PR would have carried. It also rewrote the
+  ts-node policy page's dated window lines, so Task 4 has less left to do
+  (the "checked on" header date, the vergil-vm line and the out-of-policy
+  wording under `pr`).
+- The human ruled on 2026-11-18 to keep Task 3 for its remaining checks and
+  move Task 4's blocker
+  (<https://github.com/vergil-project/.github/issues/1281#issuecomment-6978342535>).
+  The task list above is left as planned; this entry records the change.
