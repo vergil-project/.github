@@ -93,9 +93,11 @@ Background, for the builder and for the published background page:
 
 ## Goals
 
-- One command the human runs at the start and end of each working day,
-  `/vergil:hoshin start` and `/vergil:hoshin end`, which works out for itself
-  which reviews are due and runs them.
+- One command the human runs at the start of each working day,
+  `/vergil:hoshin start`, which works out for itself which reviews are due,
+  closes whatever period was left open, and runs them; and an optional
+  `/vergil:hoshin end` to close the day (or a larger period) when the human
+  chooses to.
 - A daily review (nichijō kanri) of what ran unattended since the last review:
   what failed, why, and what needs action.
 - Week, month, quarter and year reviews that set direction at the start of each
@@ -133,7 +135,9 @@ Background, for the builder and for the published background page:
 - **A review that only happens when remembered.** If the human has to work out
   which reviews are due, the discipline fails. The calendar is the skill's job.
 - **A silently skipped review.** A run that finds nothing still writes its
-  entry; a missed review is detected and caught up, never quietly dropped.
+  entry. A period left open is detected and closed, by a late review or a
+  "not performed" entry, and a period with no entries at all is named in the
+  next entry; nothing is quietly dropped.
 - **Heavy structure.** The logbook is Markdown with a minimal header, not a
   schema. Over-structuring it before it has been used would freeze the wrong
   shape.
@@ -160,7 +164,9 @@ Background, for the builder and for the published background page:
   ad hoc with `vrg-gh` and `vrg-git`, which is allowed but costly.
 - **The fleet** is every GitHub organization owned by Vergil's primary human
   (six today). Personal repositories under the human's own account are out of
-  scope. An inactive org is still in the fleet and is marked inactive.
+  scope. An inactive org is still in the fleet and is marked inactive. The
+  fleet may hold private repositories (one today); the public logbook never
+  publishes their details (see "Security").
 - **Human gates are unchanged.** The skill runs as the `user` agent. It hands
   off each logbook PR with `vrg-pr-workflow report-ready`; the human submits
   and merges.
@@ -173,7 +179,7 @@ Background, for the builder and for the published background page:
 
 - **A. One skill with `start` and `end` modes; checklists inside the skill
   (chosen).** The skill computes which levels are due from the date and the
-  logbook, runs them smallest first, and writes one file per level in one PR.
+  logbook, runs them, and writes one file per review in one PR.
   One command to remember, the calendar in one place, catch-up for free. Its
   cost: changing a checklist is a plugin change and release.
 - **B. Five skills, one per level.** Simplest to build, but the human must
@@ -189,30 +195,50 @@ The human chose **A**.
 
 ## Design
 
-### The skill: `/vergil:hoshin start|end`
+### The skill: `/vergil:hoshin start|end [<level>]`
 
-A new skill in vergil-claude-plugin, `skills/hoshin/`. It takes one argument,
-`start` or `end`, and nothing else is required: it works out the date, the
-levels due and the window to review.
+A new skill in vergil-claude-plugin, `skills/hoshin/`. It works out the date,
+the levels due and the window to review for itself.
+
+- **`start`** is the main event, run at the start of each working day. It
+  closes whatever was left open, then opens the new day and any new week,
+  month, quarter or year (see "The calendar").
+- **`end`** is optional. Plain `end` closes the day. `end week`, `end month`,
+  `end quarter` or `end year` closes that period now, together with every
+  smaller period still open beneath it (so `end month` also closes the week
+  and the day), when the human decides it is time to wrap it up. A period not
+  closed by `end` is closed by the next `start`.
 
 Each run:
 
 1. **Preflight.** Confirms it is the `user` agent. Locates the docs repo clone
    and confirms its `develop` is current with `origin/develop`, so it reads the
-   latest logbook.
-2. **Reads the logbook** to find, for each level, the latest entry and the end
-   of the window it covered.
-3. **Decides what is due** (see "The calendar" below), including any missed
-   reviews to catch up.
-4. **Runs each due review, smallest level first.** Daily first, then weekly,
-   monthly, quarterly, yearly. Each review gathers its data, presents it, and
-   holds the conversation with the human that the level calls for.
+   latest logbook. Looks for any open logbook PR (or logbook task still open);
+   if one exists, it stops and tells the human to submit and merge it first,
+   since the logbook on `develop` must be the full record before a run can
+   reason about it. Refuses if the entry this run would write already exists
+   (the same mode run twice in one day).
+2. **Reads the logbook** to find, for each level, the latest entry, its period,
+   and the end of the window it covered.
+3. **Decides what is due** (see "The calendar" below): open periods to close,
+   new periods to open, and periods with no entries to name.
+4. **Closes, then opens, in a fixed order.** First any closing: `end`
+   reviews (late, or recorded as not performed) run smallest level first, since
+   reflection rolls up (the day into the week, the week into the month). Then,
+   for `start`, the daily 朝礼 chōrei runs first, so the human knows operations
+   are stable before setting direction, and the boundary `start` reviews follow
+   from the largest level down (yearly, quarterly, monthly, weekly), since
+   direction flows top-down and each level plans against the one above it.
+   Each review gathers its data, presents it, and holds the conversation with
+   the human that the level calls for.
 5. **Files follow-up work** the conversation decides on, through the existing
    paths (`intake-capture` / `vrg-intake-create`, `vrg-issue-create`, a
-   security record), and lists each in the entry.
-6. **Writes one logbook file per review run,** and updates the folder indexes.
+   security record), and lists each in the entry. Follow-up work about a
+   private repository is filed in that repository, never in a public one.
+6. **Writes one logbook file per review,** closing ones included.
 7. **Hands off one docs PR** for the run: a task issue, a worktree, a commit,
-   `vrg-container-run -- vrg-validate`, `vrg-pr-workflow report-ready`.
+   `vrg-container-run -- vrg-validate`, `vrg-pr-workflow report-ready`. The
+   human submitting that PR is the review's sign-off.
 
 #### What each level does
 
@@ -220,7 +246,8 @@ The two halves:
 
 - **Nichijō kanri (daily)** runs on every invocation. `start` is the 朝礼
   chōrei, `end` the 終礼 shūrei.
-- **Hōshin (week, month, quarter, year)** runs only at boundaries. A `start`
+- **Hōshin (week, month, quarter, year)** runs only at boundaries, or when the
+  human asks to close a period with `end <level>`. A `start`
   review sets direction for the period; an `end` review is 反省 hansei,
   reflection on the period just finished. The yearly `end` is the 社長診断
   shachō shindan.
@@ -232,7 +259,8 @@ by kaizen:
   the fleet: failed or cancelled workflow runs (CD builds, `ops.yml`, the other
   scheduled and event-driven workflows) and why each failed; automation-authored
   PRs merged, still open or stuck; releases cut; new GitHub-config audit and
-  security alerts, referred to abstractly. What needs action today.
+  security alerts (reported only as "Security" below allows). What needs
+  action today.
 - **Daily `end` (shūrei):** what the durable record shows changed today (PRs
   merged, issues and epics closed, releases); what is waiting on the human
   (handed-off PRs awaiting submission or merge, rulings); anything that failed
@@ -275,26 +303,48 @@ query it found itself repeating.
 
 ### The calendar
 
-- **Days.** Every day the human works gets daily entries, weekends included.
-  Dates and times are in the human's local time zone.
-- **Weeks** run Monday to Friday and are named by ISO week
-  (`2026-W47`). A week's `start` review rides on Monday's `start`, its `end`
-  review on Friday's `end`.
-- **A week belongs to the month its Monday falls in.** A month's `start`
-  review rides on the `start` of its first week, its `end` review on the `end`
-  of its last week. Months are therefore whole weeks: four or five.
-- **Quarters and years** follow from months: a quarter's first and last weeks
-  are those of its first and last months, and likewise for the year.
-- **Catch-up.** A run checks, for each level, whether the previous period's
-  `end` review and the current period's `start` review exist. A missing one is
-  run in this invocation, before the reviews of the current day, and its entry
-  records that it ran late and when. The daily window always runs from the end
-  of the window of the latest daily entry, so a missed daily review widens the
-  next one rather than losing time.
-- **The first run.** On an empty logbook every level's `start` review is due.
-  The first `/vergil:hoshin start` is therefore the bootstrap: it runs the
-  daily, weekly, monthly, quarterly and yearly `start` reviews, and sets the
-  first `hoshin.md` by catchball. No separate bootstrap mode is needed.
+The calendar follows how the human actually works: `start` is run on most
+working days, weekends included; `end` is often skipped, because the day ends
+when it ends. So `start` carries the boundaries, and `end` is the human's
+choice.
+
+- **Time zone.** Every date and time is computed in one configured IANA time
+  zone (for example `America/New_York`), recorded in the logbook's `index.md`,
+  never from the host clock, which may run on UTC.
+- **Days.** A day with a `start` entry is a day worked. A day with no `start`
+  entry is a day off, and nothing about it is flagged.
+- **Weeks** run Monday to Sunday.
+- **Every period comes from the week.** A week belongs to the month its Monday
+  falls in, and so to that month's quarter and year. A run computes the
+  current week, month, quarter and year from the current week, never from the
+  calendar date alone. Example: the week of Monday 2025-12-29 belongs to
+  December 2025, Q4 2025 and the year 2025, so January 2026, Q1 2026 and 2026
+  begin with the week of Monday 2026-01-05.
+- **Boundaries.** For each level, a `start` run compares the current period
+  with the period of that level's latest `start` entry. If they differ, the
+  level has crossed a boundary, and the new period's `start` review is due.
+  A level with no entries at all is due too.
+- **Closing an open period.** If, at a level, the latest entry is a `start`
+  with no matching `end` (the day, week, month, quarter or year was opened and
+  never closed), the run pauses and says so, for example "Thursday was started
+  but never closed". The human chooses either to **close it now**, running
+  the missed `end` review late (its entry records that it ran late, and when),
+  or to **record it as not performed**, a short entry in the `end` slot saying
+  the review was not done, with an optional note on why. Either entry goes
+  into the same PR as the run's new `start`, so every `start` ends up with a
+  matching `end`.
+- **Gaps.** Periods that have neither a `start` nor an `end` entry (after a
+  long absence, say) are named in the new `start` entry ("no entries: weeks of
+  2026-12-07 and 2026-12-14"), so the gap is on record.
+- **Windows.** A daily review's window runs from the end of the window of the
+  latest daily entry to now, so a skipped day widens the next window rather
+  than losing time. A larger level's window runs, likewise, from its latest
+  entry to now, so weekend work falls into the next weekly review.
+- **The first run.** On an empty logbook there is nothing open to close, and
+  every level's `start` review is due. The first `/vergil:hoshin start` is
+  therefore the bootstrap: it runs the daily, then the yearly, quarterly,
+  monthly and weekly `start` reviews, and sets the first `hoshin.md` by
+  catchball. No separate bootstrap mode is needed.
 
 ### The logbook
 
@@ -302,22 +352,24 @@ A new top-level section of the published docs site in `vergil-project/docs`:
 
 ```text
 docs/site/docs/logbook/
-  index.md          what the logbook is; links to each level and to hoshin.md
-  hoshin.md         the direction document: the vital few
-  fleet.md          the fleet roster: each org, active or inactive
-  daily/index.md    and one file per daily review
-  weekly/index.md   and one file per weekly review
-  monthly/index.md  ...
-  quarterly/index.md
-  yearly/index.md
+  index.md     what the logbook is, the entry format, the time zone
+  hoshin.md    the direction document: the vital few
+  fleet.md     the fleet roster: each org, active or inactive
+  daily/       one file per daily review
+  weekly/      one file per weekly review
+  monthly/
+  quarterly/
+  yearly/
 ```
 
-**File names** are ASCII and name the period the review covers, plus the mode:
+**File names** are ASCII and name the period the review covers, plus the mode.
+A week is named by its Monday's date, so a week's name can never fall in a
+different year from the week itself:
 
 | Level | Example |
 | --- | --- |
 | Daily | `daily/2026-11-18-start.md` |
-| Weekly | `weekly/2026-W47-end.md` |
+| Weekly | `weekly/2026-11-16-end.md` |
 | Monthly | `monthly/2026-11-start.md` |
 | Quarterly | `quarterly/2026-Q4-end.md` |
 | Yearly | `yearly/2026-start.md` |
@@ -328,16 +380,18 @@ only what later runs depend on:
 - the level and the mode;
 - the period it covers;
 - the review window (from and to, with times);
-- when it ran, and whether it ran late.
+- when it ran, and whether it ran late or records a review not performed.
 
 The body is the review: what was found, what was decided, the follow-up issues
 filed, and the kaizen notes. A run where nothing happened still writes an
-entry, saying so. The entry format is described in the logbook's `index.md`
-and kept loose on purpose.
+entry, saying so. A "not performed" entry is a few lines: that the review was
+not done, and the human's note on why, if any. The entry format is described
+in the logbook's `index.md` and kept loose on purpose.
 
-**Indexes.** Each folder's `index.md` lists its entries, newest first; the run
-updates it in the same PR. The site navigation gets a top-level **Logbook**
-section.
+**Listings are generated.** The site navigation gets a top-level **Logbook**
+section, and each level's listing of entries (newest first) is generated when
+the site is built, never edited by a run. So two logbook PRs never conflict
+over an index, and no run edits navigation.
 
 **The direction document, `hoshin.md`,** holds the vital few: three to five
 fleet objectives, each with a line on why and how progress will be judged. It
@@ -353,8 +407,10 @@ whether the roster moves into configuration.
 ### The logbook PR
 
 Every run hands off exactly one PR to `vergil-project/docs`, holding all of
-that run's entries and index updates (and, at the quarterly and yearly levels,
-any `hoshin.md` change). Vergil's rule is one task, one PR, so each run files a
+that run's entries (and, at the quarterly and yearly levels, any `hoshin.md`
+change). Because the next run refuses while a logbook PR is open, the human
+submits each one as the review's sign-off; the docs repo's checks are quick,
+so it merges well before the next run. Vergil's rule is one task, one PR, so each run files a
 task in the docs repo's ad-hoc epic (`vrg-issue-create --epic adhoc --repo
 vergil-project/docs`), titled for the run (`Logbook: 2026-11-18 start`), and
 works it on its own worktree. The commit uses a distinct type and scope
@@ -369,9 +425,16 @@ The logbook is public. The skill's prose states the rule plainly:
 - A security finding raised in a review goes into a security record
   (`vrg-security-record`) with its details; the entry refers to it only by its
   public issue ref and in abstract terms.
-- Data a review reads that is itself sensitive (security alerts, advisories) is
-  summarized in the entry as counts and refs, never as details.
+- Security alerts and advisories a review reads appear in an entry only as the
+  public refs of their security records' neutral issues. An entry carries no
+  alert or advisory IDs and no per-repo alert counts or severities; at most a
+  single fleet-wide count. Their details stay in the review conversation.
 - The skill never pastes raw output from a security tool into an entry.
+- **Private repositories.** Before writing, the skill checks each repo's
+  visibility. A public repo is reported in detail. A private repo appears only
+  as counts per org (for example "1 failed run in a private repo"): no name,
+  no PR or issue titles, no failure details. Its follow-up work is filed in the
+  private repo itself, and the entry gives only the count of such follow-ups.
 
 ### The hoshin background page
 
@@ -400,6 +463,7 @@ The plan sizes the tasks; the expected shape is:
   and the exact wording of each check.
 - The exact header format of an entry (front matter or a short field list),
   within the "minimal header" rule above.
-- How the docs site navigation picks up new entries (folder indexes edited per
-  run, or a generated listing), provided the nav needs no hand edit per entry.
-- How the skill locates the docs repo clone and its ad-hoc epic.
+- How the listings are generated at site build (an MkDocs plugin or a build
+  step), provided no run edits an index or the navigation.
+- How the skill locates the docs repo clone, its ad-hoc epic and open logbook
+  PRs.
