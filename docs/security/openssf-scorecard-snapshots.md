@@ -6,10 +6,11 @@ commit, not an open work item — so we capture it here as dated snapshots and
 re-run it on a cadence, rather than accreting findings in the issue tracker.
 
 **Remediation is tracked separately.** This document is the *record*, not the
-work. The actual OpenSSF hardening work lives in epic
-[vergil-project/.github#54](https://github.com/vergil-project/.github/issues/54),
-tracking issue
-[vergil-project/vergil-tooling#828](https://github.com/vergil-project/vergil-tooling/issues/828).
+work. The OpenSSF hardening work was tracked in epic
+[vergil-project/.github#54](https://github.com/vergil-project/.github/issues/54)
+and tracking issue
+[vergil-project/vergil-tooling#828](https://github.com/vergil-project/vergil-tooling/issues/828),
+both closed on 2026-10-24.
 
 ## How to add a snapshot
 
