@@ -1,5 +1,9 @@
 # Security Policy
 
+This policy covers security vulnerabilities only. For anything else,
+see the
+[support policy](https://github.com/vergil-project/.github/blob/develop/SUPPORT.md).
+
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in any VERGIL component,
