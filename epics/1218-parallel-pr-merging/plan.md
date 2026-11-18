@@ -1224,4 +1224,4 @@ Seed with `fixture-run vergil-project/.github#1218 python-app,python-lib,rust-ap
 
 **Why:**
 
-- **The early cut:** the human gave the Release 3 green light once all Release 3 code had merged, without waiting for the documentation sweep.
+- **The early cut:** the human [gave the Release 3 green light](https://github.com/vergil-project/.github/issues/1218#issuecomment-6978492910) once all Release 3 code had merged, without waiting for the documentation sweep.
