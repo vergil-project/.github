@@ -46,6 +46,19 @@ Copied from the spec; every task's requirements include them.
 - Package publishing, the `pkg-*` images and their install tests are
   unchanged.
 
+Two stated exceptions, and no others:
+
+- **The installer bootstrap.** The Mac's consumer refresh, its documented
+  first install and `vrg-vm-init.sh` run `uv tool run --no-config --python
+  3.15 --managed-python --from 'vergil-tooling @ git+<URL>@v<VERSION>'
+  vrg-tooling-install v<VERSION>`: by tag and unconstrained, in an
+  ephemeral environment that exists only to run the installer, which then
+  installs the tool by SHA with its lock.
+- **The package setup action's driver.** It keeps its `python` input
+  (`--python "$VRG_DRIVER_PYTHON"`) for the driver interpreter, and still
+  takes `--managed-python`, `--no-config` and the cleared `UV_*`
+  variables.
+
 ## Review focus
 
 Inputs the spec implies that no single happy-path test covers; each line's
@@ -80,31 +93,37 @@ vergil-containers, `G` .github. Kinds: `task`, `deploy`, `valid`
 | # | Task | Repo | Kind | Blocked by |
 | --- | --- | --- | --- | --- |
 | 1 | Spec and plan (#1351) | G | docs | — |
-| 2 | Tag protection: add creation | T | task | — |
-| 2d | Apply the tag ruleset fleet-wide | T | deploy | 2 |
+| 2a | Release tags pushed with the App token | A | task | — |
+| 2b | Each repo passes the App secrets | each | task | — |
+| 2ad | Release vergil-actions with 2a | A | deploy | 2a |
+| 2 | Tag protection: add creation | T | task | 2a |
+| 2d | Apply the tag ruleset fleet-wide | T | deploy | 2, 2ad, 2b |
 | 3 | `tooling_install` and `vrg-tooling-install` | T | task | — |
 | 4 | Cache build and key on `tooling_install` | T | task | 3 |
 | 5a | VM install and cleanup | T | task | 3 |
 | 5b | VM non-login `PATH` guarantee | T | task | 5a |
 | 6 | `vrg-host` reports only (#4603) | T | task | — |
-| 7d | Release; the Mac via consumer refresh | T | deploy | 2d, 4, 5b, 6 |
+| 7d | Release; the Mac and every VM | T | deploy | 2d, 4, 5b, 6 |
 | 8 | Setup action installs from git | A | task | — |
 | 9 | Package setup action follows §4.2 | A | task | — |
 | 10d | Release, moving `v2.1` | A | deploy | 7d, 8, 9 |
 | 11 | vergil-vm scripts on the new rules | V | task | 3 |
-| 12d | Move every VM | V | deploy | 7d, 11 |
-| 13 | `base` on a managed 3.15 | C | task | 10d, 12d |
+| 13 | `base` on a managed 3.15 | C | task | 10d |
 | 13v | The develop CD build's `dev-` images | C | valid | 13 |
 | 14d | Release vergil-containers | C | deploy | 13v |
 | 15 | Fixture runs | fixtures | fixture | 14d |
-| 16v | Cold rebuild and headline check | V | valid | 14d |
+| 16v | Cold rebuild and headline check | V | valid | 11, 14d |
 | R1 | Documentation review (#4710) | T | docs | 15, 16v |
 | R2 | Retrospective (#1352) | G | retro | R1 |
 
 Tasks 3, 6, 8, 9 and 11 can be worked side by side; their merges are
 ordered only by the table. The two security advisories recorded on the
-planning issue are handed on at filing: the tag one to Task 2, the
-resolution one to Tasks 3, 4, 8 and 9.
+planning issue are handed on at filing: the tag ones to Tasks 2 and 2a,
+the resolution one to Tasks 3, 4, 8 and 9. Tasks 2a, 2b, 2ad, 2 and 2d
+touch no install path, so they can land before the freeze starts, and so
+can Tasks 3, 6, 8, 9 and 11 (merged, not released). **The freeze starts at
+Task 7d**, the first release that changes a live install path, and lasts
+until Task 14d.
 
 ---
 
@@ -122,10 +141,9 @@ resolution one to Tasks 3, 4, 8 and 9.
   DesiredRuleset`, rules `creation`, `update`, `deletion`,
   `non_fast_forward` on `refs/tags/v*.*.*` and `refs/tags/v*.*`.
 
-- [ ] **Step 1: Find the identity that creates release tags.** Read
-  vergil-actions' `cd-release.yml` `Tag and release` step and `vrg-promote`.
-  Record in the PR body which identity creates `vX.Y.Z` (the release job's
-  token) and which creates `vX.Y` (the Admin-run promote).
+- [ ] **Step 1: Confirm the identities.** After Task 2a, `vX.Y.Z` tags are
+  created with the automation App's installation token; `vX.Y` is moved by
+  the Admin-run `vrg-promote`. Record both in the PR body.
 - [ ] **Step 2: Write the failing tests.**
 
   ```python
@@ -139,9 +157,8 @@ resolution one to Tasks 3, 4, 8 and 9.
           ("RepositoryRole", 5), ("Integration", 123)}
   ```
 
-  If Step 1 finds the release job creates tags with a different identity,
-  the second test names that identity instead; it must never be the
-  repository-wide `GITHUB_TOKEN` actor of every workflow.
+  The bypass never includes the GitHub Actions integration, which would
+  let every workflow create a release tag.
 - [ ] **Step 3: Run them:** `vrg-container-run -- pytest
   tests/vergil_tooling/test_github_config_lib.py -k tag_protection` → FAIL.
 - [ ] **Step 4: Implement.** Thread `app_id` the way
@@ -151,16 +168,60 @@ resolution one to Tasks 3, 4, 8 and 9.
   vrg-validate`.
 - [ ] **Step 6: Commit** `feat(github-config): protect release tag creation`.
 
+## Task 2a: Release tags pushed with the automation App's token
+
+**Files (vergil-actions):**
+
+- Modify: `actions/cd/release/tag-and-release/action.yml` (tag pushes use
+  an App installation token, from `actions/create-github-app-token` with
+  `APP_CLIENT_ID`/`APP_PRIVATE_KEY`, never the checkout's `GITHUB_TOKEN`),
+  `.github/workflows/cd-release.yml` (the release job requires the two App
+  secrets and fails before tagging when they are missing), and
+  vergil-actions' own `.github/workflows/cd.yml` where it tags itself
+- Test: `smoke-cd-release.yml` (a tag pushed by the App identity), the
+  action's tests if any
+
+- [ ] **Step 1: Write the failing check:** the smoke release asserts the
+  pushed tag's creator is the App, and that a release job without the App
+  secrets fails with a message naming them.
+- [ ] **Step 2: Implement**; the `develop` changelog tag in the same action
+  uses the same token.
+- [ ] **Step 3:** `vrg-container-run -- vrg-validate`; the smoke workflow
+  passes; commit `feat(release): push release tags with the automation App
+  token`. (A delta under `.github/workflows/` is pushed by the human's
+  `vrg-submit-pr`.)
+
+## Task 2b (one per repo): Pass the App secrets to `cd-release.yml`
+
+- **Step 1, before filing:** count every repo, in every org that
+  `vrg-github-repo-config` manages, whose `cd.yml` calls `cd-release.yml`
+  without `secrets: inherit` or the two App secrets. File one task per repo
+  under this epic (today at least vergil-containers, vergil-vm and the
+  language fixtures).
+- **Each task:** that repo's `cd.yml` passes `APP_CLIENT_ID` and
+  `APP_PRIVATE_KEY` (or `secrets: inherit`, matching the repo's existing
+  style); `vrg-container-run -- vrg-validate`; commit `ci(cd): pass the
+  automation App secrets to the release`.
+
+## Task 2ad (deployment): Release vergil-actions with Task 2a
+
+- **Preconditions:** Task 2a closed; the release is human-gated.
+- **Procedure:** after the human's release moves `v2.1`, the next release
+  of any one repo (the human's choice) shows its `vX.Y.Z` tag created by
+  the App.
+- **Acceptance:** that tag's creator is the App identity.
+
 ## Task 2d (deployment): Apply the tag ruleset fleet-wide
 
 - **Preconditions:** Task 2 merged and released in vergil-tooling (a
-  human-gated release).
+  human-gated release); Task 2ad and every Task 2b closed.
 - **Procedure:** run `vrg-github-repo-config` in apply mode for every repo
-  of the org, then the config audit (`ops.yml`, or the audit command it
-  runs).
+  of every managed org, then the config audit (`ops.yml`, or the audit
+  command it runs).
 - **Acceptance:** the audit reports no drift on "Tag protection" in any
   repo; a test tag push `v0.0.0-ruleset-check` by an agent identity to
-  vergil-tooling is refused (then nothing to clean up).
+  vergil-tooling is refused; and the next real release in a repo other
+  than vergil-tooling creates its tag.
 
 ## Task 3: `tooling_install` module and `vrg-tooling-install`
 
@@ -185,12 +246,17 @@ resolution one to Tasks 3, 4, 8 and 9.
     ResolvedRef`: a line → newest `vX.Y.Z` and its SHA; exact → its SHA; dev
     → `tag=None, sha=None`. Raises `ToolingInstallError` naming the URL and
     the ref.
+  - `unresolved(ref: str) -> ResolvedRef`: an exact pin with `tag=ref`,
+    `sha=None`, built with no network call. Raises `ToolingInstallError`
+    for a line or dev ref.
   - `install_lines(resolved: ResolvedRef, *, python_dir: str | None,
     tool_dir: str | None, bin_dir: str | None) -> list[str]`: the shell
     lines that clear the three `UV_*` variables, export the commit's lock as
     constraints, run the install and log tag and SHA; with `python_dir`
     set they also set `UV_PYTHON_INSTALL_DIR` and
-    `UV_PYTHON_DOWNLOADS=never`.
+    `UV_PYTHON_DOWNLOADS=never`. For an exact ref with `sha=None` the lines
+    begin with the one `git ls-remote` of the tag, fail loudly if it finds
+    no tag, and use that SHA for the lock and the install.
   - `check_lines(bin_dir: str) -> list[str]`: `command -v vrg-whoami` must
     equal `<bin_dir>/vrg-whoami`, and `vrg-whoami --mode` must run.
   - `class ToolingInstallError(RuntimeError)`.
@@ -206,6 +272,10 @@ resolution one to Tasks 3, 4, 8 and 9.
 
   def test_resolve_line_ls_remote_failure_is_loud(): ...  # names URL, ref
   def test_resolve_dev_ref_has_no_sha(): ...
+  def test_unresolved_exact_needs_no_network(): ...  # no ls_remote call
+  def test_install_lines_resolve_unresolved_exact_once_in_shell():
+      # exactly one "git ls-remote", and its SHA feeds both the fetch
+      # and the install spec
   def test_install_lines_use_sha_never_tag():
       lines = "\n".join(install_lines(resolved_exact, python_dir=None,
                                        tool_dir=None, bin_dir=None))
@@ -220,6 +290,8 @@ resolution one to Tasks 3, 4, 8 and 9.
   def test_install_lines_replace_existing_install(): ...  # --force present
   def test_dev_ref_installs_unconstrained(): ...
   def test_cli_fails_loudly_on_failed_install(): ...
+  def test_check_lines_fail_on_shadowing_usr_bin_shim(): ...
+      # command -v resolves /usr/bin/vrg-whoami first → the check fails
   def test_consumer_refresh_runs_the_released_installer():
       # vergil.toml's consumer-refresh runs
       # uv tool run --no-config --python 3.15 --managed-python \
@@ -240,7 +312,9 @@ resolution one to Tasks 3, 4, 8 and 9.
   for the ref kinds.
 - [ ] **Step 4: Implement the CLI** and wire `vergil.toml`'s
   consumer-refresh to the `uv tool run … vrg-tooling-install v<VERSION>`
-  form above, so the release's own installer runs on the Mac. Update the
+  form above, so the release's own installer runs on the Mac. Its second
+  line, `vrg-vm update --all`, stays, so the release moves every VM too
+  (Task 7d checks them). Update the
   two guides' Mac install text to the same command.
 - [ ] **Step 5: Confirm the pinned uv's flags.** `vrg-container-run -- uv
   tool install --help` lists `--managed-python`, `--constraints`,
@@ -273,6 +347,8 @@ resolution one to Tasks 3, 4, 8 and 9.
 
   ```python
   def test_setup_command_has_no_apt(): assert "apt" not in vergil_tooling_setup_command(r)
+  def test_setup_command_wrong_python_dir_fails_not_downloads(): ...
+      # VERGIL_CORE_PYTHON_DIR set to an empty dir → install fails, no download
   def test_setup_command_reads_image_python_dir():
       # the fragment sets UV_PYTHON_INSTALL_DIR="$VERGIL_CORE_PYTHON_DIR" and
       # UV_PYTHON_DOWNLOADS=never only when VERGIL_CORE_PYTHON_DIR is set,
@@ -289,9 +365,10 @@ resolution one to Tasks 3, 4, 8 and 9.
   ```
 
 - [ ] **Step 2: Run them** → FAIL.
-- [ ] **Step 3: Implement.** For an exact pin, the fragment itself runs the
-  one `git ls-remote` inside the build and passes the SHA on; for a line
-  pin the host resolves once and the fragment receives the SHA.
+- [ ] **Step 3: Implement.** For an exact pin, `_resolve_tooling` uses
+  `tooling_install.unresolved` and the fragment's own `ls-remote` resolves
+  the SHA inside the build; for a line pin the host calls `resolve` once
+  and the fragment receives the SHA.
 - [ ] **Step 4: Run the tests** → PASS, then a real cache build on today's
   `base` (`vrg-container-run -- vrg-whoami --mode` in a scratch repo
   pinned `v2.1`), which downloads 3.15 and logs it, as Review focus 5
@@ -359,15 +436,21 @@ resolution one to Tasks 3, 4, 8 and 9.
 **Interfaces:**
 
 - Consumes: `vm_packages.released_install`.
-- Produces: `ensure_login_path(transport: Transport) -> None`; the
-  post-install check runs as `transport.run("vrg-whoami", "--mode")` with
-  no `PATH` prepend.
+- Produces: `ensure_login_path(transport: Transport) -> bool` (True when it
+  changed `/etc/environment`); when it returns True on a Lima transport,
+  `vrg-vm update` closes Lima's SSH ControlMaster connection before the
+  check, so the check opens a fresh session that reads the new `PATH`
+  (pam_env reads `/etc/environment` once per session; vergil-vm issue
+  #110). The post-install check runs as `transport.run("vrg-whoami",
+  "--mode")` with no `PATH` prepend.
 
 - [ ] **Step 1: Inventory.** List every in-guest `vrg-*` call on each
   transport (Lima, gcloud ssh, ssh) that runs without a `PATH` prepend; put
   the list in the PR body.
 - [ ] **Step 2: Write the failing tests:**
   `test_update_writes_local_bin_into_etc_environment`,
+  `test_lima_reconnects_after_environment_change`,
+  `test_no_reconnect_when_line_already_present`,
   `test_post_install_check_is_bare_non_login`,
   `test_every_bare_in_guest_call_is_listed` (a static check over the
   inventory).
@@ -399,17 +482,23 @@ resolution one to Tasks 3, 4, 8 and 9.
 - [ ] **Step 3: Commit** `fix(vrg-host): report vergil-tooling and leave its
   install to the release`.
 
-## Task 7d (deployment): Release vergil-tooling; the Mac via consumer refresh
+## Task 7d (deployment): Release vergil-tooling; the Mac and every VM
 
 - **Preconditions:** Tasks 2d, 4, 5b and 6 closed; the release itself is
   human-gated.
-- **Procedure:** the human runs `vrg-release`; its consumer refresh runs
-  the new `vrg-tooling-install` on the Mac. Then on the Mac: `uv tool list
-  --show-version-specifiers` shows `@<sha>` of the release, `command -v
-  vrg-whoami` is `~/.local/bin/vrg-whoami`, and `vrg-host status` reports
-  vergil-tooling as owned by the release. Close
+- **Procedure:** the human runs `vrg-release`. Its consumer refresh runs
+  the new `vrg-tooling-install` on the Mac, then `vrg-vm update --all`,
+  which moves every VM. Then check the Mac and each VM, and close
   vergil-project/vergil-tooling#4706 as superseded by this epic.
-- **Acceptance:** all three Mac checks pass; #4706 closed.
+- **Acceptance, the Mac:** `uv tool list --show-version-specifiers` shows
+  `@<sha>` of the release; `command -v vrg-whoami` is
+  `~/.local/bin/vrg-whoami`; `vrg-host status` reports vergil-tooling as
+  owned by the release.
+- **Acceptance, per VM:** `dpkg-query -W 'vergil-*'` lists nothing; no
+  `/etc/apt/sources.list.d/vergil.sources`; a bare non-login `vrg-whoami
+  --mode` over the VM's transport resolves `~/.local/bin/vrg-whoami`; the
+  dev banner is absent. A VM that fails stays as it is, for the human.
+- **Acceptance:** #4706 closed.
 
 ## Task 8: Setup action installs from git
 
@@ -436,6 +525,7 @@ resolution one to Tasks 3, 4, 8 and 9.
   `test_line_ref_resolves_newest_patch`,
   `test_container_job_uses_image_python_dir_and_forbids_download`,
   `test_container_job_without_dir_logs_download`,
+  `test_container_job_wrong_dir_fails_not_downloads`,
   `test_no_apt_calls_on_any_path`,
   `test_check_expects_uv_bin_dir_not_usr_bin`,
   `test_install_runs_with_no_config_and_cleared_uv_vars`.
@@ -495,15 +585,6 @@ resolution one to Tasks 3, 4, 8 and 9.
 - [ ] **Step 3:** `vrg-container-run -- vrg-validate`; commit
   `feat(vm): use the vergil-tooling uv install rules`.
 
-## Task 12d (deployment): Move every VM
-
-- **Preconditions:** Tasks 7d and 11 closed.
-- **Procedure:** `vrg-vm update --all`.
-- **Acceptance, per VM:** `dpkg-query -W 'vergil-*'` lists nothing; no
-  `/etc/apt/sources.list.d/vergil.sources`; a bare non-login `vrg-whoami
-  --mode` over the VM's transport resolves `~/.local/bin/vrg-whoami`; the
-  dev banner is absent.
-
 ## Task 13: `base` on a managed 3.15
 
 **Files:**
@@ -512,10 +593,14 @@ resolution one to Tasks 3, 4, 8 and 9.
   `docker/common/core-tools.dockerfile`, `docker/base/Dockerfile.template`
   (drop the `vergil-apt.dockerfile` include from `base`), then regenerate
   with `docker/generate.sh`
+- Delete: `docker/common/vergil-apt.dockerfile` (`base` is its only
+  includer)
 - Modify: `docker/base/checks-invariants.sh`,
   `docker/base/checks-defaults.sh`
-- Test: the image build checks themselves, and `docker/versions/test_generate.py`
-  if the manifest's `core.python` handling changes
+- Modify: `docker/versions/test_generate.py` (remove `vergil-apt` from
+  `_CORE_FRAGMENTS`, which `test_base_template_shape` and
+  `test_core_fragments_are_base_only` read)
+- Test: the image build checks themselves, and `test_generate.py`
 
 **Interfaces:**
 
@@ -573,7 +658,7 @@ fixture-run vergil-project/.github#1350 <all fixtures> \
 
 ## Task 16v (validation): Cold rebuild and headline check
 
-- **Preconditions:** Tasks 12d and 14d closed.
+- **Preconditions:** Tasks 11 and 14d closed.
 - **Procedure:**
   1. Create a new Lima VM from scratch: vergil-tooling from uv, no vergil
      package, no vergil apt source, bare non-login `vrg-whoami` works.
