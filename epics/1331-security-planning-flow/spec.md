@@ -231,7 +231,8 @@ queue into this epic, with its scope widened to every user of the hold:
 - A security run records a `Security run: yes` marker line in its step 0
   progress comment, never cleared. A resumed run reads it (from trusted
   authors only) before posting anything, so the run stays a security run
-  after its advisories have been handed on.
+  after its advisories have been handed on. With the marker present, the
+  detection check above (and its broken-pair stop) is skipped.
 - The public-wording rule is stated here and covers every public artifact the
   run produces: progress and round comments, the epic title and body, task
   titles and bodies, the slug and branch names, commit messages, the spec, the
@@ -267,8 +268,10 @@ queue into this epic, with its scope widened to every user of the hold:
   added by a retarget `--from` one of the advisory's current tasks with the
   complete set as `--to`. GHSA IDs come from the advisories that track the
   issue (`vrg-security-record list`, the advisories whose `tracks:` names
-  the planning issue), not from the body lines. On a failure, fix
-  the cause and re-run the identical command.
+  the planning issue), not from the body lines. On a failure partway
+  through, fix the cause and re-run the identical command. On a refusal,
+  stop and ask the human; `--drop` is the human's decision, never the
+  agent's.
 - **Step 8's account of the close** is corrected: no scheduled sweep runs;
   an advisory closes when someone runs `vrg-security-record sync` after
   every issue it tracks has closed as completed (§6.2).
@@ -277,6 +280,9 @@ queue into this epic, with its scope widened to every user of the hold:
 
 - `epic-create`: the states table, the latest-note description and step 10's
   fallback name the hold and its `held:` note.
+- The paad review doctrine's record of a rejected security finding (§2.7)
+  closes its advisory with `vrg-security-record close` after closing the
+  intake issue as not planned, so the sync guard (§6.2) does not hold it.
 - `epic-review`: check its planning mode against the same text, and close any
   gap.
 
