@@ -53,6 +53,9 @@ instead of reading every body.
 - A general framework for skill-owned epics. The hoshin epic is specific to
   hoshin until a second skill needs the same thing.
 - Proxies within one org: native sub-issues already work there.
+- Cross-org work that involves a private repo, at either end. Proxies are
+  public on both ends (§5); private cross-org work is designed if a real case
+  appears.
 - Linking across orgs in GitHub itself.
 - Building automatic ad-hoc processing. This epic makes it safe; it does not
   build it.
@@ -101,9 +104,9 @@ The human chose B.
 
 ### 4.2 The proxy epic
 
-- **Home.** The epic home of the repos its tasks land in, resolved by
-  `epics.resolve_epic_home` as today: `<owner>/.github` for a public repo, the
-  repo itself for a self-homed private one. One proxy per primary per home.
+- **Home.** The epic home of the repos its tasks land in, which for a proxy
+  is always `<owner>/.github`: proxies exist only between public repos (§5).
+  One proxy per primary per org.
 - **Shape.** Title `Epic (proxy): <primary epic title without its "Epic: "
   prefix>`; labels `epic` + `proxy`; body carrying a `Primary:
   <owner>/<repo>#<N>` line (one, fully qualified), a one-line explanation, and
@@ -121,7 +124,8 @@ The human chose B.
     a closed epic);
   - a second proxy for the same primary in the same home (it prints the
     existing one);
-  - a primary in a private repo whose proxy home is public (§5).
+  - a private primary or a private target repo (§5). The refusal message
+    says the task must not be filed in an ad-hoc epic instead.
 - **It is not a development epic.** One predicate, `epics.is_proxy`, keyed on
   the `proxy` label, is used by every check that applies only to development
   epics: the Documents-section audit (`epic_docs.is_skipped`) skips a proxy,
@@ -131,9 +135,12 @@ The human chose B.
   <proxy ref>` and moved with `vrg-epic-move`. Each task body links the
   primary's plan and spec, as #3188 does today, so its implementer and merge
   reviewer judge it against the primary's design.
-- **It lives as long as its primary.** A proxy is exempt from the rollup that
-  closes a finite epic when its last task closes, so it stays open, and work
-  can always be filed under it, until the primary closes. That includes the
+- **It lives as long as its primary.** A proxy is exempt from both paths
+  that close a finite epic whose tasks are all closed: the event-driven
+  `epics.rollup`, and the daily sweep's drift close (`epic_audit.epic_drift`
+  and `close_drift`). Each skips `epics.is_proxy`, with a test for each. So a
+  proxy stays open, and work can always be filed under it, until the
+  primary closes. That includes the
   per-repo doc tasks of the primary's documentation review (§4.4). It needs
   no bookends because the primary carries them.
 - **Its own org closes it.** The daily epic sweep of the proxy's home
@@ -163,7 +170,11 @@ The human chose B.
   links; either is acceptable if it is not silent when neither is present.)*
 - **`vrg-queue adhoc` never lists a proxy task**, by construction: it lists
   only children of ad-hoc epics. No change is needed there for this case.
-- **`vrg-epic-audit`** on a primary includes each proxy's tasks, and checks
+- **`vrg-epic-audit --epic <primary>`** lists each proxy's tasks, with their
+  repo, in its `children`, beside the primary's own. Every consumer of that
+  list, among them `epic-retrospective`'s gate, its per-task section and its
+  unaddressed-findings sweep, then covers proxy tasks unchanged.
+- **`vrg-epic-audit`** on a primary also checks
   the links in both directions: every `Proxy:` line names an existing proxy
   whose `Primary:` line names this epic, and the reverse. A disagreement is
   reported as drift, never fixed silently. On a proxy, the audit reports the
@@ -172,10 +183,11 @@ The human chose B.
 ### 4.4 Closing a cross-org epic
 
 - The primary cannot finish while any proxy task is open.
-  `epic-retrospective`'s preflight, which today refuses unless the
-  retrospective is the primary's only open child, also refuses while any
-  epic named by a `Proxy:` line has an open sub-issue, naming each one. The
-  proxies themselves are still open at that point, by design (§4.2).
+  `epic-retrospective`'s preflight refuses unless the retrospective is the
+  only open child in `vrg-epic-audit --epic <primary>`'s `children`, which
+  now include proxy tasks (§4.3), so an open proxy task stops it with no new
+  rule. Its refusal names the proxy of any open proxy task. The proxies
+  themselves are still open at that point, by design (§4.2).
 - Because the primary rolls up only when its retrospective closes, this gates
   rollup too. The primary's rollup is unchanged.
 - The documentation-review bookend's sweep covers the repos the proxy tasks
@@ -186,11 +198,12 @@ The human chose B.
 ### 4.5 The hoshin epic
 
 - **A new standing kind**, `HOSHIN`, beside the ad-hoc, intake, planning and
-  deferred kinds in `epics.STANDING_KINDS`: title `Epic (hoshin): logbook`,
-  labels `epic` + `hoshin`, one per org epic home, created and reused
-  idempotently, its closed children draining into per-quarter
-  `Archive (hoshin): logbook` archives like the other standing kinds. Its
-  `--epic` sentinel is `hoshin`.
+  deferred kinds in `epics.STANDING_KINDS`: title `Epic (hoshin): <org>`,
+  named for its home like the queue kinds, so the existing drain paths
+  resolve it unchanged; labels `epic` + `hoshin`; one per org epic home,
+  created and reused idempotently, its closed children draining into
+  per-quarter `Archive (hoshin): <org>` archives like the other standing
+  kinds. Its `--epic` sentinel is `hoshin`.
 - **It is not a queue kind.** Its tasks are PR-workable: hoshin hands them off
   with `vrg-pr-workflow report-ready` as it does today.
 - **The daily sweep drains it.** Closed children drain on the event path
@@ -223,6 +236,19 @@ under it. The plan's delivery table lists proxy tasks with their full refs.
 Fixed-epic linking across orgs stays forbidden; the proxy is the sanctioned
 form.
 
+**Advisories follow the fix.** Advisories are homed and synced per org, and
+until now every fix task was in its planning issue's org. With proxies, a
+security run's fix task can land in another org. `vrg-security-record
+retarget` handles this itself: when the fix tasks named by `--to` are in a
+different org from the advisory, it moves the advisory to the fix org's
+advisory home (GitHub cannot move an advisory, so it creates one there with
+the same details and severity), hands that advisory to the fix tasks, and
+closes the original with a neutral reason that names the new advisory, after
+dropping the planning issue from it. Every `--to` of one retarget is in one
+org. `epic-create` step 8 runs the same command as today and needs no new
+decision. A move that fails partway is finished by re-running the identical
+command, as for any retarget.
+
 The ad-hoc epic's own description (its `StandingKind` body and the docs that
 define it) states the rule this epic establishes: an ad-hoc epic holds only
 standalone, single-issue work, and a task owned by any epic or skill never
@@ -235,9 +261,15 @@ goes there.
   comments tie it to an epic in another org, and any titled `Logbook:`. The
   candidate list is confirmed by the human before anything moves.
 - **The known case.** Create the proxy for logical-minds-foundry/.github#319
-  in `vergil-project/.github`, move #3188 and #3189 under it (each stays
-  blocked as it is; deferral reasons are carried into a comment), and replace
+  in `vergil-project/.github`, move #3188 and #3189 under it, and replace
   #319's "Cross-org dependencies" section with `Proxy:` lines.
+- **Deferred candidates.** `vrg-epic-move` refuses moves out of the deferred
+  queue, so a deferred candidate (#3188 and #3189 among them) leaves through
+  `vrg-intake-route <ref> one-off --epic <proxy ref>`. Before it moves, its
+  prerequisite is recorded as a `Blocked-by:` line where the prerequisite is
+  an issue, and the primary's plan records its place in the order, so the
+  frontier excludes it until it is ready. Its deferral reason is carried into
+  a comment.
 - **Logbook tasks** still open in the docs repo's ad-hoc epic move under the
   hoshin epic.
 - **Validation.** After the moves, a validation task confirms that no ad-hoc
@@ -269,12 +301,14 @@ to judge overlap.
 - **Fail loudly.** A `Primary:` or `Proxy:` line that cannot be parsed or
   resolved, a proxy whose primary does not name it, or an unreadable proxy is
   an error in every tool that reads them, never a skipped item.
-- **Self-homed private repos.** A proxy for a private repo lives in that repo
-  under the existing home rule. A primary epic in a private repo may not have
-  a proxy in a public home: `vrg-epic-create --proxy-for` refuses the pair.
-  The reverse is allowed: a public primary may have a proxy in a private
-  repo, and its `Proxy:` line then names the private repo and issue number,
-  and nothing of the private work.
+- **Public on both ends.** A proxy exists only between public repos: the
+  primary's repo and every repo whose tasks the proxy holds are public, so
+  both epics home in a public `<owner>/.github`. `vrg-epic-create
+  --proxy-for` refuses a private primary or a private target, and nothing
+  about private work reaches a `Primary:` or `Proxy:` line. Private repos
+  are rare in the fleet today, and cross-org work that involves one is out
+  of scope (§2.2). The daily sweep of each `.github` home can therefore read
+  every proxy's primary.
 - **The worktree, wrapper and validation conventions** of each repo apply as
   usual.
 
