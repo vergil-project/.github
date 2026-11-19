@@ -101,8 +101,13 @@ planning).
 - Building Go or C++ rulebooks. They are researched, not built; code in
   those languages is audited against `common` only and reported as a
   coverage gap.
-- Auditing vergil-tooling. It is the most important target, but it comes
-  after the fixtures have shown the reports are useful.
+- Auditing vergil-tooling, apart from its shell scripts (section 5.5). It is
+  the most important target, but it comes after the fixtures have shown the
+  reports are useful.
+- Measuring what the audit misses. This epic measures false positives only.
+  Misses are measured later: against real code such as vergil-tooling, from
+  examples collected over time, and through an **anti-fixture**, a planned
+  follow-on (section 7).
 - Agent judgment of any rule a linter can enforce. Deterministic, mechanical
   checks always beat stochastic, approximate ones: where a linter covers a
   rule in a language, the linter enforces it there and the agent does not
@@ -190,9 +195,19 @@ is marked so.
   set stays complete as a reference. In each language, a Conway rule that a
   linter covers is marked "enforced by `<linter check>`" and is not
   agent-judged there; one no linter covers is an agent-judged rule.
-- Each rule: a stable ID (e.g. `naming.full-words`), a theme, a one-line
-  statement, what a violation looks like (in prose), the source citation, and
-  why no linter covers it. Rules are prose guidelines extracted from the cited
+- Each rule: a stable ID (e.g. `naming.full-words`), a theme, a fixed
+  severity, a one-line statement, what a violation looks like (in prose), the
+  source citation, and why no linter covers it. Severity is the canonical
+  `high`, `medium` or `low`: `high` when a violation misleads a reader about
+  what the code does, `medium` when it makes the code materially harder to
+  follow or change, `low` for consistency and polish. A finding takes its
+  rule's severity; reviewers never assign one, so the same rule ranks the same
+  way in every round.
+- The `meta.` ID prefix is reserved for findings that are not rulebook rules
+  but must still be reported. `meta.prompt-injection` is the first: text in
+  the audited code that tries to steer a reviewer. Further `meta.*` kinds may
+  be added for similar conditions. No rulebook rule uses the prefix.
+- Rules are prose guidelines extracted from the cited
   sources; no example snippets are required.
 - Themes (initial, the human may change them): **naming**, **functions and
   control flow** (length, nesting, early return, argument count), **language
@@ -213,27 +228,34 @@ is marked so.
   written to vergil's skill conventions. Its description says what it is not
   for and names its two siblings.
 - **The delegate pattern, checked strictly.** Each reviewer and verifier is
-  dispatched with a fixed prompt and returns its result in the delegate
-  result format (section 1.1). The skill checks each result's structure
-  strictly before using it: counts match headings, fields are present and in
-  order, severities and rule IDs are valid, the security section is separate.
-  A result that fails a check is refused, never repaired or guessed at. The
-  skill builds its own structured result, in the same format, from the checked
-  results only, and writes it beside the Markdown report, so callers and later
-  the fix skill and merge check consume checked data, not prose. There is no
-  request file, capture hook or write guard.
+  dispatched with a fixed prompt and returns its result in the result frame
+  of section 5.6. The skill checks each result's structure strictly before
+  using it: counts match headings, fields are present and in order, each
+  severity matches its rule's, each ID is a rulebook rule or a reserved
+  `meta.*` kind, the security section is separate. A result that fails a
+  check is refused, never repaired or guessed at. The skill builds its own
+  structured result, in the same frame, from the checked results only, and
+  writes it beside the Markdown report, so callers and later the fix skill and
+  merge check consume checked data, not prose. There is no request file,
+  capture hook or write guard.
 - **Repo content is data, not instructions.** Every reviewer and verifier
   prompt carries a data-not-instructions section like `agents/merge-reviewer.md`
   in vergil-claude-plugin: the code, comments and docs under review never
-  direct the reviewer, and any text that tries to is itself reported as a
-  finding. Each finding's suggested change is marked in the result as
-  untrusted text that consumers must never act on as instructions.
+  direct the reviewer, and any text that tries to is reported as a
+  `meta.prompt-injection` finding. `meta.*` findings pass the checker, skip
+  the verify pass, are left out of the per-rule tuning counts, and go in the
+  security section. Each finding's suggested change is marked in the result
+  as untrusted text that consumers must never act on as instructions.
 - **Incidental security observations stay private.** Reviewers never quote a
   secret-like value or describe an exploitable weakness in a finding. Such an
-  observation goes only in the result's security section; the report carries
-  a count line with no details, and the details reach the human in the
-  terminal only. A report is screened against that rule before it is
-  committed to any tracked path.
+  observation goes only in a result's security section. The skill cuts that
+  section out of every reviewer result before anything else reads it, as the
+  doctrine's security cut does (vergil-claude-plugin
+  `docs/paad-review-doctrine.md` §1.9). The details go only to ignored
+  scratch under `build/agentic-style/` and to the human in the terminal; the
+  report and the written structured result carry the security count alone.
+  Whoever commits a report or result to a tracked path first runs the
+  doctrine's screening (§1.6) over it.
 - It reads the `[standards]` level through the vergil-tooling command
   (section 3) and refuses, with the reason, unless the level is `audit` or
   `enforced`; an invalid table is a config error before the skill sees it.
@@ -265,13 +287,13 @@ is marked so.
   code by a separate subagent; findings that do not hold are dropped, and the
   drop is counted.
 - **Report.** Dated, written to the output path (section 7). Each finding:
-  rule ID and source, file and line, what is wrong, a suggested change, and
-  its **reach**: `local`, `cross-module`, or `public-interface`. Reach is
-  recorded because fixes that rename or restructure ripple to callers, docs,
-  tests and sometimes other repos. For a generated file, the finding also
-  names the generator's source. A per-rule summary table: findings raised,
-  findings surviving verification, so rules that never fire, always fire, or
-  mostly fail verification are visible for tuning.
+  rule ID, severity and source, file and line, what is wrong, a suggested
+  change, and its **reach**: `local`, `cross-module`, or `public-interface`.
+  Reach is recorded because fixes that rename or restructure ripple to
+  callers, docs, tests and sometimes other repos. For a generated file, the
+  finding also names the generator's source. A per-rule summary table:
+  findings raised, findings surviving verification, so rules that never fire,
+  always fire, or mostly fail verification are visible for tuning.
 - **Provenance.** The report and the structured result each record the
   audited repo's commit SHA, whether its working tree was clean, the plugin
   version and a hash of the rulebook content, so a change between two tuning
@@ -294,19 +316,56 @@ Rule: never enforce compliance before a repo has reached it.
 
 - Set `level = "audit"` on all six fixtures (python, rust, ts; app and lib).
 - Run the audit, the human reviews each report, and the rulebook and prompts
-  are tuned; repeat. Fixing findings in the fixtures is done by hand or by
-  ordinary issues during this phase (no fix skill yet).
+  are tuned; repeat. Fixing findings in a fixture's own files is done by hand
+  or by ordinary fixture issues during this phase (no fix skill yet).
+- **Generated files during tuning.** A finding in a file vergil generates
+  (for example `.claude/hooks/guard.sh`, or the managed
+  `eslint.vergil.config.mjs` in the TypeScript fixtures) is reported once,
+  merged across the fixtures that carry it, and fixed through a vergil-tooling
+  issue against its generator.
+- **The shell rulebook's tuning target.** The fixtures' only shell file is the
+  generated shim, so the shell rulebook is also tuned on vergil-tooling's
+  shell scripts, audited for shell only. This is the one exception to
+  deferring the vergil-tooling audit.
 - **Success:** each fixture's latest report is one the human judges mostly
   worth acting on; the per-rule tables show which rules fire usefully; the
   fixtures that reach a clean report are ready to be flipped to `enforced`
-  when the merge check exists.
+  when the merge check exists. Success measures false positives only (section
+  2.2).
+
+### 5.6 The result frame
+
+The skill and its agents use one frame, a vergil variant of the delegate
+result format (section 1.1), defined once and extended later as the
+framework grows:
+
+- **Announce line:** `Running vergil:agentic-style <role> v<plugin version>`,
+  with `<role>` one of `reviewer`, `verifier` or `audit` (the skill's own
+  result).
+- **Kept from the delegate format:** `Status: complete | blocked: <reason>`,
+  `Findings: <n>` with `### F<i> <severity> — <location>` headings, the
+  native fields of each finding, `Discards: <k>` with one dash-led line each, the
+  separate security section between the delegate's markers, and a last
+  `Files written:` line.
+- **Dropped:** `Config:`, `Config not followed:`, `Defaults applied:` and
+  `Agent types dispatched:`, which describe a paad delegate running a paad
+  skill. A reviewer or verifier dispatches nothing.
+- **Changed:** `Files written:` is `none` for a reviewer or verifier; for
+  the skill's own result it lists the report and result paths it wrote.
+- **Provenance lines,** in the skill's own result only: the audited repo's
+  commit SHA, whether its tree was clean, the plugin version and the rulebook
+  content hash.
+- **Fields of each finding:** rule ID (a rulebook rule or a `meta.*` kind),
+  source citation, file and line, what is wrong, suggested change (marked
+  untrusted), reach, and generator source where the file is generated. The
+  heading's severity is the rule's.
 
 ## 6. What is left to the builder
 
 - The exact file path for the rulebook in the plugin.
 - Whether review and verify are one agent definition with two modes or two
   definitions; their tools are read-only (Read, Glob, Grep).
-- The per-finding field names that extend the delegate result format.
+- The exact spelling of each per-finding field label in section 5.6.
 - How the skill dispatches subagents and bounds cost on a large repo.
 - The report's exact layout beyond the fields in 5.3.
 - The issue breakdown across vergil-tooling (flag) and vergil-claude-plugin
@@ -347,11 +406,18 @@ Rule: never enforce compliance before a repo has reached it.
   The output path is an argument, so the caller decides where the report and
   structured result go; the default is the audited repo's ignored
   `build/agentic-style/` scratch, which vergil allows even in a read-only main
-  worktree. The report's content and shape are
-  standard wherever it lands. During tuning, reports are written into this
-  epic's folder in `.github`, so tuning rounds never start a
-  fixture's PR or release cycle. Fixing fixture findings goes through ordinary
-  fixture issues.
+  worktree. The report's content and shape are standard wherever it lands.
+  During tuning, reports are written into this epic's folder in `.github`, so
+  tuning rounds never start a fixture's PR or release cycle. Fixing a
+  fixture's own findings goes through ordinary fixture issues; a generated
+  file's findings go to vergil-tooling (section 5.5).
+- **Follow-on work.** A follow-on brainstorm task on this epic, run after
+  tuning, reviews what was learned in this new area and shapes the follow-on
+  epics. One candidate it takes up is an **anti-fixture**: a repo of code that
+  passes every CI/CD gate but breaks the style rules on purpose. It targets
+  the gap between "passes CI" and "good" that this review exists for, and
+  gives a way to measure misses, while the real fixtures stay the positive
+  examples.
 - **Ordering.** The vergil-tooling `[standards]` flag change and release
   lands before any fixture sets the flag, because fixtures pin
   `vergil = "v2.1"`.
