@@ -28,7 +28,7 @@ orgs, and every misplaced task is re-homed.
   `epic-retrospective`, `epic-create` and `epic-review`.
 - **Migration** is operational: deployment tasks that move the existing
   misplaced tasks once the releases are installed, and a validation.
-- The **hoshin group** (Tasks 2a to 6) ships first and depends on no proxy
+- The **hoshin group** (Tasks 2a to 6d) ships first and depends on no proxy
   task (spec §6).
 
 **Tech Stack:** Python 3 and pytest (vergil-tooling), Markdown skills
@@ -90,8 +90,9 @@ blocked by.
 ### Hoshin group
 
 - **1** (.github, task #1418): spec and plan, this PR.
-- **2a** (vergil-tooling): the `HOSHIN` standing kind, its sentinel, its
-  drain, and `vrg-intake-route`'s refusal of it.
+- **2a** (vergil-tooling): the `HOSHIN` standing kind, its sentinel (and the
+  `--epic` help that lists it), its drain, and `vrg-intake-route`'s refusal
+  of it.
 - **2b** (vergil-tooling): `vrg-queue hoshin`. Blocked by 2a.
 - **3** (.github, deployment): the vergil-tooling release carrying 2a and 2b
   attested and installed. Blocked by 2a and 2b.
@@ -103,6 +104,9 @@ blocked by.
   ad-hoc epic to the hoshin epic. Blocked by 4.
 - **6** (vergil-claude-plugin): the `Logbook:` title skip removed from
   `epic-implement`'s adhoc mode. Blocked by 5.
+- **6d** (.github, deployment): the vergil-claude-plugin release carrying 6
+  attested and installed. Blocked by 6. This closes the hoshin group on its
+  own, whatever the state of the proxy group.
 
 ### Proxy group
 
@@ -121,17 +125,19 @@ blocked by.
   attested and installed. Blocked by 8, 9a, 9b, 9c, 10 and 11.
 - **13a** (vergil-claude-plugin): `epic-implement` and `epic-retrospective`
   for proxies. Blocked by 12.
-- **13b** (vergil-claude-plugin): `issue-implement` and `merge-review` take
-  design sources through a proxy. Blocked by 12.
+- **13b** (vergil-claude-plugin): `merge-review` takes a proxy task's design
+  sources from its primary. Blocked by 12.
 - **13c** (vergil-claude-plugin): `epic-create` and `epic-review` follow the
   placement rule. Blocked by 12.
-- **14** (.github, deployment): the vergil-claude-plugin release carrying 6
-  and 13a to 13c attested and installed. Blocked by 6, 13a, 13b and 13c.
+- **14** (.github, deployment): the vergil-claude-plugin release carrying
+  13a to 13c attested and installed. Blocked by 13a, 13b and 13c.
 - **15** (.github, deployment): the migration: the proxy for
-  logical-minds-foundry/.github#319, #3188 and #3189 re-homed, and every
-  org's ad-hoc and deferred queues swept. Blocked by 12 and 14.
-- **16** (.github, validation): no misplaced task remains and the audits
-  are clean. Blocked by 15.
+  logical-minds-foundry/.github#319, #3188 and #3189 re-homed, every org's
+  ad-hoc and deferred queues swept, and, for each primary, a task filed
+  under that primary for its plan's evolution entry. Blocked by 12 and 14.
+- **16** (.github, validation): no misplaced task remains, the audits are
+  clean, and each primary's evolution entry has landed. Blocked by 15 and
+  the evolution-entry tasks Task 15 files.
 
 ### Bookends
 
@@ -144,8 +150,14 @@ blocked by.
 
 Notes:
 
-- **The two groups run in parallel.** Nothing in 2a to 6 depends on 7 to 16.
-  Task 7, 11 and the hoshin tasks can start at once.
+- **The two groups run in parallel and ship separately.** Nothing in 2a to
+  6d depends on 7 to 16, in merging or in deploying: the hoshin group has
+  its own tooling release (3) and plugin releases (5, 6d). Task 7, 11 and
+  the hoshin tasks can start at once.
+- **A primary's plan evolution stays in its own org.** The evolution entry
+  that names a re-homed task in its primary's plan (Task 15) is the
+  primary's own work, filed under the primary as a native sub-issue, not a
+  task of this epic, so it needs no proxy.
 - **Merged is not deployed.** Each plugin task that runs the new tooling
   waits for its release (3, 12); the migration waits for both releases (12
   and 14), so it runs only the sanctioned, installed tools.
@@ -170,8 +182,13 @@ Spec §4.5.
   `resolve_epic_ref`, `drain_standing_org`)
 - Modify: `src/vergil_tooling/lib/intake_route.py` (the one-off route's
   epic check)
+- Modify: `src/vergil_tooling/bin/vrg_issue_create.py`,
+  `src/vergil_tooling/bin/vrg_epic_move.py` (the `--epic` help and module
+  docstrings list `hoshin`)
 - Test: `tests/vergil_tooling/test_epics.py`,
-  `tests/vergil_tooling/test_intake_route.py`
+  `tests/vergil_tooling/test_intake_route.py`,
+  `tests/vergil_tooling/test_vrg_issue_create.py`,
+  `tests/vergil_tooling/test_vrg_epic_move.py`
 
 **Interfaces:**
 
@@ -193,14 +210,20 @@ Spec §4.5.
   `test_drain_standing_org_covers_hoshin` (the sweep's plan includes the
   hoshin epic's closed children); `test_hoshin_epic_docs_skipped`
   (`epic_docs.is_skipped` is true for it). In `test_intake_route.py`:
-  `test_one_off_refuses_hoshin_epic` (the refusal names `/vergil:hoshin`).
+  `test_one_off_refuses_hoshin_sentinel` (the refusal names
+  `/vergil:hoshin`, and no epic is created: no create call is made);
+  `test_one_off_refuses_hoshin_epic_ref` (an explicit ref to the hoshin
+  epic is refused). In `test_vrg_issue_create.py` and
+  `test_vrg_epic_move.py`: `test_epic_help_lists_hoshin`.
 - [ ] **Step 2:** Run `vrg-container-run -- pytest
   tests/vergil_tooling/test_epics.py tests/vergil_tooling/test_intake_route.py
   -k hoshin`. Expect FAIL.
 - [ ] **Step 3: Implement.** `drain_standing_org` loops over
   `DRAINED_STANDING_KINDS` instead of `QUEUE_KINDS`; the hoshin home comes
-  from `queue_home` like the queue kinds. The one-off route refuses a
-  target epic whose `standing_kind_of` is `HOSHIN`. `ADHOC.body` states the
+  from `queue_home` like the queue kinds. The one-off route refuses the
+  `hoshin` sentinel by name before resolution, so a refused route creates
+  nothing (as `vrg-epic-move` refuses `deferred`), and refuses an explicit
+  ref whose `standing_kind_of` is `HOSHIN`. `ADHOC.body` states the
   rule (spec §4.6): an ad-hoc epic holds only standalone, single-issue
   work, and a task owned by any epic or skill never goes there.
 - [ ] **Step 4:** Run the tests again, then `vrg-container-run --
@@ -262,16 +285,17 @@ Spec §4.5. Blocked by 3.
 
 **Files:**
 
-- Modify: `skills/hoshin/SKILL.md` (preflight step 6, the stale check),
-  `skills/hoshin/references/logbook.md` (the task-filing command)
+- Modify: `skills/hoshin/SKILL.md` (preflight step 6, the stale check; the
+  handoff's step 1, which holds the task-filing command)
 - Modify: `skills/epic-implement/SKILL.md` (preflight: refuse an `epic` +
   `hoshin` issue)
 - Modify: `skills/issue-implement/SKILL.md` (preflight: refuse a task whose
   native parent is `epic` + `hoshin`)
 
-- [ ] **Step 1:** In `logbook.md`, file the task with `vrg-issue-create
-  --epic hoshin --repo vergil-project/docs --title "Logbook: <date> <mode>"
-  --body-file <tmp>`.
+- [ ] **Step 1:** In `SKILL.md`'s handoff step 1, file the task with
+  `vrg-issue-create --epic hoshin --repo vergil-project/docs --title
+  "Logbook: <date> <mode>" --body-file <tmp>` (today `--epic adhoc`).
+  Search the skill and its references for any other copy of the command.
 - [ ] **Step 2:** In `SKILL.md` step 6, list with `vrg-queue hoshin --json
   --repo vergil-project/docs --root <projects-dir>`. Keep the `Logbook:`
   title filter: only `Logbook:` tasks are candidates for the stale close,
@@ -292,10 +316,13 @@ Spec §4.7. Blocked by 4.
   carrying Task 4 is published and installed, its version named in a
   comment.
 - **Procedure (agent-safe):**
-  1. `vrg-queue adhoc --json --repo vergil-project/docs --root <dir>`; take
+  1. Confirm the installed hoshin skill files its task with `--epic hoshin`
+     and lists with `vrg-queue hoshin`, and that no copy of `--epic adhoc`
+     remains in it.
+  2. `vrg-queue adhoc --json --repo vergil-project/docs --root <dir>`; take
      every open task titled `Logbook:`.
-  2. For each, `vrg-epic-move --task vergil-project/docs#<N> --epic hoshin`.
-  3. Re-run step 1: no `Logbook:` task remains. Run `vrg-queue hoshin` for
+  3. For each, `vrg-epic-move --task vergil-project/docs#<N> --epic hoshin`.
+  4. Re-run step 2: no `Logbook:` task remains. Run `vrg-queue hoshin` for
      the docs repo: each moved task is listed.
 - **SUCCESS:** no `Logbook:` task remains under an ad-hoc epic, recorded
   with the moved refs (or "none open").
@@ -306,12 +333,26 @@ Spec §4.5. Blocked by 5.
 
 - **Files:** Modify `skills/epic-implement/SKILL.md` (the adhoc mode's
   step 2: remove the `Logbook:` skip and its "Skipped (logbook tasks…)"
-  summary line).
-- [ ] **Step 1:** Remove the skip. Run `vrg-container-run -- vrg-validate`.
-  Expect PASS.
+  summary line), `skills/hoshin/SKILL.md` (the sentence saying
+  `epic-implement`'s adhoc mode skips `Logbook:` tasks).
+- [ ] **Step 1:** Remove the skip. Reword the hoshin sentence: logbook tasks
+  live under the hoshin epic, which `epic-implement` and `issue-implement`
+  refuse. Run `vrg-container-run -- vrg-validate`. Expect PASS.
 - [ ] **Step 2:** Commit `vrg-commit --type refactor --scope epic-implement
   --message "retire the Logbook: title skip now that logbook tasks have
   their own epic"`, then report-ready.
+
+### Task 6d: plugin release retiring the skip (deployment, .github)
+
+Blocked by 6.
+
+- **Precondition (human-attested):** the vergil-claude-plugin release
+  carrying Task 6 is published and installed, its version named in a
+  comment.
+- **Procedure (agent-safe):** confirm the release notes list Task 6's PR,
+  and that the installed `epic-implement` skill no longer carries the
+  `Logbook:` skip.
+- **SUCCESS:** both confirmed, recorded with the version.
 
 ### Task 7: the proxy model and its exemptions (vergil-tooling)
 
@@ -430,7 +471,9 @@ Spec §4.3, §4.4. Blocked by 7.
   own children, then each proxy's, each with its repo);
   `proxy_link_problems(epic: IssueRef) -> list[str]` (for a primary: each
   listed proxy that is missing or whose `Primary:` disagrees; for a proxy:
-  a primary without the matching `Proxy:` comment).
+  a primary without the matching `Proxy:` comment). On a proxy, `--epic`'s
+  JSON gains a `"primary": "<owner>/<repo>#<N>"` key, which merge review
+  reads (Task 13b); on any other epic the key is absent.
 
 - [ ] **Step 1: Write the failing tests:**
   `test_epic_children_includes_proxy_tasks`;
@@ -486,9 +529,12 @@ Spec §4.8. Blocked by 7.
 
 **Files:**
 
-- Modify: `src/vergil_tooling/lib/epic_audit.py` (`misplaced_adhoc`), and
-  `render`
-- Test: `tests/vergil_tooling/test_epic_audit.py`
+- Modify: `src/vergil_tooling/lib/epic_audit.py` (`misplaced_adhoc`, and
+  `render`)
+- Modify: `src/vergil_tooling/bin/vrg_epic_audit.py` (the report runs only
+  without `--close`)
+- Test: `tests/vergil_tooling/test_epic_audit.py`,
+  `tests/vergil_tooling/test_vrg_epic_audit.py`
 
 **Interfaces:**
 
@@ -496,11 +542,20 @@ Spec §4.8. Blocked by 7.
   reason: str`; `misplaced_adhoc(org: str) -> list[MisplacedTask]`: each
   open task under a live ad-hoc epic titled `Logbook:`, or whose body names
   an `epic`-labelled issue in another org, unless a trusted comment carries
-  `Standalone-confirmed`.
+  `Standalone-confirmed`. A cross-org ref whose labels cannot be read
+  (private, deleted, an org the App cannot reach) is reported as its own
+  candidate, with the reason `names <ref>, which could not be read`: never
+  raised and never skipped. The report runs only in a human-run
+  `vrg-epic-audit` without `--close`: the daily sweep (`--close` under
+  `VRG_EPIC_SWEEP`) has no trusted-authors configuration and never runs it.
 
 - [ ] **Step 1: Write the failing tests:** `test_misplaced_logbook_title`;
   `test_misplaced_cross_org_epic_ref`;
   `test_cross_org_ref_to_non_epic_not_reported`;
+  `test_cross_org_ref_unreadable_reported`;
+  `test_sweep_close_never_loads_trusted_authors` (in
+  `test_vrg_epic_audit.py`: `--close` with `VRG_EPIC_SWEEP=1` neither
+  renders the report nor calls `load_trusted_authors`);
   `test_standalone_confirmed_suppresses`;
   `test_standalone_confirmed_untrusted_ignored`;
   `test_misplaced_report_never_writes` (no move, close or label call).
@@ -517,23 +572,21 @@ Spec §4.3. Blocked by 9a.
 
 **Files:**
 
-- Modify: `src/vergil_tooling/lib/merge_review/request.py` (`TaskContext`,
-  the task fetch)
+- Modify: `src/vergil_tooling/lib/merge_review/request.py` (the task fetch
+  behind `TaskContext.epic_open_tasks`)
 - Test: `tests/vergil_tooling/test_merge_review_request.py`
 
 **Interfaces:**
 
 - Consumes: `epics.is_proxy`, `proxies.primary_of` (Task 7),
   `epic_audit.epic_children` (Task 9a).
-- Produces: `TaskContext.design_epic: str | None`, the slug of the epic
-  whose Documents section holds the design sources: the native parent, or
-  the primary when the parent is a proxy. `epic_open_tasks` for a proxy
-  task is the primary's open children (its own and its proxies'), less the
-  task itself.
+- Produces: no new field. `epic_open_tasks` for a task whose native parent
+  is a proxy is the primary's open children (its own and its proxies'),
+  less the task itself. Design sources are not resolved here: the skill
+  fetches them before it builds the request (Task 13b).
 
 - [ ] **Step 1: Write the failing tests:**
   `test_proxy_task_open_tasks_from_primary`;
-  `test_proxy_task_design_epic_is_primary`;
   `test_proxy_task_unresolvable_primary_raises`;
   `test_plain_epic_task_unchanged`.
 - [ ] **Step 2:** Run them. Expect FAIL.
@@ -569,6 +622,11 @@ Spec §4.6.
   `test_move_creates_in_fix_org_with_moved_from`;
   `test_move_writes_moved_to_then_closes_original`;
   `test_move_rerun_reuses_moved_from`;
+  `test_move_ignores_external_report_with_moved_from` (a triage-state or
+  submitted advisory carrying the line is never reused; the move refuses
+  and prints it);
+  `test_move_two_moved_from_refused`;
+  `test_move_moved_from_not_alone_ignored`;
   `test_move_keeps_drop_rule` (another open tracked issue not in `--drop`:
   refused before any write, the command printed);
   `test_targets_span_orgs_refused` (the refusal names both ways out);
@@ -577,7 +635,11 @@ Spec §4.6.
   `test_same_org_retarget_unchanged`.
 - [ ] **Step 2:** Run them. Expect FAIL.
 - [ ] **Step 3: Implement** in the order of spec §4.6's three steps; every
-  check runs before the first write.
+  check runs before the first write. Step 1 (reuse) takes a candidate only
+  when it is in `draft` state, is not external (`Advisory.external` false),
+  and carries a `Moved from:` line naming exactly this ID, alone on its
+  line. Any other match, or more than one candidate, refuses the move and
+  prints the candidates; it is never reused.
 - [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
   Expect PASS.
 - [ ] **Step 5:** Commit `vrg-commit --type feat --scope security-record
@@ -624,12 +686,15 @@ Spec §4.3, §4.4. Blocked by 12.
 
 Spec §4.3. Blocked by 12.
 
-- **Files:** Modify `skills/merge-review/SKILL.md` ("Before the review"),
-  `skills/issue-implement/SKILL.md` (the epic context it reads).
-- [ ] **Step 1:** When the task's native parent carries `proxy`, both
-  skills read the Documents section of the epic in the request's
-  `design_epic` (Task 10), the primary. A primary that cannot be read, or
-  lists no design source, is a stop, never a review against nothing.
+- **Files:** Modify `skills/merge-review/SKILL.md` ("Before the review",
+  steps 1 and 2).
+- [ ] **Step 1:** In step 1, when the task's native parent carries `proxy`,
+  resolve the primary with `vrg-epic-audit --epic <proxy ref>` and take its
+  `primary` key (Task 9a). Step 2 then reads the primary's Documents
+  section for the design sources, before the request is built, as today.
+  An audit that exits non-zero, a missing `primary` key, or a primary with
+  no design source is a stop, as for any missing design source, never a
+  review against nothing. The open tasks need no skill change (Task 10).
 - [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
 - [ ] **Step 3:** Commit `vrg-commit --type feat --scope merge-review
   --message "take a proxy task's design sources from its primary"`, then
@@ -657,14 +722,14 @@ Spec §4.6. Blocked by 12.
 
 ### Task 14: vergil-claude-plugin release for proxies (deployment, .github)
 
-Blocked by 6, 13a, 13b and 13c.
+Blocked by 13a, 13b and 13c.
 
 - **Precondition (human-attested):** the vergil-claude-plugin release
-  carrying Tasks 6 and 13a to 13c is published and installed, its version
-  named in a comment.
+  carrying Tasks 13a to 13c is published and installed, its version named
+  in a comment.
 - **Procedure (agent-safe):** confirm the release notes list those PRs, and
-  that the installed `epic-implement` skill no longer carries the `Logbook:`
-  skip and carries the proxy refusal.
+  that the installed `epic-implement` skill carries the proxy refusal and
+  the installed `merge-review` skill resolves a proxy's primary.
 - **SUCCESS:** both confirmed, recorded with the version.
 
 ### Task 15: the migration (deployment, .github)
@@ -690,20 +755,30 @@ Spec §4.7. Blocked by 12 and 14.
      <ref> --epic <proxy ref>` (or `--epic hoshin` for a `Logbook:` task).
   5. Each standalone task the report flagged gets a `Standalone-confirmed`
      comment, on the human's ruling.
-- **SUCCESS:** every confirmed candidate re-homed, recorded with the refs
-  and the proxies created.
+  6. For each primary that gained proxy tasks (#319 for #3188 and #3189),
+     file a task under that primary, in its own org, as a native sub-issue:
+     "Record the re-homed tasks in the plan's evolution log". Its PR appends
+     an `## Evolution during execution` entry to the primary's `plan.md`
+     naming each re-homed task by full ref and its place in the order (for
+     #319: REG = vergil-project/vergil-tooling#3188, TRUST-SYNC =
+     vergil-project/vergil-tooling#3189). The plan's seeding is the
+     approval to file it; its own epic's driver works it.
+- **SUCCESS:** every confirmed candidate re-homed and each evolution-entry
+  task filed, recorded with the refs and the proxies created.
 
 ### Task 16: no misplaced task remains (validation, .github)
 
-Spec §4.7. Blocked by 15.
+Spec §4.7. Blocked by 15 and the evolution-entry tasks it files.
 
 - **Procedure:**
-  1. `vrg-epic-audit` for each swept org: no misplaced ad-hoc task is
+  1. Each evolution-entry task Task 15 filed is closed, and its primary's
+     `plan.md` on `develop` names the re-homed tasks.
+  2. `vrg-epic-audit` for each swept org: no misplaced ad-hoc task is
      reported.
-  2. `vrg-epic-audit --epic logical-minds-foundry/.github#319` exits 0 and
+  3. `vrg-epic-audit --epic logical-minds-foundry/.github#319` exits 0 and
      lists #3188 and #3189 among its children; the same for each other
      primary from Task 15.
-  3. `vrg-queue adhoc` does not list #3188 or #3189.
-  4. A sweep preview (`vrg-epic-audit` without `--close`) does not plan to
+  4. `vrg-queue adhoc` does not list #3188 or #3189.
+  5. A sweep preview (`vrg-epic-audit` without `--close`) does not plan to
      close any proxy whose primary is open.
 - **SUCCESS:** every check passes.
