@@ -109,7 +109,10 @@ those files, and nowhere else.
 - **Defending against a deliberately hostile agent.** An agent inside its own
   VM can edit its copy of the tooling. This design aims for about 95% coverage
   of honest mistakes, backed by layered auditing (§4.8), not for adversarial
-  resistance. That seam is named, not hidden.
+  resistance. That seam is named, not hidden. It includes records the agent
+  login itself posts: a deliberately falsified merge-review closing comment
+  would pass the checks in §4.6 and §4.8. The human's approvals and
+  exemptions are not in this seam, since an agent cannot post as the human.
 - **Bringing human review back by another route.** If the design makes the
   human approve ordinary PRs, it has failed even if it works. Only protected
   paths reach the human.
@@ -152,8 +155,20 @@ Paths are in vergil-tooling's `src/vergil_tooling/` unless stated.
 - **The user GitHub App.** `pull_requests: read`, `workflows: none`. Change:
   `pull_requests: write`, `workflows: write` (§4.2).
 
-The develop ruleset already requires no approving reviews
-(`lib/github_config.py:240`). That is not changed.
+The "Branch protection" ruleset covers both `main` and `develop`, requires no
+approving reviews and has no bypass actors (`lib/github_config.py:226-250`).
+For `develop` that is not changed.
+
+**`main` is closed to agents server-side.** A GitHub App's permissions apply
+to a whole repository, never to one branch, so once the user App holds
+`pull_requests: write` its rights reach `main` as well as `develop`. The
+tooling refuses any base other than `develop`, but that is a client-side
+gate. So the desired GitHub config (`lib/github_config.py`, kept converged by
+the daily config job) gains a ruleset for `main` that restricts updates to
+listed bypass actors: the human (the admin role), and the org automation App
+only if the release flow merges as it. A merge into `main` by any other
+identity, the user agent included, is then refused by GitHub. This is in place
+before the user App gains `pull_requests: write` (§5).
 
 ### 4.2 The user GitHub App's permissions
 
@@ -179,7 +194,9 @@ them. This absorbs vergil-project/vergil-actions#1185 in full: its scope
 token, the repo-config desired state keeping the environment converged, and
 the human's moving of the secrets) and its acceptance criteria become this
 epic's. `workflows: write` is granted only after this is in place and
-verified (§5).
+verified (§5). The plan gives this work its own, explicitly sequenced phase
+with #1185's acceptance criteria. It gates only the `workflows: write` grant,
+so the rest of the epic does not wait on it.
 
 With `workflows: write`, the "workflow-touching branch makes GitHub refuse the
 agent push" special case disappears from report-ready, `issue-implement` and
@@ -274,8 +291,13 @@ of the file at the head being submitted (a deleted file is recorded as
 deleted). It links the diff for those files, so the human can see what they are
 approving.
 
-**What the reply does.** The human's approving reply approves exactly the
-listed blobs. A refusal stops the PR for the human, like any ruling.
+**What the reply does.** The reply carries a structured decision: a fixed
+word, `approve` or `refuse`, on a defined line. `vrg-ruling-reply` refuses to
+post a reply to this request kind without exactly one valid decision line, and
+the verifier parses it strictly: anything other than a well-formed `approve`
+counts as not approved. An `approve` approves exactly the listed blobs. A
+`refuse` stops the PR for the human, like any ruling. The merge-review
+exemption (§4.6) uses the same structured reply.
 
 **Why blob hashes.** An approval tied to file contents survives everything that
 leaves the protected files alone: a rebase, a CI fix elsewhere in the branch, a
@@ -308,19 +330,48 @@ submits normally.
    agree that a ruling is needed, and that path already exists. The check does
    not second-guess the verdict. It only confirms that merge review completed
    for the head being submitted, so a skipped or stale review cannot reach
-   `develop`. Report-ready records the merge-review outcome in the PR workflow
-   state as a structured field: the head it reviewed, and an outcome of
-   `eligible` or `not-eligible (<reason>)`. Both outcomes pass:
-   `not-eligible` is the normal result of a run that stopped for a ruling the
-   human has answered, and the human's ruling is the decision. Submit refuses
-   only a missing record, a record that does not cover the head (see "What a
-   merge-review record covers" below), or a run that did not
-   complete (stopped, waiting, fatal or in error). Today the eligibility line
-   rides free text in
-   `--notes`, read only by the human. With the human gone, something has to
-   read it. The human's own `vrg-submit-pr` runs (for example the emergency
-   CLI mode) are subject to the same check. The builder decides whether the
-   human gets an explicit, logged override.
+   `develop`.
+
+   **The record is merge review's closing comment.** Merge review already
+   posts a closing comment on the task issue from both of its entry points:
+   the review before the first submit, and the review of a fix to an open PR
+   (which runs no report-ready). That comment, by the agent login, is the one
+   merge-review record. It gains a machine-readable line naming the head it
+   judged, the patch-id of the change (below), and an outcome of `eligible`
+   or `not-eligible (<reason>)`. Submit, the watch and the audit (§4.8) all
+   read it from GitHub, with one shared reader. There is no separate field
+   in the PR workflow state, and the eligibility line in report-ready's
+   `--notes` stays prose for readers.
+
+   **Merge review runs on every PR.** No class of PR is exempt by its kind,
+   labels or path. Docs and logbook PRs already get the lighter review:
+   merge review's change class, decided mechanically from the changed files
+   at the merge base (`vrg-change-class`), makes a `docs-only` change get
+   only the merge-quality question. The skills that skip merge review today
+   (`hoshin`'s logbook PR, `epic-create`'s spec-and-plan PR,
+   `epic-retrospective`'s PR) start running it (§4.10).
+
+   **The only skip is the human's exemption.** A merge-review exemption is a
+   new request kind in the same authenticated ruling exchange as the
+   protected-change approval (§4.5). The agent posts the request on the task
+   issue with the reason and the patch-id of the change it covers, and hands
+   the human the exact `vrg-ruling-reply` command to run. A verified,
+   approving reply stands in for merge review's closing comment as the
+   record. It covers the change by patch-id, like the record it replaces: a
+   clean rebase keeps it, and any change to the diff needs a new exemption or
+   a merge review. An exemption never waives the protected-change approval.
+   It is the path for the human's "skip merge review on this one", and it
+   leaves the human's own decision on the record each time the bar is
+   lowered.
+
+   Both outcomes pass: `not-eligible` is the normal result of a run that
+   stopped for a ruling the human has answered, and the human's ruling is the
+   decision. Submit refuses only a missing record, a record that does not
+   cover the head (see "What a merge-review record covers" below), or a run
+   that did not complete (stopped, waiting, fatal or in error). The human's
+   own `vrg-submit-pr` runs (for example the emergency CLI mode) are subject
+   to the same check. The builder decides whether the human gets an
+   explicit, logged override.
 
 Both checks run for every identity that submits, the human included.
 
@@ -385,10 +436,24 @@ It also reports every PR merged into `develop` where the merge, or turning
 auto-merge on, was done by an account outside the expected set: the human,
 the user agent through `vrg-submit-pr`, and the org automation App for its
 own fenced PRs. Any other actor is reported, whatever paths the PR changed.
+It covers merges into `main` too: any merge into `main` whose merge, or
+turning auto-merge on, was done by anyone but the human (or the automation
+App, if the release flow merges as it) is reported.
 
-This catches the accepted seam (§3): a merge made outside `vrg-submit-pr`,
-through the raw API, an edited local tool or a workflow's own token. It does
-not prevent such a merge. It makes it visible within a day.
+It also checks that every PR merged into `develop` has a merge-review record
+covering its merged change, or a verified, approved merge-review exemption
+(§4.6), read with the same shared reader submit and the watch use.
+
+What this detects, and what it does not. GitHub records the login that
+merged, not the tool, so the audit cannot tell a merge by the user agent
+through `vrg-submit-pr` from one by the same login through the raw API or an
+edited local tool. It does not try to. It re-checks what the tools enforce on
+every merged PR: protected files covered by an approval, and a merge-review
+record or exemption covering the change. A merge that bypassed the tools and
+skipped either is reported, as is any merge by an unexpected account (a
+workflow's own token, for example). A bypass that would have passed every
+check anyway goes unreported, and does no harm. The audit does not prevent a
+merge; it makes a harmful one visible within a day.
 
 The builder decides where it runs and as which identity, most naturally beside
 the daily GitHub config job in `.github`'s `ops.yml`, as the automation App.
@@ -428,13 +493,27 @@ The soft gates now say "use the tool" instead of "ask the human":
   The builder chooses, but there is one procedure, not two that can drift. It
   reruns `vrg-finalize-pr` itself after pushing a fix, instead of telling the
   human to. Its rule "you never run `vrg-submit-pr` or `vrg-finalize-pr`"
-  becomes "never with `--release`".
+  becomes "never with `--release`". Its rule for a fix whose merge review
+  ends `not-eligible` ("do not push; the human decides") changes to match
+  §4.6: it pushes once every ruling on the fix is answered.
 - **`merge-review`**: raise protected changes and request the approval (§4.5).
-  Hand its outcome to report-ready as the structured field (§4.6).
+  Add the machine-readable record line to its closing comment, from both entry
+  points (§4.6).
 - **`epic-implement`**: after a task merges, re-read the epic and continue with
   the next runnable task. Stop for the human only on a ruling, an approval, a
   failure, or a task blocked on a release or a human-gated deployment
-  precondition. Drop "Your responsibility ends here".
+  precondition. Drop "Your responsibility ends here", and the line saying it
+  never submits or merges the terminal retrospective PR.
+- **`epic-create`** and **`epic-retrospective`**: the agent submits the docs
+  PR. The human's review of the spec, plan and retrospective already happens
+  in the session. Both PRs get merge review (§4.6).
+- **`fixture-run`**: the agent submits the fixture change PRs. The fixture
+  releases stay human-gated.
+- **`hoshin`**: the agent submits the logbook PR. Today the human's submit is
+  the review's sign-off. It becomes an authenticated approval instead: the
+  human's in-session approval of the full text is posted as an `approve` reply
+  through the same ruling exchange (§4.5), and submit refuses a logbook PR
+  without it. The logbook PR gets merge review (§4.6).
 - **CLAUDE.md** (`.github` and the consumer template in vergil-tooling): replace
   "Agents never run `vrg-submit-pr`" with the new boundary. Agents submit and
   finalize through the tools and never with `--release`. Releases and
@@ -452,9 +531,12 @@ The soft gates now say "use the tool" instead of "ask the human":
    release with agent submission enabled per repo, off by default. The builder
    chooses the switch (for example a `vergil.toml` key, itself under the
    protected core).
-2. **App permissions.** The human grants the user App `pull_requests: write`.
-   From this point the accepted seam exists fleet-wide, regardless of the
-   switch. `workflows: write` follows only once the environment-scoped
+2. **App permissions.** Two preconditions, both fleet-wide: the `main`
+   ruleset (§4.1) is converged in every repo, and the daily audit (§4.8), all
+   of its checks, runs green in every repo with its marker initialised. Only
+   then does the human grant the user App `pull_requests: write`. From this
+   point the accepted seam exists fleet-wide, regardless of the switch, and
+   the audit is already watching it. `workflows: write` follows only once the environment-scoped
    secrets (§4.2) are in place and verified; until then workflow-touching
    branches keep the human's push.
 3. **Fixtures.** Enable agent submission in the fixture repos. Prove one full
@@ -495,12 +577,18 @@ The soft gates now say "use the tool" instead of "ask the human":
   (§4.4).
 - The request kind's exact shape and how the diff is linked (§4.5).
 - Whether `edited` is allowed on the agent's own PR (§4.3).
-- The structured eligibility field and whether the human gets an override
+- The exact form of the closing comment's record line, and whether the human
+  gets an override
   (§4.6).
 - The rollout switch and whether it stays (§5).
 - Where the daily audit runs, where it stores its marker, and how it gets the
   trusted-authors configuration (§4.8).
 - Confirming no VM shares a clone with the host (§4.7).
+- Confirming that the restrict-updates rule is available on the org's GitHub
+  plan and refuses a PR merge into `main` by a non-bypass identity, and which
+  identity merges release PRs today (§4.1). If the rule cannot do this, the
+  audit's `main` check remains and the gap is stated in §3 as an accepted
+  seam.
 - Whether the permissions a workflow may request for its own `GITHUB_TOKEN`
   can be capped below write at the org level, and if so, capping them (§4.2,
   §4.8).
