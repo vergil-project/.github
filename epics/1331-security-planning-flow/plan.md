@@ -310,3 +310,49 @@ Blocked by 7.
      installed `epic-create` skill's step 8 names `--from`.
 - **SUCCESS:** both checks pass, recorded with the release version. The
   `--from` window is closed.
+
+## Evolution during execution
+
+The plan is frozen once its first tasks ship. These dated entries record
+how it changed during execution, and why. Where an entry and a task above
+differ, the entry wins. The task list above is left as written.
+
+1. **2026-11-18: spec §6.3's audit report is narrower as built, and the
+   gap is filed outside the epic.** Spec §6.3 says `vrg-epic-audit` reports
+   a `Security advisory:` line on an issue without the `security` label as
+   a broken pair. As built in Task 4 (vergil-project/vergil-tooling#3996),
+   `vrg-epic-audit` sees such a line only when some advisory tracks the
+   issue. When none does, only the planning-queue note reports it. The hold
+   is the same in both cases: the issue is not held, as the spec intends.
+   By human ruling (N0.1 on the epic), the missing audit report is
+   follow-up work outside this epic, filed as vergil-project/.github#1369
+   (intake). Task 4 shipped as built.
+2. **2026-11-19: the install-and-recheck steps are dropped from Tasks 5
+   and 9.** Task 5 (vergil-project/.github#1360) step 2 updated the host's
+   vergil-tooling and re-checked the installed commands. Task 9
+   (vergil-project/.github#1361) step 2 updated the installed plugin and
+   re-checked its `epic-create` text. By human ruling, neither step runs. A
+   human-attested release already installs everywhere: a vergil-tooling
+   release installs on the host and on every VM, and a plugin release does
+   the same, leaving only an interactive `/reload-plugins`. Each task's
+   result comment records its step 2 as covered by the release
+   attestation. The broader fix, so that planning stops scheduling these
+   steps, is filed outside this epic as vergil-project/.github#1370
+   (intake).
+3. **2026-11-19: the documentation review spawned vergil-project/docs#143.**
+   The review (vergil-project/vergil-tooling#4697) found three management
+   pages in the `docs` repo out of date with this epic:
+   `management/intake.md`, `management/tools-and-skills.md` and
+   `management/epics-and-tasks.md`. One of them wrongly said the scheduled
+   sweep runs the security-records pass. Following the plan's per-repo
+   rule, it filed vergil-project/docs#143 under the epic, closed by a PR in
+   that repo. #4697 itself fixed the vergil-tooling pages.
+4. **2026-11-19: the retrospective's sweep filed its follow-ups outside
+   the epic.** The unaddressed-findings sweep of the retrospective
+   (vergil-project/.github#1333) found problems no issue tracked. By human
+   ruling, two were filed as intake: vergil-project/.github#1387, so that
+   an operational task's close refuses until its result comment exists,
+   and vergil-project/.github#1388, so that `vrg-finalize-pr` waits for a
+   settled mergeable status before it reports a conflict. A third, the
+   attestation commands for deployment preconditions, was added to
+   vergil-project/.github#1370. None of them is a task of this epic.
