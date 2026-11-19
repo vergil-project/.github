@@ -72,15 +72,17 @@ purpose:
   (`ensure_uv`).
 - **A signed index checked against a pinned fingerprint.** Given up for
   vergil-tooling installs: trust is the git tag over HTTPS from github.com
-  (§3, anti-goals), resolved once to one commit (§4.2). Only the release
-  pipeline and the repository Admin role may create, update or delete a
-  `v*.*.*` or `v*.*` tag. vergil-tooling's enforced "Tag protection" ruleset
+  (§3, anti-goals), resolved once to one commit (§4.2). Only the
+  repository Admin role and the automation App may create, update or delete
+  a `v*.*.*` or `v*.*` tag; release tags are pushed with the App's
+  installation token, as other mechanized work already is.
+  vergil-tooling's enforced "Tag protection" ruleset
   (`github_config.desired_tag_protection_ruleset`, re-checked by the daily
   config audit) carries that rule, with this epic adding **creation** to its
-  update and deletion rules for both patterns. Its bypass is limited to the
-  Admin role and the one identity the release pipeline uses to create tags,
-  named precisely so no other workflow passes. The rule is live, and the
-  audit enforces it, before rollout step 1 (§5).
+  update and deletion rules for both patterns. People and agent identities
+  cannot create a release tag. Narrowing which jobs receive the App's
+  credentials is the follow-on vergil-project/.github#1371. The rule is
+  live, and the audit enforces it, before rollout step 1 (§5).
 
 ## 2. Goals
 
@@ -196,11 +198,9 @@ upgrades in place with `uv tool upgrade`, which re-resolves the moving tag
 without a lock.
 
 One implementation of the resolve-and-install sequence lives in
-vergil-tooling (Python), used by the cache build, `vrg-vm` and the macOS
-host's install (§4.5).
-The shell setup action carries its own, kept equivalent, as today. A shell
-script that runs before vergil-tooling exists, which is only vergil-tooling's
-first install on a fresh host, uses the same rules.
+vergil-tooling (Python), used by the cache build and `vrg-vm`. The shell
+setup action carries its own, kept equivalent, as today. The macOS host is
+the one path that needs no resolution (§4.5).
 
 The cache key's line resolution (`tooling_release.resolve_tooling_tag`,
 called from `container_cache._resolve_tooling`) reads the package index
@@ -314,12 +314,14 @@ above rather than working around it.
   than becoming a third copy.
 - **macOS host: the release owns the install.** vergil-tooling's own release
   installs the just-released version on the Mac through its
-  `[publish].consumer-refresh` (`vergil.toml`), as it already does. That
-  command moves from a bare `uv tool install … @v<VERSION>` to the shared
-  resolve-and-install code, so the Mac gets the exact release, one resolved
-  SHA and that commit's lock (§4.1, §4.2), the same way `vrg-vm update`
-  updates the VMs. The documented first install on a fresh Mac follows the
-  same rules.
+  `[publish].consumer-refresh` (`vergil.toml`), as it already does, by the
+  exact release tag `v<VERSION>` the release hands it. That tag cannot
+  change (§1.1), so the Mac needs no line resolution and no SHA. What it
+  gains is the lock: the consumer refresh stays a few plain shell lines,
+  which fetch the tag, export its `uv.lock` as constraints (§4.2) and run
+  `uv tool install` under the §4.1 interpreter rule with those constraints.
+  No new command, and nothing runs vergil-tooling to install vergil-tooling.
+  The documented first install on a fresh Mac is the same lines.
 - **`vrg-host` never installs or upgrades vergil-tooling.** It reports the
   installed version and says the release owns its install. Today's code still
   runs `uv tool upgrade vergil-tooling` (the manifest entry's `upgrade =
@@ -331,8 +333,8 @@ above rather than working around it.
 - **vergil-project/vergil-tooling#4706** (wait for apt to catch up) is
   superseded: the cache build no longer reads apt. It closes as superseded by
   this epic, with nothing implemented.
-- **The consumer-refresh commands** use the shared resolve-and-install code
-  (§4.5, macOS host).
+- **The consumer-refresh commands** install the Mac with the lock (§4.5,
+  macOS host).
 - **`keep = 2`** stays (non-goals): the package install-tests still read the
   index.
 
@@ -398,9 +400,8 @@ other repos. Each step is released and checked before the next starts.
   `/opt/vergil/python`.
 - The exact mechanics of reading the tag's `uv.lock` over git and passing it
   as constraints (§4.2).
-- How the Python resolve-and-install code is shared between the cache build,
-  `vrg-vm` and the consumer refresh, and the command the consumer refresh
-  calls.
+- How the Python resolve-and-install code is shared between the cache build
+  and `vrg-vm`.
 - Whether `--managed-python` together with the cleared variables needs any
   further override in the cache-build environment; settled by a real cache
   build, not assumed.
