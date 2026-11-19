@@ -175,16 +175,17 @@ The human chose B.
   gates. Plan evolution for proxy tasks is recorded in the primary's plan.
 - **`epic-implement` on a proxy refuses** with
   `<ref> is a proxy for <primary ref>; drive the primary epic instead.`
-- **Implementing and merge-reviewing a proxy task resolve through the
-  proxy.** `issue-implement` and `merge-review` today take a task's epic
-  context (its design sources, from the Documents section, and its open
-  tasks) from the task's native parent. When that parent carries the `proxy`
-  label, both resolve the primary from the proxy's `Primary:` line and take
-  the design sources and the open tasks from the primary instead (its own
-  and its proxies', as `vrg-epic-audit --epic` lists them). When the primary
-  cannot be resolved or read, or lists no design sources, both stop, as
-  merge review does today for a missing design source, never reviewing
-  against nothing.
+- **Merge-reviewing a proxy task resolves through the proxy.**
+  `merge-review` is the only reader of a task's epic context: the skill
+  reads the design sources from the native parent's Documents section, and
+  its request builder (`vrg-merge-review-request`) derives the open tasks
+  from the same parent. When that parent carries the `proxy` label, both
+  resolve the primary and take the design sources and the open tasks from
+  it instead (its own and its proxies', as `vrg-epic-audit --epic` lists
+  them). When the primary cannot be resolved or read, or lists no design
+  sources, merge review stops, never reviewing against nothing.
+  `issue-implement` reads no epic context of its own, so it needs no change
+  here.
 - **`vrg-queue adhoc` never lists a proxy task**, by construction: it lists
   only children of ad-hoc epics. No change is needed there for this case.
 - **`vrg-epic-audit --epic <primary>`** lists each proxy's tasks, with their
@@ -324,11 +325,12 @@ ad-hoc epic is checked for this before it is routed back as a one-off.
   reads it.
 - **Deferred candidates.** `vrg-epic-move` refuses moves out of the deferred
   queue, so a deferred candidate (#3188 and #3189 among them) leaves through
-  `vrg-intake-route <ref> one-off --epic <proxy ref>`. Before it moves, its
-  prerequisite is recorded as a `Blocked-by:` line where the prerequisite is
-  an issue, and the primary's plan records its place in the order, so the
-  frontier excludes it until it is ready. Its deferral reason is carried into
-  a comment.
+  `vrg-intake-route <ref> one-off --epic <proxy ref>`. Its place in the
+  order, behind its prerequisites, is the primary's plan's: the primary's
+  driver builds its frontier from that plan, and an evolution entry in the
+  primary's plan names the re-homed task by its ref, so the frontier
+  excludes it until it is ready. Its deferral reason is carried into a
+  comment.
 - **Logbook tasks** still open in the docs repo's ad-hoc epic move under the
   hoshin epic.
 - **Validation.** After the moves, a validation task confirms that no ad-hoc
@@ -358,9 +360,10 @@ to judge overlap.
   another. The agent identity that runs `epic-implement` must be able to read
   both orgs' issues and act on the proxy's repos, and `vrg-epic-create
   --proxy-for` posts a comment on the primary in its org, which needs
-  issues-write in the primary's repo. The plan verifies the
-  identities and tokens this needs and refuses, never degrades, when one is
-  missing.
+  issues-write in the primary's repo. The agent App holds the same
+  org-wide credentials in every org Vergil manages, so this needs no
+  per-epic permission check. Every tool still enters each org's
+  `target_org` and refuses, never degrades, when a token cannot be minted.
 - **Fail loudly.** A `Primary:` or `Proxy:` line that cannot be parsed or
   resolved, a proxy whose primary does not name it, or an unreadable proxy is
   an error in every tool that reads them, never a skipped item.

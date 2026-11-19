@@ -62,6 +62,13 @@ orgs, and every misplaced task is re-homed.
   `docs/site/docs/guides/security-records.md` for Task 11).
 - No fixture runs are seeded: this epic changes no language support,
   container image, shared CI workflow or release tooling.
+- Every tooling task ends with a refactor step before its commit: tests
+  green, then remove the duplication the task introduced, then re-run the
+  tests. Known candidates: one trusted-comment line matcher shared by
+  `proxies_of` (Task 7) and `Standalone-confirmed` (Task 9c); the
+  comment-author reader `epic_size` already has (Task 7); link-error
+  collection shaped like `drain_standing_org`'s corrupted-home handling
+  (Task 9b); `_standing_items` for the ad-hoc and hoshin views (Task 2b).
 
 ## Review Focus
 
@@ -223,8 +230,11 @@ Spec §4.5.
   tests/vergil_tooling/test_epics.py tests/vergil_tooling/test_intake_route.py
   -k hoshin`. Expect FAIL.
 - [ ] **Step 3: Implement.** `drain_standing_org` loops over
-  `DRAINED_STANDING_KINDS` instead of `QUEUE_KINDS`; the hoshin home comes
-  from `queue_home` like the queue kinds. The one-off route refuses the
+  `DRAINED_STANDING_KINDS` instead of `QUEUE_KINDS`. The hoshin home is
+  always the org's `<owner>/.github`, never `queue_home`'s self-homed
+  private queue (pinned by `test_hoshin_home_is_org_dotgithub`: a private
+  target still resolves there), and the drain reads it there. The one-off
+  route refuses the
   `hoshin` sentinel by name before resolution, so a refused route creates
   nothing (as `vrg-epic-move` refuses `deferred`), and refuses an explicit
   ref whose `standing_kind_of` is `HOSHIN`. `ADHOC.body` states the
@@ -254,12 +264,16 @@ Spec §4.5.
 - Produces: `hoshin_items(home: str, *, repo: str | None = None, roots:
   Sequence[Path] | None = None) -> list[AdhocItem]`, the same fields, states
   and dispositions as `adhoc_items`, read from the home's hoshin epic.
+  With `repo`, the home is `resolve_epic_home` of that repo's owner, and
+  the epic's open children are filtered to that repo.
   `vrg-queue hoshin --json --repo vergil-project/docs --root <dir>` prints
   `adhoc_to_json` output.
 
 - [ ] **Step 1: Write the failing tests:** `test_hoshin_items_lists_open_tasks`
   (a `Logbook:` task with a worktree mark is `in-flight`, `resume`);
-  `test_hoshin_items_no_epic_is_empty`; `test_vrg_queue_hoshin_json`.
+  `test_hoshin_items_no_epic_is_empty`; `test_vrg_queue_hoshin_json`;
+  `test_hoshin_items_repo_filters_children` (a child in another repo is
+  left out).
 - [ ] **Step 2:** Run them. Expect FAIL.
 - [ ] **Step 3: Implement** by extracting the shared body of `adhoc_items`
   into `_standing_items(epic_refs, roots)`, used by both.
@@ -481,12 +495,18 @@ Spec §4.3, §4.4. Blocked by 7.
   a primary without the matching `Proxy:` comment). On a proxy, `--epic`'s
   JSON gains a `"primary": "<owner>/<repo>#<N>"` key, which merge review
   reads (Task 13b); on any other epic the key is absent.
+  `proxy_link_drift(home: str) -> list[str]`: `proxy_link_problems` for
+  every open proxy in *home*, reported as a section of the org-level
+  `vrg-epic-audit`. It reads trusted comments, so like Task 9c it runs only
+  without `--close`, never in the daily sweep.
 
 - [ ] **Step 1: Write the failing tests:**
   `test_epic_children_includes_proxy_tasks`;
   `test_epic_children_bad_proxy_fails`;
   `test_vrg_epic_audit_epic_link_drift_exits_1` (problems on stderr, no
-  JSON); `test_vrg_epic_audit_epic_on_proxy_reports_primary`.
+  JSON); `test_vrg_epic_audit_epic_on_proxy_reports_primary`;
+  `test_org_audit_reports_proxy_link_drift` (an open proxy whose primary
+  lacks its `Proxy:` comment); `test_sweep_close_skips_proxy_link_drift`.
 - [ ] **Step 2:** Run them. Expect FAIL.
 - [ ] **Step 3: Implement**, keeping `render_epic_children`'s JSON shape.
 - [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
@@ -504,7 +524,8 @@ Spec §4.2. Blocked by 7.
 - Modify: `src/vergil_tooling/lib/epic_audit.py` (`proxy_closures`,
   `close_proxies`)
 - Modify: `src/vergil_tooling/bin/vrg_epic_audit.py` (the `--close` path and
-  its report)
+  its report, and the preview without `--close`, which lists the proxies a
+  close would close)
 - Test: `tests/vergil_tooling/test_epic_audit.py`,
   `tests/vergil_tooling/test_vrg_epic_audit.py`
 
@@ -526,7 +547,9 @@ Spec §4.2. Blocked by 7.
   `test_proxy_unreadable_primary_reported_and_run_fails` (the error is on
   stderr and in the closed report, and the run exits non-zero at the end);
   `test_proxy_link_error_does_not_stop_other_passes` (in
-  `test_vrg_epic_audit.py`: the reopen, drain and orphan passes still run).
+  `test_vrg_epic_audit.py`: the reopen, drain and orphan passes still run);
+  `test_preview_lists_proxy_closures` (without `--close`, the would-close
+  proxies are listed and nothing is closed).
 - [ ] **Step 2:** Run them. Expect FAIL.
 - [ ] **Step 3: Implement**; `--close` runs `close_proxies` after
   `close_drift`, and the preview lists both kinds. A proxy link error is
@@ -811,7 +834,8 @@ Spec §4.7. Blocked by 15.
      reported.
   3. `vrg-epic-audit --epic logical-minds-foundry/.github#319` exits 0 and
      lists #3188 and #3189 among its children; the same for each other
-     primary from Task 15.
+     primary from Task 15, and `vrg-epic-audit --epic <proxy ref>` exits 0
+     for each proxy Task 15 created.
   4. `vrg-queue adhoc` does not list #3188 or #3189.
   5. A sweep preview (`vrg-epic-audit` without `--close`) does not plan to
      close any proxy whose primary is open.
