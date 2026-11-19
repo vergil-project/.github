@@ -132,8 +132,10 @@ The human chose B.
   - a primary in the same org as the target (no proxy is needed);
   - a primary that is not an open development epic (a standing epic, a proxy,
     a closed epic);
-  - a second proxy for the same primary in the same home (it prints the
-    existing one);
+  - a second open proxy for the same primary in the same home (it prints
+    the existing one). Only open proxies count: when this org's proxy for an
+    open primary has been closed early, `--proxy-for` reopens it and reports
+    the reopen, rather than creating a duplicate;
   - a private primary or a private target repo (§5). The refusal message
     says the task must not be filed in an ad-hoc epic instead.
 - **It is not a development epic.** One predicate, `epics.is_proxy`, keyed on
@@ -142,9 +144,9 @@ The human chose B.
   the roadmap does not list it as an epic of its own, and the audit checks
   its `Primary:`/`Proxy:` pair instead (§4.3).
 - **Tasks are filed under it** with the existing `vrg-issue-create --epic
-  <proxy ref>` and moved with `vrg-epic-move`. Each task body links the
-  primary's plan and spec, as #3188 does today, so its implementer and merge
-  reviewer judge it against the primary's design.
+  <proxy ref>` and moved with `vrg-epic-move`. Each task body may link the
+  primary's plan and spec for a human reader, as #3188 does today, but no
+  tool relies on those links (§4.3).
 - **It lives as long as its primary.** A proxy is exempt from both paths
   that close a finite epic whose tasks are all closed: the event-driven
   `epics.rollup`, and the daily sweep's drift close (`epic_audit.epic_drift`
@@ -173,11 +175,16 @@ The human chose B.
   gates. Plan evolution for proxy tasks is recorded in the primary's plan.
 - **`epic-implement` on a proxy refuses** with
   `<ref> is a proxy for <primary ref>; drive the primary epic instead.`
-- **`issue-implement` on a proxy task** works as for any finite-epic task,
-  except that its context comes from the primary's spec and plan, which the
-  task body links. *(Builder's call: whether `issue-implement` resolves the
-  primary from the proxy's `Primary:` line itself or relies on the body's
-  links; either is acceptable if it is not silent when neither is present.)*
+- **Implementing and merge-reviewing a proxy task resolve through the
+  proxy.** `issue-implement` and `merge-review` today take a task's epic
+  context (its design sources, from the Documents section, and its open
+  tasks) from the task's native parent. When that parent carries the `proxy`
+  label, both resolve the primary from the proxy's `Primary:` line and take
+  the design sources and the open tasks from the primary instead (its own
+  and its proxies', as `vrg-epic-audit --epic` lists them). When the primary
+  cannot be resolved or read, or lists no design sources, both stop, as
+  merge review does today for a missing design source, never reviewing
+  against nothing.
 - **`vrg-queue adhoc` never lists a proxy task**, by construction: it lists
   only children of ad-hoc epics. No change is needed there for this case.
 - **`vrg-epic-audit --epic <primary>`** lists each proxy's tasks, with their
@@ -268,7 +275,13 @@ advisory, so a move is, in order:
 2. otherwise create the advisory there with the same details and severity
    and a `Moved from: <original GHSA-id>` line, and hand it to the fix tasks;
 3. write a `Moved to: <org>/.github <new GHSA-id>` line on the original,
-   then drop the planning issue from it and close it as moved.
+   then drop `--from` from it and close it as moved.
+
+A move is a retarget, so it takes `--from` and keeps the retarget rule: it
+refuses, before any write, while the original tracks an open issue other
+than `--from` that `--drop` does not name, and the refusal prints the
+command that would succeed. A move therefore never closes an advisory that
+still tracks open work.
 
 **Moved is a terminal state.** `vrg-security-record`'s classification
 recognises an advisory carrying a `Moved to:` line as moved, never as
@@ -291,8 +304,9 @@ standalone, single-issue work, and a task owned by any epic or skill never
 goes there.
 
 **Every sanctioned path follows the rule, not only `epic-create`.**
-`epic-review`'s one-off route and its revival of a deferred item, and
-`intake-capture`, send work that belongs to another org's epic to that epic's
+`epic-review`'s one-off route (which every intake item passes through) and
+its revival of a deferred item send work that belongs to another org's epic
+to that epic's
 proxy (created with `vrg-epic-create --proxy-for` if it does not exist, then
 `--epic <proxy ref>`), never to ad-hoc. A revived item deferred from an
 ad-hoc epic is checked for this before it is routed back as a one-off.
@@ -343,7 +357,8 @@ to judge overlap.
 - **Cross-org access.** Driving a primary in one org dispatches work in
   another. The agent identity that runs `epic-implement` must be able to read
   both orgs' issues and act on the proxy's repos, and `vrg-epic-create
-  --proxy-for` writes to the primary's body in its org. The plan verifies the
+  --proxy-for` posts a comment on the primary in its org, which needs
+  issues-write in the primary's repo. The plan verifies the
   identities and tokens this needs and refuses, never degrades, when one is
   missing.
 - **Fail loudly.** A `Primary:` or `Proxy:` line that cannot be parsed or
@@ -364,7 +379,7 @@ to judge overlap.
 
 - The exact argument and output shape of `vrg-epic-create --proxy-for` and
   `vrg-queue hoshin`, within §4.
-- The two choices marked *Builder's call* in §4.2 and §4.3.
+- The choice marked *Builder's call* in §4.2.
 - Which orgs the sweep covers, taken from the fleet's org list, and how the
   candidate list is produced (a one-off script or a `vrg-queue` option).
 - Task split and order, in the plan, with one constraint: the hoshin epic
