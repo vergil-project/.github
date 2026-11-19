@@ -113,6 +113,10 @@ those files, and nowhere else.
   login itself posts: a deliberately falsified merge-review closing comment
   would pass the checks in §4.6 and §4.8. The human's approvals and
   exemptions are not in this seam, since an agent cannot post as the human.
+  The seam also includes the tooling's own gate logic, which the protected
+  core leaves out on purpose (§4.4): a change that weakens a check inside
+  vergil-tooling or the plugin is caught, if at all, by merge review and by
+  the human-gated release, not by an approval.
 - **Bringing human review back by another route.** If the design makes the
   human approve ordinary PRs, it has failed even if it works. Only protected
   paths reach the human.
@@ -184,19 +188,22 @@ is the sanctioned path), the soft gates (§4.9) and detection (§4.3, §4.8).
 That is the accepted seam named in §3.
 
 **Secrets only on protected branches, before `workflows: write`.** Every
-credential a workflow reads as a secret (at least the org automation App's
-`APP_CLIENT_ID` and `APP_PRIVATE_KEY`) lives only in a GitHub environment
-whose deployment branch policy allows only `develop` (and `main` where a job
-needs it), never at org or repo level. Every job that needs one declares the
-environment. A workflow running on any other branch therefore runs without
-them. This absorbs vergil-project/vergil-actions#1185 in full: its scope
-(every in-scope org, the reusable workflows and any caller that mints the
-token, the repo-config desired state keeping the environment converged, and
-the human's moving of the secrets) and its acceptance criteria become this
-epic's. `workflows: write` is granted only after this is in place and
-verified (§5). The plan gives this work its own, explicitly sequenced phase
-with #1185's acceptance criteria. It gates only the `workflows: write` grant,
-so the rest of the epic does not wait on it.
+credential a workflow reads as a secret that can write or act (at least the
+org automation App's `APP_CLIENT_ID` and `APP_PRIVATE_KEY`) lives only in a
+GitHub environment whose deployment branch policy allows only `develop` (and
+`main` where a job needs it), never at org or repo level. Every job that needs
+one declares the environment. A workflow running on any other branch therefore
+runs without them. A read-only token that PR-time CI needs, such as a
+third-party vulnerability database key, may stay outside the rule. Each one is
+named in the plan with its reason. This absorbs
+vergil-project/vergil-actions#1185 in full: its scope (every in-scope org,
+the reusable workflows and any caller that mints the token, the repo-config
+desired state keeping the environment converged, and the human's moving of
+the secrets) and its acceptance criteria become this epic's.
+`workflows: write` is granted only after this is in place and verified (§5).
+The plan gives this work its own, explicitly sequenced phase with #1185's
+acceptance criteria. It gates only the `workflows: write` grant, so the rest
+of the epic does not wait on it.
 
 With `workflows: write`, the "workflow-touching branch makes GitHub refuse the
 agent push" special case disappears from report-ready, `issue-implement` and
@@ -226,35 +233,54 @@ The AUDIT rules are unchanged.
 ### 4.4 The protected core
 
 A **protected path** is a file whose change needs the human's approval before
-it merges. The set is deliberately small: the files that define the gates.
+it merges. The set is deliberately small, and it protects the **wiring**:
+which checks CI runs and how, and the configuration that steers them. It does
+not protect the internals of the tooling that implements those checks.
 
 **Two sources, one set.** The set for a repo is the union of:
 
-- **the fleet default**, shipped in vergil-tooling: `.github/workflows/**` in
-  every repo, and the protected-path registry file itself;
+- **the fleet default**, shipped in vergil-tooling: `.github/workflows/**` and
+  `vergil.toml` in every repo, and the protected-path registry file itself;
 - **the repo's own registry**, a file in the repo naming further paths. In
-  vergil-tooling it names the gate code. In vergil-claude-plugin it names the
-  hooks and the merge-review skill. Any other repo names what it needs.
+  vergil-actions it names `actions/**`, the composite actions the reusable
+  workflows call. In `.github` it also names the hoshin logbook's path, so the
+  human's approval of the exact published text is a protected-change approval
+  (§4.10). Any other repo names what it needs, kept to the same kind of
+  wiring.
 
 The registry file is itself a protected path, so removing a path from it needs
-an approval. The fleet default lives in vergil-tooling code, which is covered by
-vergil-tooling's own registry, so changing the default needs an approval too.
+an approval. The fleet default lives in vergil-tooling code, which is not in
+the core (below), but a change to it reaches the fleet only through a
+vergil-tooling release, which the human makes.
 
-**What starts in the core.** The builder fixes the exact list in the plan,
-covering at least these categories:
+**What starts in the core:**
 
 - workflow files (`.github/workflows/**`), in every repo;
-- in vergil-tooling: the identity checks (`lib/identity_mode.py`,
-  `lib/rulings/`, `lib/trusted_authors.py`), the provenance check, the
-  protected-path check and audit (§4.5, §4.8), the `vrg-gh` tables, the
-  submit gates in `bin/vrg_submit_pr.py`, and the desired GitHub config
-  (`lib/github_config.py`: rulesets, required checks, App and merge settings);
-- in vergil-claude-plugin: `hooks/` and the merge-review skill and reviewer;
-- in vergil-actions: the reusable workflows the fleet's CI calls.
+- `vergil.toml`, whole file, in every repo: it holds the merge-review
+  `docs-paths` allow-list and the rollout switch (§5), and it changes rarely;
+- vergil-actions `actions/**`;
+- the registry file.
 
-**What stays out.** Ordinary code, tests and docs, even in the tooling repos.
-The core is for the gates, not for anything important. A core that grows to
-cover most of a repo has brought human review back (§3).
+**What stays out, and why.** The tooling's own gate logic stays out: in
+vergil-tooling the identity, provenance and submit checks, the `vrg-gh`
+tables, the validators and the desired GitHub config, and in
+vergil-claude-plugin the hooks and the merge-review skill. No list of such
+code can be complete, since nearly any change to the tooling can weaken some
+control, and protecting it would put most tooling PRs back in front of the
+human. They are covered instead by:
+
+- merge review, like any code;
+- the human-gated release: consumer repos, the agent VMs and the audit job run
+  released vergil-tooling and plugin versions, so a weakened check merged into
+  vergil-tooling's `develop` affects nothing else until the human releases it;
+- the exception registry (§7), aimed at the failure actually seen in the
+  fleet, exceptions added in place of fixes.
+
+Ordinary code, tests and docs stay out too. A core that grows to cover most of
+a repo has brought human review back (§3). The builder confirms that consumers
+and the audit run released versions, and whether vergil-tooling's own CI runs
+the PR's own code. If it does, that repo's PRs check themselves, and the plan
+says how that is handled.
 
 ### 4.5 The protected-change approval
 
@@ -387,11 +413,25 @@ checks first. The builder confirms from the code how auto-merge behaves across
 a push today and how a fixed PR is re-armed, and puts the checks on that path.
 
 **What a merge-review record covers.** So that a clean rebase does not void
-it, the merge-review record names the change it reviewed by the git patch-id
-of the branch's diff against its base, not only by the head commit. A head
-whose diff has the same patch-id is covered: a clean rebase keeps it, and any
-change to the diff needs a new merge review. This mirrors the blob-hash rule
-for approvals (§4.5).
+it, the merge-review record names the change it reviewed by its **change
+fingerprint**, not only by the head commit. The fingerprint is the git
+patch-id of the branch's diff against its merge base taken with zero context
+lines (`git diff -U0 <base>...<head> | git patch-id`), so only the branch's
+own added and removed lines count, and line numbers are ignored. Plain
+patch-id is not enough: it hashes context lines, so a rebase over a nearby
+edit on `develop` would change it. A head whose change fingerprint matches is
+covered: a clean rebase keeps it, and any change to the branch's own lines,
+including a conflict resolution, needs a new merge review. The merge-review
+exemption uses the same fingerprint. This mirrors the blob-hash rule for
+approvals (§4.5).
+
+**Batch PRs.** A batch PR carries one commit per issue, and each issue's merge
+review judges that issue's own commit. So for a batch, each issue's record must
+cover that issue's own commit in the batch, matched by the commit's change
+fingerprint (its own diff against its parent, with zero context lines). A fix
+pushed to an open batch PR is reviewed as a whole PR, as today, and that
+review's record covers the change from the base to the new head. Submit, the
+watch and the audit apply the same batch rule.
 
 **The enforcement is in the tools, not the skills.** The skills (§4.10) make
 the normal path the easy one, but an agent may depart from a skill, for
@@ -440,9 +480,19 @@ It covers merges into `main` too: any merge into `main` whose merge, or
 turning auto-merge on, was done by anyone but the human (or the automation
 App, if the release flow merges as it) is reported.
 
-It also checks that every PR merged into `develop` has a merge-review record
-covering its merged change, or a verified, approved merge-review exemption
-(§4.6), read with the same shared reader submit and the watch use.
+It also checks that every agent-involved PR merged into `develop` has a
+merge-review record covering its merged change, or a verified, approved
+merge-review exemption (§4.6), read with the same shared reader submit and
+the watch use. A PR is **agent-involved** when an agent login opened it, or
+GitHub attributes any action on it to an agent login. This is decided from
+the identities GitHub records, never from branch names. A PR done entirely
+by the automation identity or entirely by the human (release and post-release
+PRs, update-deps PRs, mechanized PRs) is exempt from this check, though the
+protected-path and actor checks still apply to it.
+
+**Where the audit starts.** The audit covers only merges after its marker is
+first set, when it goes live before the permission grant (§5). It never
+audits earlier merges, which predate the mechanism.
 
 What this detects, and what it does not. GitHub records the login that
 merged, not the tool, so the audit cannot tell a merge by the user agent
@@ -510,10 +560,12 @@ The soft gates now say "use the tool" instead of "ask the human":
 - **`fixture-run`**: the agent submits the fixture change PRs. The fixture
   releases stay human-gated.
 - **`hoshin`**: the agent submits the logbook PR. Today the human's submit is
-  the review's sign-off. It becomes an authenticated approval instead: the
+  the review's sign-off. It becomes a protected-change approval instead: the
+  logbook's path is in `.github`'s protected-path registry (§4.4), so the
   human's in-session approval of the full text is posted as an `approve` reply
-  through the same ruling exchange (§4.5), and submit refuses a logbook PR
-  without it. The logbook PR gets merge review (§4.6).
+  recording each logbook file's blob hash (§4.5). Submit, the watch and the
+  audit then enforce it with no logbook-specific rule, and any later edit to
+  the text voids it. The logbook PR gets merge review (§4.6).
 - **CLAUDE.md** (`.github` and the consumer template in vergil-tooling): replace
   "Agents never run `vrg-submit-pr`" with the new boundary. Agents submit and
   finalize through the tools and never with `--release`. Releases and
@@ -527,6 +579,10 @@ The soft gates now say "use the tool" instead of "ask the human":
 
 ## 5. Rollout
 
+0. **Standalone hardening first.** The `main` ruleset (§4.1) and the
+   environment-scoped secrets (§4.2) are the plan's first, separately
+   mergeable tasks. Each is valuable hardening on its own, and both land even
+   if the rest of the epic stalls.
 1. **Code first, gated off.** The tooling, plugin and steering changes land and
    release with agent submission enabled per repo, off by default. The builder
    chooses the switch (for example a `vergil.toml` key, itself under the
@@ -554,7 +610,10 @@ The soft gates now say "use the tool" instead of "ask the human":
   forbidden), the protected-path match (including a registry that removes its
   own entry, a deleted file and a batch PR), blob-hash approval verification
   (a rebase keeps it, an edit voids it, an edited comment or a reply from the
-  wrong login rejects it) and the eligibility check.
+  wrong login rejects it) and the eligibility check. The change fingerprint
+  is tested by rebasing a branch over a `develop` edit next to its hunks: the
+  record still covers it. A conflict resolution that changes the branch's own
+  lines does not.
 - The fixture cycle of §5 step 3, recorded in a validation task.
 - A failure to read any of the inputs refuses, and that is tested.
 
@@ -592,3 +651,6 @@ The soft gates now say "use the tool" instead of "ask the human":
 - Whether the permissions a workflow may request for its own `GITHUB_TOKEN`
   can be capped below write at the org level, and if so, capping them (§4.2,
   §4.8).
+- Which GitHub records reliably name the identity that pushed a commit to a
+  PR's branch, since commit author fields can be set freely. If none does,
+  "agent-involved" means an agent login opened the PR or acted on it (§4.8).
