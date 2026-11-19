@@ -110,34 +110,36 @@ Repos: `T` vergil-tooling, `P` vergil-claude-plugin, `A` vergil-actions, `G`
 | 3b | Repo config converges the secrets environment | T | task | — |
 | 3c | Callers read the App keys from the environment | each | task | 3a |
 | 3e | `repo_init` and the `secrets: inherit` check | T | task | 3a |
+| 2d | Release tooling; ruleset and environment | T | deploy | 2, 3b, 3e |
+| 3d | Move the secrets | — | deploy | 2d, 3a, 3c |
 | 4 | Protected-path set and match | T | task | — |
 | 5 | Change fingerprint | T | task | — |
 | 6a | Two request kinds and the structured reply | T | task | — |
 | 6b | Past-exchange verifier and lookup | T | task | 6a |
 | 7 | Merge-review record | T | task | 5 |
-| 8 | Shared gate evaluator | T | task | 4, 6b, 7 |
-| 9 | Submit: agents allowed, gates before push | T | task | 8 |
-| 10 | Provenance: own-PR rules | T | task | — |
-| 11 | Watch re-check; finalize refuses `--release` for agents | T | task | 8 |
-| 12 | Daily audit: `vrg-agent-audit` | T | task | 8 |
-| 13 | Registries and the audit job | A, docs, G | task | 4, 12 |
+| 7d | Release tooling: record commands | T | deploy | 5, 6a, 6b, 7 |
 | 14 | Plugin hooks' wording | P | task | — |
 | 15a | `merge-review`: record, approvals, exemption | P | task | 7, 6a |
-| 15b | The implementer owns the PR to merge | P | task | 15a |
-| 15c | Epic and fixture skills submit | P | task | 15b |
-| 15d | `hoshin` on the protected-change approval | P | task | 15a, 13 |
-| 16a | Consumer CLAUDE.md and permission spec | T | task | 9 |
-| 2d | Release tooling; ruleset and environment | T | deploy | 2, 3b, 3e |
-| 3d | Move the secrets | — | deploy | 2d, 3a, 3c |
-| 17d | Release tooling, plugin | T, P | deploy | 2d, 9–12, 14, 15c–d, 16a |
+| 15r | Plugin release A: records | P | deploy | 7d, 14, 15a |
+| 8 | Shared gate evaluator | T | task | 4, 6b, 7 |
+| 9 | Submit: agents allowed, gates before push | T | task | 8, 15r |
+| 10 | Provenance: own-PR rules | T | task | — |
+| 11 | Watch re-check; finalize `--release` refusal | T | task | 8, 15r |
+| 12 | Daily audit: `vrg-agent-audit` | T | task | 8, 15r |
+| 13 | Registries and the audit job | A, docs, G | task | 4, 12 |
+| 17d | Release tooling: the gates | T | deploy | 2d, 4, 8–12 |
 | 12d | Audit live fleet-wide, marker set, green | G | deploy | 17d, 13 |
 | 18d | Grant the user App `pull_requests: write` | — | deploy | 2d, 12d |
+| 15b | The implementer owns the PR to merge | P | task | 15a, 18d |
+| 15c | Epic and fixture skills submit | P | task | 15b |
+| 15d | `hoshin` on the protected-change approval | P | task | 15a, 13, 18d |
+| 16a | Consumer CLAUDE.md and permission spec | T | task | 9, 18d |
 | 16b | `.github` CLAUDE.md on the new boundary | G | task | 18d |
+| 21d | Plugin release B and the steering | T, P | deploy | 15b–d, 16a |
 | 3g | Grant `workflows: write` | — | deploy | 3d, 17d |
-| 19 | Fixture runs (switch on, agent cycle) | F | fixture | 18d, 3g |
+| 19 | Fixture runs (first live agent cycle) | F | fixture | 21d, 3g |
 | 19v | Protected path, exemption and audit on one fixture | F | valid | 19 |
-| 20 | Switch on for the rest of the fleet (one per repo) | each | task | 19v |
-| R1 | Documentation review (#4751) | T | docs | 20 |
+| R1 | Documentation review (#4751) | T | docs | 19v, 16b |
 | R2 | Retrospective (#1386) | G | retro | R1 |
 
 Tasks 2, 3a, 3b, 4, 5, 6a, 10 and 14 have no blockers and can be worked
@@ -148,7 +150,7 @@ first (§5 step 0). They land even if the rest stalls.
 
 - vergil-project/vergil-actions#1185 is absorbed. Close it as planned under
   this epic, and hand its advisory to Task 3d.
-- The twenty-one advisories that track the planning issue are handed on as
+- The twenty-four advisories that track the planning issue are handed on as
   follows:
   - GHSA-4j45-whfp-5cx7: Tasks 3a, 3b and 3d
   - GHSA-cm96-w5w4-j3c5: Task 3a
@@ -168,6 +170,17 @@ first (§5 step 0). They land even if the rest stalls.
   - GHSA-x2rv-m922-fpf6 and GHSA-3mww-c9j5-vh5m: Task 12
   - GHSA-x8m3-f3qj-69gm: Task 2
   - GHSA-4xx7-28w3-7w84: Tasks 13, 12d and 18d
+  - GHSA-x7r5-wx2m-34gm: Tasks 2 and 12
+  - GHSA-5pr5-4fr5-rmwv: Task 4
+  - GHSA-jv6m-5f5m-gq22: Tasks 3a and 3d
+
+**Other orgs.** Tasks are never linked across orgs. The changes this plan
+makes in logical-minds-foundry and mnemosys-project repos are listed per
+org in Task 3a's inventory: the Task 3c callers, the Task 13 `ops.yml`
+callers and the Task 12d marker setup. Each is made by the fleet sync where
+it manages the file. Otherwise it is filed as a task under that org's own
+ad-hoc epic and referenced (`Ref`) from this epic's deployment task that
+needs it. Tasks 3d, 12d and 18d list them in their acceptance.
 
 **Ordering rule:** until Task 18d the user App has no `pull_requests:
 write`, so every PR in this epic before then is submitted by the human, as
@@ -192,7 +205,8 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
   `automation_app_id` is set, that App (`actor_type="Integration"`).
 - Produces: `desired_audit_marker_ruleset(automation_app_id: int) ->
   DesiredRuleset`, named `"Agent audit markers"`,
-  `ref_include=["refs/vergil/agent-audit/*"]`, rules `update`, `creation` and
+  `target="branch"`, `ref_include=["refs/heads/vergil/agent-audit/*"]`, rules
+  `update`, `creation` and
   `deletion`, bypass actors the admin role and the automation App, so the
   identity being audited cannot move the audit's markers (Task 12).
 
@@ -221,7 +235,7 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
 
   def test_audit_marker_ruleset_bypass_is_admin_and_app_only():
       rs = desired_audit_marker_ruleset(automation_app_id=123)
-      assert rs.ref_include == ["refs/vergil/agent-audit/*"]
+      assert rs.ref_include == ["refs/heads/vergil/agent-audit/*"]
       assert ids(rs) == {("RepositoryRole", 5), ("Integration", 123)}
   ```
 
@@ -241,7 +255,10 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
   update`) converges every repo, creating the `automation` environment and
   the "Main updates" ruleset. Run it once by hand after the release.
 - **Acceptance:**
-  - the config audit reports no drift on "Main updates" in any repo;
+  - the config audit reports no drift on "Main updates" or the
+    `automation` environment in any repo;
+  - a job declaring `environment: automation` on a non-`develop` branch is
+    refused by the environment's branch policy before any step runs;
   - **before Task 18d**, a test PR into `main` on a fixture is refused by
     the ruleset when merged with the token of an identity that already holds
     `pull_requests: write` without bypass (the audit App, if provisioned;
@@ -271,11 +288,11 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
   Put the list in the PR body; it is the input for Tasks 3c, 3e and 3d.
 - [ ] **Step 2:** Each such job declares `environment: automation`. Its
   steps are unchanged.
-- [ ] **Step 3: The check.** A workflow test (or the smoke release) runs a
-  job declaring the environment from a non-`develop` branch and asserts it
-  is refused by the environment's branch policy before any step runs. (The
-  check that an undeclared job sees the secret unset belongs to Task 3d,
-  after the secrets move.)
+- [ ] **Step 3: The check (static).** A test asserts that every job reading
+  a write-capable secret declares `environment: automation`. The live
+  checks need the converged environment and belong later: the branch-policy
+  refusal to Task 2d, and the undeclared job seeing the secret unset to
+  Task 3d.
 - [ ] **Step 4:** `vrg-container-run -- vrg-validate`. Commit
   `ci: read the automation App secrets from the automation environment`.
 
@@ -356,11 +373,14 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
   environment is converged everywhere (both releases human-gated). This task
   does not wait for the rest of the epic.
 - **Procedure (the human):**
-  1. Move `APP_CLIENT_ID` and `APP_PRIVATE_KEY` into each repo's
-     `automation` environment. Dry run first on one repo: move them there
-     alone, remove its repo-level copies, and re-run its release, its ops
-     job and an epic sweep before moving on.
-  2. Remove them at org and repo level.
+  1. Move **every write-capable secret in Task 3a's inventory** into each
+     repo's `automation` environment: `APP_CLIENT_ID` and `APP_PRIVATE_KEY`,
+     and every publishing token, such as `CARGO_REGISTRY_TOKEN` for Rust
+     publishers. Every job that reads one declares the environment (Task 3a);
+     callers already pass them through `secrets: inherit` (Task 3c). Dry run
+     first on one repo: move them there alone, remove its repo-level copies,
+     and re-run its release, its ops job and an epic sweep before moving on.
+  2. Remove them all at org and repo level.
   3. Re-run a release, an epic sweep and a rollup.
   4. Check whether the org setting can cap the permissions a workflow may
      request for its own `GITHUB_TOKEN` below write, and if so cap it.
@@ -400,16 +420,19 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
   - `protected_set(repo: Path, ref: str) -> tuple[str, ...]`;
   - `@dataclass(frozen=True) class ProtectedChange: path: str; blob: str`
     (`"deleted"` for a deletion);
-  - `changed_protected(repo: Path, base: str, head: str) ->
-    list[ProtectedChange]`, which matches against the union of
-    `protected_set` at the merge base and at the head, using `git diff
-    --name-status -M <base>...<head>`.
+  - `changed_protected(repo: Path, base: str, head: str, registry_ref: str)
+    -> list[ProtectedChange]`, which matches the files `git diff
+    --name-status -M <base>...<head>` reports against `protected_set` at
+    `registry_ref`: the freshly fetched `origin/develop` at submit and in the
+    watch, and the merge commit's first parent in the audit. The PR's own
+    registry is never read.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_workflow_and_vergil_toml_are_protected_by_default`;
-  - `test_registry_removing_its_own_entry_is_judged_by_base`: the head's
-    registry drops a path, the change to that path is still protected, and
-    so is the registry;
+  - `test_registry_is_read_from_develop_not_the_pr`: the head's registry
+    drops a path, the change to that path is still protected, and so is the
+    registry;
+  - `test_entry_added_on_develop_after_fork_applies`;
   - `test_rename_counts_both_paths_and_delete_needs_deleted_blob`;
   - `test_malformed_registry_refuses_not_empty`;
   - `test_ordinary_file_is_not_protected`.
@@ -435,8 +458,9 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
     SHA-256 of a normalised `git diff -U0 -M <base>...<head>`. The diff keeps
     the `diff --git`, `---` and `+++` file headers and every `+` and `-`
     line with its whitespace exactly. It drops the `@@` hunk headers (line
-    numbers) and the `index` lines, whose whole-file hashes change whenever
-    `develop` edits the file elsewhere. For each binary file, the line is
+    numbers) and the `index`, `similarity index` and `dissimilarity index`
+    lines, whose values change whenever `develop` edits the file elsewhere.
+    For each binary file, the line is
     replaced by `binary <path> <head blob>`. An empty diff raises
     `FingerprintError`. (`git patch-id` is not used: it ignores whitespace,
     and plain `git diff` reports binaries without their contents.)
@@ -451,6 +475,7 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
   - `test_fingerprint_ignores_line_shift`;
   - `test_whitespace_only_change_changes_fingerprint`;
   - `test_binary_change_changes_fingerprint`;
+  - `test_rename_survives_develop_edit_to_renamed_file`;
   - `test_empty_diff_raises`.
 - [ ] **Step 2:** Run → FAIL. Implement. Run → PASS. Then `vrg-container-run
   -- vrg-validate`.
@@ -521,8 +546,12 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
 
 **Interfaces:**
 
-- Consumes: `exchange`'s comment stream and `identity.human_login()` /
-  `agent_login()`.
+- Consumes: `exchange`'s comment stream and `identity.human_login()`.
+- Adds to `lib/rulings/identity.py`: `expected_agent_login(human: str) ->
+  str`, mode-free, deriving `<human>-vergil-user` and checking it against
+  the configured agents. The readers here, in Tasks 8, 11 and 12, and in the
+  human's submit, use it. `agent_login(authors, mode)` keeps its USER-mode
+  check for posting.
 - Produces:
   - `@dataclass(frozen=True) class Approval: kind: RequestKind;
     request_id: int; decision: str; blobs: dict[str, str]; fingerprint: str
@@ -600,12 +629,25 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
       `issue_refs`; a blob approved for one path never covers another, and
       `deleted` is per path;
     - **merge review:** a single-issue PR needs a record, an approved
-      exemption, or a human override comment (Task 9), whose fingerprint
-      equals `change_fingerprint(base, head)`.
+      exemption, or a human override, whose fingerprint equals
+      `change_fingerprint(base, head)`.
+  - **The human override** is defined here so Task 8 does not depend on
+    Task 9. It is a comment by the human login on the task issue whose first
+    line is `Merge review override: fingerprint=<hex> reason=<text>`. It is
+    keyed by fingerprint, not by PR, since it is posted before the PR
+    exists. `overrides(issue_ref) -> list[Override]` is the one reader, used
+    here and by the audit, and the human login is checked as in Task 6b.
       A batch needs, for each issue, a record matching that issue's commit
       by `commit_fingerprint`. A whole-PR record for `base..head` covers a
       fix pushed to an open batch.
   - Any lookup failure gives `ok=False` with the error as the reason.
+  - `agent_involved(...) -> bool`, the one shared test of whether the two
+    rules apply. At submit, it is true when the ready-state was recorded by
+    an agent identity, or the branch carries a commit pushed by one. For an
+    open or merged PR (watch and audit), it is true when an agent login
+    opened it or GitHub attributes any action on it to one. A PR that is
+    not agent-involved passes both rules; the actor check (Task 12) still
+    applies to it.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_not_eligible_record_passes`;
@@ -638,35 +680,28 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
 - Modify: `src/vergil_tooling/bin/vrg_gh.py` (`_DENIED_AGENT` messages
   point at `vrg-pr-workflow report-ready` and `vrg-submit-pr`; the denials
   stay) and `src/vergil_tooling/lib/github_config.py:158-163` (the comment).
-- Modify: the agent-mode rollout switch, `[pr-workflow] agent-submit` in
-  `vergil.toml`, default `false`. Submit refuses an agent in a repo where it
-  is not `true`. The switch is read at the **PR's head**: a head that turns
-  it on changes `vergil.toml`, a protected path, so it already needs the
-  human's protected-change approval, and the agent may then submit the PR
-  that switches its own repo on.
 - Test: `tests/vergil_tooling/test_vrg_submit_pr.py`,
   `tests/vergil_tooling/test_vrg_gh.py`
 
 - [ ] **Step 1: Write the failing tests:**
-  - `test_user_agent_submits_when_switch_on`;
-  - `test_user_agent_refused_when_switch_off`: the refusal tells the agent
-    to hand off, says report-ready has recorded the state, and names the
-    human's `vrg-submit-pr` command;
+  - `test_user_agent_submits`;
   - `test_agent_release_refused`;
   - `test_agent_cli_mode_refused`;
   - `test_agent_relay_refused`;
   - `test_audit_refused`;
   - `test_single_issue_submit_runs_gates`;
   - `test_relay_mode_gates_fetch_branch`, run as the human;
-  - `test_switch_on_in_head_with_approval_submits`;
   - `test_gate_failure_leaves_no_pr_and_pushes_nothing`: the stubbed `gh
     pr create` and push are never called;
   - `test_rerun_after_approval_submits`;
-  - `test_human_submit_runs_same_gates`;
+  - `test_human_submit_of_agent_pr_runs_gates`;
+  - `test_human_only_pr_skips_both_gates`: a PR with no agent identity in
+    its ready-state or its history needs neither an approval nor a record;
   - `test_human_override_posts_comment_and_submits`: the human-only flag
-    `--override-merge-review "<reason>"` posts, from the human login, a
-    comment naming the PR and its change fingerprint. It then skips only
-    the merge-review check, never the protected-change check;
+    `--override-merge-review "<reason>"` posts, from the human login, the
+    Task 8 override line for the change's fingerprint on the task issue. It
+    then submits; the override covers only the merge-review check, never the
+    protected-change check;
   - `test_agent_cannot_use_override`;
   - `test_vrg_gh_agent_denial_names_submit`.
 - [ ] **Step 2:** Run → FAIL. Implement. Run → PASS. Then `vrg-container-run
@@ -748,14 +783,17 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
     `--human-login`, and the agent identities are derived from it as
     `lib/rulings/identity.py` already does. The audit refuses (exit 1) when
     the value is missing or empty, or names more than one login.
-  - **Two markers** in the audited repo, `refs/vergil/agent-audit/develop`
-    and `refs/vergil/agent-audit/main`, each holding the last audited merge
+  - **Two markers** in the audited repo, the branches
+    `vergil/agent-audit/develop`
+    and `vergil/agent-audit/main` (rulesets cover only branches and tags, so
+    they are branches, protected by Task 2), each holding the last audited merge
     commit on its branch. `--init` sets both to the current tips and audits
     nothing. Each branch's merges are caught up from its own marker.
   - It exits 0 when clean, 1 on any finding or read failure, and 2 on a
     usage error.
 - Checks, per merge since each branch's marker:
-  1. protected files covered by approval (every PR);
+  1. protected files covered by approval (agent-involved PRs only; the
+     human's own and the automation App's own PRs are exempt);
   2. a merge-review record, exemption or human override covering the merged
      head's change
      (agent-involved PRs only: opened by an agent login, or with any
@@ -771,6 +809,10 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
 - [ ] **Step 1: Confirm the pusher record.** Find which GitHub API records
   name the identity that pushed a commit to a PR branch, and use one if
   any is reliable. State the answer in the PR body.
+- **Reading a merged PR.** Merged branches are deleted
+  (`delete_branch_on_merge`), so the audit fetches `refs/pull/<n>/head` for
+  the head and uses the merge commit's first parent as `base`, and as the
+  registry ref (Task 4).
 - [ ] **Step 2: Write the failing tests:**
   - `test_init_sets_marker_and_audits_nothing`;
   - `test_missed_run_is_caught_up_from_marker`;
@@ -780,7 +822,9 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
   - `test_unexpected_actor_reported`;
   - `test_main_merge_by_agent_reported`;
   - `test_squash_changed_approved_file_is_its_own_condition`;
-  - `test_read_failure_exits_1`.
+  - `test_read_failure_exits_1`;
+  - `test_merged_squash_pr_read_from_pull_ref`;
+  - `test_merged_rebase_batch_read_from_pull_ref`.
 - [ ] **Step 3:** Run → FAIL. Implement. Run → PASS. Then `vrg-container-run
   -- vrg-validate`.
 - [ ] **Step 4: Commit** `feat(audit): a daily audit of agent merges`.
@@ -859,11 +903,9 @@ names the handoff.
   - it never runs anything with `--release`.
 - **Removed:** "Only the human opens the PR" and the workflow-push special
   case. The cloud relay section stays.
-- **Added, one line:** if `vrg-submit-pr` refuses because agent submission
-  is off for this repo, or a push is refused for workflow files, stop and
-  hand off. Report-ready has recorded the state, and the refusal names the
-  human's command. This is the path until a repo's switch is on, and the
-  opt-out path after.
+- **Added, one line:** if a push is refused for workflow files (before Task
+  3g), stop and hand off: report-ready has recorded the state, and the
+  human's `vrg-submit-pr` pushes it.
 - **Check:** the plugin's tests pass under `vrg-container-run --
   vrg-validate`. Commit `feat(skills): the implementer owns the PR to
   merge`.
@@ -902,23 +944,57 @@ names the handoff.
   - releases and promotion are human actions;
   - a protected-path change needs the human's approval;
   - the freeze runs from report-ready to the agent's own submit;
-  - where agent submission is off for a repo, or a workflow push is refused,
-    the agent hands off as before, and the refusal names the command.
+  - until `workflows: write` is granted, a refused workflow push is handed
+    off as before.
 
   The workflow-push paragraph goes.
 - **Check:** `vrg-container-run -- vrg-validate`. Commit `docs: the agent
   boundary moves to releases`.
 
-## Task 17d (deployment): Release vergil-tooling and the plugin
+## Releases: the order that makes the rollout safe
 
-- **Preconditions:** the tasks in its "Blocked by" are closed; the releases
-  are human-gated.
-- **Procedure:** release vergil-tooling, then the plugin; run `vrg-vm update
-  --all` and `vrg-host plugins`.
+There is no per-repo switch (spec §5). Each release is fleet-wide. The
+order is what matters: no check ships before anything can pass it, and no
+instruction ships before its permission. Every release is human-gated.
+"Release" means the first ordinary release of that repo containing the
+tasks named.
+
+## Task 7d (deployment): Release vergil-tooling with the record and request commands
+
+- **Preconditions:** Tasks 5, 6a, 6b and 7 merged.
+- **Procedure:** the next vergil-tooling release; `vrg-vm update --all`,
+  `vrg-host` refresh.
+- **Acceptance:** `vrg-merge-review-close --help` and `vrg-ruling request
+  --kind protected-change --help` run in a VM.
+
+## Task 15r (deployment): Plugin release A: records and hook wording
+
+- **Preconditions:** Task 7d done; Tasks 14 and 15a merged.
+- **Procedure:** release the plugin; `vrg-vm update --all` and `vrg-host
+  plugins`.
+- **Acceptance:** the next merge review on any task issue posts a closing
+  comment carrying a `Merge review record:` line. No check reads it yet.
+
+## Task 17d (deployment): Release vergil-tooling with the gates
+
+- **Preconditions:** Task 15r done, so merge review already writes records;
+  Tasks 4, 8, 9, 10, 11 and 12 merged.
+- **Procedure:** the next vergil-tooling release; `vrg-vm update --all`,
+  `vrg-host` refresh.
 - **Acceptance:**
   - in a VM, `vrg-submit-pr --help` no longer says "human-only";
-  - in a repo with the switch off, an agent submit is refused with the
-    switch named.
+  - the human's next ordinary `vrg-submit-pr` passes the new gates, using
+    the record merge review wrote;
+  - an agent submit still fails, at GitHub, for lack of `pull_requests:
+    write` (granted in Task 18d).
+
+## Task 21d (deployment): Plugin release B and the steering
+
+- **Preconditions:** Task 18d done; Tasks 15b, 15c, 15d and 16a merged.
+- **Procedure:** release the plugin and vergil-tooling (for 16a's
+  template); `vrg-vm update --all` and `vrg-host plugins`.
+- **Acceptance:** an `issue-implement` run on a fixture task submits its PR
+  and carries it to merge without a human step.
 
 ## Task 12d (deployment): Audit live fleet-wide, marker set, green
 
@@ -939,8 +1015,8 @@ names the handoff.
   each installation whose repos all appear in Task 12d's list with their
   markers. An installation not on that list is not granted until it is.
 - **Acceptance:**
-  - an agent `vrg-submit-pr` in a repo with the switch off is still
-    refused;
+  - a hand-run agent `vrg-submit-pr` on a test PR in a fixture opens it
+    with auto-merge on, and it merges;
   - a merge into `main` with the user agent's own token is now refused by
     the ruleset, repeating Task 2d's check with this identity.
 
@@ -952,19 +1028,18 @@ the agent boundary moves to releases`.
 
 ## Task 19: Fixture runs
 
-File with `fixture-run`, after Tasks 18d and 3g exist:
+File with `fixture-run`, after Tasks 21d and 3g exist:
 
 ```text
 fixture-run vergil-project/.github#1384 \
   python-app,python-lib,rust-app,rust-lib,ts-app,ts-lib \
-  --validates "agent-submitted PRs (the Task 17d releases)" \
-  --after vergil-project/.github#<18d> --after vergil-project/.github#<3g>
+  --validates "agent-submitted PRs (the Task 21d releases)" \
+  --after vergil-project/.github#<21d> --after vergil-project/.github#<3g>
 ```
 
-Each run's change task turns `[pr-workflow] agent-submit = true` on. That is
-a `vergil.toml` change, so it needs the human's protected-change approval,
-which is its own first proof. The agent then submits the change. The
-release stays the human's.
+These are the first live agent cycles (spec §5 step 5). The agent submits
+each run's change PR and carries it to merge. The release stays the
+human's.
 
 ## Task 19v (validation): Protected path, exemption and audit on one fixture
 
@@ -972,23 +1047,17 @@ release stays the human's.
 - **Procedure:**
   1. An agent PR editing a workflow is refused, then approved, then merges.
   2. An agent PR with the human's merge-review exemption merges.
-  3. The human merges one PR with no approval, deliberately, through the
-     API.
+  3. An **agent-opened** PR that edits a workflow file is merged by the
+     human through the API with no approval, deliberately bypassing submit.
+     (A human-only PR would be exempt, so it would prove nothing.)
 - **Acceptance:** cases 1 and 2 merge; the next audit run reports case 3 by
   name, and nothing else.
-
-## Task 20 (one per repo): Switch on for the rest of the fleet
-
-Each repo's PR sets `agent-submit = true`, with the human's protected-change
-approval. That repo's registry, if it needs one, lands first in the same PR.
-Each runs `vrg-container-run -- vrg-validate`. The switch stays after the
-rollout, as a per-repo opt-out (spec §5 step 4).
 
 ## Bookends
 
 - **Task 1 (#1385):** this spec and plan.
 - **R1 (vergil-project/vergil-tooling#4751):** documentation review. It
   covers the site docs on the new boundary, the approval and exemption
-  commands, the audit, and the rollout switch, and spawns per-repo doc tasks
+  commands, the audit and the release order, and spawns per-repo doc tasks
   as needed.
 - **R2 (#1386):** retrospective, with `epic-retrospective`.
