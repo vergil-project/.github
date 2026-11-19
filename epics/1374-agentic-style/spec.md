@@ -218,9 +218,9 @@ is marked so.
   drop is counted.
 - **Report.** Dated, written to the output path (section 7). Each finding:
   rule ID and source, file and line, what is wrong, a suggested change, and
-  its **reach**: `local`, `cross-module`, or `public-interface`. Reach is recorded because
-  fixes that rename or restructure ripple to callers, docs, tests and
-  sometimes other repos. A per-rule summary table: findings raised, findings
+  its **reach**: `local`, `cross-module`, or `public-interface`. Reach is
+  recorded because fixes that rename or restructure ripple to callers, docs,
+  tests and sometimes other repos. A per-rule summary table: findings raised, findings
   surviving verification, so rules that never fire, always fire, or mostly
   fail verification are visible for tuning.
 - **Calibration mode.** The skill can run against the rulebook's own snippet
