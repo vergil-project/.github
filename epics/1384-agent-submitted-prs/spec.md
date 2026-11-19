@@ -134,8 +134,10 @@ those files, and nowhere else.
 Paths are in vergil-tooling's `src/vergil_tooling/` unless stated.
 
 - **`bin/vrg_submit_pr.py:168`.** Today `is_agent()` refuses the whole
-  command. Change: refuse only AUDIT, and agents on the `--release` path;
-  allow USER otherwise.
+  command. Change: refuse AUDIT; refuse agents on the `--release` path, in
+  the CLI emergency mode and on the relay path, so agents stay on the path
+  report-ready drives (the relay serves cloud sessions, a non-goal); allow
+  USER otherwise.
 - **`bin/vrg_finalize_pr.py`.** No identity check today; `--release` chains
   `vrg-release`, which refuses agents. Change: refuse `--release` for agents
   up front, before any PR is watched.
@@ -191,9 +193,10 @@ That is the accepted seam named in §3.
 **Secrets only on protected branches, before `workflows: write`.** Every
 credential a workflow reads as a secret that can write or act (at least the
 org automation App's `APP_CLIENT_ID` and `APP_PRIVATE_KEY`) lives only in a
-GitHub environment whose deployment branch policy allows only `develop` (and
-`main` where a job needs it), never at org or repo level. Every job that needs
-one declares the environment. A workflow running on any other branch therefore
+GitHub environment whose deployment branch policy allows only `develop` and
+`main` (releases run on `main` in every repo), never at org or repo level.
+Every job that needs one declares the environment. A workflow running on any
+other branch therefore
 runs without them. A read-only token that PR-time CI needs, such as a
 third-party vulnerability database key, may stay outside the rule. Each one is
 named in the plan with its reason. This absorbs
@@ -205,6 +208,20 @@ the secrets) and its acceptance criteria become this epic's.
 The plan gives this work its own, explicitly sequenced phase with #1185's
 acceptance criteria. It gates only the `workflows: write` grant, so the rest
 of the epic does not wait on it.
+
+**`secrets: inherit`, on purpose and only here.** Environment secrets reach a
+reusable workflow in another repo only when the caller passes `secrets:
+inherit` (a probe recorded in vergil-actions `cd-release.yml`), and a job
+that calls a reusable workflow cannot declare an environment. So the callers
+of the reusable workflows that read these credentials (`cd-release.yml`,
+`ops-github-config.yml`, the epic sweep and rollup, the audit workflow) pass
+`secrets: inherit`. This deliberately narrows the least-privilege rule of
+epic vergil-project/.github#189, and supersedes the explicit App-key maps
+added just before this epic. The over-sharing it permits is small once no
+org- or repo-level secret that can write or act remains, and the called
+workflows are protected paths. Every other caller keeps an explicit map, and
+a `vrg-validate` check refuses `secrets: inherit` on any workflow outside
+that allow-list.
 
 With `workflows: write`, the "workflow-touching branch makes GitHub refuse the
 agent push" special case disappears from report-ready, `issue-implement` and
@@ -519,8 +536,10 @@ merge; it makes a harmful one visible within a day.
 The builder decides where it runs and as which identity, most naturally beside
 the daily GitHub config job in `.github`'s `ops.yml`, as the automation App.
 That job needs the trusted-authors configuration (the human login) to verify
-the exchange, and the plan states how it gets it. The audit's workflow and code
-are protected paths.
+the exchange, and the plan states how it gets it. The audit's workflow and its
+callers are protected paths. Its code lives in vergil-tooling and, like the
+rest of the tooling's gate logic (§4.4), is covered by merge review and the
+human-gated release, not by the core.
 
 ### 4.9 Soft gates: `vrg-gh` and the hooks
 
@@ -582,7 +601,10 @@ The soft gates now say "use the tool" instead of "ask the human":
   finalize through the tools and never with `--release`. Releases and
   promotion are human actions. A change to a protected path needs the human's
   approval. The frozen-branch rule stays (the freeze now lasts from report-ready
-  to the agent's own submit). The workflow-push paragraph goes.
+  to the agent's own submit). The workflow-push paragraph becomes one line
+  until `workflows: write` is granted: a refused workflow push is handed off
+  as before, since report-ready has recorded the state. After the grant it
+  goes.
 - **The permission-model spec** in vergil-tooling: amend "the human triggers;
   the agent doesn't" and the user App permission table. State the new principle:
   agents trigger the PR path, humans trigger releases, and the protected core is
