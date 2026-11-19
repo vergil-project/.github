@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1350
 - **Planning issue:** vergil-project/.github#466 (review history is in its
   comments)
-- **Status:** draft, in design review
+- **Status:** approved
 - **Spec:** [`spec.md`](spec.md)
 
 > **For agentic workers:** each task below is one issue and one PR, driven
@@ -97,10 +97,10 @@ vergil-containers, `G` .github. Kinds: `task`, `deploy`, `valid`
 | --- | --- | --- | --- | --- |
 | 1 | Spec and plan (#1351) | G | docs | — |
 | 2a | Release tags pushed with the App token | A | task | — |
-| 2b | Each repo passes the App secrets | each | task | — |
+| 2b | Nine repos pass the App secrets | each | task | — |
 | 2ad | Release vergil-actions with 2a | A | deploy | 2a |
 | 2 | Tag protection: add creation | T | task | 2a |
-| 2d | Apply the tag ruleset fleet-wide | T | deploy | 2, 2ad, 2b |
+| 2d | Apply the tag ruleset in vergil-project | T | deploy | 2, 2ad, 2b |
 | 3 | `tooling_install` and the locked Mac refresh | T | task | — |
 | 4 | Cache build and key on `tooling_install` | T | task | 3 |
 | 5a | VM install and cleanup | T | task | 3 |
@@ -198,11 +198,14 @@ needs them.
 
 ## Task 2b (one per repo): Pass the App secrets to `cd-release.yml`
 
-- **Step 1, before filing:** count every repo, in every org that
-  `vrg-github-repo-config` manages, whose `cd.yml` calls `cd-release.yml`
-  without `secrets: inherit` or the two App secrets. File one task per repo
-  under this epic (today at least vergil-containers, vergil-vm and the
-  language fixtures).
+- **The repos** (counted at filing, vergil-project only): those whose
+  `cd.yml` calls `cd-release.yml` without `secrets: inherit` or the two App
+  secrets: vergil-claude-plugin, vergil-containers, vergil-vm and the six
+  language fixtures. vergil-tooling, vergil-python and packages already
+  inherit; vergil-actions tags with the App itself.
+- **Other orgs** are outside this epic. The fleet sync applies the ruleset
+  there automatically after vergil-tooling's release; a releasing repo
+  there needs the same `cd.yml` change before its next release.
 - **Each task:** that repo's `cd.yml` passes `APP_CLIENT_ID` and
   `APP_PRIVATE_KEY` (or `secrets: inherit`, matching the repo's existing
   style); `vrg-container-run -- vrg-validate`; commit `ci(cd): pass the
@@ -216,15 +219,16 @@ needs them.
   the App.
 - **Acceptance:** that tag's creator is the App identity.
 
-## Task 2d (deployment): Apply the tag ruleset fleet-wide
+## Task 2d (deployment): Apply the tag ruleset in vergil-project
 
 - **Preconditions:** Task 2 merged and released in vergil-tooling (a
   human-gated release); Task 2ad and every Task 2b closed.
-- **Procedure:** run `vrg-github-repo-config` in apply mode for every repo
-  of every managed org, then the config audit (`ops.yml`, or the audit
-  command it runs).
+- **Procedure:** run `vrg-github-repo-config` in apply mode for every
+  vergil-project repo, then the config audit (`ops.yml`, or the audit
+  command it runs). Other orgs get the rule from the automated fleet sync.
 - **Acceptance:** the audit reports no drift on "Tag protection" in any
-  repo; a test tag push `v0.0.0-ruleset-check` by an agent identity to
+  vergil-project repo; a test tag push `v0.0.0-ruleset-check` by an agent
+  identity to
   vergil-tooling is refused; and a release of a second language fixture
   repo (part of this epic) creates its tag.
 

@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1350
 - **Planning issue:** vergil-project/.github#466 (review history is in its
   comments)
-- **Status:** draft, in design review
+- **Status:** approved
 - **Repos:** vergil-tooling, vergil-actions, vergil-containers, vergil-vm
 - **Related:** epic vergil-project/.github#356 (binary package publishing,
   decision D14), epic vergil-project/.github#649 (Ubuntu base platform, §5.2
@@ -80,7 +80,9 @@ purpose:
   (`github_config.desired_tag_protection_ruleset`, re-checked by the daily
   config audit) carries that rule, with this epic adding **creation** to its
   update and deletion rules for both patterns. The ruleset is the same for
-  every managed repo, so the creation rule applies fleet-wide, since every
+  every managed repo, so the creation rule applies fleet-wide (this epic
+  applies and checks it in vergil-project; the automated fleet sync applies
+  it to the other orgs), since every
   repo's `vX.Y` tags serve as an indirection consumers follow. Two things
   come first: the shared release action (vergil-actions'
   `tag-and-release`) pushes release tags with the App's installation token
@@ -369,7 +371,8 @@ order, each step is released and checked before the next starts.
    token (vergil-actions released) and every releasing repo passes the App's
    credentials to its release; then the Tag protection ruleset's creation
    rule (§1.1) is released in vergil-tooling's `github_config`, applied to
-   every managed repo, and confirmed by the config audit, before step 1.
+   every vergil-project repo, and confirmed by the config audit, before
+   step 1.
 
 1. **vergil-tooling** releases the uv install in the cache build, `vrg-vm`
    and its consumer refresh, `vrg-host`'s report-only handling of
