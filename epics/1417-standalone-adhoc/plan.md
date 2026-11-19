@@ -782,8 +782,9 @@ Spec §4.7. Blocked by 12 and 14.
      deferral reason into a comment, then `vrg-intake-route <ref> one-off
      --repo <repo> --epic <proxy ref>`. Its order relative to its
      prerequisites is the primary's plan's (#319's plan orders REG after
-     OP1), recorded by step 6's evolution entry. Each ad-hoc candidate: `vrg-epic-move --task
-     <ref> --epic <proxy ref>` (or `--epic hoshin` for a `Logbook:` task).
+     OP1), recorded by step 6's evolution entry. Each ad-hoc candidate:
+     `vrg-epic-move --task <ref> --epic <proxy ref>` (or `--epic hoshin` for
+     a `Logbook:` task).
   5. Each standalone task the report flagged gets a `Standalone-confirmed`
      comment, on the human's ruling.
   6. For each primary that gained proxy tasks (#319 for #3188 and #3189),
