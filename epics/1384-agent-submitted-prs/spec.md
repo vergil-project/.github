@@ -243,7 +243,8 @@ not protect the internals of the tooling that implements those checks.
   `vergil.toml` in every repo, and the protected-path registry file itself;
 - **the repo's own registry**, a file in the repo naming further paths. In
   vergil-actions it names `actions/**`, the composite actions the reusable
-  workflows call. In `.github` it also names the hoshin logbook's path, so the
+  workflows call. In vergil-project/docs it names the hoshin logbook,
+  `docs/site/docs/logbook/**`, so the
   human's approval of the exact published text is a protected-change approval
   (§4.10). Any other repo names what it needs, kept to the same kind of
   wiring.
@@ -363,7 +364,7 @@ submits normally.
    the review before the first submit, and the review of a fix to an open PR
    (which runs no report-ready). That comment, by the agent login, is the one
    merge-review record. It gains a machine-readable line naming the head it
-   judged, the patch-id of the change (below), and an outcome of `eligible`
+   judged, the change fingerprint (below), and an outcome of `eligible`
    or `not-eligible (<reason>)`. Submit, the watch and the audit (§4.8) all
    read it from GitHub, with one shared reader. There is no separate field
    in the PR workflow state, and the eligibility line in report-ready's
@@ -380,10 +381,10 @@ submits normally.
    **The only skip is the human's exemption.** A merge-review exemption is a
    new request kind in the same authenticated ruling exchange as the
    protected-change approval (§4.5). The agent posts the request on the task
-   issue with the reason and the patch-id of the change it covers, and hands
+   issue with the reason and the change fingerprint it covers, and hands
    the human the exact `vrg-ruling-reply` command to run. A verified,
    approving reply stands in for merge review's closing comment as the
-   record. It covers the change by patch-id, like the record it replaces: a
+   record. It covers the change by fingerprint, like the record it replaces: a
    clean rebase keeps it, and any change to the diff needs a new exemption or
    a merge review. An exemption never waives the protected-change approval.
    It is the path for the human's "skip merge review on this one", and it
@@ -414,12 +415,14 @@ a push today and how a fixed PR is re-armed, and puts the checks on that path.
 
 **What a merge-review record covers.** So that a clean rebase does not void
 it, the merge-review record names the change it reviewed by its **change
-fingerprint**, not only by the head commit. The fingerprint is the git
-patch-id of the branch's diff against its merge base taken with zero context
-lines (`git diff -U0 <base>...<head> | git patch-id`), so only the branch's
-own added and removed lines count, and line numbers are ignored. Plain
-patch-id is not enough: it hashes context lines, so a rebase over a nearby
-edit on `develop` would change it. A head whose change fingerprint matches is
+fingerprint**, not only by the head commit. The fingerprint is a hash of the
+branch's diff against its merge base, taken with zero context lines, so only
+the branch's own added and removed lines count. Line numbers and the
+whole-file `index` hashes are dropped, since both change when `develop` moves
+underneath. Whitespace is kept exactly, and a binary file counts by its
+content. `git patch-id` is not used: it hashes context lines (in its plain
+form), ignores whitespace, and sees binaries only as "differ". A head whose
+change fingerprint matches is
 covered: a clean rebase keeps it, and any change to the branch's own lines,
 including a conflict resolution, needs a new merge review. The merge-review
 exemption uses the same fingerprint. This mirrors the blob-hash rule for
@@ -561,7 +564,7 @@ The soft gates now say "use the tool" instead of "ask the human":
   releases stay human-gated.
 - **`hoshin`**: the agent submits the logbook PR. Today the human's submit is
   the review's sign-off. It becomes a protected-change approval instead: the
-  logbook's path is in `.github`'s protected-path registry (§4.4), so the
+  logbook's path is in vergil-project/docs' protected-path registry (§4.4), so the
   human's in-session approval of the full text is posted as an `approve` reply
   recording each logbook file's blob hash (§4.5). Submit, the watch and the
   audit then enforce it with no logbook-specific rule, and any later edit to
