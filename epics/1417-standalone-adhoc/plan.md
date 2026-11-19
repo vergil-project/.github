@@ -135,9 +135,9 @@ blocked by.
   logical-minds-foundry/.github#319, #3188 and #3189 re-homed, every org's
   ad-hoc and deferred queues swept, and, for each primary, a task filed
   under that primary for its plan's evolution entry. Blocked by 12 and 14.
-- **16** (.github, validation): no misplaced task remains, the audits are
-  clean, and each primary's evolution entry has landed. Blocked by 15 and
-  the evolution-entry tasks Task 15 files.
+- **16** (.github, validation): no misplaced task remains, every confirmed
+  candidate is re-homed, the audits are clean, and each primary's
+  evolution-entry task is filed. Blocked by 15.
 
 ### Bookends
 
@@ -157,7 +157,8 @@ Notes:
 - **A primary's plan evolution stays in its own org.** The evolution entry
   that names a re-homed task in its primary's plan (Task 15) is the
   primary's own work, filed under the primary as a native sub-issue, not a
-  task of this epic, so it needs no proxy.
+  task of this epic, so it needs no proxy. This epic checks only that it is
+  filed; when it lands is the primary's business.
 - **Merged is not deployed.** Each plugin task that runs the new tooling
   waits for its release (3, 12); the migration waits for both releases (12
   and 14), so it runs only the sanctioned, installed tools.
@@ -166,7 +167,8 @@ Notes:
   advisories tracking the planning issue are retargeted then to the tasks
   that implement their requirements: GHSA-xj7j-xg99-xhhx to Task 8;
   GHSA-8fmf-cp85-xh7r, GHSA-pm2g-vjv4-pmvh, GHSA-rhfx-48qr-xfqw,
-  GHSA-rwxm-5qfw-7jmj and GHSA-rvjx-26r5-6255 to Task 11. All are in
+  GHSA-rwxm-5qfw-7jmj, GHSA-rvjx-26r5-6255 and GHSA-r3mh-rr3j-6qmh to Task
+  11. All are in
   vergil-project, as are both tasks.
 
 ---
@@ -185,6 +187,8 @@ Spec §4.5.
 - Modify: `src/vergil_tooling/bin/vrg_issue_create.py`,
   `src/vergil_tooling/bin/vrg_epic_move.py` (the `--epic` help and module
   docstrings list `hoshin`)
+- Modify: `src/vergil_tooling/data/labels.json` (the `hoshin` label; the
+  existing `test_standing_kind_labels_are_in_registry` checks it)
 - Test: `tests/vergil_tooling/test_epics.py`,
   `tests/vergil_tooling/test_intake_route.py`,
   `tests/vergil_tooling/test_vrg_issue_create.py`,
@@ -367,6 +371,7 @@ Spec §4.2.
 - Modify: `src/vergil_tooling/lib/epic_docs.py` (`is_skipped`),
   `src/vergil_tooling/lib/roadmap.py` (`_is_perpetual` excludes proxies, so
   `gather` and `epic_audit.epic_drift` skip them)
+- Modify: `src/vergil_tooling/data/labels.json` (the `proxy` label)
 - Test: `tests/vergil_tooling/test_proxies.py`,
   `tests/vergil_tooling/test_epics.py`,
   `tests/vergil_tooling/test_epic_docs.py`,
@@ -396,7 +401,7 @@ Spec §4.2.
   `test_proxies_of_line_not_alone_ignored`. In the other files:
   `test_rollup_skips_proxy` (all tasks closed, the proxy stays open);
   `test_epic_drift_skips_proxy`; `test_is_skipped_proxy`;
-  `test_gather_excludes_proxy`.
+  `test_gather_excludes_proxy`; `test_proxy_label_in_registry`.
 - [ ] **Step 2:** Run `vrg-container-run -- pytest
   tests/vergil_tooling/test_proxies.py tests/vergil_tooling/test_epics.py
   tests/vergil_tooling/test_epic_docs.py tests/vergil_tooling/test_roadmap.py
@@ -440,7 +445,9 @@ Spec §4.2, §5. Blocked by 7.
   not be filed in an ad-hoc epic); `test_proxy_for_existing_open_proxy_prints_it`;
   `test_proxy_for_closed_proxy_reopened` (open primary; reported, no
   duplicate); `test_proxy_for_rerun_posts_missing_comment`;
-  `test_proxy_for_rerun_is_noop`; `test_proxy_for_token_missing_refuses`.
+  `test_proxy_for_rerun_is_noop`; `test_proxy_for_token_missing_refuses`;
+  `test_proxy_for_ensures_labels_before_create` (`ensure_labels` for `epic`
+  and `proxy` in the target home runs before the issue is created).
 - [ ] **Step 2:** Run them. Expect FAIL.
 - [ ] **Step 3: Implement.** Find an existing proxy by searching the target
   home for `epic` + `proxy` issues whose `primary_of` is the primary. Write
@@ -498,25 +505,33 @@ Spec §4.2. Blocked by 7.
   `close_proxies`)
 - Modify: `src/vergil_tooling/bin/vrg_epic_audit.py` (the `--close` path and
   its report)
-- Test: `tests/vergil_tooling/test_epic_audit.py`
+- Test: `tests/vergil_tooling/test_epic_audit.py`,
+  `tests/vergil_tooling/test_vrg_epic_audit.py`
 
 **Interfaces:**
 
 - Consumes: `primary_of` (Task 7).
 - Produces: `@dataclass(frozen=True) class ProxyClosure: proxy: IssueRef;
   primary: IssueRef; open_tasks: int`; `proxy_closures(home: str) ->
-  list[ProxyClosure]` (each open proxy in *home* whose primary is closed);
-  `close_proxies(closures: list[ProxyClosure]) -> list[str]` (closes those
-  with `open_tasks == 0`; the rest are returned as drift lines).
+  list[ProxyClosure]` (each open proxy in *home* whose primary is closed),
+  with `proxy_errors: list[str]` returned beside it, one line per proxy
+  whose `Primary:` link fails, never raised; `close_proxies(closures:
+  list[ProxyClosure]) -> list[str]` (closes those with `open_tasks == 0`;
+  the rest are returned as drift lines).
 
 - [ ] **Step 1: Write the failing tests:**
   `test_proxy_closed_when_primary_closed_and_no_open_task`;
   `test_proxy_with_open_task_after_primary_closed_is_drift`;
   `test_proxy_left_open_while_primary_open`;
-  `test_proxy_unreadable_primary_fails`.
+  `test_proxy_unreadable_primary_reported_and_run_fails` (the error is on
+  stderr and in the closed report, and the run exits non-zero at the end);
+  `test_proxy_link_error_does_not_stop_other_passes` (in
+  `test_vrg_epic_audit.py`: the reopen, drain and orphan passes still run).
 - [ ] **Step 2:** Run them. Expect FAIL.
 - [ ] **Step 3: Implement**; `--close` runs `close_proxies` after
-  `close_drift`, and the preview lists both kinds.
+  `close_drift`, and the preview lists both kinds. A proxy link error is
+  collected, never raised mid-run, as `drain_standing_org` treats a
+  corrupted home; the exit status reflects it once every pass has run.
 - [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
   Expect PASS.
 - [ ] **Step 5:** Commit `vrg-commit --type feat --scope epic-audit
@@ -669,7 +684,8 @@ Blocked by 8, 9a, 9b, 9c, 10 and 11.
 Spec §4.3, §4.4. Blocked by 12.
 
 - **Files:** Modify `skills/epic-implement/SKILL.md`,
-  `skills/epic-retrospective/SKILL.md`.
+  `skills/epic-retrospective/SKILL.md`, `skills/issue-implement/SKILL.md`
+  ("Documentation left for the sweep").
 - [ ] **Step 1:** `epic-implement` builds its frontier from
   `vrg-epic-audit --epic <primary>`'s `children`, which include proxy
   tasks, and records plan evolution for them in the primary's plan.
@@ -678,8 +694,14 @@ Spec §4.3, §4.4. Blocked by 12.
 - [ ] **Step 2:** `epic-retrospective`'s gate is unchanged (the children
   include proxy tasks); its refusal names the proxy of each open proxy
   task, and an exit 1 from `vrg-epic-audit --epic` (link drift) stops it.
-- [ ] **Step 3:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
-- [ ] **Step 4:** Commit `vrg-commit --type feat --scope epic-implement
+- [ ] **Step 3:** The documentation-review sweep (`epic-implement` §6): a
+  per-repo doc task for a repo in another org is filed with `--epic <that
+  org's proxy ref>` (created with `--proxy-for` if none exists), never
+  under the primary and never ad-hoc. `issue-implement`'s "Documentation
+  left for the sweep" records a proxy task's items on the **primary's**
+  documentation-review bookend.
+- [ ] **Step 4:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type feat --scope epic-implement
   --message "drive proxy tasks from the primary epic"`, then report-ready.
 
 ### Task 13b: design sources through a proxy (vergil-claude-plugin)
@@ -692,9 +714,13 @@ Spec §4.3. Blocked by 12.
   resolve the primary with `vrg-epic-audit --epic <proxy ref>` and take its
   `primary` key (Task 9a). Step 2 then reads the primary's Documents
   section for the design sources, before the request is built, as today.
-  An audit that exits non-zero, a missing `primary` key, or a primary with
-  no design source is a stop, as for any missing design source, never a
-  review against nothing. The open tasks need no skill change (Task 10).
+  An audit that exits non-zero, a missing `primary` key, or a primary whose
+  Documents section lists no design source raises a new stop item, `D2`
+  ("a proxy task's design sources cannot be resolved from its primary"),
+  through `vrg-ruling` like the skill's other stops. Its only replies are
+  `retry` (the link is fixed; resolve again) and `stop`; it has no
+  `proceed-without`, so a proxy task is never reviewed against nothing.
+  The open tasks need no skill change (Task 10).
 - [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
 - [ ] **Step 3:** Commit `vrg-commit --type feat --scope merge-review
   --message "take a proxy task's design sources from its primary"`, then
@@ -712,7 +738,9 @@ Spec §4.6. Blocked by 12.
   when the plan files a task in another org, files it with `--epic <proxy
   ref>`, and lists proxy tasks with full refs; step 8's security retarget
   notes that a cross-org `--to` moves the advisory and that fixes spanning
-  orgs are refused, naming the two ways out.
+  orgs are refused, naming the two ways out. The bookend convention (the
+  documentation-review task's sweep) says a doc task for a repo in another
+  org is filed under that org's proxy.
 - [ ] **Step 2:** `epic-review`: a one-off for work that belongs to another
   org's epic goes to that epic's proxy, never ad-hoc; revival of an item
   deferred from ad-hoc checks for this first.
@@ -742,16 +770,19 @@ Spec §4.7. Blocked by 12 and 14.
   1. For each org Vergil manages, list every open task under its ad-hoc and
      deferred epics (`vrg-queue adhoc --json`, `vrg-queue deferred
      --json`), and the misplacement report of `vrg-epic-audit` (Task 9c).
-  2. Present the candidates: each task tied to another org's epic, and each
-     `Logbook:` task. The human confirms the list.
+  2. Choose the candidates: the report's for ad-hoc tasks, plus a reading of
+     each listed ad-hoc and deferred task's body and comments for a tie to
+     an epic in another org, and each `Logbook:` task. Present the list,
+     with what the reading found for each, and the human confirms it. The
+     confirmed list is recorded in a comment on this task.
   3. `vrg-epic-create --proxy-for logical-minds-foundry/.github#319 --repo
      vergil-project/vergil-tooling`, and likewise for any other primary
      the list names.
-  4. Each deferred candidate (#3188 and #3189 among them): record its
-     prerequisite as a `Blocked-by:` line where it is an issue
-     (#3188: logical-minds-foundry/.github#331), carry its deferral reason
-     into a comment, then `vrg-intake-route <ref> one-off --repo <repo>
-     --epic <proxy ref>`. Each ad-hoc candidate: `vrg-epic-move --task
+  4. Each deferred candidate (#3188 and #3189 among them): carry its
+     deferral reason into a comment, then `vrg-intake-route <ref> one-off
+     --repo <repo> --epic <proxy ref>`. Its order relative to its
+     prerequisites is the primary's plan's (#319's plan orders REG after
+     OP1), recorded by step 6's evolution entry. Each ad-hoc candidate: `vrg-epic-move --task
      <ref> --epic <proxy ref>` (or `--epic hoshin` for a `Logbook:` task).
   5. Each standalone task the report flagged gets a `Standalone-confirmed`
      comment, on the human's ruling.
@@ -768,11 +799,13 @@ Spec §4.7. Blocked by 12 and 14.
 
 ### Task 16: no misplaced task remains (validation, .github)
 
-Spec §4.7. Blocked by 15 and the evolution-entry tasks it files.
+Spec §4.7. Blocked by 15.
 
 - **Procedure:**
-  1. Each evolution-entry task Task 15 filed is closed, and its primary's
-     `plan.md` on `develop` names the re-homed tasks.
+  1. Each evolution-entry task Task 15 recorded is filed as a native
+     sub-issue of its primary. When it lands is the primary's business, not
+     checked here. Every candidate on Task 15's confirmed list is under its
+     proxy or the hoshin epic.
   2. `vrg-epic-audit` for each swept org: no misplaced ad-hoc task is
      reported.
   3. `vrg-epic-audit --epic logical-minds-foundry/.github#319` exits 0 and
