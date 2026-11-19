@@ -403,8 +403,9 @@ framework grows:
   rule is then marked "enforced by `<check>`" for that language and is not
   agent-judged there. The survey records, per rule and language, which check
   covers it or that none does. Each check that is available but not enabled,
-  and each coverage gap a linter could close, becomes an intake issue to
-  strengthen the mechanical gates, outside this epic.
+  and each coverage gap a linter could close (in any surveyed language),
+  becomes an intake issue to strengthen the mechanical gates, filed on the
+  human's approval, outside this epic.
 - **Naming docs.** vergil-tooling's naming docs stay the authority, unchanged,
   until the rulebook is approved. After approval the Python, Rust, TypeScript
   and shell docs link to their rulebook rules as the authority (a docs task in
