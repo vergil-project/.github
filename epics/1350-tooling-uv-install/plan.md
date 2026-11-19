@@ -748,7 +748,7 @@ fixture-run vergil-project/.github#1350 <all fixtures> \
   sweep the spec names, spawning per-repo doc tasks in vergil-actions,
   vergil-containers, vergil-vm and docs.
 - **R2, retrospective** (vergil-project/.github#1352).
-- **The package-hosting follow-on** (spec §7) is filed into the deferred
-  queue when the tasks are filed, carrying vergil-project/.github#466's
-  survey list and vergil-project/.github#365, with "revisit when the home
-  hosting platform exists (February 2027)".
+- **The package-hosting follow-on** (spec §7) is deferred as
+  vergil-project/.github#1378, carrying vergil-project/.github#466's survey
+  list and vergil-project/.github#365, revisited when the home hosting
+  platform exists (expected February 2027).

@@ -417,7 +417,7 @@ order, each step is released and checked before the next starts.
 
 - **Package hosting.** Replacing GitHub Pages as the package host (object
   storage, a hosted service, or the planned home hosting platform in
-  February 2027) goes back to the deferred queue as its own item, with
+  February 2027) is deferred as vergil-project/.github#1378, with
   vergil-project/.github#466's survey list and the owned-domain item
   vergil-project/.github#365.
 
