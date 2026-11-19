@@ -9,7 +9,9 @@
 - **Related:** epic vergil-project/.github#889 (authenticated human rulings),
   epic vergil-project/.github#1218 (parallel PR merging: auto-merge and the
   provenance check), planning items vergil-project/.github#1088
-  (fixture-scoped agent rights), vergil-project/.github#467 (release holds)
+  (fixture-scoped agent rights), vergil-project/vergil-actions#1185
+  (environment-scoped automation credentials, absorbed by §4.2),
+  vergil-project/.github#467 (release holds)
   and vergil-project/.github#892 (authenticate every ruling); the
   permission-model spec,
   `vergil-tooling/docs/specs/2026-05-29-agent-permission-model-design.md`
@@ -34,7 +36,7 @@ its own PRs, with auto-merge on, and finalizes them. The human is pulled in
 only for:
 
 - judgment calls and merge-review rulings, as today;
-- a sign-off on a change to the **protected core** (§4.4), the small set of
+- an approval on a change to the **protected core** (§4.4), the small set of
   files that define the gates themselves;
 - failure triage and recovery decisions.
 
@@ -59,7 +61,7 @@ not a hostile agent. It is an honest one under pressure: facing a failing
 check, the quickest fix is to weaken the check. Agents in this fleet have done
 exactly that with coverage and test failures, adding exceptions instead of
 fixing the problem. The gates are the approval, so a gate the gated change can
-edit is not a gate. The protected core keeps a human sign-off on exactly
+edit is not a gate. The protected core keeps a human approval on exactly
 those files, and nowhere else.
 
 ## 2. Goals
@@ -69,12 +71,12 @@ those files, and nowhere else.
 2. `issue-implement` and `epic-implement` carry a task through report-ready,
    submit, `pr-watch` and finalize to a merge, and `epic-implement` moves on
    to the next runnable task without waiting for the human.
-3. A change to a protected path merges only with a human sign-off tied to the
+3. A change to a protected path merges only with a human approval tied to the
    exact contents of each protected file, enforced by `vrg-submit-pr`.
-4. A PR merges only if merge review declared it eligible for the head it
-   merges at, enforced by `vrg-submit-pr`.
+4. A PR merges only if merge review completed for the head it merges at,
+   enforced by `vrg-submit-pr`.
 5. A daily audit reports any merged PR that touched a protected path without
-   a valid sign-off.
+   a valid approval.
 6. Agents can push workflow changes themselves (`workflows: write`), so a
    workflow-touching PR no longer needs the human's push.
 7. The rollout proves the whole cycle on the fixture repos before it reaches
@@ -111,10 +113,10 @@ those files, and nowhere else.
 - **Bringing human review back by another route.** If the design makes the
   human approve ordinary PRs, it has failed even if it works. Only protected
   paths reach the human.
-- **A sign-off that rebases void.** A sign-off tied to a commit would be voided
-  by every rebase and CI fix, and the human would re-sign the same change
+- **An approval that rebases void.** An approval tied to a commit would be voided
+  by every rebase and CI fix, and the human would re-approve the same change
   repeatedly. It is tied to file contents instead (§4.5).
-- **A silent pass.** A failure to read the registry, the sign-off or the
+- **A silent pass.** A failure to read the registry, the approval or the
   merge-review record refuses the submit. It never lets the PR through.
 
 ## 4. Design
@@ -166,10 +168,23 @@ or merging a PR server-side is gone. What remains is the tooling gate (submit
 is the sanctioned path), the soft gates (§4.9) and detection (§4.3, §4.8).
 That is the accepted seam named in §3.
 
+**Secrets only on protected branches, before `workflows: write`.** Every
+credential a workflow reads as a secret (at least the org automation App's
+`APP_CLIENT_ID` and `APP_PRIVATE_KEY`) lives only in a GitHub environment
+whose deployment branch policy allows only `develop` (and `main` where a job
+needs it), never at org or repo level. Every job that needs one declares the
+environment. A workflow running on any other branch therefore runs without
+them. This absorbs vergil-project/vergil-actions#1185 in full: its scope
+(every in-scope org, the reusable workflows and any caller that mints the
+token, the repo-config desired state keeping the environment converged, and
+the human's moving of the secrets) and its acceptance criteria become this
+epic's. `workflows: write` is granted only after this is in place and
+verified (§5).
+
 With `workflows: write`, the "workflow-touching branch makes GitHub refuse the
 agent push" special case disappears from report-ready, `issue-implement` and
 CLAUDE.md. Workflow files are protected paths (§4.4), so they still need the
-human's sign-off, but the agent pushes and submits them itself.
+human's approval, but the agent pushes and submits them itself.
 
 ### 4.3 The provenance check
 
@@ -193,7 +208,7 @@ The AUDIT rules are unchanged.
 
 ### 4.4 The protected core
 
-A **protected path** is a file whose change needs the human's sign-off before
+A **protected path** is a file whose change needs the human's approval before
 it merges. The set is deliberately small: the files that define the gates.
 
 **Two sources, one set.** The set for a repo is the union of:
@@ -205,8 +220,8 @@ it merges. The set is deliberately small: the files that define the gates.
   hooks and the merge-review skill. Any other repo names what it needs.
 
 The registry file is itself a protected path, so removing a path from it needs
-a sign-off. The fleet default lives in vergil-tooling code, which is covered by
-vergil-tooling's own registry, so changing the default needs a sign-off too.
+an approval. The fleet default lives in vergil-tooling code, which is covered by
+vergil-tooling's own registry, so changing the default needs an approval too.
 
 **What starts in the core.** The builder fixes the exact list in the plan,
 covering at least these categories:
@@ -224,7 +239,14 @@ covering at least these categories:
 The core is for the gates, not for anything important. A core that grows to
 cover most of a repo has brought human review back (§3).
 
-### 4.5 The protected-change sign-off
+### 4.5 The protected-change approval
+
+A **protected-change approval** is an approving comment from the human,
+nothing cryptographic. The only proof involved is GitHub's record of who
+posted each comment. Each protected file's git blob hash, the ID git gives
+every version of a file's contents, ties the approval to the exact contents
+approved. A protected file is **not approved** when no approval covers its
+current blob.
 
 **Built on the authenticated ruling exchange** of epic
 vergil-project/.github#889 (`lib/rulings/`). The agent posts a request
@@ -236,6 +258,16 @@ request, and neither comment was edited. GitHub attributes each comment to its
 author, and an agent VM holds no human credentials, so an agent cannot post
 the reply.
 
+**Verifying a past approval.** The exchange verifier in `lib/rulings/` checks
+a live exchange, and treats any trusted comment after the response as fatal.
+A task issue always gains later comments (merge review's closing comment,
+other rulings, report-ready), so submit (§4.6) and the audit (§4.8) need a
+separate verifier for an approval already given. It accepts an approval only if
+the request is by the agent login and the reply by the human login, neither
+was edited or deleted, the reply is the first trusted comment after the
+request, and the reply approves that request. Comments after the reply are
+ignored. Submit and the audit share this one verifier.
+
 **What the request records.** A new request kind for protected changes. Its
 text lists every protected path the PR changes, and for each the git blob hash
 of the file at the head being submitted (a deleted file is recorded as
@@ -245,44 +277,75 @@ approving.
 **What the reply does.** The human's approving reply approves exactly the
 listed blobs. A refusal stops the PR for the human, like any ruling.
 
-**Why blob hashes.** A sign-off tied to file contents survives everything that
+**Why blob hashes.** An approval tied to file contents survives everything that
 leaves the protected files alone: a rebase, a CI fix elsewhere in the branch, a
 `pr-watch` reconcile. Any change to a protected file produces a new blob hash
-and voids the sign-off for that file.
+and voids the approval for that file.
 
 **Where it is raised.** Merge review spots a protected change on its run, names
-it in its findings, and asks for the sign-off through the ruling flow before
+it in its findings, and asks for the approval through the ruling flow before
 report-ready. Merge review is where the human hears about it. It is not where it
 is enforced, since merge review is an agent following a skill and can miss a
 file.
 
 ### 4.6 What `vrg-submit-pr` enforces
 
-Before turning auto-merge on for each PR, after its existing checks and
-before the provenance check, submit runs two new checks. Each failure refuses
-that PR's submit with auto-merge left off, and names the cause and the fix.
+Submit runs two new checks on each PR before it pushes anything or opens the
+PR, where it already checks the ready state and the freeze. Each failure
+refuses that PR's submit, names the cause and the fix, and leaves no PR open,
+so once the cause is fixed (for example, the human has approved) a re-run
+submits normally.
 
 1. **Protected paths.** Submit lists the files the PR changes against a freshly
    fetched `origin/develop` (the merge base), and matches them against the
    repo's protected set (§4.4) as it stands at the PR's head and on `develop`.
    Both matter: a PR that removes a path from the registry is judged by the
    registry it is removing it from. For each protected file changed, the blob at
-   the head must equal a blob recorded in a verified, approved sign-off on the
-   PR's task issue. For a batch PR, a sign-off may sit on any issue of the batch.
+   the head must equal a blob recorded in a verified approval on the
+   PR's task issue. For a batch PR, an approval may sit on any issue of the batch.
 2. **Merge-review eligibility.** Merge review's verdict is trusted by design:
    the human is involved only when the working agent and the merge reviewer
    agree that a ruling is needed, and that path already exists. The check does
-   not second-guess the verdict. It only confirms that merge review ran and
-   declared the PR eligible for the head being submitted, so a skipped or stale
-   review cannot reach `develop`. Report-ready records the merge-review outcome
-   in the PR workflow state as a structured field, and submit refuses unless it
-   is eligible for that head. Today the eligibility line rides free text in
+   not second-guess the verdict. It only confirms that merge review completed
+   for the head being submitted, so a skipped or stale review cannot reach
+   `develop`. Report-ready records the merge-review outcome in the PR workflow
+   state as a structured field: the head it reviewed, and an outcome of
+   `eligible` or `not-eligible (<reason>)`. Both outcomes pass:
+   `not-eligible` is the normal result of a run that stopped for a ruling the
+   human has answered, and the human's ruling is the decision. Submit refuses
+   only a missing record, a record that does not cover the head (see "What a
+   merge-review record covers" below), or a run that did not
+   complete (stopped, waiting, fatal or in error). Today the eligibility line
+   rides free text in
    `--notes`, read only by the human. With the human gone, something has to
    read it. The human's own `vrg-submit-pr` runs (for example the emergency
    CLI mode) are subject to the same check. The builder decides whether the
    human gets an explicit, logged override.
 
 Both checks run for every identity that submits, the human included.
+
+**Re-checked while the PR is open.** Auto-merge stays on when a new commit is
+pushed, so a check made only at submit could be outrun by a later push (a
+`pr-watch` CI fix that edits a workflow file, a rebase merge review never
+saw). So `vrg-finalize-pr`'s watch runs both checks wherever it already runs
+the provenance check: when the watch starts, and at every new head. A failure
+turns auto-merge off, confirmed by reading it back, as the watch already does
+for a provenance violation, and the PR is reported failed with the cause. Any
+path that turns auto-merge on, or leaves it on across a new head, runs both
+checks first. The builder confirms from the code how auto-merge behaves across
+a push today and how a fixed PR is re-armed, and puts the checks on that path.
+
+**What a merge-review record covers.** So that a clean rebase does not void
+it, the merge-review record names the change it reviewed by the git patch-id
+of the branch's diff against its base, not only by the head commit. A head
+whose diff has the same patch-id is covered: a clean rebase keeps it, and any
+change to the diff needs a new merge review. This mirrors the blob-hash rule
+for approvals (§4.5).
+
+**The enforcement is in the tools, not the skills.** The skills (§4.10) make
+the normal path the easy one, but an agent may depart from a skill, for
+example on the human's instruction. The checks in submit and in the watch run
+whatever the skill did, so a departure cannot merge unchecked.
 
 ### 4.7 Finalize in the agent's environment
 
@@ -302,15 +365,30 @@ lock does not serialise across them, and the plan addresses it.
 
 ### 4.8 The daily audit
 
-A daily job reports every PR merged into `develop` in the look-back window that
-changed a protected path, and checks each against the same rule submit
-enforces: the merged blob of each protected file must match an approved sign-off
-on the PR's task issue. A mismatch, or any read failure, is reported loudly as a
-failing run and an issue for the human. It never passes quietly.
+This is a new job, separate from the daily GitHub config job in `ops.yml`
+(which converges repo settings to their desired state).
+
+The audit covers every merge since the last one it checked, from a stored
+marker, not a fixed look-back window, so a run that is skipped or fails is
+caught up by the next. A daily job reports every PR merged into `develop`
+since that marker that changed a protected path, and checks each with the
+same check function submit uses: the blob of each protected file at the
+PR's merged head commit must be covered by an approval, on the task issue
+or, for a batch PR, on any issue of the batch. A file whose blob in the
+merge commit differs from its blob at the PR's head (a squash merge onto a
+`develop` that also changed it) is reported as its own named condition for
+the human to look at, not as a not-approved change. A not-approved file, or
+any read failure, is reported loudly as a failing run and an issue for the
+human. It never passes quietly.
+
+It also reports every PR merged into `develop` where the merge, or turning
+auto-merge on, was done by an account outside the expected set: the human,
+the user agent through `vrg-submit-pr`, and the org automation App for its
+own fenced PRs. Any other actor is reported, whatever paths the PR changed.
 
 This catches the accepted seam (§3): a merge made outside `vrg-submit-pr`,
-through the raw API or an edited local tool. It does not prevent such a merge.
-It makes it visible within a day.
+through the raw API, an edited local tool or a workflow's own token. It does
+not prevent such a merge. It makes it visible within a day.
 
 The builder decides where it runs and as which identity, most naturally beside
 the daily GitHub config job in `.github`'s `ops.yml`, as the automation App.
@@ -337,24 +415,31 @@ The soft gates now say "use the tool" instead of "ask the human":
 
 ### 4.10 Skills, steering and the permission-model spec
 
-- **`issue-implement`**: after report-ready, run `vrg-submit-pr`, then hand to
-  `pr-watch` until the PR merges or needs the human. Drop "Only the human opens
-  the PR" and the workflow-push special case. Keep the cloud relay section for
-  cloud sessions (§3).
-- **`pr-watch`**: rerun `vrg-finalize-pr` itself after pushing a fix, instead of
-  telling the human to. Its rule "you never run `vrg-submit-pr` or
-  `vrg-finalize-pr`" becomes "never with `--release`".
-- **`merge-review`**: raise protected changes and request the sign-off (§4.5).
+- **`issue-implement`**: the implementing agent now owns the PR through to the
+  merge. After report-ready it runs `vrg-submit-pr`, and it carries out
+  everything `pr-watch` does today until the PR merges or needs the human. The
+  two main cases are a failed merge (a conflict to rebase) and a CI/CD failure
+  to fix, each fix merge-reviewed as today and followed by a rerun of
+  `vrg-finalize-pr`. Drop "Only the human opens the PR" and the workflow-push
+  special case. Keep the cloud relay section for cloud sessions (§3).
+- **`pr-watch`**: made fully consistent with the new `issue-implement`. Either
+  `issue-implement` takes over its procedure and `pr-watch` stays only as the
+  standalone entry for re-entering an open PR, or both share one procedure.
+  The builder chooses, but there is one procedure, not two that can drift. It
+  reruns `vrg-finalize-pr` itself after pushing a fix, instead of telling the
+  human to. Its rule "you never run `vrg-submit-pr` or `vrg-finalize-pr`"
+  becomes "never with `--release`".
+- **`merge-review`**: raise protected changes and request the approval (§4.5).
   Hand its outcome to report-ready as the structured field (§4.6).
 - **`epic-implement`**: after a task merges, re-read the epic and continue with
-  the next runnable task. Stop for the human only on a ruling, a sign-off, a
+  the next runnable task. Stop for the human only on a ruling, an approval, a
   failure, or a task blocked on a release or a human-gated deployment
   precondition. Drop "Your responsibility ends here".
 - **CLAUDE.md** (`.github` and the consumer template in vergil-tooling): replace
   "Agents never run `vrg-submit-pr`" with the new boundary. Agents submit and
   finalize through the tools and never with `--release`. Releases and
   promotion are human actions. A change to a protected path needs the human's
-  sign-off. The frozen-branch rule stays (the freeze now lasts from report-ready
+  approval. The frozen-branch rule stays (the freeze now lasts from report-ready
   to the agent's own submit). The workflow-push paragraph goes.
 - **The permission-model spec** in vergil-tooling: amend "the human triggers;
   the agent doesn't" and the user App permission table. State the new principle:
@@ -367,13 +452,15 @@ The soft gates now say "use the tool" instead of "ask the human":
    release with agent submission enabled per repo, off by default. The builder
    chooses the switch (for example a `vergil.toml` key, itself under the
    protected core).
-2. **App permissions.** The human grants the user App `pull_requests: write`
-   and `workflows: write`. From this point the accepted seam exists
-   fleet-wide, regardless of the switch.
+2. **App permissions.** The human grants the user App `pull_requests: write`.
+   From this point the accepted seam exists fleet-wide, regardless of the
+   switch. `workflows: write` follows only once the environment-scoped
+   secrets (§4.2) are in place and verified; until then workflow-touching
+   branches keep the human's push.
 3. **Fixtures.** Enable agent submission in the fixture repos. Prove one full
    cycle per fixture: an ordinary change submitted and merged by the agent, and
-   a workflow change that is refused until signed off and then merges. Run the
-   daily audit against them, including one deliberate unsigned merge made by the
+   a workflow change that is refused until approved and then merges. Run the
+   daily audit against them, including one deliberate unapproved merge made by the
    human to confirm that the audit reports it.
 4. **Fleet.** Enable it repo by repo, with each repo's protected-path registry
    in place first. The builder decides whether the switch stays afterwards (as a
@@ -383,7 +470,7 @@ The soft gates now say "use the tool" instead of "ask the human":
 
 - Unit tests for the provenance rules (own PR allowed, others' PRs and approvals
   forbidden), the protected-path match (including a registry that removes its
-  own entry, a deleted file and a batch PR), blob-hash sign-off verification
+  own entry, a deleted file and a batch PR), blob-hash approval verification
   (a rebase keeps it, an edit voids it, an edited comment or a reply from the
   wrong login rejects it) and the eligibility check.
 - The fixture cycle of §5 step 3, recorded in a validation task.
@@ -391,7 +478,7 @@ The soft gates now say "use the tool" instead of "ask the human":
 
 ## 7. Follow-on
 
-- **The exception registry.** The same sign-off mechanism, applied to a new,
+- **The exception registry.** The same approval mechanism, applied to a new,
   unregistered coverage exclusion, lint suppression or skipped test: merge
   review raises it, the human attests to it, and it is entered in a registry.
   Plus a retroactive audit of the exceptions agents added in the past instead
@@ -411,6 +498,9 @@ The soft gates now say "use the tool" instead of "ask the human":
 - The structured eligibility field and whether the human gets an override
   (§4.6).
 - The rollout switch and whether it stays (§5).
-- Where the daily audit runs, its look-back window, and how it gets the
+- Where the daily audit runs, where it stores its marker, and how it gets the
   trusted-authors configuration (§4.8).
 - Confirming no VM shares a clone with the host (§4.7).
+- Whether the permissions a workflow may request for its own `GITHUB_TOKEN`
+  can be capped below write at the org level, and if so, capping them (§4.2,
+  §4.8).
