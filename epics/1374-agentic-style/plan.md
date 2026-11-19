@@ -12,7 +12,7 @@
 **Goal:** A cited, human-approved rulebook for Python, Rust, TypeScript, shell
 and a common set, and a `/vergil:agentic-style` skill that audits every file
 of code a repo owns against it and writes an advisory report, tuned on the six
-fixtures.
+fixtures and the plugin's shell scripts.
 
 **Architecture:**
 
@@ -21,12 +21,15 @@ fixtures.
 - **vergil-tooling** does every deterministic part: the strict `[standards]`
   table and `vrg-standards-level`; `vrg-style-inventory`, which lists the code
   a repo owns, the exempt files and each generated file's generator; and
-  `vrg-style-result`, which parses the rulebook and checks and cuts results in
-  the spec §5.6 frame. Deterministic beats stochastic (spec §2.2), so nothing
-  that can be computed is left to an agent.
+  `vrg-style-result`, which parses the rulebook, cuts and checks results in
+  the spec §5.6 frame, computes provenance and tallies, and renders the
+  report. Deterministic beats stochastic (spec §2.2), so nothing that can be
+  computed or rendered is left to an agent.
 - **vergil-claude-plugin** holds the rulebook, the reviewer and verifier
-  agents, and the skill that runs them and assembles the report.
-- **The fixtures** opt in with `[standards] level = "audit"`.
+  agents, and the skill that dispatches them and hands their results to the
+  tooling.
+- **The fixtures and the plugin** opt in with a committed `[standards] level
+  = "audit"`.
 
 **Tech Stack:** Python 3 and pytest (vergil-tooling), Markdown skills and
 agent definitions (vergil-claude-plugin), Markdown documents (.github).
@@ -42,39 +45,51 @@ agent definitions (vergil-claude-plugin), Markdown documents (.github).
 - The linter always wins, language by language: a rule a linter vergil runs or
   ships configuration for can check in a language is marked "enforced by
   `<check>`" there and is not agent-judged (spec §7).
-- `[standards].level` is exactly one of `off`, `audit`, `enforced`; anything
-  else, and any unknown key in the table, is a `ConfigError` (spec §3, §5.4).
+- `[standards].level` is `off` or `audit`. `enforced` is a `ConfigError`
+  ("not yet supported") until the merge-check epic adds it. Any other value,
+  and any unknown key in the table, is a `ConfigError` (spec §3, §5.4).
+- **A requirement is never worked around.** `vergil.toml` is changed only by a
+  committed PR, never edited locally to get past a check. A file that fails
+  validation is an error, not something to patch and continue.
 - Every file of code the repo owns is audited, tests included, however it was
-  created; only vendored code, third-party tool output and lockfiles are
-  exempt, each listed; YAML, TOML and JSON are not code (spec §5.3).
-- A result that fails a structure check is refused, never repaired (spec
-  §5.3).
+  created. The only exemptions are the paths listed in `[standards].exempt`,
+  each listed in the report; nothing is exempted by inference (no marker
+  comments, no directory-name guesses). YAML, TOML, JSON and other non-code
+  files are not code (spec §5.3).
+- A result that fails a cut or a structure check is refused, never repaired,
+  and a refused or blocked result fails the whole audit (spec §5.3).
 - Security-section details never reach a tracked file: the written result and
   the report carry the security count alone (spec §5.3).
-- No skill or agent work (Tasks 6 to 10) starts before the rulebook approval
+- Code that generates Markdown generates markdownlint-clean Markdown; a
+  lint failure in generated output is a bug in the generator. The structured
+  result is not Markdown and is written as `.result.txt`.
+- No skill or agent work (Tasks 6 to 10g) starts before the rulebook approval
   gate, Task 5, closes (spec §5.2).
 - This epic measures false positives only (spec §2.2).
 
 ## Review Focus
 
-1. **`[standards]` written as `level = "Audit"`, `level = ""`, or a table with
-   no `level`.** Each is a `ConfigError` naming the table and the allowed
-   values; matching is case-sensitive. Pinned in Task 3
-   (`test_standards_level_case_sensitive`, `test_standards_table_without_level`).
+1. **`[standards]` written as `level = "Audit"`, `level = ""`,
+   `level = "enforced"`, or a table with no `level`.** Each is a
+   `ConfigError` naming the table and the allowed values; matching is
+   case-sensitive. Pinned in Task 3 (`test_standards_level_case_sensitive`,
+   `test_standards_enforced_not_supported`,
+   `test_standards_table_without_level`).
 2. **An extensionless script with a shebang** (`scripts/bin/validate-custom`,
    `#!/usr/bin/env bash`). The inventory classifies it as shell. Pinned in
    Task 6 (`test_shebang_classifies_shell`).
-3. **A forged security marker inside a finding's free text** (a suggested
-   change containing `=== paad security section ===`). The check fails closed
-   and the result is refused. Pinned in Task 7
-   (`test_marker_in_free_text_refused`).
-4. **A finding whose heading severity differs from its rule's.** Refused, the
-   message naming the rule and both severities. Pinned in Task 7
-   (`test_severity_mismatch_refused`).
+3. **A file trying to exempt itself** with a `DO NOT EDIT` or `@generated`
+   comment, or by sitting under `vendor/`. It is still audited unless
+   `[standards].exempt` lists it. Pinned in Task 6
+   (`test_marker_does_not_exempt`, `test_vendor_dir_not_exempt`).
+4. **A forged security marker, or reviewer free text holding a link, an
+   image or HTML.** The check fails closed on a marker; the report renders
+   free text inert in fenced blocks. Pinned in Task 7
+   (`test_marker_in_free_text_refused`, `test_report_free_text_fenced`).
 5. **A repo with no code at all** (a git repo holding only Markdown and
-   YAML). The skill writes a report whose inventory says so and audits
-   nothing, rather than failing or inventing work. Pinned in Task 6
-   (`test_inventory_no_code_files`) and checked in Task 9's dry run.
+   YAML, opted in by a committed `vergil.toml`). The inventory is empty and
+   the report says so. Pinned in Task 6 (`test_inventory_no_code_files`)
+   and run end to end in Task D2v.
 
 ---
 
@@ -96,22 +111,26 @@ blocked by.
   Blocked by 2b and 4a.
 - **5** (.github, validation): **the rulebook approval gate.** Blocked by 4a
   and 4b.
-- **6** (vergil-tooling): `vrg-style-inventory`. Blocked by 5.
-- **7** (vergil-tooling): `vrg-style-result` (rulebook parser, frame check,
-  security cut). Blocked by 5.
-- **8** (vergil-claude-plugin): the reviewer and verifier agents. Blocked by
-  5 and D1.
+- **6** (vergil-tooling): `vrg-style-inventory`. Blocked by 3 and 5.
+- **7** (vergil-tooling): `vrg-style-result` (rulebook parser, cut, check,
+  provenance, tally, report). Blocked by 5.
 - **D1** (.github, deployment): the vergil-tooling release carrying Tasks 3,
   6 and 7 attested and installed. Blocked by 3, 6 and 7.
-- **9** (vergil-claude-plugin): the `agentic-style` skill and its docs page.
-  Blocked by 8 and D1.
+- **8** (vergil-claude-plugin): the reviewer and verifier agents. Blocked by
+  5 and D1.
+- **9** (vergil-claude-plugin): the `agentic-style` skill. Blocked by 8 and
+  D1.
 - **D2** (.github, deployment): the vergil-claude-plugin release carrying
   Tasks 4a, 4b, 8 and 9 attested and installed. Blocked by 9.
 - **10a–10f** (one per fixture: python-app, python-lib, rust-app, rust-lib,
-  ts-app, ts-lib): `[standards] level = "audit"` in its `vergil.toml`. Each
-  blocked by D1.
+  ts-app, ts-lib): `[standards] level = "audit"` committed. Each blocked by
+  D1.
+- **10g** (vergil-claude-plugin): `[standards] level = "audit"` committed,
+  for the shell tuning run. Blocked by D1.
+- **D2v** (.github, validation): the skill's end-to-end dry runs against the
+  installed release. Blocked by D2 and 10b.
 - **11** (.github): tuning round 1, its screened reports committed. Blocked by
-  D2 and 10a–10f.
+  D2v, 10a–10f and 10g.
 - **12** (vergil-tooling): the Python, Rust, TypeScript and shell naming docs
   link to the rulebook. Blocked by 5.
 - **13** (.github, validation): the tuning success check. Blocked by 11 and
@@ -123,11 +142,16 @@ blocked by.
 
 Notes:
 
-- **Tasks 2a–2c and 3 run in parallel.** Task 3 has no
-  dependency on the rulebook: it is configuration, not skill or agent work.
-- **Tasks 6, 7 and 8 wait for the gate** (spec §5.2). Tasks 6 and 7 then run
-  in parallel; Task 8 also waits for D1, because it checks its templates with
-  the released `vrg-style-result`.
+- **Tasks 2a–2c and 3 run in parallel.** Task 3 has no dependency on the
+  rulebook: it is configuration, not skill or agent work.
+- **Tasks 6 and 7 stay behind the gate** although they are deterministic
+  tooling: the human's cut of the rulebook may change its format or themes,
+  which Task 7 parses and the inventory's reviewers are grouped by. They run
+  in parallel once it closes. Task 8 also waits for D1, because it checks its
+  templates with the released `vrg-style-result`.
+- **No run ever edits `vergil.toml` locally.** Every audited repo is opted in
+  by a committed PR (Tasks 10a–10g); the no-code case in D2v uses a throwaway
+  repo created with its own committed `vergil.toml`.
 - **No fixture runs are seeded.** This epic changes no language support,
   container image, shared CI workflow or release tooling, so `fixture-run`'s
   rule does not apply. Tasks 10a–10f are ordinary one-line config PRs in the
@@ -167,9 +191,12 @@ Spec §5.1.
 - [ ] **Step 1:** For each source, record what it says only after reading it;
   mark anything recalled but not read `unverified`.
 - [ ] **Step 2:** Fill `Linter coverage` from the linters vergil runs or ships
-  configuration for (ruff, mypy or ty, shellcheck, shfmt), naming the exact
-  check, and from vergil-tooling's committed linter configuration for
-  whether it is enabled.
+  configuration for (ruff, mypy or ty, shellcheck), naming the exact check,
+  and from vergil-tooling's committed linter configuration for whether it is
+  enabled. Record that shellcheck runs only on `scripts/` and `*.sh`
+  (vergil-tooling `src/vergil_tooling/bin/validate_common.py`,
+  `_find_shell_files`), so a shell rule is linter-enforced only for files in
+  that scope.
 - [ ] **Step 3:** Cover Conway's naming rules as adapted in vergil-tooling
   `docs/site/docs/standards/development/{python,shell}/naming-conventions.md`,
   each with its linter coverage.
@@ -207,21 +234,26 @@ Spec §3, §5.4.
 
 **Interfaces:**
 
-- Produces: `STANDARDS_LEVELS = ("off", "audit", "enforced")`;
-  `StandardsConfig(level: str = "off")`;
+- Produces: `STANDARDS_LEVELS = ("off", "audit")`;
+  `StandardsConfig(level: str = "off", exempt: tuple[str, ...] = ())`;
   `_parse_standards(raw: dict[str, Any], source: str = CONFIG_FILE) ->
-  StandardsConfig`; `vrg-standards-level [--repo-root PATH]`, which prints
-  the level and exits 0, or prints the `ConfigError` to stderr and exits 1.
+  StandardsConfig`. Keys: `level` (required when the table exists) and
+  `exempt` (optional list of non-empty, repo-relative paths; an entry ending
+  in `/` covers everything below it, as `[merge-review].docs-paths` does).
+  `vrg-standards-level [--repo-root PATH]` prints the level and exits 0, or
+  prints the `ConfigError` to stderr and exits 1.
 
 - [ ] **Step 1: Write the failing tests** in `test_config.py`:
-  `test_standards_absent_is_off` (`StandardsConfig().level == "off"`);
-  `test_standards_levels_accepted` (each of the three values round-trips);
-  `test_standards_unknown_level` (`level = "enforce"` raises `ConfigError`
-  whose message contains `[standards].level` and `off, audit, enforced`);
+  `test_standards_absent_is_off`; `test_standards_levels_accepted` (`off`
+  and `audit` round-trip); `test_standards_enforced_not_supported`
+  (`"enforced"` raises `ConfigError` whose message says it is not yet
+  supported); `test_standards_unknown_level` (`level = "enforce"` raises, the
+  message containing `[standards].level` and `off, audit`);
   `test_standards_level_case_sensitive` (`"Audit"` raises);
-  `test_standards_table_without_level` (`[standards]` alone raises);
-  `test_standards_unknown_key` (`[standards] levle = "audit"` raises, not
-  warns); `test_standards_not_a_table` (`standards = "audit"` raises). In
+  `test_standards_table_without_level`; `test_standards_unknown_key`
+  (`levle = "audit"` raises, not warns); `test_standards_not_a_table`;
+  `test_standards_exempt_paths` (a list round-trips);
+  `test_standards_exempt_rejects_absolute_and_empty`. In
   `test_vrg_standards_level.py`: `test_prints_level` and
   `test_config_error_exits_1`.
 - [ ] **Step 2:** Run `vrg-container-run -- pytest
@@ -243,22 +275,26 @@ Spec §5.2. Blocked by 2a.
 **Files:**
 
 - Create: `skills/agentic-style/rulebook/README.md` (the format below and the
-  severity definitions of spec §5.2)
+  severity definitions of spec §5.2; never parsed or hashed as rules)
 - Create: `skills/agentic-style/rulebook/common.md`, `python.md`, `shell.md`
 
 **Interfaces:**
 
-- Produces: the rulebook format Task 7 parses. Each rule is a level-3
-  heading `` ### `<id>` — <one-line statement> `` followed by exactly these
-  list lines, in order: `- **Theme:** <naming | functions-and-control-flow |
-  language-idioms | comments-and-documentation>`, `- **Severity:** <high |
-  medium | low>`, `- **Violation:** <prose>`, `- **Source:** <citation>[
-  (unverified)]`, `- **Linter:** <none | enforced by <tool> <check>>`,
-  `- **Why no linter:** <prose, or n/a when a linter enforces it>`,
-  `- **Adjacent paad lens:** <none | agentic-review | agentic-architecture>`.
-  IDs are `<theme-prefix>.<kebab-name>`, unique across all files; the
-  `meta.` prefix is never used. A rule whose `Linter:` is `enforced by …` is
-  listed but not agent-judged.
+- Produces: the rulebook format Task 7 parses. The rulebook is exactly the
+  files `common.md`, `python.md`, `shell.md`, `rust.md` and `typescript.md`.
+  Each rule is a level-3 heading `` ### `<id>` — <one-line statement> ``
+  followed by exactly these list lines, in order: `- **Theme:** <naming |
+  flow | idiom | docs>`, `- **Severity:** <high | medium | low>`,
+  `- **Violation:** <prose>`, `- **Source:** <citation>[ (unverified)]`,
+  `- **Linter:** <none | enforced by <tool> <check>>`, `- **Why no linter:**
+  <prose, or n/a when a linter enforces it>`, `- **Adjacent paad lens:**
+  <none | agentic-review | agentic-architecture>`. IDs are
+  `<file>.<theme>.<kebab-name>`, `<file>` being the file's name without
+  `.md` (so `python.naming.full-words` and `shell.naming.full-words` can both
+  exist), unique across the rulebook. The themes are `naming` (naming),
+  `flow` (functions and control flow), `idiom` (language idioms) and `docs`
+  (comments and documentation). The `meta.` prefix is never used. A rule
+  whose `Linter:` is `enforced by …` is listed but not agent-judged.
 
 - [ ] **Step 1:** Draft about 15 agent-judged rules for `python` and for
   `shell` and about 10 for `common` from the Task 2a tables, in our own words,
@@ -283,14 +319,14 @@ Spec §5.2. Blocked by 4a and 4b.
 - **Precondition (human-attested):** the human has cut the rulebook, verified
   every surviving book citation or left it marked `unverified`, and approves
   it, in a comment naming the plugin commit that holds the approved rulebook.
-- **Procedure:** confirm every rule in that commit's
-  `skills/agentic-style/rulebook/*.md` has the seven fields in order, a unique
-  ID and no `meta.` prefix.
+- **Procedure:** confirm that, in that commit, each of the five rulebook files
+  exists and every rule in them has the seven fields in order, an ID of the
+  form Task 4a fixes, unique across the rulebook, and no `meta.` prefix.
 - **SUCCESS:** recorded with the commit SHA and the rule counts per file.
 
 ### Task 6: `vrg-style-inventory` (vergil-tooling)
 
-Spec §5.3 (Inventory, ownership). Blocked by 5.
+Spec §5.3 (Inventory, ownership). Blocked by 3 and 5.
 
 **Files:**
 
@@ -301,17 +337,19 @@ Spec §5.3 (Inventory, ownership). Blocked by 5.
 
 **Interfaces:**
 
+- Consumes: `StandardsConfig.exempt` (Task 3).
 - Produces: `build_inventory(repo_root: Path, languages: frozenset[str] |
   None = None) -> Inventory`, where `Inventory` holds `files:
   list[InventoryFile]` and `InventoryFile(path: str, language: str, lines:
   int, status: str, generated_from: str | None)`; `status` is `audited` or
   `exempt`. `vrg-style-inventory [--repo-root PATH] [--language LANG]...`
   prints the inventory as JSON with those field names; each `--language`
-  limits it to that language.
+  limits it to that language. A `ConfigError` from reading `vergil.toml`
+  exits 1.
 - **What counts as code.** A file is code only when its extension or its
   shebang interpreter maps to a language, and every other tracked file is
   left out entirely (Markdown, LICENSE, VERSION, `.gitignore`, YAML, TOML,
-  JSON):
+  JSON, lockfiles):
   - `python`: `.py`, or a `python`/`python3` shebang;
   - `rust`: `.rs`;
   - `typescript`: `.ts`, `.tsx`, `.mts`, `.cts`;
@@ -321,26 +359,27 @@ Spec §5.3 (Inventory, ownership). Blocked by 5.
   - `shell`: `.sh`, `.bash`, or a `sh`/`bash` shebang;
   - `go`: `.go`;
   - `cpp`: `.cc`, `.cpp`, `.cxx`, `.h`, `.hh`, `.hpp`.
-- Files come from `vrg-git ls-files` (tracked only; symlinks skipped).
-  `generated_from` comes from vergil-tooling's own managed-file definitions
-  in `lib/repo_config.py` (for example `.claude/hooks/guard.sh` →
-  `vergil-tooling:src/vergil_tooling/data/hook_guard_shim.sh`). Exempt:
-  lockfiles, paths under a `vendor/` or `third_party/` directory, and files
-  carrying a third-party generated marker (`@generated`, `DO NOT EDIT`)
-  that vergil does not manage.
+- Files come from `vrg-git ls-files` (tracked only; symlinks are not followed
+  and not listed). `generated_from` comes from vergil-tooling's own
+  managed-file definitions in `lib/repo_config.py` (for example
+  `.claude/hooks/guard.sh` →
+  `vergil-tooling:src/vergil_tooling/data/hook_guard_shim.sh`). A file is
+  `exempt` only when `[standards].exempt` lists it; nothing else exempts a
+  file.
 
-- [ ] **Step 1: Write the failing tests** (each over a temporary git repo):
-  `test_extension_classification`; `test_shebang_classifies_shell`;
-  `test_tests_are_audited`; `test_managed_shim_names_generator`;
-  `test_lockfile_exempt`; `test_vendor_dir_exempt`;
-  `test_config_formats_left_out` (`ci.yml`, `vergil.toml`, `package.json`
-  absent from `files`); `test_markdown_left_out` (`README.md`, `LICENSE`,
-  `VERSION` absent); `test_mjs_classified` (`eslint.vergil.config.mjs` is
-  `javascript`, `audited`, with its generator from
-  `LANGUAGE_MANAGED_FILES["typescript"]`); `test_language_filter` (only the
-  named languages listed); `test_untracked_and_symlink_skipped`;
-  `test_inventory_no_code_files` (a repo of only Markdown and YAML: empty
-  `files`, exit 0).
+- [ ] **Step 1: Write the failing tests** (each over a temporary git repo
+  with a committed `vergil.toml`): `test_extension_classification`;
+  `test_shebang_classifies_shell`; `test_tests_are_audited`;
+  `test_managed_shim_names_generator`; `test_explicit_exempt_listed`;
+  `test_marker_does_not_exempt` (a `DO NOT EDIT` file is audited);
+  `test_vendor_dir_not_exempt` (a `vendor/x.py` is audited when not listed);
+  `test_config_formats_left_out` (`ci.yml`, `vergil.toml`, `package.json`,
+  `uv.lock` absent from `files`); `test_markdown_left_out` (`README.md`,
+  `LICENSE`, `VERSION` absent); `test_mjs_classified`
+  (`eslint.vergil.config.mjs` is `javascript`, `audited`, with its generator
+  from `LANGUAGE_MANAGED_FILES["typescript"]`); `test_language_filter`;
+  `test_untracked_and_symlink_skipped`; `test_inventory_no_code_files` (a
+  repo of only Markdown and YAML: empty `files`, exit 0).
 - [ ] **Step 2:** Run them. Expect FAIL.
 - [ ] **Step 3: Implement** `build_inventory` and the CLI.
 - [ ] **Step 4:** Run them. Expect PASS. Run `vrg-container-run --
@@ -350,71 +389,121 @@ Spec §5.3 (Inventory, ownership). Blocked by 5.
 
 ### Task 7: `vrg-style-result` (vergil-tooling)
 
-Spec §5.3 (delegate pattern, meta findings, security cut), §5.6. Blocked by
-5.
+Spec §5.3 (delegate pattern, meta findings, security cut, report), §5.6.
+Blocked by 5.
 
 **Files:**
 
 - Create: `src/vergil_tooling/lib/style_rulebook.py`
 - Create: `src/vergil_tooling/lib/style_result.py`
+- Create: `src/vergil_tooling/lib/style_report.py`
 - Create: `src/vergil_tooling/bin/vrg_style_result.py`
 - Modify: `pyproject.toml`
 - Test: `tests/vergil_tooling/test_style_rulebook.py`,
-  `tests/vergil_tooling/test_style_result.py`
+  `tests/vergil_tooling/test_style_result.py`,
+  `tests/vergil_tooling/test_style_report.py`
 
 **Interfaces:**
 
 - Consumes: the rulebook format of Task 4a.
-- Produces: `load_rulebook(directory: Path) -> dict[str, Rule]`, with
-  `Rule(id: str, theme: str, severity: str, source: str, agent_judged:
-  bool)`, raising `RulebookError` on any format breach;
-  `cut_security(text: str) -> tuple[str, str]` (the public text with the
-  section replaced by its `Security: <k>` count, and the section itself),
-  raising `CutError` when the cut cannot proceed;
-  `check_result(public: str, security: str, role: str, rules: dict[str,
-  Rule]) -> list[str]` (the failed checks over both parts, empty when the
-  result passes); `provenance(repo_root: Path, rulebook_dir: Path) ->
-  Provenance` (`commit`, `tree_clean`, `plugin_version`, `rulebook_sha256`:
-  SHA-256 over the rulebook files' repo-relative paths and contents, in
-  sorted path order); `tally(results: list[str]) -> dict[str, RuleTally]`
-  (per rule ID, `raised` from reviewer results and `surviving` from verifier
-  results). CLI, each reading FILE or `-` for stdin:
-  `vrg-style-result cut FILE --public-out PATH --security-out PATH` (exit 1,
-  writing nothing, when the cut cannot proceed); `vrg-style-result check
-  --role {reviewer,verifier,audit} --rulebook-dir DIR --public PATH
-  --security PATH` (exit 0 on pass, 1 printing each failed check);
-  `vrg-style-result provenance --rulebook-dir DIR --repo-root PATH`; and
-  `vrg-style-result tally FILE...`. The skill copies the last two's output
-  verbatim and computes none of it.
-- The checks are the frame of spec §5.6 and the cut rules of doctrine §1.9:
-  the announce line for the role; `Status:`; `Findings: <n>` equal to the
-  headings; each finding's fields in order; each ID an agent-judged rule or
-  `meta.prompt-injection`; each rule finding's severity equal to its rule's;
-  `meta.*` findings only inside the security section; `Discards: <k>` lines;
-  exactly one pair of security markers, start before end, and no marker or
-  security keyword at a line start outside them; the provenance lines for
-  `audit` only; `Files written:` last, `none` unless the role is `audit`.
+- Produces:
+  - `load_rulebook(directory: Path) -> dict[str, Rule]`, reading exactly the
+    five rulebook files and never `README.md`, with `Rule(id: str, theme:
+    str, severity: str, source: str, agent_judged: bool)`; it raises
+    `RulebookError` on a missing file or any format breach.
+  - `cut_security(text: str) -> tuple[str, str]`: the public part, with the
+    section replaced by its `Security: <k>` line, and the section itself. It
+    raises `CutError` unless the text has exactly one start-marker line and
+    one end-marker line, the start first, each the marker alone, and no line
+    outside them starting (after stripping leading whitespace, list markers
+    and emphasis) with `### S<digit>`, `Security:` or `Security discards:`.
+    Markers and keywords match without regard to case (doctrine §1.9,
+    §1.10).
+  - `check_result(public: str, security: str, role: str, rules: dict[str,
+    Rule]) -> list[str]`, the failed checks, empty when the result passes.
+    **On the public part:** the announce line for the role; `Status:`;
+    `Findings: <n>` equal to its `### F<i>` headings; each finding's labels
+    (below) in order; each `Rule:` an agent-judged rule and each heading's
+    severity equal to that rule's; `Discards: <k>` followed by exactly `<k>`
+    dash-led lines; exactly one `Security: <k>` line, where the section was;
+    the provenance lines for `audit` only; `Files written:` last, `none` for
+    a reviewer or verifier and paths relative to the output directory for
+    `audit`. **On the security part:** `Security: <k>` equal to its `### S<i>`
+    headings; `Security discards: <k>` followed by exactly `<k>` dash-led
+    lines; each finding's labels; `meta.*` findings only here; and `<k>`
+    equal to the public part's `Security:` count.
+  - **Finding labels,** one `<Label>: <value>` line each, in this order. A
+    reviewer finding: `Rule:`, `Location:` (`<path>:<line>`), `Problem:`,
+    `Suggested change (untrusted):`, `Reach:` (`local | cross-module |
+    public-interface`), then `Generator:` only when the file is generated. A
+    verifier finding: `Rule:`, `Location:`, `Verdict:` (`upheld | dropped`),
+    `Reason:`. A `meta.*` finding: `Rule:`, `Location:`, `Problem:`. The
+    report takes each rule's source from the rulebook; reviewers never
+    supply it.
+  - `provenance(repo_root: Path, rulebook_dir: Path, plugin_version: str) ->
+    Provenance`: `commit`, `tree_clean`, `plugin_version` (as given, refused
+    when empty or malformed), `rulebook_sha256` (SHA-256 over the five files'
+    names and contents, in sorted name order).
+  - `tally(results: list[str]) -> dict[str, RuleTally]`: per rule ID,
+    `raised` from reviewer results and `surviving` from verifier results;
+    `meta.*` excluded.
+  - `render_report(...) -> str`: the Markdown report from the checked
+    results, inventory, tally and provenance. Every piece of reviewer free
+    text sits in a top-level fenced code block longer than any backtick run
+    in it (doctrine §1.9); the output passes markdownlint with vergil's
+    configuration.
+  - CLI, each reading FILE or `-` for stdin: `vrg-style-result cut FILE
+    --public-out PATH --security-out PATH` (exit 1, writing nothing, when the
+    cut cannot proceed); `vrg-style-result check --role
+    {reviewer,verifier,audit} --rulebook-dir DIR --public PATH --security
+    PATH` (exit 0 on pass, 1 printing each failed check); `vrg-style-result
+    provenance --rulebook-dir DIR --repo-root PATH --plugin-version V`;
+    `vrg-style-result tally FILE...`; and `vrg-style-result report
+    --inventory PATH --tally PATH --provenance PATH --out PATH FILE...`.
 
 - [ ] **Step 1: Write the failing tests:** `test_rulebook_parses_fields`;
+  `test_rulebook_reads_only_the_five_files` (a `README.md` with an example
+  heading is ignored and outside the hash); `test_rulebook_missing_file`;
   `test_rulebook_duplicate_id_rejected`; `test_rulebook_meta_prefix_rejected`;
-  `test_valid_reviewer_result_passes`; `test_count_mismatch_refused`;
+  `test_cut_then_check_passes`; `test_cut_leaves_count_only`;
+  `test_cut_refuses_two_markers`; `test_cut_refuses_missing_end_marker`;
+  `test_marker_case_insensitive`; `test_marker_in_free_text_refused`;
+  `test_security_count_mismatch_refused`; `test_count_mismatch_refused`;
+  `test_label_order_refused`; `test_generator_label_optional`;
   `test_unknown_rule_refused`; `test_linter_enforced_rule_refused`;
   `test_severity_mismatch_refused`; `test_meta_in_security_section_passes`;
   `test_meta_outside_security_section_refused`;
-  `test_marker_in_free_text_refused`; `test_audit_requires_provenance`;
-  `test_cut_leaves_count_only`; `test_cut_refuses_two_markers`;
-  `test_cut_refuses_missing_end_marker`; `test_provenance_hash_stable`
-  (the same rulebook gives the same hash whatever the file order on disk);
-  `test_provenance_dirty_tree`; `test_tally_counts_raised_and_surviving`;
-  `test_tally_ignores_meta`.
+  `test_audit_requires_provenance`; `test_audit_files_written_relative`;
+  `test_provenance_hash_stable`; `test_provenance_dirty_tree`;
+  `test_provenance_rejects_empty_version`;
+  `test_tally_counts_raised_and_surviving`; `test_tally_ignores_meta`;
+  `test_report_free_text_fenced` (free text holding backticks, a link and an
+  HTML tag renders inside a fence); `test_report_passes_markdownlint` (runs
+  markdownlint with vergil's configuration over rendered sample reports).
 - [ ] **Step 2:** Run them. Expect FAIL.
-- [ ] **Step 3: Implement** the parser, the checker and the cut. The checker
-  never edits the text it checks.
+- [ ] **Step 3: Implement** the parser, cut, checker, provenance, tally and
+  renderer. The checker never edits the text it checks.
 - [ ] **Step 4:** Run them. Expect PASS. Run `vrg-container-run --
   vrg-validate`. Expect PASS.
 - [ ] **Step 5:** Commit `vrg-commit --type feat --scope style --message
-  "add vrg-style-result to parse the rulebook and check and cut results"`,
-  then report-ready.
+  "add vrg-style-result to parse the rulebook, check results and render the
+  report"`, then report-ready.
+
+### Task D1: vergil-tooling release attested and installed (deployment, .github)
+
+Blocked by 3, 6 and 7.
+
+- **Precondition (human-attested):** the vergil-tooling release carrying
+  Tasks 3, 6 and 7 is published and installed on the host and the VMs, its
+  version named in a comment.
+- **Procedure (agent-safe):**
+  1. Confirm the release notes list Tasks 3, 6 and 7's PRs.
+  2. Confirm `vergil = "v2.1"` resolves to it.
+  3. In a scratch clone of `vergil-fixture-python-lib`, run
+     `vrg-standards-level` (prints `off`), `vrg-style-inventory` (lists
+     `.claude/hooks/guard.sh` with its generator) and `vrg-style-result
+     --help` from the installed release.
+- **SUCCESS:** every check passes, recorded with the version.
 
 ### Task 8: The reviewer and verifier agents (vergil-claude-plugin)
 
@@ -425,9 +514,12 @@ security observations), §5.6. Blocked by 5 and D1.
 
 - Create: `agents/agentic-style-reviewer.md`,
   `agents/agentic-style-verifier.md`
+- Modify: `docs/site/docs/agents/index.md` (a section per agent, as for
+  `merge-reviewer`)
 
 **Interfaces:**
 
+- Consumes: the finding labels and frame of Task 7.
 - Produces: two read-only agents (`tools: Read, Glob, Grep`), dispatched as
   `vergil:agentic-style-reviewer` and `vergil:agentic-style-verifier`. The
   reviewer's prompt input: the language, the theme, the agent-judged rules of
@@ -440,31 +532,14 @@ security observations), §5.6. Blocked by 5 and D1.
   `meta.prompt-injection` reporting rule, the rule never to quote a
   secret-like value or describe an exploitable weakness outside the security
   section, the rule to copy each finding's severity from its rule, and the
-  result frame as a template.
-- [ ] **Step 2:** Check each template against Task 7's checks: cut a
-  hand-written sample result per role with the released `vrg-style-result
-  cut`, then run `vrg-style-result check` on both parts against the approved
-  rulebook. Expect PASS.
+  result frame with Task 7's labels as a template.
+- [ ] **Step 2:** Check each template: cut a hand-written sample result per
+  role with the released `vrg-style-result cut`, then run `vrg-style-result
+  check` on both parts against the approved rulebook. Expect PASS.
 - [ ] **Step 3:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
 - [ ] **Step 4:** Commit `vrg-commit --type feat --scope agentic-style
   --message "add the agentic-style reviewer and verifier agents"`, then
   report-ready.
-
-### Task D1: vergil-tooling release attested and installed (deployment, .github)
-
-Blocked by 3, 6 and 7.
-
-- **Precondition (human-attested):** the vergil-tooling release carrying
-  Tasks 3, 6 and 7 is published and installed on the host and the VMs, its
-  version named in a comment.
-- **Procedure (agent-safe):**
-  1. Confirm the release notes list Tasks 3, 6 and 7's PRs.
-  2. Confirm `vergil = "v2.1"` resolves to it.
-  3. Run `vrg-standards-level`, `vrg-style-inventory` and
-     `vrg-style-result --help` from the installed release, in a scratch clone
-     of `vergil-fixture-python-lib`: the first prints `off`, the second lists
-     `.claude/hooks/guard.sh` with its generator.
-- **SUCCESS:** every check passes, recorded with the version.
 
 ### Task 9: The `agentic-style` skill (vergil-claude-plugin)
 
@@ -473,8 +548,8 @@ Spec §5.3, §5.5, §5.6, §7. Blocked by 8 and D1.
 **Files:**
 
 - Create: `skills/agentic-style/SKILL.md`
-- Create: `docs/site/docs/skills/agentic-style.md`; modify
-  `docs/site/docs/skills/index.md` to list it
+- Modify: `docs/site/docs/skills/index.md` (an `## agentic-style` section,
+  matching the other skills)
 
 **Interfaces:**
 
@@ -483,43 +558,38 @@ Spec §5.3, §5.5, §5.6, §7. Blocked by 8 and D1.
 - Produces: `/vergil:agentic-style [--output DIR] [--language LANG]...`.
   `DIR` defaults to the audited repo's `build/agentic-style/`; the skill
   resolves it to an absolute path and prints it before writing. Each
-  `--language` is passed to `vrg-style-inventory`. It writes
-  `<date>-<repo>.md` (the report) and `<date>-<repo>.result.md` (its own
+  `--language` is passed to `vrg-style-inventory`. On success it writes
+  `<date>-<repo>.md` (the report) and `<date>-<repo>.result.txt` (its own
   result in the `audit` frame) to `DIR`, and raw material only to the
   audited repo's ignored `build/agentic-style/raw/`, whatever `DIR` is. It
   makes no issue, commit or handoff.
 
 - [ ] **Step 1: Write the skill.** In order:
-  1. Run `vrg-standards-level`; stop with its reason unless `audit` or
-     `enforced`.
-  2. Run `vrg-style-inventory`, passing each `--language`.
+  1. Run `vrg-standards-level`. Stop with its error or reason unless it
+     prints `audit`.
+  2. Run `vrg-style-inventory`, passing each `--language`. Stop on error.
   3. For each language with audited files and each theme with agent-judged
      rules, dispatch one reviewer, given that language's rules plus
      `common`, or `common` alone for a language with no rulebook (a
      coverage gap the report names, as for `javascript`).
   4. Write each raw result only under `build/agentic-style/raw/`. **Cut
-     first:** `vrg-style-result cut`, keeping the security part there and
-     showing it in the terminal. **Then check** both parts with
-     `vrg-style-result check`. A result that cannot be cut, or that fails a
-     check, is kept whole in `raw/` as security material; the report
-     records only that it was refused and which check failed, never its
-     text.
+     first** with `vrg-style-result cut`, keeping the security part there
+     and showing it in the terminal; **then check** both parts with
+     `vrg-style-result check`.
   5. Dispatch the verifier per checked reviewer result, and cut and check
      its result the same way.
-  6. Run `vrg-style-result provenance` and `vrg-style-result tally` and copy
-     their output verbatim.
-  7. Build the report (inventory, exempt files, coverage gaps, findings with
-     every field of spec §5.3, the per-rule table from the tally, the
-     provenance, refused results, the security count) and the `audit`
-     result; cut and check the `audit` result before writing it.
-- [ ] **Step 2: Dry runs,** each with a local `level = "audit"` edit that is
-  not committed: a scratch git repo of only Markdown and YAML (the report's
-  inventory says there is no code, and nothing is audited); this `.github`
-  repo (exactly one audited file, `.claude/hooks/guard.sh`, with its
-  generator named); and `vergil-fixture-python-lib` (its `audit` result
-  passes `vrg-style-result check`).
-- [ ] **Step 3:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
-- [ ] **Step 4:** Commit `vrg-commit --type feat --scope agentic-style
+  6. **Any failure stops the audit.** A result that cannot be cut, fails a
+     check, or reports `Status: blocked` stops the run: no report and no
+     result are written to `DIR`, the failing result stays whole in `raw/`
+     as security material, and the skill tells the human which result
+     failed and which check, never its text. Nothing is retried
+     automatically.
+  7. Run `vrg-style-result provenance --plugin-version <this plugin's
+     version, from its own plugin.json>` and `vrg-style-result tally`.
+  8. Write the `audit` result, cut and check it, then render the report with
+     `vrg-style-result report`. The skill writes no Markdown itself.
+- [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
+- [ ] **Step 3:** Commit `vrg-commit --type feat --scope agentic-style
   --message "add the agentic-style skill"`, then report-ready.
 
 ### Task D2: vergil-claude-plugin release attested and installed (deployment, .github)
@@ -533,32 +603,50 @@ Blocked by 9.
   commit Task 5 approved.
 - **SUCCESS:** recorded with the plugin version.
 
-### Tasks 10a–10f: Fixture opt-in (one per fixture)
+### Tasks 10a–10g: Opt-in (one per fixture, and the plugin)
 
-Blocked by D1. In each fixture: add `[standards]` with `level = "audit"` to
+Blocked by D1. In each of the six fixtures (10a–10f) and in
+vergil-claude-plugin (10g): add `[standards]` with `level = "audit"` to
 `vergil.toml`; run `vrg-standards-level` (expect `audit`) and
 `vrg-container-run -- vrg-validate` (expect PASS); commit `vrg-commit --type
 chore --scope config --message "opt in to the agentic-style audit"`, then
 report-ready.
 
+### Task D2v: The skill's dry runs (validation, .github)
+
+Blocked by D2 and 10b. Runs the installed release, so no session needs a
+plugin worktree loaded.
+
+- **Precondition (machine probe):** the installed plugin is D2's version, and
+  `vrg-standards-level` in `vergil-fixture-python-lib` prints `audit`.
+- **Procedure:**
+  1. Create a throwaway git repo under the session scratch directory holding
+     only a `README.md`, a `ci.yml` and a committed `vergil.toml` with
+     `[standards] level = "audit"`. Run `/vergil:agentic-style` there: the
+     report's inventory says there is no code, and nothing is audited.
+  2. Run it in a clean clone of `vergil-fixture-python-lib`: the `.result.txt`
+     passes `vrg-style-result check --role audit`, the report passes
+     markdownlint, and `raw/` is under `build/`.
+  3. Delete the throwaway repo.
+- **SUCCESS:** both runs behave as stated, recorded with the plugin version.
+
 ### Task 11: Tuning round 1 (.github)
 
-Spec §5.5, §7. Blocked by D2 and 10a–10f.
+Spec §5.5, §7. Blocked by D2v, 10a–10f and 10g.
 
 **Files:**
 
 - Create: `epics/1374-agentic-style/tuning/round-1/<date>-<repo>.md` and
-  `<date>-<repo>.result.md` for each of the six fixtures and for
-  vergil-tooling (shell only)
+  `<date>-<repo>.result.txt` for each of the six fixtures and for
+  vergil-claude-plugin (shell only)
 - Create: `epics/1374-agentic-style/tuning/round-1/README.md` (the round's
   summary: per-rule counts across repos, generated-file findings merged
   across fixtures, and the follow-up tasks the human approved)
 
-- [ ] **Step 1:** In each fixture's clone, run `/vergil:agentic-style
+- [ ] **Step 1:** In a clean clone of each fixture, run `/vergil:agentic-style
   --output <absolute path of this .github worktree>/epics/1374-agentic-style/tuning/round-1/`,
-  and confirm the path it prints is inside this worktree. In vergil-tooling's
-  clone, with a local `level = "audit"` edit that is not committed, run it
-  the same way with `--language shell`.
+  and confirm the path it prints is inside this worktree. In a clean clone of
+  vergil-claude-plugin, run it the same way with `--language shell`.
 - [ ] **Step 2:** Screen every report and result with the doctrine's
   screening (§1.6) before staging; a match stops the round for the human.
 - [ ] **Step 3:** Walk the human through the findings; file the follow-ups
@@ -595,4 +683,4 @@ Spec §5.5. Blocked by 11 and every tuning task filed after it.
   its report is clean, and per rule whether it fired, survived verification,
   or never fired (not yet judged, spec §7).
 - **SUCCESS:** recorded with the round number and the clean fixtures, which
-  are candidates for `enforced` once a merge check exists.
+  are candidates for enforcement once a merge check exists.

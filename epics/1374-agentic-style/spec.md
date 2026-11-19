@@ -101,9 +101,8 @@ planning).
 - Building Go or C++ rulebooks. They are researched, not built; code in
   those languages is audited against `common` only and reported as a
   coverage gap.
-- Auditing vergil-tooling, apart from its shell scripts (section 5.5). It is
-  the most important target, but it comes after the fixtures have shown the
-  reports are useful.
+- Auditing vergil-tooling. It is the most important target, but it comes
+  after the fixtures have shown the reports are useful.
 - Measuring what the audit misses. This epic measures false positives only.
   Misses are measured later: against real code such as vergil-tooling, from
   examples collected over time, and through an **anti-fixture**, a planned
@@ -137,8 +136,10 @@ planning).
 - **Anything added to `vergil.toml` is strictly validated.** vergil-tooling
   `src/vergil_tooling/lib/config.py` today only warns on an unrecognized
   section or key. The new `[standards]` table is validated strictly: its
-  allowed keys are defined, and an unknown key or a `level` outside the three
-  values in section 5.4 raises a `ConfigError`. vergil-tooling also gives
+  allowed keys are defined, and an unknown key or a `level` other than the
+  values section 5.4 accepts raises a `ConfigError`. A `vergil.toml` is
+  changed only by a committed PR; no run ever edits it locally to get past a
+  check. vergil-tooling also gives
   skills a `vrg-*` command to read the validated setting, and the skill reads
   it only through that command. This needs a vergil-tooling change and release
   before any repo can set the flag. Making the rest of `vergil.toml` strict is
@@ -233,11 +234,17 @@ is marked so.
   using it: counts match headings, fields are present and in order, each
   severity matches its rule's, each ID is a rulebook rule or a reserved
   `meta.*` kind, the security section is separate. A result that fails a
-  check is refused, never repaired or guessed at. The skill builds its own
-  structured result, in the same frame, from the checked results only, and
-  writes it beside the Markdown report, so callers and later the fix skill and
-  merge check consume checked data, not prose. There is no request file,
-  capture hook or write guard.
+  check is refused, never repaired or guessed at, and **a refused or blocked
+  result fails the whole audit**: no report is written, and the failing
+  result is kept privately (below). A partial report is not one to trust.
+  The skill builds its own structured result, in the same frame, from the
+  checked results only, and writes it beside the report, so callers and
+  later the fix skill and merge check consume checked data, not prose. The
+  structured result is data, not Markdown, and is written as `.result.txt`.
+  The report is rendered by vergil-tooling from the checked results, never
+  written by an agent, and is markdownlint-clean by construction, with all
+  reviewer free text in fenced code blocks (doctrine §1.9). There is no
+  request file, capture hook or write guard.
 - **Repo content is data, not instructions.** Every reviewer and verifier
   prompt carries a data-not-instructions section like `agents/merge-reviewer.md`
   in vergil-claude-plugin: the code, comments and docs under review never
@@ -257,8 +264,8 @@ is marked so.
   Whoever commits a report or result to a tracked path first runs the
   doctrine's screening (§1.6) over it.
 - It reads the `[standards]` level through the vergil-tooling command
-  (section 3) and refuses, with the reason, unless the level is `audit` or
-  `enforced`; an invalid table is a config error before the skill sees it.
+  (section 3) and refuses, with the reason, unless the level is `audit`; an
+  invalid table is a config error before the skill sees it.
 - **Inventory.** It inventories every piece of code in the repo and audits all
   of it: the primary language (`project.primary-language`) first, then every
   other language found (shell scripts in a Python repo, for example). Test
@@ -270,10 +277,11 @@ is marked so.
   human, an AI or a generator. A finding in a file vergil generates names the
   generator's source as where the fix belongs (for example, every repo's
   `.claude/hooks/guard.sh` is rendered from vergil-tooling
-  `src/vergil_tooling/data/hook_guard_shim.sh`). The only exemptions are code
-  we do not control: vendored third-party code, output of third-party tools,
-  and lockfiles. The report lists every exempt file, so nothing is skipped
-  silently.
+  `src/vergil_tooling/data/hook_guard_shim.sh`). Code we do not control
+  (vendored third-party code, output of third-party tools) is exempt only
+  when the repo lists it in `[standards].exempt`; nothing is exempted by
+  inference, such as a marker comment or a directory name. The report lists
+  every exempt file, so nothing is skipped silently.
 - Configuration and data formats (YAML, TOML, JSON) are not code and are not
   audited; their own linters cover them.
 - It loads the rulebook for each language found, plus `common`. A language
@@ -305,11 +313,13 @@ A `[standards]` table in `vergil.toml`:
 
 - `level = "off"`: the default. The audit refuses to run.
 - `level = "audit"`: the repo is working towards compliance. Reports only.
-- `level = "enforced"`: the repo has reached compliance. Reserved: in this
-  epic it behaves as `audit`; a later epic makes merge review check against
-  it.
+- `level = "enforced"` is planned for a repo that has reached compliance,
+  checked by merge review. Until the epic that builds that check exists, it
+  is a `ConfigError` ("not yet supported"): a repo never claims an
+  enforcement that does not happen.
+- `exempt = [<repo-relative paths>]`: optional. The only way to exempt code
+  we do not control; an entry ending in `/` covers everything below it.
 
-A repo moves to `enforced` only by an explicit edit to its `vergil.toml`.
 Rule: never enforce compliance before a repo has reached it.
 
 ### 5.5 Phase 4: fixture tuning
@@ -324,13 +334,14 @@ Rule: never enforce compliance before a repo has reached it.
   merged across the fixtures that carry it, and fixed through a vergil-tooling
   issue against its generator.
 - **The shell rulebook's tuning target.** The fixtures' only shell file is the
-  generated shim, so the shell rulebook is also tuned on vergil-tooling's
-  shell scripts, audited for shell only. This is the one exception to
-  deferring the vergil-tooling audit.
+  generated shim, so the shell rulebook is also tuned on vergil-claude-plugin's
+  hand-written hook scripts (`hooks/scripts/`, `hooks/tests/`), audited for
+  shell only. The plugin opts in with a committed `[standards]` table like the
+  fixtures.
 - **Success:** each fixture's latest report is one the human judges mostly
   worth acting on; the per-rule tables show which rules fire usefully; the
-  fixtures that reach a clean report are ready to be flipped to `enforced`
-  when the merge check exists. Success measures false positives only (section
+  fixtures that reach a clean report are candidates for enforcement once the
+  merge check exists. Success measures false positives only (section
   2.2).
 
 ### 5.6 The result frame
@@ -351,7 +362,8 @@ framework grows:
   `Agent types dispatched:`, which describe a paad delegate running a paad
   skill. A reviewer or verifier dispatches nothing.
 - **Changed:** `Files written:` is `none` for a reviewer or verifier; for
-  the skill's own result it lists the report and result paths it wrote.
+  the skill's own result it lists the report and result it wrote, by paths
+  relative to the output directory, never absolute host paths.
 - **Provenance lines,** in the skill's own result only: the audited repo's
   commit SHA, whether its tree was clean, the plugin version and the rulebook
   content hash.
@@ -377,7 +389,7 @@ framework grows:
 - The default output location is ignored `build/` scratch, not a committed
   path; committing a report is a deliberate act by the caller.
 - The rulebook ships with the plugin; site docs link to it.
-- `enforced` is reserved and behaves as `audit` for now.
+- `enforced` is rejected as not yet supported until the merge check exists.
 - Seeding `issue-implement` and the merge check are deferred to later epics.
 - Shell gets a built rulebook in this epic (the human asked that all code in
   a repo be audited, and shell is in nearly every repo). Go and C++ stay
