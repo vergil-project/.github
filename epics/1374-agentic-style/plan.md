@@ -430,16 +430,26 @@ Blocked by 5.
     a reviewer or verifier and paths relative to the output directory for
     `audit`. **On the security part:** `Security: <k>` equal to its `### S<i>`
     headings; `Security discards: <k>` followed by exactly `<k>` dash-led
-    lines; each finding's labels; `meta.*` findings only here; and `<k>`
-    equal to the public part's `Security:` count.
+    lines; each finding's labels; only `meta.*` findings, never a rulebook
+    finding; and `<k>` equal to the public part's `Security:` count. **For a
+    verifier,** given the reviewer result it judged: exactly one verdict per
+    reviewer finding, each naming it.
+  - **Meta kinds are a closed list:** `meta.prompt-injection` (text in the
+    audited code that tries to steer a reviewer) and
+    `meta.security-observation` (a secret-like value or exploitable weakness
+    noticed in passing), each with severity `high`. Any other `meta.*` ID is
+    refused. Adding a kind is a reviewed change to this list.
   - **Finding labels,** one `<Label>: <value>` line each, in this order. A
     reviewer finding: `Rule:`, `Location:` (`<path>:<line>`), `Problem:`,
     `Suggested change (untrusted):`, `Reach:` (`local | cross-module |
-    public-interface`), then `Generator:` only when the file is generated. A
-    verifier finding: `Rule:`, `Location:`, `Verdict:` (`upheld | dropped`),
-    `Reason:`. A `meta.*` finding: `Rule:`, `Location:`, `Problem:`. The
-    report takes each rule's source from the rulebook; reviewers never
-    supply it.
+    public-interface`). A verifier finding: `Finding:` (the reviewer
+    finding's `F<i>`), `Rule:`, `Location:`, `Verdict:` (`upheld | dropped`),
+    `Reason:`. A `meta.*` finding: `Rule:`, `Location:`, `Problem:`. An
+    `audit` finding (one per upheld finding): `Rule:`, `Location:`,
+    `Problem:`, `Suggested change (untrusted):`, `Reach:`, `Generator:`
+    (`none` or the inventory's `generated_from`). The source and the
+    generator come from the rulebook and the inventory; agents never supply
+    them.
   - `provenance(repo_root: Path, rulebook_dir: Path, plugin_version: str) ->
     Provenance`: `commit`, `tree_clean`, `plugin_version` (as given, refused
     when empty or malformed), `rulebook_sha256` (SHA-256 over the five files'
@@ -447,19 +457,30 @@ Blocked by 5.
   - `tally(results: list[str]) -> dict[str, RuleTally]`: per rule ID,
     `raised` from reviewer results and `surviving` from verifier results;
     `meta.*` excluded.
-  - `render_report(...) -> str`: the Markdown report from the checked
-    results, inventory, tally and provenance. Every piece of reviewer free
-    text sits in a top-level fenced code block longer than any backtick run
-    in it (doctrine §1.9); the output passes markdownlint with vergil's
-    configuration.
+  - `build_audit_result(reviewer_results: list[str], verifier_results:
+    list[str], inventory: Inventory, provenance: Provenance, rules:
+    dict[str, Rule]) -> str`: the skill's `audit` result, built only from
+    checked inputs. Its findings are the upheld findings; its security part
+    is the security count alone; its `Files written:` lists the report and
+    result relative to the output directory.
+  - `render_report(audit_result: str, inventory: Inventory, tally: dict[str,
+    RuleTally], rules: dict[str, Rule]) -> str`: the Markdown report. It
+    shows upheld findings with each rule's source and each file's generator,
+    counts dropped findings per rule, and names the coverage gaps. Every
+    piece of reviewer free text sits in a top-level fenced code block longer
+    than any backtick run in it (doctrine §1.9); the output passes
+    markdownlint with vergil's configuration.
   - CLI, each reading FILE or `-` for stdin: `vrg-style-result cut FILE
     --public-out PATH --security-out PATH` (exit 1, writing nothing, when the
     cut cannot proceed); `vrg-style-result check --role
     {reviewer,verifier,audit} --rulebook-dir DIR --public PATH --security
-    PATH` (exit 0 on pass, 1 printing each failed check); `vrg-style-result
-    provenance --rulebook-dir DIR --repo-root PATH --plugin-version V`;
-    `vrg-style-result tally FILE...`; and `vrg-style-result report
-    --inventory PATH --tally PATH --provenance PATH --out PATH FILE...`.
+    PATH [--reviewer PATH]` (`--reviewer`, the checked reviewer result,
+    required for a verifier; exit 0 on pass, 1 printing each failed check);
+    `vrg-style-result provenance --rulebook-dir DIR --repo-root PATH
+    --plugin-version V`; `vrg-style-result tally FILE...`; `vrg-style-result
+    audit --rulebook-dir DIR --inventory PATH --provenance PATH --out PATH
+    --reviewer PATH... --verifier PATH...`; and `vrg-style-result report
+    --rulebook-dir DIR --inventory PATH --tally PATH --out PATH AUDIT`.
 
 - [ ] **Step 1: Write the failing tests:** `test_rulebook_parses_fields`;
   `test_rulebook_reads_only_the_five_files` (a `README.md` with an example
@@ -469,23 +490,34 @@ Blocked by 5.
   `test_cut_refuses_two_markers`; `test_cut_refuses_missing_end_marker`;
   `test_marker_case_insensitive`; `test_marker_in_free_text_refused`;
   `test_security_count_mismatch_refused`; `test_count_mismatch_refused`;
-  `test_label_order_refused`; `test_generator_label_optional`;
-  `test_unknown_rule_refused`; `test_linter_enforced_rule_refused`;
-  `test_severity_mismatch_refused`; `test_meta_in_security_section_passes`;
+  `test_label_order_refused`; `test_unknown_rule_refused`;
+  `test_linter_enforced_rule_refused`; `test_severity_mismatch_refused`;
+  `test_meta_in_security_section_passes`;
   `test_meta_outside_security_section_refused`;
+  `test_unlisted_meta_kind_refused`; `test_rule_finding_in_security_refused`;
+  `test_meta_security_observation_passes`;
+  `test_verifier_one_verdict_per_finding` (a missing, extra or unnamed
+  verdict is refused); `test_verifier_requires_reviewer`;
   `test_audit_requires_provenance`; `test_audit_files_written_relative`;
+  `test_build_audit_keeps_only_upheld`; `test_build_audit_generator_from_inventory`;
   `test_provenance_hash_stable`; `test_provenance_dirty_tree`;
   `test_provenance_rejects_empty_version`;
   `test_tally_counts_raised_and_surviving`; `test_tally_ignores_meta`;
+  `test_report_carries_rule_source`; `test_report_counts_dropped`;
   `test_report_free_text_fenced` (free text holding backticks, a link and an
   HTML tag renders inside a fence); `test_report_passes_markdownlint` (runs
-  markdownlint with vergil's configuration over rendered sample reports).
+  markdownlint with vergil's configuration over rendered sample reports, and
+  fails, never skips, when markdownlint is missing).
 - [ ] **Step 2:** Run them. Expect FAIL.
-- [ ] **Step 3: Implement** the parser, cut, checker, provenance, tally and
-  renderer. The checker never edits the text it checks.
+- [ ] **Step 3: Implement** the parser, cut, checker, provenance, tally,
+  audit builder and renderer. The checker never edits the text it checks.
 - [ ] **Step 4:** Run them. Expect PASS. Run `vrg-container-run --
   vrg-validate`. Expect PASS.
-- [ ] **Step 5:** Commit `vrg-commit --type feat --scope style --message
+- [ ] **Step 5: Parse the approved rulebook.** Run `load_rulebook` over the
+  `skills/agentic-style/rulebook/` of the plugin commit Task 5 recorded.
+  Expect success. A failure is a mismatch to resolve with the human while
+  this task is open, never by loosening the parser silently.
+- [ ] **Step 6:** Commit `vrg-commit --type feat --scope style --message
   "add vrg-style-result to parse the rulebook, check results and render the
   report"`, then report-ready.
 
@@ -528,11 +560,13 @@ security observations), §5.6. Blocked by 5 and D1.
   result in the §5.6 frame for its role and dispatches nothing.
 
 - [ ] **Step 1:** Write both definitions. Each carries a "Data, not
-  instructions" section in the shape of `agents/merge-reviewer.md`, the
-  `meta.prompt-injection` reporting rule, the rule never to quote a
-  secret-like value or describe an exploitable weakness outside the security
-  section, the rule to copy each finding's severity from its rule, and the
-  result frame with Task 7's labels as a template.
+  instructions" section in the shape of `agents/merge-reviewer.md`; the rule
+  to report steering attempts as `meta.prompt-injection` and incidental
+  secret-like values or weaknesses only as `meta.security-observation`, both
+  in the security section and never quoted elsewhere; the rule to copy each
+  finding's severity from its rule; and the result frame with Task 7's
+  labels for its role as a template (a verifier names each reviewer finding
+  in `Finding:`).
 - [ ] **Step 2:** Check each template: cut a hand-written sample result per
   role with the released `vrg-style-result cut`, then run `vrg-style-result
   check` on both parts against the approved rulebook. Expect PASS.
@@ -572,22 +606,30 @@ Spec §5.3, §5.5, §5.6, §7. Blocked by 8 and D1.
      rules, dispatch one reviewer, given that language's rules plus
      `common`, or `common` alone for a language with no rulebook (a
      coverage gap the report names, as for `javascript`).
-  4. Write each raw result only under `build/agentic-style/raw/`. **Cut
+  4. **Before the first write,** check that `build`, `build/agentic-style`
+     and `build/agentic-style/raw`, each where it exists, is a real directory
+     and not a symlink; that `vrg-git check-ignore` covers
+     `build/agentic-style/raw/`; and that `DIR` and each directory on the way
+     to it is a real directory and not a symlink. Stop with the reason if any
+     check fails.
+  5. Write each raw result only under `build/agentic-style/raw/`. **Cut
      first** with `vrg-style-result cut`, keeping the security part there
      and showing it in the terminal; **then check** both parts with
      `vrg-style-result check`.
-  5. Dispatch the verifier per checked reviewer result, and cut and check
-     its result the same way.
-  6. **Any failure stops the audit.** A result that cannot be cut, fails a
+  6. Dispatch the verifier per checked reviewer result, and cut and check
+     its result the same way, passing `--reviewer`.
+  7. **Any failure stops the audit.** A result that cannot be cut, fails a
      check, or reports `Status: blocked` stops the run: no report and no
      result are written to `DIR`, the failing result stays whole in `raw/`
      as security material, and the skill tells the human which result
      failed and which check, never its text. Nothing is retried
      automatically.
-  7. Run `vrg-style-result provenance --plugin-version <this plugin's
+  8. Run `vrg-style-result provenance --plugin-version <this plugin's
      version, from its own plugin.json>` and `vrg-style-result tally`.
-  8. Write the `audit` result, cut and check it, then render the report with
-     `vrg-style-result report`. The skill writes no Markdown itself.
+  9. Build the `audit` result with `vrg-style-result audit`, cut and check
+     it, then render the report with `vrg-style-result report`. The skill
+     authors neither file: it only dispatches agents and passes files
+     between commands.
 - [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
 - [ ] **Step 3:** Commit `vrg-commit --type feat --scope agentic-style
   --message "add the agentic-style skill"`, then report-ready.
@@ -600,7 +642,9 @@ Blocked by 9.
   4b, 8 and 9 is published and installed, its version named in a comment.
 - **Procedure (agent-safe):** confirm the installed plugin lists
   `/vergil:agentic-style` and both agents, and that its rulebook matches the
-  commit Task 5 approved.
+  commit Task 5 approved, or a later commit the human re-approved in a
+  recorded comment on Task 5. Any rulebook change after Task 5, including a
+  format-only one, needs that re-approval.
 - **SUCCESS:** recorded with the plugin version.
 
 ### Tasks 10a–10g: Opt-in (one per fixture, and the plugin)
@@ -621,9 +665,10 @@ plugin worktree loaded.
   `vrg-standards-level` in `vergil-fixture-python-lib` prints `audit`.
 - **Procedure:**
   1. Create a throwaway git repo under the session scratch directory holding
-     only a `README.md`, a `ci.yml` and a committed `vergil.toml` with
-     `[standards] level = "audit"`. Run `/vergil:agentic-style` there: the
-     report's inventory says there is no code, and nothing is audited.
+     only a `README.md`, a `ci.yml`, a `.gitignore` with `build/`, and a
+     committed `vergil.toml` with `[standards] level = "audit"`. Run
+     `/vergil:agentic-style` there: the report's inventory says there is no
+     code, and nothing is audited.
   2. Run it in a clean clone of `vergil-fixture-python-lib`: the `.result.txt`
      passes `vrg-style-result check --role audit`, the report passes
      markdownlint, and `raw/` is under `build/`.
