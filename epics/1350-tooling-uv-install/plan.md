@@ -752,3 +752,257 @@ fixture-run vergil-project/.github#1350 <all fixtures> \
   vergil-project/.github#1378, carrying vergil-project/.github#466's survey
   list and vergil-project/.github#365, revisited when the home hosting
   platform exists (expected February 2027).
+
+## Evolution during execution
+
+The task list above is left as planned; each entry below records a change
+made during execution. The spec stays as approved.
+
+### 2026-11-19: a new task for `repo_init`'s generated `cd.yml`
+
+**What changed:**
+
+- **A new code task, vergil-project/vergil-tooling#4747:** the `cd.yml`
+  that `repo_init` generates forwards both automation App secrets,
+  `APP_CLIENT_ID` and `APP_PRIVATE_KEY`, to `cd-release.yml`, in the
+  fleet's named-secrets style, with a test. It merged (PR
+  vergil-project/vergil-tooling#4750) before Task 2d ran, and shipped in
+  vergil-tooling v2.1.328.
+
+**Why:**
+
+- Task 2a (vergil-project/vergil-actions#1315) makes the App secrets
+  required for every release, so a repo generated after it would fail its
+  first release at "Require the automation App secrets". Task 2b fixes only
+  the repos that exist today. Raised as N0.1 in
+  [#1315's run](https://github.com/vergil-project/vergil-actions/issues/1315#issuecomment-7009724561)
+  and filed on the human's
+  [`file` ruling](https://github.com/vergil-project/vergil-actions/issues/1315#issuecomment-7010018411).
+
+### 2026-11-19: Task 2a's smoke-release tag check replaced by two tests
+
+**What changed:**
+
+- **Task 2a (vergil-project/vergil-actions#1315) Step 1** no longer asks
+  the smoke release to assert that the App created the pushed tag. Its
+  acceptance is two tests instead: `tag-and-release/tests/push-tag.test.sh`
+  (a local HTTP server shows that a tag push sends exactly one
+  Authorization header, the App token's) and
+  `actions/cd/release/tests/release-tag-token.test.sh` (the tag-token
+  wiring, and the failure naming each missing App secret). The live check
+  that the App created a release tag stayed with Task 2ad.
+
+**Why:**
+
+- PR CI cannot push a tag: `smoke-cd-release.yml` runs on `pull_request`
+  with `contents: read`, and no release happens. Raised as N0.2 in
+  [#1315's run](https://github.com/vergil-project/vergil-actions/issues/1315#issuecomment-7009724561);
+  the human posted the
+  [scope change on #1315](https://github.com/vergil-project/vergil-actions/issues/1315#issuecomment-7009959737).
+
+### 2026-11-19: Task 3b keeps `consumer-refresh` as the release's last stage
+
+**What changed:**
+
+- **Task 3b (vergil-project/vergil-tooling#4739) does not move
+  `consumer-refresh` ahead of `promote`.** It stays the last thing a
+  release does, after `promote`, `close-finalize` and `update-deps`, and a
+  deferred package publish still holds it, as before. The task kept the
+  rest of its work: the refresh runs as an in-pipeline stage instead of the
+  separate post-pipeline install, rolls up to one check line on success,
+  shows its full output below the summary on failure, and `--no-install`
+  prints its commands instead of running them. Task 3b's title, Step 1's
+  first two tests and Step 3's commit subject above describe the dropped
+  move; this entry supersedes them.
+- **N0.2 (a vergil-tooling release reinstalling itself while `vrg-release`
+  still runs) was dismissed as moot:** with the refresh last, nothing runs
+  after the reinstall.
+
+**Why:**
+
+- Refreshing early gained nothing, since the workflow blocks until the
+  release ends anyway. It also broke vergil-claude-plugin's refresh, which
+  re-adds the marketplace at the rolling `v2.1` tag that only `promote`
+  moves, so an early refresh would install the previous plugin release.
+  Raised as N0.1 in
+  [#4739's run](https://github.com/vergil-project/vergil-tooling/issues/4739#issuecomment-7009522484);
+  the human posted the
+  [scope change on #4739](https://github.com/vergil-project/vergil-tooling/issues/4739#issuecomment-7010790052),
+  and the
+  [rulings](https://github.com/vergil-project/vergil-tooling/issues/4739#issuecomment-7010994688)
+  record N0.1 `fix` and N0.2 `dismiss`.
+
+### 2026-11-19: vergil-actions released with the uv setup action before Task 7d
+
+**What changed:**
+
+- **Tasks 8 (vergil-project/vergil-actions#1317) and 9
+  (vergil-project/vergil-actions#1318) had merged before Task 2ad's
+  release**, so vergil-actions 2.1.85 and 2.1.86, which moved `v2.1`,
+  shipped the uv setup action ahead of the vergil-tooling release (Task 7d)
+  that the plan puts first.
+
+**Why:**
+
+- The human chose to keep the release rather than revert Tasks 8 and 9, so
+  that problems would surface early (epic driver session; recorded in
+  [Task 10d's ruling](https://github.com/vergil-project/vergil-actions/issues/1319#issuecomment-7012288032)).
+
+### 2026-11-19: Task 10d ran against that release, its 7d precondition waived
+
+**What changed:**
+
+- **Task 10d (vergil-project/vergil-actions#1319) ran its checks against
+  the vergil-actions release already out and closed on them**, with its
+  "Task 7d closed" precondition waived (vergil-project/vergil-tooling#4743
+  was still open).
+- **Its consumer evidence came from fresh runs after the release**, not
+  from a rerun of an old PR CI run: a `pull_request` CI run produced by the
+  vergil-fixture-python-lib v0.1.2 release, and the human's rerun of a
+  vergil-python package run
+  ([outcome](https://github.com/vergil-project/vergil-actions/issues/1319#issuecomment-7014051414)).
+
+**Why:**
+
+- The release already shipped the uv setup action (see the entry above),
+  so checking it at once surfaced problems early; Tasks 13 and 16v
+  exercise the setup action again later. The human's
+  [ruling](https://github.com/vergil-project/vergil-actions/issues/1319#issuecomment-7012288032)
+  was recorded on #1319 before the run.
+
+### 2026-11-19: two latent test bugs fixed ad hoc
+
+**What changed:**
+
+- **vergil-project/vergil-actions#1325:** early-exit pipelines (`grep -q`,
+  `grep -m`, `head`) under `pipefail` could lose a SIGPIPE race and take
+  the "no match" branch. Every site was rewritten (including two
+  `action.yml` files that run in consumers' jobs), and a validation check
+  now refuses the pattern.
+- **vergil-project/vergil-tooling#4752:** a hook-environment test asserted
+  that the generic word "secret" was absent from the hook's environment,
+  so it failed on any branch whose name contained it. The tests now use a
+  distinctive sentinel value, with regression cases for such branch names.
+- The rest of the epic paused until both merged (epic driver session).
+
+**Why:**
+
+- The pipefail race failed the vergil-actions 2.1.85 release PR's
+  `container-tag fixtures` check, and the test bug failed #4747's PR
+  (vergil-project/vergil-tooling#4750) on its branch name. Both were
+  outside the epic's design, so they were filed ad hoc rather than as epic
+  tasks.
+
+### 2026-11-19: a new task to install on a stable 3.15 on host runners
+
+**What changed:**
+
+- **A new code task, vergil-project/vergil-actions#1331:** the setup
+  action's pinned uv moves from 0.12.23 to 0.13.9, and the install fails
+  unless vergil-tooling runs on a released Python 3.15. It merged as PR
+  vergil-project/vergil-actions#1333.
+
+**Why:**
+
+- The pinned uv 0.12.23 resolved `--python 3.15 --managed-python` to
+  `cpython-3.15.0rc3` on host runners, while the containers' uv resolved
+  it to `cpython-3.15.2`, so host and container jobs ran vergil-tooling on
+  different interpreters. uv 0.13.9 resolves it to 3.15.2. Seen in
+  [Task 10d's acceptance runs](https://github.com/vergil-project/vergil-actions/issues/1319#issuecomment-7014051414)
+  and filed under this epic on the human's
+  [`file` ruling](https://github.com/vergil-project/vergil-actions/issues/1319#issuecomment-7014158112).
+
+### 2026-11-19: Task 2ad's tag-creator evidence from the fixture's CD log
+
+**What changed:**
+
+- **Task 2ad (vergil-project/vergil-actions#1316) took the fixture's CD
+  release log as its evidence that the automation App created the release
+  tag**, in place of an events-API creator check. The direct proof (a
+  fixture release succeeding once tag creation is restricted to Admin and
+  the App) moved after Task 2d; Task 2d's own ruling then moved it to
+  Task 15 (see the Task 2d entry below).
+
+**Why:**
+
+- The human's events-API query for the v0.1.2 tag's CreateEvent printed
+  nothing, so the events feed gave no creator record. The
+  [ruling and outcome](https://github.com/vergil-project/vergil-actions/issues/1316#issuecomment-7014012101)
+  are on #1316.
+
+### 2026-11-19: Task 2d ran after Task 7d
+
+**What changed:**
+
+- **Task 2d (vergil-project/vergil-tooling#4737) ran right after the
+  vergil-tooling release (Task 7d, v2.1.328), using the released tooling**,
+  instead of before it; Task 7d's "2d closed" precondition was waived.
+- **The apply also added the automation App (Integration 3692384) to the
+  Tag protection ruleset's bypass list**, beside the creation rule.
+- **Its second-fixture-release acceptance moved to Task 15**, the fixture
+  runs, which are the next releases. That release is also Task 2ad's direct
+  proof. The refused agent test-tag push (`v0.0.0-ruleset-check` to
+  vergil-tooling) stayed in Task 2d's acceptance, and was refused.
+
+**Why:**
+
+- The human accepted a short window in which installs trusted git tags
+  before tag creation was restricted
+  ([order ruling](https://github.com/vergil-project/vergil-tooling/issues/4737#issuecomment-7015507752)).
+- The fleet is frozen until Task 14d, so no other fixture release would
+  come sooner than Task 15
+  ([acceptance rulings and outcome](https://github.com/vergil-project/vergil-tooling/issues/4737#issuecomment-7015816821)).
+
+### 2026-11-19: Task 5b's real-VM proof waived before merge
+
+**What changed:**
+
+- **Task 5b (vergil-project/vergil-tooling#4742) Step 4, the real-VM
+  proof before merge, was waived.** Validation moved after deployment:
+  Task 7d's per-VM check (a bare, non-login `vrg-whoami --mode` over each
+  VM's transport) and Task 16v's cold build (vergil-project/vergil-vm#430),
+  which exercises `vrg-vm create`'s tooling-check stage. A failure there is
+  fixed forward.
+
+**Why:**
+
+- The human's
+  [ruling](https://github.com/vergil-project/vergil-tooling/issues/4742#issuecomment-7014423674)
+  is on #4742; Task 7d's
+  [progress record](https://github.com/vergil-project/vergil-tooling/issues/4743#issuecomment-7015469707)
+  takes the check on.
+
+### 2026-11-19: Task 7d closed on the Mac and the VM that answered
+
+**What changed:**
+
+- **Task 7d (vergil-project/vergil-tooling#4743) closed on the Mac's
+  evidence and the one VM that answered.** The cloud VM did not answer; if
+  it was stopped, the release's `vrg-vm update --all` did not move it. It
+  is checked the next time it is started and updated, and any failure there
+  is fixed forward with a follow-up.
+
+**Why:**
+
+- The human's
+  [ruling and outcome](https://github.com/vergil-project/vergil-tooling/issues/4743#issuecomment-7015870968)
+  are on #4743.
+
+### 2026-11-19: two out-of-scope follow-ups filed ad hoc
+
+**What changed:**
+
+- **vergil-project/vergil-actions#1332:** every
+  `actions/create-github-app-token` call passes the App's client ID
+  through the deprecated `app-id` input; it moves to `client-id`.
+- **vergil-project/.github#1381:** the vergil plugin's stale-plugin hook
+  warns and lets the agent continue, instead of stopping it.
+
+**Why:**
+
+- Both surfaced during this epic but lie outside its goal, so they were
+  filed ad hoc, outside the epic. #1332's deprecation warning showed in
+  Task 2ad's release run
+  ([ruling](https://github.com/vergil-project/vergil-actions/issues/1316#issuecomment-7014501526)).
+  The hook stopped two of the epic's first-frontier runs (#4739 and #1315)
+  at merge review.
