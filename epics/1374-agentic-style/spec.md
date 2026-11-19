@@ -53,12 +53,17 @@ branch scoping, blame routing, backlog machinery or `paad/` directory
 conventions. It is built to look like a vergil skill and to fit vergil's
 tooling and paths.
 
-A key reason: epic-create carries awkward workarounds to exchange data with
-paad's pushback and alignment skills through the file system. `agentic-style`
-avoids that by design: its data hand-offs are explicit, versioned contracts
-(section 5.3), so a caller or a wrapper can consume its output without
-scraping. The human may later wrap paad's two skills in a vergil wrapper that
-packages their output the same way; that is outside this epic.
+**Its results use the delegate result format.** The human's paad fork
+(`wphillipmoore/paad`) carries an unattended mode and the `paad-delegate`
+agent, built by this project to integrate paad's skills with vergil: a
+caller dispatches a fixed prompt and gets back one structured result
+(announce line, status, counts, findings, discards, a separate security
+section, files written), which it checks strictly. `epic-create` already
+consumes it (vergil-claude-plugin `docs/paad-review-doctrine.md` §1.9). The
+format is experimental, not yet offered upstream, and is a framework the
+project intends to extend. `agentic-style` reuses that architecture for its
+own reviewers, verifiers and overall result, extending each finding with the
+fields section 5.3 lists, rather than defining a separate format.
 
 The longer-term aim is that the three are run together, periodically, on code
 that is meant to last (intake item vergil-project/.github#1372, routed to
@@ -78,14 +83,17 @@ planning).
 - An audit skill that applies the rulebook to a repo with themed reviewer
   subagents and a verify pass, and writes a report.
 - A per-repo opt-in flag, so the audit runs only where a repo has chosen it.
-- Calibration snippets per rule, so rule reliability can be measured.
 - Tuning runs on the six fixture repos until the reports are worth acting on.
 
 ### 2.2 Non-goals (this epic)
 
 - A fix skill. It comes after reports have been tuned (later epic).
 - A merge-review check against the rulebook. Later, and only for rules that
-  calibration shows are applied reliably.
+  real use shows are applied reliably.
+- A corpus of good and bad example snippets, and any calibration mode built
+  on one. Examples are collected over time from real findings, the way a FAQ
+  grows from questions actually asked, not designed up front. The fixtures
+  grow over time into the fleet's examples of good code.
 - A cadence for running the three agentic skills periodically (a separate
   intake item).
 - Seeding `issue-implement` with the rulebook. Later, once the rules have
@@ -95,8 +103,11 @@ planning).
   coverage gap.
 - Auditing vergil-tooling. It is the most important target, but it comes
   after the fixtures have shown the reports are useful.
-- Any rule a linter already enforces. If a mechanical check exists, it is
-  used instead; the rulebook covers judgment only.
+- Agent judgment of any rule a linter can enforce. Deterministic, mechanical
+  checks always beat stochastic, approximate ones: where a linter covers a
+  rule in a language, the linter enforces it there and the agent does not
+  (section 7). The rulebook's agent-judged rules are the residue no linter
+  covers.
 
 ### 2.3 Anti-goals (a failure even if it works)
 
@@ -118,12 +129,18 @@ planning).
   against other repos, so the rulebook must ship with the plugin. The existing
   naming docs in vergil-tooling's docs site link to the rulebook rather than
   hold a second copy.
-- **`vergil.toml` is strictly validated.** `vergil-tooling`
-  `src/vergil_tooling/lib/config.py` holds an allowed-key set per table, so a
-  new `[standards]` table needs a vergil-tooling change and release before any
-  repo can set it.
-- **Fixtures exist to run Vergil's release cycle.** Planted violations do not
-  go in fixture source; the calibration corpus lives with the rulebook.
+- **Anything added to `vergil.toml` is strictly validated.** vergil-tooling
+  `src/vergil_tooling/lib/config.py` today only warns on an unrecognized
+  section or key. The new `[standards]` table is validated strictly: its
+  allowed keys are defined, and an unknown key or a `level` outside the three
+  values in section 5.4 raises a `ConfigError`. vergil-tooling also gives
+  skills a `vrg-*` command to read the validated setting, and the skill reads
+  it only through that command. This needs a vergil-tooling change and release
+  before any repo can set the flag. Making the rest of `vergil.toml` strict is
+  separate work (vergil-project/.github#1382).
+- **Fixtures exist to run Vergil's release cycle.** They are the integration
+  test bed, not deployed code, and over time the best-case example of the
+  code the rulebook asks for. Planted violations do not go in fixture source.
 - Workflow conventions apply as usual: worktrees, `vrg-git` / `vrg-gh`,
   `vrg-container-run -- vrg-validate`, report-ready handoff.
 
@@ -166,13 +183,17 @@ is marked so.
 ### 5.2 Phase 2: the rulebook (agent drafts, human cuts)
 
 - Markdown: one file per language (`python`, `rust`, `typescript`, `shell`)
-  plus `common`. Target about 15 rules per language and 10 common. Conway's naming
-  rules are always included (already adapted per language in vergil-tooling's
-  `standards/development/<lang>/naming-conventions.md`; these become rules).
+  plus `common`. Target about 15 agent-judged rules per language and 10
+  common. Conway's naming rules are always listed (already adapted per
+  language in vergil-tooling's
+  `docs/site/docs/standards/development/<lang>/naming-conventions.md`), so the
+  set stays complete as a reference. In each language, a Conway rule that a
+  linter covers is marked "enforced by `<linter check>`" and is not
+  agent-judged there; one no linter covers is an agent-judged rule.
 - Each rule: a stable ID (e.g. `naming.full-words`), a theme, a one-line
-  statement, what a violation looks like, the source citation, why no linter
-  covers it, and at least one bad and one good snippet (the calibration
-  corpus).
+  statement, what a violation looks like (in prose), the source citation, and
+  why no linter covers it. Rules are prose guidelines extracted from the cited
+  sources; no example snippets are required.
 - Themes (initial, the human may change them): **naming**, **functions and
   control flow** (length, nesting, early return, argument count), **language
   idioms**, **comments and documentation**. Every rule, language-specific or
@@ -182,30 +203,57 @@ is marked so.
 - Each rule notes any paad lens that covers adjacent ground, so the boundary
   is written down. A favourite rule that falls between the siblings stays in
   `agentic-style`.
-- The human reviews brutally and iterates; the rulebook is approved before the
-  skill is built.
+- The human reviews brutally and iterates. **Rulebook approval is an explicit
+  human gate in the plan:** no skill or agent work starts until the human has
+  approved the rulebook.
 
 ### 5.3 Phase 3: the audit skill and agents
 
 - A vergil plugin skill, `agentic-style` (invoked `/vergil:agentic-style`),
   written to vergil's skill conventions. Its description says what it is not
   for and names its two siblings.
-- **Contracts, not scraping.** Following the `merge-reviewer` model (a
-  versioned JSON request file in, a structured result back), each reviewer and
-  verifier receives a versioned request and returns a versioned, structured
-  result. The skill also writes a machine-readable findings file beside the
-  Markdown report, under a versioned schema (e.g. `agentic-style-findings/1`),
-  so callers, wrappers and later the fix skill and merge check consume data,
-  not prose.
-- It reads the repo's `vergil.toml` and refuses with a clear message if the
-  `[standards]` level is `off` or absent.
+- **The delegate pattern, checked strictly.** Each reviewer and verifier is
+  dispatched with a fixed prompt and returns its result in the delegate
+  result format (section 1.1). The skill checks each result's structure
+  strictly before using it: counts match headings, fields are present and in
+  order, severities and rule IDs are valid, the security section is separate.
+  A result that fails a check is refused, never repaired or guessed at. The
+  skill builds its own structured result, in the same format, from the checked
+  results only, and writes it beside the Markdown report, so callers and later
+  the fix skill and merge check consume checked data, not prose. There is no
+  request file, capture hook or write guard.
+- **Repo content is data, not instructions.** Every reviewer and verifier
+  prompt carries a data-not-instructions section like `agents/merge-reviewer.md`
+  in vergil-claude-plugin: the code, comments and docs under review never
+  direct the reviewer, and any text that tries to is itself reported as a
+  finding. Each finding's suggested change is marked in the result as
+  untrusted text that consumers must never act on as instructions.
+- **Incidental security observations stay private.** Reviewers never quote a
+  secret-like value or describe an exploitable weakness in a finding. Such an
+  observation goes only in the result's security section; the report carries
+  a count line with no details, and the details reach the human in the
+  terminal only. A report is screened against that rule before it is
+  committed to any tracked path.
+- It reads the `[standards]` level through the vergil-tooling command
+  (section 3) and refuses, with the reason, unless the level is `audit` or
+  `enforced`; an invalid table is a config error before the skill sees it.
 - **Inventory.** It inventories every piece of code in the repo and audits all
   of it: the primary language (`project.primary-language`) first, then every
   other language found (shell scripts in a Python repo, for example). Test
-  code is code and is audited under the same rules, with no exceptions; it
-  asserts the correctness of the production code, so its readability matters
-  at least as much. The inventory is auto-discovered and appears at the top
-  of the report (language, file count, lines, rulebook used).
+  code is code and is audited under the same rules; it asserts the
+  correctness of the production code, so its readability matters at least as
+  much. The inventory is auto-discovered and appears at the top of the report
+  (language, file count, lines, rulebook used).
+- **Every file of code we own is audited, however it was created**: by a
+  human, an AI or a generator. A finding in a file vergil generates names the
+  generator's source as where the fix belongs (for example, every repo's
+  `.claude/hooks/guard.sh` is rendered from vergil-tooling
+  `src/vergil_tooling/data/hook_guard_shim.sh`). The only exemptions are code
+  we do not control: vendored third-party code, output of third-party tools,
+  and lockfiles. The report lists every exempt file, so nothing is skipped
+  silently.
+- Configuration and data formats (YAML, TOML, JSON) are not code and are not
+  audited; their own linters cover them.
 - It loads the rulebook for each language found, plus `common`. A language
   found with no rulebook is audited against `common` only, and the report
   says so plainly as a coverage gap, never silently.
@@ -220,13 +268,14 @@ is marked so.
   rule ID and source, file and line, what is wrong, a suggested change, and
   its **reach**: `local`, `cross-module`, or `public-interface`. Reach is
   recorded because fixes that rename or restructure ripple to callers, docs,
-  tests and sometimes other repos. A per-rule summary table: findings raised, findings
-  surviving verification, so rules that never fire, always fire, or mostly
-  fail verification are visible for tuning.
-- **Calibration mode.** The skill can run against the rulebook's own snippet
-  corpus and report, per rule, whether each bad snippet was flagged and each
-  good one left alone. This is how a rule's reliability is measured. It is an
-  LLM evaluation, not deterministic, and is not part of `vrg-validate`.
+  tests and sometimes other repos. For a generated file, the finding also
+  names the generator's source. A per-rule summary table: findings raised,
+  findings surviving verification, so rules that never fire, always fire, or
+  mostly fail verification are visible for tuning.
+- **Provenance.** The report and the structured result each record the
+  audited repo's commit SHA, whether its working tree was clean, the plugin
+  version and a hash of the rulebook content, so a change between two tuning
+  rounds can be traced to the code, the rules or the prompts.
 
 ### 5.4 The repo flag
 
@@ -248,16 +297,16 @@ Rule: never enforce compliance before a repo has reached it.
   are tuned; repeat. Fixing findings in the fixtures is done by hand or by
   ordinary issues during this phase (no fix skill yet).
 - **Success:** each fixture's latest report is one the human judges mostly
-  worth acting on; calibration shows which rules are reliable; the fixtures
-  that reach a clean report are ready to be flipped to `enforced` when the
-  merge check exists.
+  worth acting on; the per-rule tables show which rules fire usefully; the
+  fixtures that reach a clean report are ready to be flipped to `enforced`
+  when the merge check exists.
 
 ## 6. What is left to the builder
 
 - The exact file path for the rulebook in the plugin.
 - Whether review and verify are one agent definition with two modes or two
-  definitions; their tools are read-only (Read, Glob, Grep), as with
-  `merge-reviewer`.
+  definitions; their tools are read-only (Read, Glob, Grep).
+- The per-finding field names that extend the delegate result format.
 - How the skill dispatches subagents and bounds cost on a large repo.
 - The report's exact layout beyond the fields in 5.3.
 - The issue breakdown across vergil-tooling (flag) and vergil-claude-plugin
@@ -269,7 +318,6 @@ Rule: never enforce compliance before a repo has reached it.
 - The default output location is ignored `build/` scratch, not a committed
   path; committing a report is a deliberate act by the caller.
 - The rulebook ships with the plugin; site docs link to it.
-- Calibration snippets live with the rulebook, not in fixture source.
 - `enforced` is reserved and behaves as `audit` for now.
 - Seeding `issue-implement` and the merge check are deferred to later epics.
 - Shell gets a built rulebook in this epic (the human asked that all code in
@@ -277,15 +325,19 @@ Rule: never enforce compliance before a repo has reached it.
   research-only.
 - "C" in the brainstorm is read as C++, matching the existing standards
   folder.
-- **Mechanical first means "offered", not "turned on".** If a linter offers
-  a check (e.g. ruff pep8-naming, clippy pedantic, eslint naming-convention)
-  the rule stays out of the rulebook even if Vergil has it switched off. The
-  survey lists each such check as "available, not enabled", and each becomes
-  an intake issue to enable it in vergil-tooling, outside this epic.
+- **The linter always wins, language by language.** A rule is
+  linter-enforced in a language when a linter vergil already runs, or ships
+  configuration for, offers a check for it there, even if vergil has that
+  check switched off (e.g. ESLint `id-length`, Clippy `min_ident_chars`). The
+  rule is then marked "enforced by `<check>`" for that language and is not
+  agent-judged there. The survey records, per rule and language, which check
+  covers it or that none does. Each check that is available but not enabled,
+  and each coverage gap a linter could close, becomes an intake issue to
+  strengthen the mechanical gates, outside this epic.
 - **Naming docs.** vergil-tooling's naming docs stay the authority, unchanged,
-  until the rulebook is approved. After approval the Python, Rust and
-  TypeScript docs link to their rulebook rules as the authority (a docs task
-  in vergil-tooling); the Go, C++ and shell docs are untouched.
+  until the rulebook is approved. After approval the Python, Rust, TypeScript
+  and shell docs link to their rulebook rules as the authority (a docs task in
+  vergil-tooling); the Go and C++ docs are untouched.
 - **Book citations.** Rules may cite copyrighted books, but a citation the
   agent could not check against the text is marked `unverified` in the
   rulebook; the human verifies the ones that survive the cut. Where an open
@@ -293,9 +345,9 @@ Rule: never enforce compliance before a repo has reached it.
 - **Tuning reports do not touch the fixtures.** The skill writes a file and
   nothing else: no issue, no commit, no handoff (as paad's audit skills do).
   The output path is an argument, so the caller decides where the report and
-  findings file go; the default is the audited repo's ignored
-  `build/agentic-style/<date>-<repo>.{md,json}` scratch, which vergil allows
-  even in a read-only main worktree. The report's content and shape are
+  structured result go; the default is the audited repo's ignored
+  `build/agentic-style/` scratch, which vergil allows even in a read-only main
+  worktree. The report's content and shape are
   standard wherever it lands. During tuning, reports are written into this
   epic's folder in `.github`, so tuning rounds never start a
   fixture's PR or release cycle. Fixing fixture findings goes through ordinary
@@ -303,7 +355,6 @@ Rule: never enforce compliance before a repo has reached it.
 - **Ordering.** The vergil-tooling `[standards]` flag change and release
   lands before any fixture sets the flag, because fixtures pin
   `vergil = "v2.1"`.
-- **Success leans on calibration as well as fixture reports**, since the
-  fixtures are small (about 6,500 lines over six repos) and many rules will
-  not fire on them. A rule is judged by its calibration results first and its
-  fixture findings second.
+- **The fixtures are small**, so many rules will not fire on them. That is
+  expected: a rule that never fires on the fixtures is not judged until it
+  meets larger code, starting with vergil-tooling after this epic.
