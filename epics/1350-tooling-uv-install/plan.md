@@ -54,8 +54,8 @@ Two stated exceptions, and no others:
   `ls-remote` and no SHA (an exact tag cannot change), and still install
   with that tag's lock and the interpreter rule.
 - **The package setup action's driver.** It keeps its `python` input
-  (`--python "$VRG_DRIVER_PYTHON"`) for the driver interpreter, and still
-  takes `--managed-python`, `--no-config` and the cleared `UV_*`
+  (`--python "$VRG_DRIVER_PYTHON"`) for the driver interpreter, and gains
+  `--managed-python`, `--no-config` and the cleared `UV_*`
   variables.
 
 ## Review focus
@@ -79,6 +79,10 @@ test is added to the task named.
 5. **A container on a non-Vergil image** (no `VERGIL_CORE_PYTHON_DIR`) →
    the install downloads 3.15 and logs it; on a Vergil image with a wrong
    path it fails instead of downloading (Task 4 and Task 8, one test each).
+6. **The lock export fails** (the commit fetch fails, or `uv export` finds
+   no lock or a stale one) → a non-zero exit naming the commit and the
+   step, never an unconstrained install (Task 3 and Task 8:
+   `test_failed_lock_export_exits_nonzero_with_named_error`).
 
 ## Delivery
 
@@ -102,7 +106,8 @@ vergil-containers, `G` .github. Kinds: `task`, `deploy`, `valid`
 | 5a | VM install and cleanup | T | task | 3 |
 | 5b | VM non-login `PATH` guarantee | T | task | 5a |
 | 6 | `vrg-host` reports only (#4603) | T | task | — |
-| 7d | Release; the Mac and every VM | T | deploy | 2d, 4, 5b, 6 |
+| 3b | `consumer-refresh` right after the tag | T | task | — |
+| 7d | Release; the Mac and every VM | T | deploy | 2d, 3b, 4, 5b, 6 |
 | 8 | Setup action installs from git | A | task | — |
 | 9 | Package setup action follows §4.2 | A | task | — |
 | 10d | Release, moving `v2.1` | A | deploy | 7d, 8, 9 |
@@ -119,7 +124,8 @@ Tasks 3, 6, 8, 9 and 11 can be worked side by side; their merges are
 ordered only by the table. The two security advisories recorded on the
 planning issue are handed on at filing: the tag ones to Tasks 2 and 2a,
 the resolution one to Tasks 3, 4, 8 and 9. **The fleet is frozen from
-Task 2ad to Task 14d:** no other work is released anywhere, so the plan
+Task 2ad to Task 14d:** only this epic's own releases go out (and any
+security fix the human chooses to ship), so the plan
 does not guard the gaps between one task's release and another's merge.
 PR tasks may merge in any order the table allows before their release
 needs them.
@@ -205,8 +211,8 @@ needs them.
 ## Task 2ad (deployment): Release vergil-actions with Task 2a
 
 - **Preconditions:** Task 2a closed; the release is human-gated.
-- **Procedure:** after the human's release moves `v2.1`, the next release
-  of any one repo (the human's choice) shows its `vX.Y.Z` tag created by
+- **Procedure:** after the human's release moves `v2.1`, the human releases
+  one language fixture repo (part of this epic), whose `vX.Y.Z` tag is created by
   the App.
 - **Acceptance:** that tag's creator is the App identity.
 
@@ -219,8 +225,8 @@ needs them.
   command it runs).
 - **Acceptance:** the audit reports no drift on "Tag protection" in any
   repo; a test tag push `v0.0.0-ruleset-check` by an agent identity to
-  vergil-tooling is refused; and the next real release in a repo other
-  than vergil-tooling creates its tag.
+  vergil-tooling is refused; and a release of a second language fixture
+  repo (part of this epic) creates its tag.
 
 ## Task 3: `tooling_install` module and the Mac's locked refresh
 
@@ -289,6 +295,10 @@ needs them.
       # the export uses --no-emit-project --no-dev --no-hashes --frozen
   def test_install_lines_replace_existing_install(): ...  # --force present
   def test_dev_ref_installs_unconstrained(): ...
+  # rendered lines run under bash against a stub `uv`:
+  def test_hostile_uv_toml_changes_nothing(): ...
+  def test_failed_install_exits_nonzero_with_named_error(): ...
+  def test_failed_lock_export_exits_nonzero_with_named_error(): ...
   def test_check_lines_fail_on_shadowing_usr_bin_shim(): ...
       # command -v resolves /usr/bin/vrg-whoami first → the check fails
   def test_consumer_refresh_installs_the_exact_tag_with_its_lock():
@@ -323,6 +333,30 @@ needs them.
 - [ ] **Step 6: Run the tests** → PASS; `vrg-container-run -- vrg-validate`.
 - [ ] **Step 7: Commit** `feat(tooling-install): resolve once and install a
   release commit with uv`.
+
+## Task 3b: `consumer-refresh` right after the tag
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/release/orchestrator.py`
+  (`build_stages`), `src/vergil_tooling/lib/release/handoff.py`
+  (`consumer_refresh`)
+- Test: `tests/vergil_tooling/test_release_orchestrator.py`,
+  `tests/vergil_tooling/test_release_handoff.py`
+
+- [ ] **Step 1: Write the failing tests:**
+  - `test_consumer_refresh_runs_right_after_confirm_main` (stage order:
+    `confirm-main`, then `consumer-refresh`, then the rest; `package-index`
+    still before `promote`);
+  - `test_consumer_refresh_not_held_by_a_later_deferral` (a deferred
+    `package-index` after it changes nothing about the refresh);
+  - `test_consumer_refresh_success_is_one_check_line` (captured output; one
+    `✓ consumer-refresh` line);
+  - `test_consumer_refresh_failure_shows_full_output_and_fails`.
+- [ ] **Step 2: Run** → FAIL; **implement**; **run** → PASS;
+  `vrg-container-run -- vrg-validate`.
+- [ ] **Step 3: Commit** `feat(release): refresh consumers as soon as the
+  release tag exists, rolled up to one line`.
 
 ## Task 4: Cache build and cache key on `tooling_install`
 
@@ -393,8 +427,8 @@ needs them.
   `_purge_obsolete_runtimes` go; `DEV_BANNER`; new `cleanup_packages`)
 - Modify: `src/vergil_tooling/lib/vm_guest.py` (`_install`,
   `get_tooling_version`)
-- Modify: `src/vergil_tooling/lib/lima.py`, `vm_cloud.py` (create stops
-  calling `repo_setup.bootstrap`)
+- Modify: `src/vergil_tooling/lib/vm_guest.py` (`_install`, which today
+  reaches `repo_setup.bootstrap` through `vm_packages.packaged_install`)
 - Test: `tests/vergil_tooling/test_vm_packages.py`,
   `tests/vergil_tooling/test_vm_guest.py`
 
@@ -419,6 +453,7 @@ needs them.
   def test_cleanup_confirms_nothing_left(): ...  # raises if anything is left
   def test_update_after_partial_cleanup_is_idempotent(): ...
   def test_create_does_not_bootstrap_the_vergil_repository(): ...
+      # through vm_guest._install → vm_packages; no repo_setup.bootstrap call
   def test_dev_banner_text(): assert "not a release" in DEV_BANNER
   ```
 
@@ -499,7 +534,7 @@ needs them.
 
 ## Task 7d (deployment): Release vergil-tooling; the Mac and every VM
 
-- **Preconditions:** Tasks 2d, 4, 5b and 6 closed; the release itself is
+- **Preconditions:** Tasks 2d, 3b, 4, 5b and 6 closed; the release itself is
   human-gated.
 - **Procedure:** the human runs `vrg-release`. Its consumer refresh
   installs the release on the Mac with its lock, then `vrg-vm update --all`,
@@ -543,7 +578,12 @@ needs them.
   `test_container_job_wrong_dir_fails_not_downloads`,
   `test_no_apt_calls_on_any_path`,
   `test_check_expects_uv_bin_dir_not_usr_bin`,
-  `test_install_runs_with_no_config_and_cleared_uv_vars`.
+  `test_install_source_auto_and_git_install_the_same`,
+  `test_install_source_other_value_fails`,
+  `test_install_runs_with_no_config_and_cleared_uv_vars`,
+  `test_hostile_uv_toml_changes_nothing`,
+  `test_failed_install_exits_nonzero_with_named_error`,
+  `test_failed_lock_export_exits_nonzero_with_named_error`.
 - [ ] **Step 2: Run** `vrg-container-run -- bash
   actions/shared/setup/vergil/tests/install-tooling.test.sh` → FAIL.
 - [ ] **Step 3: Implement**, with `ensure_uv`'s pinned uv; confirm it
@@ -565,9 +605,13 @@ needs them.
   `test_line_pin_prints_sha_spec` (a `vX.Y` pin yields
   `vergil-tooling @ git+…@<sha>` of the newest `vX.Y.Z`),
   `test_install_is_constrained_by_the_commit_lock`,
-  `test_self_repo_still_installs_checkout`.
+  `test_self_repo_still_installs_checkout`,
+  `test_driver_install_line_has_managed_python_and_no_config`,
+  `test_driver_install_clears_uv_python_vars`,
+  `test_driver_install_runs_the_post_install_check`.
 - [ ] **Step 2: Run** → FAIL; **implement** (keep `--python
-  "$VRG_DRIVER_PYTHON"` and `--no-config`); **run** → PASS;
+  "$VRG_DRIVER_PYTHON"`, add the flags and the cleared variables to the
+  `action.yml` install line); **run** → PASS;
   `vrg-container-run -- vrg-validate`.
 - [ ] **Step 3: Commit** `feat(package-setup): install the driver
   vergil-tooling from one release commit`.
@@ -594,12 +638,16 @@ needs them.
   `tests/check-cloud-init-generation.sh`) keep the `~/.local/bin` `PATH`
   line
 
-- [ ] **Step 1:** `vrg-vm create` installs vergil-tooling in its `tooling`
-  stage, so delete the script's own install and its `VERGIL_SERIES` read.
-  Retire `check-vm-init-series.sh`, or turn it into a check that the script
-  installs no vergil-tooling.
-- [ ] **Step 2:** `test_vergil.sh` asserts `command -v vrg-whoami` is under
-  `~/.local/bin` and that no `vergil-tooling` package is installed.
+- [ ] **Step 1 (red):** turn `check-vm-init-series.sh` into a check that
+  `vrg-vm-init.sh` installs no vergil-tooling, and rewrite `test_vergil.sh`
+  to check the VM's existing install only (no install, no uninstall):
+  `command -v vrg-whoami` is under `~/.local/bin`, `vrg-whoami --mode` runs,
+  and `dpkg-query -W 'vergil-*'` lists nothing. Run both against today's
+  scripts and VM → FAIL.
+- [ ] **Step 2 (green):** `vrg-vm create` installs vergil-tooling in its
+  `tooling` stage, so delete the script's own install and its
+  `VERGIL_SERIES` read. Run both checks → PASS (the `test_vergil.sh` one on
+  a VM moved by a dev ref of Task 5a/5b).
 - [ ] **Step 3:** `vrg-container-run -- vrg-validate`; commit
   `feat(vm): use the vergil-tooling uv install rules`.
 
@@ -628,7 +676,10 @@ needs them.
 
 - [ ] **Step 1: Inventory** every reader of the vergil apt source in the
   image tree (including any `[container].system-packages` user); list them
-  in the PR body. Any reader other than `base`'s own fragments stops the
+  in the PR body. Known and unaffected: vergil-containers' lifecycle
+  runtime check (`docker/versions/lifecycle/runtime.py`), which reads the
+  vergil apt **index** over HTTPS for packaging, not the image's apt
+  source. Any other reader of the image's apt source or keyring stops the
   task for the human.
 - [ ] **Step 2: Change the checks first**, so they fail on today's image:
   core tools and `python3` resolve under `$VERGIL_CORE_PYTHON_DIR`; a

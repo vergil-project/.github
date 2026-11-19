@@ -79,10 +79,17 @@ purpose:
   vergil-tooling's enforced "Tag protection" ruleset
   (`github_config.desired_tag_protection_ruleset`, re-checked by the daily
   config audit) carries that rule, with this epic adding **creation** to its
-  update and deletion rules for both patterns. People and agent identities
-  cannot create a release tag. Narrowing which jobs receive the App's
-  credentials is the follow-on vergil-project/.github#1371. The rule is
-  live, and the audit enforces it, before rollout step 1 (§5).
+  update and deletion rules for both patterns. The ruleset is the same for
+  every managed repo, so the creation rule applies fleet-wide, since every
+  repo's `vX.Y` tags serve as an indirection consumers follow. Two things
+  come first: the shared release action (vergil-actions'
+  `tag-and-release`) pushes release tags with the App's installation token
+  instead of the checkout's `GITHUB_TOKEN`, and every releasing repo's
+  release workflow passes the App's credentials to it. Apart from the Admin
+  role, held by the human (who moves `vX.Y` with `vrg-promote`), no person
+  or agent identity can create a release tag. Narrowing which jobs receive
+  the App's credentials is the follow-on vergil-project/.github#1371. The
+  rule is live, and the audit enforces it, before rollout step 1 (§5).
 
 ## 2. Goals
 
@@ -112,7 +119,7 @@ purpose:
   which packages are built and published (no merge to `develop` publishes
   one), so a release keeps watching its package publish, as it watches every
   output it publishes. The stage, and `promote`'s ordering after it, stay
-  exactly as they are.
+  exactly as they are. Only `consumer-refresh` moves ahead of them (§4.6).
 - **The package images and install tests.** The `pkg-*` images and their
   install tests are unchanged, including vergil-project/vergil-tooling#4663
   (dnf retries), which stays a separate task. Their driver vergil-tooling
@@ -155,8 +162,9 @@ Every vergil-tooling install runs `uv tool install` with `--python 3.15
 --managed-python`, in an environment with `UV_PYTHON`, `UV_PYTHON_PREFERENCE`
 and `UV_NO_MANAGED_PYTHON` unset, and with `--no-config`, so no uv config
 file in the working directory (a consuming repo's `[tool.uv]` or `uv.toml`)
-or the user's config can change or block it, as `actions/package/setup`
-already does (issue #1003). uv then uses, or downloads once, its own
+or the user's config can change or block it, as `actions/package/setup`'s
+`detect.sh` already does for its own `uv run` (issue #1003). uv then uses,
+or downloads once, its own
 python-build-standalone 3.15 and never a system interpreter. The series stays
 3.15 until vergil-tooling moves series (vergil-project/.github#1261 tracks
 detecting that).
@@ -292,7 +300,9 @@ above rather than working around it.
   vergil-tooling install in the `pkg-*` images follows §4.2 (newest `vX.Y.Z`
   for a line pin, one resolved SHA, that commit's lock) instead of
   installing the moving `vX.Y` tag. It keeps its own `--python` input for the
-  driver interpreter and its `--no-config`. In vergil-tooling itself it still
+  driver interpreter, and gains `--no-config`, `--managed-python` and the
+  cleared `UV_*` variables, which its install line lacks today. In
+  vergil-tooling itself it still
   installs the checkout under test.
 - **VMs** (`vm_packages`, `vrg-vm update` and create, `vm_guest`,
   `vm_cloud`): a released ref installs with uv, then runs the §4.3 check.
@@ -335,28 +345,42 @@ above rather than working around it.
   this epic, with nothing implemented.
 - **The consumer-refresh commands** install the Mac with the lock (§4.5,
   macOS host).
+- **`consumer-refresh` runs as soon as the release tag exists.** In
+  `vrg-release` it moves to immediately after `confirm-main`, the stage that
+  confirms CD created the tag, ahead of `package-index`, `promote` and every
+  later stage. It needs only the tag, so no later stage can hold it, and a
+  failed package publish no longer blocks it: the Mac and every VM have the
+  new release even if a follow-on stage fails. On success its output rolls
+  up to one green check line; on failure the full output is shown and the
+  stage fails.
 - **`keep = 2`** stays (non-goals): the package install-tests still read the
   index.
 
 ## 5. Rollout
 
 Ordered, one repo at a time, with no install switch, while the rest of the
-fleet's work is frozen and this epic owns it. The freeze is expected to last
-one working session (a morning); during it, only security fixes land in
-other repos. Each step is released and checked before the next starts.
+fleet's work is frozen and this epic owns it, from the release that moves
+tag pushes to the App until the containers release (the plan names the
+tasks); during it only the epic's own releases go out, plus any security fix
+the human chooses to ship, with no promise about how long it takes. In
+order, each step is released and checked before the next starts.
 
-0. **Precondition:** the Tag protection ruleset's creation rule (§1.1) is
-   released in vergil-tooling's `github_config`, applied, and confirmed by
-   the config audit, before step 1.
+0. **Precondition:** release tags are pushed with the automation App's
+   token (vergil-actions released) and every releasing repo passes the App's
+   credentials to its release; then the Tag protection ruleset's creation
+   rule (§1.1) is released in vergil-tooling's `github_config`, applied to
+   every managed repo, and confirmed by the config audit, before step 1.
 
 1. **vergil-tooling** releases the uv install in the cache build, `vrg-vm`
-   and its consumer refresh, and `vrg-host`'s report-only handling of
-   vergil-tooling.
+   and its consumer refresh, `vrg-host`'s report-only handling of
+   vergil-tooling, and `consumer-refresh` right after the tag. That release's
+   own consumer refresh moves the macOS host and **every existing VM** to it,
+   removing every vergil package and the vergil apt source from the VMs
+   (§4.5).
 2. **vergil-actions** releases the setup action and package setup action
    changes, moving `v2.1`.
-3. **The macOS host** gets the new release from step 1's consumer refresh, and **every
-   existing VM** runs `vrg-vm update` to the new release, removing every vergil
-   package and the vergil apt source (§4.5). vergil-vm's script changes land here.
+3. **vergil-vm's script changes** land (they only affect VMs created
+   later, and `vrg-vm create` already installs vergil-tooling).
 4. **vergil-containers** releases `base` on the managed 3.15, without
    vergil-python or the vergil apt source. This is last because any
    vergil-tooling still doing a packaged install in a container needs that
