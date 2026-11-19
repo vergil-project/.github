@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1384
 - **Planning issue:** vergil-project/.github#1383 (review history is in its
   comments)
-- **Status:** draft
+- **Status:** approved
 - **Repos:** vergil-tooling, vergil-claude-plugin, vergil-actions, .github,
   and every member repo (registry rollout)
 - **Related:** epic vergil-project/.github#889 (authenticated human rulings),

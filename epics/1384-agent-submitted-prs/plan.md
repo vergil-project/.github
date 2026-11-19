@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1384
 - **Planning issue:** vergil-project/.github#1383 (review history is in its
   comments)
-- **Status:** draft
+- **Status:** approved
 - **Spec:** [`spec.md`](spec.md)
 
 > **For agentic workers:** each task below is one issue and one PR, driven
