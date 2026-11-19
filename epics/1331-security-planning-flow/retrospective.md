@@ -42,8 +42,7 @@ refuse the unsafe move; the skill text says what to do when they do:
 - `epic-create`, `epic-review`, `epic-retrospective` and the review
   doctrine carry the step 0 check, the wording rule, the gate, the
   not-planned stop, the hold text and the `--from` hand-offs.
-- The one-time review of closed advisories is done, and every decision from
-  it was carried out.
+- The one-time review of closed advisories is done.
 
 **Work delivered** (PR — what it did — merged, UTC):
 
@@ -112,8 +111,9 @@ refuse the unsafe move; the skill text says what to do when they do:
 The task list held. Every task in the Delivery table ran, in the order it
 set: Tasks 2, 3 and 6 started at once; Task 4 followed Task 2; Tasks 7
 and 8 followed the tooling deployment; Task 9 followed Task 7; the
-documentation review came last. Three entries went into the plan's
-evolution log.
+documentation review came last. Four entries went into the plan's
+evolution log: three from execution, below, and a fourth from this
+retrospective, recording its sweep's follow-ups (§4).
 
 - **The deployment tasks lost their install steps.** Tasks 5 and 9 each
   had a step to update the host's install and re-check it. The human ruled
@@ -294,10 +294,7 @@ issue:
 - **The tooling release:** v2.1.327 at 23:17. The human attested it on
   #1360 at 00:29 on 2026-11-19. #1360 closed at 12:02 that day; the
   session was interrupted in between, including by a laptop crash.
-- **The one-time review** in #1360 ran after the release. The human decided
-  the found advisories in groups, after a private investigation of two of
-  the groups, and every decision was carried out. The public record says
-  only that it is done.
+- **The one-time review** in #1360 ran after the release and is done.
 - **Tasks 8 and 7** merged at 12:18 and 12:32. The plugin release v2.1.81
   followed at 12:45. The human attested it on #1361 at 12:56. The main
   session closed #1361 at 13:27, after sub-agents on the stale plugin were
