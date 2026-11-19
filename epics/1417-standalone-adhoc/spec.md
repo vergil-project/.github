@@ -19,9 +19,12 @@ ad-hoc epics:
    reported both `ready`, and only a human reading every body held them back.
 2. **Tasks owned by a controlling skill.** `/vergil:hoshin` files one
    `Logbook: <date> <mode>` task per run in the docs repo's ad-hoc epic.
-   Working one through `epic-implement adhoc` would write a merge-reviewed PR
-   outside hoshin's own security gate and fixed wording. Today a title check
-   in `epic-implement`'s adhoc mode skips them, which is a workaround.
+   A logbook task belongs to the run that filed it: its entries come from
+   that run's review, written in hoshin's fixed wording and passed through
+   its mechanical security screen, and hoshin's own stale check closes a
+   task whose run died. Working one through `epic-implement adhoc` would
+   write the logbook outside all of that. Today a title check in
+   `epic-implement`'s adhoc mode skips them, which is a workaround.
 
 Nothing in the tooling tells either kind from standalone work. Ad-hoc work
 now runs at scale and is headed for automatic processing, which removes the
@@ -111,14 +114,21 @@ The human chose B.
   prefix>`; labels `epic` + `proxy`; body carrying a `Primary:
   <owner>/<repo>#<N>` line (one, fully qualified), a one-line explanation, and
   nothing a reader needs to act on: the work is described in the primary.
-- **The links run both ways.** The primary's body carries one `Proxy:
-  <owner>/<repo>#<N>` line per proxy, replacing today's hand-written
-  "Cross-org dependencies" prose. Both line kinds are machine-read and alone
-  on their line, like `Planning:`.
+- **The links run both ways.** The proxy's `Primary:` line is in its body,
+  which nothing rewrites: a proxy has no spec or plan, and no body sync runs
+  on it. The primary's side is in **comments**, never its body, because
+  agents rewrite an epic's body (`epic-create`'s epic body sync) and a
+  comment is append-only: each proxy is recorded by one comment on the
+  primary carrying the line `Proxy: <owner>/.github#<N>`, alone on its line.
+  The primary's proxy list is the union of `Proxy:` lines in comments whose
+  author `vrg-trusted-authors` lists (a leading `app/` stripped), so a
+  forged comment on the public issue counts for nothing. A proxy is never
+  removed from the list: one created by mistake is closed and stays listed.
 - **Creation is sanctioned.** `vrg-epic-create --proxy-for <primary ref>
   --repo <owner>/<repo>` creates the proxy in the target's home, derives its
-  title, stamps the `Primary:` line and appends the `Proxy:` line to the
-  primary's body. It refuses:
+  title, stamps the `Primary:` line and posts the `Proxy:` comment on the
+  primary. A re-run that finds the proxy and its comment posts nothing. It
+  refuses:
   - a primary in the same org as the target (no proxy is needed);
   - a primary that is not an open development epic (a standing epic, a proxy,
     a closed epic);
@@ -158,7 +168,7 @@ The human chose B.
 - **Only the primary's `epic-implement` drives proxy tasks.** The primary's
   plan names each proxy task by its full ref, as it already does for its own
   tasks. `epic-implement` rebuilds its frontier from the primary's sub-issues
-  **and** the sub-issues of every proxy its `Proxy:` lines name, reconciled
+  **and** the sub-issues of every proxy its `Proxy:` comments name, reconciled
   against the plan as today, and dispatches them through the same skills and
   gates. Plan evolution for proxy tasks is recorded in the primary's plan.
 - **`epic-implement` on a proxy refuses** with
@@ -174,11 +184,12 @@ The human chose B.
   repo, in its `children`, beside the primary's own. Every consumer of that
   list, among them `epic-retrospective`'s gate, its per-task section and its
   unaddressed-findings sweep, then covers proxy tasks unchanged.
-- **`vrg-epic-audit`** on a primary also checks
-  the links in both directions: every `Proxy:` line names an existing proxy
-  whose `Primary:` line names this epic, and the reverse. A disagreement is
-  reported as drift, never fixed silently. On a proxy, the audit reports the
-  primary it belongs to and checks the same pair.
+- **`vrg-epic-audit`** on a primary also checks the links: every proxy its
+  `Proxy:` comments name exists and carries a `Primary:` line naming this
+  epic. A disagreement is never fixed silently, and it **fails**
+  `vrg-epic-audit --epic <primary>`, not only reports, so the retrospective
+  gate stops on it. On a proxy, the audit checks that its primary carries
+  the matching `Proxy:` comment, and reports drift if not.
 
 ### 4.4 Closing a cross-org epic
 
@@ -204,8 +215,9 @@ The human chose B.
   created and reused idempotently, its closed children draining into
   per-quarter `Archive (hoshin): <org>` archives like the other standing
   kinds. Its `--epic` sentinel is `hoshin`.
-- **It is not a queue kind.** Its tasks are PR-workable: hoshin hands them off
-  with `vrg-pr-workflow report-ready` as it does today.
+- **It is not a queue kind.** Its tasks are PR-workable, and hoshin hands
+  each one off through its own handoff, whatever that handoff is at the
+  time; this epic does not change it.
 - **The daily sweep drains it.** Closed children drain on the event path
   (rollup) like every standing kind, and the sweep's backstop drain
   (`vrg-epic-audit --close`) covers every standing kind other than ad-hoc
@@ -216,7 +228,13 @@ The human chose B.
   vergil-project/docs`, and its stale-task check lists the hoshin epic's open
   tasks instead of the docs repo's ad-hoc tasks. The listing comes from a
   `vrg-queue hoshin` view with the same fields, in-flight marks and
-  disposition as `vrg-queue adhoc`, sharing its code.
+  disposition as `vrg-queue adhoc`, sharing its code. The stale check keeps
+  its `Logbook:` title filter: it closes only stale `Logbook:` tasks, and
+  reports any other task under the hoshin epic to the human rather than
+  closing it.
+- **Who accepts `--epic hoshin`.** Only `vrg-issue-create` (hoshin's filing)
+  and `vrg-epic-move` (the migration) accept the sentinel. `vrg-intake-route`
+  refuses it, so no queue review routes work there.
 - **Refusals.** `epic-implement` refuses the hoshin epic (as it refuses a
   queue epic), and `issue-implement` refuses a task under it, naming
   `/vergil:hoshin`. *(My call: the `issue-implement` refusal makes the
@@ -241,18 +259,43 @@ until now every fix task was in its planning issue's org. With proxies, a
 security run's fix task can land in another org. `vrg-security-record
 retarget` handles this itself: when the fix tasks named by `--to` are in a
 different org from the advisory, it moves the advisory to the fix org's
-advisory home (GitHub cannot move an advisory, so it creates one there with
-the same details and severity), hands that advisory to the fix tasks, and
-closes the original with a neutral reason that names the new advisory, after
-dropping the planning issue from it. Every `--to` of one retarget is in one
-org. `epic-create` step 8 runs the same command as today and needs no new
-decision. A move that fails partway is finished by re-running the identical
-command, as for any retarget.
+advisory home and hands it to the fix tasks there. GitHub cannot move an
+advisory, so a move is, in order:
+
+1. look in the fix org's advisory home for an advisory carrying a
+   machine-read `Moved from: <original GHSA-id>` line, and reuse it if one
+   exists (a re-run after a partial failure);
+2. otherwise create the advisory there with the same details and severity
+   and a `Moved from: <original GHSA-id>` line, and hand it to the fix tasks;
+3. write a `Moved to: <org>/.github <new GHSA-id>` line on the original,
+   then drop the planning issue from it and close it as moved.
+
+**Moved is a terminal state.** `vrg-security-record`'s classification
+recognises an advisory carrying a `Moved to:` line as moved, never as
+`broken`, so the original org's sync does not fail on it. The sync checks
+that the target named by `Moved to:` exists and tracks its fix, and reports
+the pair if not. A move that fails partway is finished by re-running the
+identical command: the `Moved from:` line, written when the new advisory is
+created, lets the re-run find it instead of creating a second copy.
+
+**All of an advisory's fixes are in one org.** Every `--to` of one retarget
+is in one org. When the fix tasks for one advisory span orgs, `retarget`
+refuses and `epic-create` stops and asks the human. The refusal names the
+two ways out: duplicate the advisory into each org, each copy tracking that
+org's own fix tasks, or break the finding up into separate advisories. In
+the common case, `epic-create` step 8 runs the same command as today.
 
 The ad-hoc epic's own description (its `StandingKind` body and the docs that
 define it) states the rule this epic establishes: an ad-hoc epic holds only
 standalone, single-issue work, and a task owned by any epic or skill never
 goes there.
+
+**Every sanctioned path follows the rule, not only `epic-create`.**
+`epic-review`'s one-off route and its revival of a deferred item, and
+`intake-capture`, send work that belongs to another org's epic to that epic's
+proxy (created with `vrg-epic-create --proxy-for` if it does not exist, then
+`--epic <proxy ref>`), never to ad-hoc. A revived item deferred from an
+ad-hoc epic is checked for this before it is routed back as a one-off.
 
 ### 4.7 Migration
 
@@ -261,8 +304,10 @@ goes there.
   comments tie it to an epic in another org, and any titled `Logbook:`. The
   candidate list is confirmed by the human before anything moves.
 - **The known case.** Create the proxy for logical-minds-foundry/.github#319
-  in `vergil-project/.github`, move #3188 and #3189 under it, and replace
-  #319's "Cross-org dependencies" section with `Proxy:` lines.
+  in `vergil-project/.github` with `vrg-epic-create --proxy-for`, which posts
+  its `Proxy:` comment on #319, and move #3188 and #3189 under it. #319's
+  hand-written "Cross-org dependencies" section may stay as prose; nothing
+  reads it.
 - **Deferred candidates.** `vrg-epic-move` refuses moves out of the deferred
   queue, so a deferred candidate (#3188 and #3189 among them) leaves through
   `vrg-intake-route <ref> one-off --epic <proxy ref>`. Before it moves, its
@@ -286,7 +331,10 @@ through the tooling, by the human and agents alike.
 The backstop is a report, not a gate. `vrg-epic-audit` reports any open task
 under an ad-hoc epic that looks misplaced (a `Logbook:` title, or a body that
 names an epic in another org) for a human to rule on; it never refuses,
-moves or closes anything on that basis. `epic-implement` adhoc mode's
+moves or closes anything on that basis. A task the human rules standalone
+gets a comment by a trusted author carrying the line `Standalone-confirmed`,
+alone on its line, and the audit stops reporting that task. A misplaced task
+is moved instead. `epic-implement` adhoc mode's
 human-confirmed strategy step keeps reading task bodies, as it already must
 to judge overlap.
 
