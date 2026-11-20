@@ -450,7 +450,8 @@ included, is checked as it is today.
   applies §4.9's human-authored rule (author and last editor), runs the
   `merge-base --is-ancestor` cross-check of the merge commit of each of the
   task's trusted closing PRs (§4.1) against the recorded tag, and prints the
-  record and a verdict as JSON. A record and an ancestry check that disagree are a failed verdict, never a pass.
+  record and a verdict as JSON. A record and an ancestry check that disagree
+  are a failed verdict, never a pass.
   Records by other identities are listed as warnings.
 - **The deployment-task scaffold** names it as the way to confirm that a
   blocked-by development task is released.

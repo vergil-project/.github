@@ -148,8 +148,9 @@ blocked by.
   `[publish].install` with `vrg-tooling-install v<MINOR>`. Blocked by 13.
 - **14b** (vergil-claude-plugin): vergil-claude-plugin's `vergil.toml` moves
   to `[publish].install`. Blocked by 13.
-- **15** (vergil-claude-plugin): `issue-deploy` and `epic-create` use `vrg-release-record check`; `repository-standards.md`
-  drops `--no-finalize`. Blocked by 13.
+- **15** (vergil-claude-plugin): `issue-deploy` and `epic-create` use
+  `vrg-release-record check`; `repository-standards.md` drops
+  `--no-finalize`. Blocked by 13.
 - **16** (.github, deployment): the vergil-claude-plugin release carrying
   14b and 15, installed. Blocked by 14b and 15.
 - **17** (.github, validation): a live vergil-tooling release with the new
@@ -288,8 +289,8 @@ Spec §4.2.
   failed_jobs: tuple[FailedJob, ...], index_listed: bool, without_deps: bool,
   done: tuple[str, ...], install_done: bool, records_posted: tuple[str, ...],
   supersedes: str | None, superseded_main_commit: str | None,
-  failed_release_run: str | None (the CD release run `confirm-main` saw
-  fail))`;
+  failed_release_run: str | None)` (`failed_release_run` is the CD release
+  run that `confirm-main` saw fail);
   `parse_state(body: str) -> StateBlock` raising `StateBlockError` (missing,
   duplicated, bad JSON, unknown or missing key, wrong type);
   `render_state(state: StateBlock) -> str`; `upsert_state(body: str, state:
@@ -794,11 +795,12 @@ Spec §4.7.
   `ReleaseError` unless either the tag and Release exist and every stage
   before `release-records` that is not done is in `{"cd-publish",
   "package-index", "update-deps", "install"}`, or the first undone stage is
-  `confirm-main`, no tag exists and `failed_release_run` is set; `absorb(old: StateBlock, new_issues) ->
-  tuple[IssueEntry, ...]`; `close_superseded(repo, number, new_version) ->
-  None`, after the new tracking issue exists, which also removes an
-  untagged superseded release's release worktree and its local and remote
-  `release/X.Y.Z` branch.
+  `confirm-main`, no tag exists and `failed_release_run` is set;
+  `absorb(old: StateBlock, new_issues) -> tuple[IssueEntry, ...]`;
+  `close_superseded(repo, number, new_version) -> None`, called after the
+  new tracking issue exists, which also removes an untagged superseded
+  release's release worktree and its local and remote `release/X.Y.Z`
+  branch.
 
 - [ ] **Step 1: Write the failing tests:**
   `test_supersede_refuses_bare_release`; `test_supersede_eligible_delivery_left`;
@@ -881,7 +883,8 @@ Blocked by 3a, 3b, 4, 5, 6, 7a, 7b, 8, 9a, 9b, 10, 11 and 12.
   empty.
 - **Precondition (human-attested):** the freeze held (no vergil-tooling
   release since Task 2d's); every one of Tasks 3a to 12 is merged; and the
-  release carrying them is then cut, published and installed on the host and the VMs, its version named in a comment. That
+  release carrying them is then cut, published and installed on the host
+  and the VMs, its version named in a comment. That
   cut ends the freeze. It is cut with the older tooling, so it posts no
   records (spec §5).
 - **Procedure (agent-safe):**
