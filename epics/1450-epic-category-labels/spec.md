@@ -186,7 +186,14 @@ to §5.4 is **deployed**: installed on every host and runner that creates
 epics, not merely released. Otherwise a host on the old tooling could
 create an unlabelled epic after the backfill.
 
-1. **Create the labels.** In every epic home of the six orgs (each org's
+1. **Retire the legacy standing epics.** The per-repo
+   `Epic (standing): …` umbrellas that predate the ad-hoc epics were closed
+   by the ad-hoc migration but still carry `epic`, and the retired
+   `standing` label that marked them is gone, so §5.2 would read them as
+   development epics. In every unarchived repo of the six orgs, `epic` is
+   removed from each issue whose title starts with `Epic (standing):`.
+   They stop being epics and get no category label.
+2. **Create the labels.** In every epic home of the six orgs (each org's
    `.github`, and every private repo that homes its own epics), create
    `epic-development` and `epic-management` with the registry-backed form
    of §5.4. Only these two labels: a full `vrg-ensure-label --sync` would
@@ -195,19 +202,20 @@ create an unlabelled epic after the backfill.
    homes, and every tool that applies a label creates it there first
    (`ensure_labels`). Archived repos, which are read-only, are never
    touched.
-2. **Label the epics.** In each of those homes, add to every `epic`
+3. **Label the epics.** In each of those homes, add to every `epic`
    issue, open or closed, that is not an archive, the category label §5.2
    derives for it, when it is `epic-development` or `epic-management`.
-   Nothing else is added or removed: `ad-hoc`, `proxy`, `epic` and the
-   per-kind management labels already carry their categories, and no
-   issue's state changes.
-3. **Report the rest.** An epic whose labels are ambiguous (§5.2) is left
+   Beyond step 1, nothing else is added or removed: `ad-hoc`, `proxy`,
+   `epic` and the per-kind management labels already carry their
+   categories, and no issue's state changes.
+4. **Report the rest.** An epic whose labels are ambiguous (§5.2) is left
    unlabelled and listed in the result for a human.
 
-The result comment records, per org, the homes the labels were created in
-and the epics labelled, and then `Outcome: SUCCESS` only when both steps
-finished for all six orgs. Re-running it is safe: creating a present label
-and adding a present label are both no-ops.
+The result comment records, per org, the legacy epics retired, the homes
+the labels were created in and the epics labelled, and then `Outcome:
+SUCCESS` only when every step finished for all six orgs. Re-running it is
+safe: removing an absent label, creating a present label and adding a
+present label are all no-ops.
 
 ## 6. Error handling
 

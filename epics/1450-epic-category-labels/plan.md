@@ -92,8 +92,9 @@ is blocked by.
 - **3** (.github, deployment): the vergil-tooling release carrying 2a and
   2b attested and installed on every host and runner that creates epics.
   Blocked by 2a and 2b.
-- **4** (.github, deployment): the one-off: the two labels created in every
-  epic home of the six orgs, and every existing epic labelled. Blocked by 3.
+- **4** (.github, deployment): the one-off: the legacy `Epic (standing):`
+  issues stop being epics, the two labels are created in every epic home
+  of the six orgs, and every existing epic is labelled. Blocked by 3.
 
 ### Bookends
 
@@ -177,12 +178,13 @@ Spec §5.1, §5.2, §5.3.
   - `test_category_labels_are_in_registry`: every value of
     `CATEGORY_LABELS` is a registry label, with the two descriptions above
     verbatim.
-  - `test_ensure_standing_epic_adds_management_label_at_creation`: for
-    `epics.DEFERRED`, `create_issue`'s `labels` are
-    `[*DEFERRED.labels, "epic-management"]` and `ensure_labels` was called
-    with the same names before it.
-  - `test_ensure_standing_epic_adhoc_has_no_new_label`: for `epics.ADHOC`,
-    `create_issue`'s `labels` equal `list(ADHOC.labels)`.
+  - `test_ensure_standing_epic_category_label_at_creation`, parametrized
+    over every kind in `epics.STANDING_KINDS`: for `INTAKE`, `PLANNING`,
+    `DEFERRED` and `HOSHIN`, `create_issue`'s `labels` are
+    `[*kind.labels, "epic-management"]` and `ensure_labels` was called with
+    the same names before it; for `ADHOC`, they equal `list(ADHOC.labels)`.
+    A second assertion pins the parametrization: the set of kinds given
+    `epic-management` is exactly `{INTAKE, PLANNING, DEFERRED, HOSHIN}`.
   - `test_ensure_standing_epic_reuses_epic_without_category_label`: the
     lookup returns a row carrying only `DEFERRED.labels`; the existing epic
     is returned, `create_issue` is not called, and every `--label` the
@@ -214,10 +216,13 @@ Spec §5.1, §5.2, §5.3.
   - Add the two registry entries to `labels.json`.
   - Add `EpicCategory`, `CATEGORY_LABELS`, `DERIVED_CATEGORY_LABELS`,
     `AmbiguousEpicCategoryError` and `epic_category` to `lib/epics.py`.
-  - `ensure_standing_epic`: when `kind` is a management kind, append
-    `"epic-management"` to the names passed to `ensure_labels` and to
-    `create_issue`'s `labels`. Leave `_find_epic_by_title`, `_await_listed`
-    and `find_standing_epic` filtering on `kind.labels`.
+  - `ensure_standing_epic`: derive the label with `epic_category(kind.labels,
+    title)`, as `vrg-epic-create` does; when `CATEGORY_LABELS[category]` is
+    in `DERIVED_CATEGORY_LABELS`, append it to the names passed to
+    `ensure_labels` and to `create_issue`'s `labels`. Do not test kind
+    membership in `QUEUE_KINDS` or any other kind tuple. Leave
+    `_find_epic_by_title`, `_await_listed` and `find_standing_epic`
+    filtering on `kind.labels`.
   - `vrg_epic_create.main` (not `--proxy-for`): refuse any `--label` in
     `DERIVED_CATEGORY_LABELS`; derive the category from `["epic",
     *args.label]` and `args.title` (an `AmbiguousEpicCategoryError` is rc 1
@@ -320,35 +325,74 @@ Spec §5.5. Blocked by 3.
 
 - **Precondition:** Task 3 closed with SUCCESS.
 - **Procedure (agent-safe; the human confirms the change list before step
-  4):**
+  5).** Work files (listings, the script, its output) go in the session's
+  scratch directory, never in a repo.
   1. **Find the epic homes.** For each of the six orgs: its `.github`,
      plus each private, unarchived repo of the org (`vrg-gh repo list
      <org> --json name,isArchived,visibility`) that holds at least one
      issue labelled `epic` (`vrg-gh issue list --repo <r> --label epic
      --state all --limit 1`). Record the list per org.
-  2. **Create the labels.** For each home, `vrg-ensure-label --repo <home>
+  2. **Retire the legacy standing epics.** In every unarchived repo of the
+     six orgs, list the issues labelled `epic` whose title starts with
+     `Epic (standing):` (`vrg-gh issue list --repo <r> --label epic
+     --state all --search 'in:title "Epic (standing)"' --json
+     number,title`), keep only titles that start with that prefix, and
+     remove `epic` from each (`vrg-gh issue edit <n> --repo <r>
+     --remove-label epic`). On 2026-11-20 there were 8: in vergil-project's
+     `.github`, `vergil-tooling`, `vergil-claude-plugin`, `vergil-actions`,
+     `vergil-containers` and `vergil-vm`, and in logical-minds-foundry's
+     `.github` and `mq-resiliency-lab-for-linux`. They are closed, dead
+     umbrellas from before the ad-hoc migration and stop being epics.
+     Record each ref.
+  3. **Create the labels.** For each home, `vrg-ensure-label --repo <home>
      --label epic-development` and `vrg-ensure-label --repo <home> --label
      epic-management`. Each exits 0.
-  3. **Work out the changes.** For each home, list every `epic` issue,
-     open and closed (`vrg-gh issue list --repo <home> --label epic
-     --state all --limit 1000 --json number,title,labels`; if a home
-     returns 1000 rows, stop: the listing may be truncated). Classify each
-     with the installed tooling's `epics.epic_category` (run the installed
-     tool's own Python interpreter on the saved JSON, importing
-     `vergil_tooling.lib.epics`; read no other code and write nothing but
-     the change list). Each issue whose category label is
-     `epic-development` or `epic-management` and is missing goes on the
-     change list; each `AmbiguousEpicCategoryError` goes on the ambiguous
-     list. Present per home: counts by category, the change list's size,
-     and the ambiguous list. The human confirms.
-  4. **Apply.** For each issue on the confirmed change list, `vrg-gh issue
-     edit <n> --repo <home> --add-label <label>`. Nothing is removed and no
-     issue's state changes.
-  5. **Verify.** Repeat step 3's listing and classification: the change
-     list is empty for every home.
-- **Result comment:** per org, the homes, the number of epics labelled per
-  label, and the ambiguous list (each left unlabelled, for a human).
-- **SUCCESS:** steps 2, 4 and 5 completed for all six orgs. A failed `gh`
-  call is recorded with its error and the task stays open; a re-run is
-  safe, since creating a present label and adding a present label are
-  no-ops.
+  4. **Work out the changes.** For each home, save every `epic` issue,
+     open and closed, to `<home-slug>.json` (`vrg-gh issue list --repo
+     <home> --label epic --state all --limit 1000 --json
+     number,title,labels`; if a home returns 1000 rows, stop: the listing
+     may be truncated). Classify it with this script, `classify.py`, run by
+     the installed tooling's own interpreter:
+     `"$(dirname "$(readlink -f "$(command -v vrg-epic-create)")")/python"
+     -I classify.py < <home-slug>.json`.
+
+     ```python
+     import json
+     import sys
+
+     from vergil_tooling.lib import epics
+
+     for row in json.load(sys.stdin):
+         names = {label["name"] for label in row["labels"]}
+         try:
+             category = epics.epic_category(names, row["title"])
+         except epics.AmbiguousEpicCategoryError as exc:
+             print(f"{row['number']}\tambiguous\t{exc}")
+             continue
+         if category is None:
+             print(f"{row['number']}\tnot-an-epic\t-")
+             continue
+         label = epics.CATEGORY_LABELS[category]
+         add = label in epics.DERIVED_CATEGORY_LABELS and label not in names
+         print(f"{row['number']}\t{category}\t{'add ' + label if add else '-'}")
+     ```
+
+     **Sanity check, before presenting:** the script printed one line per
+     row of the listing; and every row whose labels include `intake`,
+     `planning`, `deferred` or `hoshin` (and not `archive`) is classified
+     `management` or `ambiguous`. A failed check stops the run.
+
+     Present per home: counts by category, the `add` lines, and the
+     `ambiguous` lines. The human confirms.
+  5. **Apply.** For each confirmed `add` line, `vrg-gh issue edit <n>
+     --repo <home> --add-label <label>`. No issue's state changes.
+  6. **Verify.** Repeat step 4's listing, script and sanity check: no
+     `add` line remains in any home, and step 2's listing finds no
+     `Epic (standing):` issue labelled `epic`.
+- **Result comment:** per org, the homes, the legacy epics retired, the
+  number of epics labelled per label, and the ambiguous list (each left
+  unlabelled, for a human).
+- **SUCCESS:** steps 2, 3, 5 and 6 completed for all six orgs. A failed
+  `gh` call is recorded with its error and the task stays open; a re-run
+  is safe, since removing an absent label, creating a present label and
+  adding a present label are all no-ops.
