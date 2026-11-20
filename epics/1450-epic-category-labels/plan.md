@@ -84,17 +84,18 @@ Each line gives the task, its repo and kind, what it delivers, and what it
 is blocked by.
 
 - **1** (.github, task #1451): spec and plan, this PR.
-- **2a** (vergil-tooling): the two registry labels, the category function,
-  and the derived label applied by `vrg-epic-create` and
-  `ensure_standing_epic`.
-- **2b** (vergil-tooling): `vrg-ensure-label --label <name>` creates one
-  label from its registry definition.
-- **3** (.github, deployment): the vergil-tooling release carrying 2a and
-  2b attested and installed on every host and runner that creates epics.
-  Blocked by 2a and 2b.
-- **4** (.github, deployment): the one-off: the legacy `Epic (standing):`
-  issues stop being epics, the two labels are created in every epic home
-  of the six orgs, and every existing epic is labelled. Blocked by 3.
+- **2a** (vergil-tooling, task #4861): the two registry labels, the
+  category function, and the derived label applied by `vrg-epic-create`
+  and `ensure_standing_epic`.
+- **2b** (vergil-tooling, task #4862): `vrg-ensure-label --label <name>`
+  creates one label from its registry definition.
+- **3** (.github, deployment #1459): the vergil-tooling release carrying 2a
+  and 2b attested and installed on every host and runner that creates
+  epics. Blocked by 2a and 2b.
+- **4** (.github, deployment #1460): the one-off: the legacy
+  `Epic (standing):` issues stop being epics, the two labels are created
+  in every epic home of the six orgs, and every existing epic is labelled.
+  Blocked by 3.
 
 ### Bookends
 
