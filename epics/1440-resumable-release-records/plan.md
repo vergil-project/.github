@@ -191,7 +191,7 @@ Notes:
   vergil-project: GHSA-9rj7-jmfj-cjqq and GHSA-826g-5hcc-9p76 to Task 3b;
   GHSA-r67r-gh5h-7j92 to Tasks 10 and 12; GHSA-phxw-fpvx-rm39 to Tasks 12
   and 15; GHSA-m5jx-7295-476w to Tasks 3b, 10 and 12; GHSA-j675-33vm-gh52
-  to Task 6.
+  to Task 6; GHSA-4g9g-g7vg-c62v to Tasks 6 and 12.
 
 ---
 
