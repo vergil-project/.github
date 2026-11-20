@@ -35,8 +35,8 @@ for one.
 - `vrg-release --resume` finishes any release that did not finish: a halted
   stage, a failed CD publish job, a package index that has not listed the
   release, a failed dependency update, or a failed install.
-- A release that cannot be finished, because the defect is in the tagged
-  commit itself, is superseded by the next release, which carries its issues
+- A release that cannot be finished, because the defect is in the release's
+  own commit, is superseded by the next release, which carries its issues
   and their records (§4.7).
 - The tracking issue holds the state `--resume` needs, and `vrg-release`
   trusts it only while every identity on the issue is the human's (§4.2).
@@ -115,10 +115,11 @@ for one.
   lists `refs/tags/vX.Y*` and installs the highest `vX.Y.Z`, never reading
   the `vX.Y` tag. Its callers are the dev-container cache
   (`tooling_release.resolve_tooling_tag`, for every repo's
-  `[dependencies].vergil` pin) and `vrg-vm` (`vm_packages`), and
-  `vm_packages.apt_pin` pins a line as apt `version X.Y.*`. A tag demoted
+  `[dependencies].vergil` pin) and `vrg-vm` (`vm_packages`). A tag demoted
   with `vrg-promote` is therefore not followed. The plugin marketplace and
-  GitHub Actions refs do follow the tag.
+  GitHub Actions refs do follow the tag. (`vm_packages.apt_pin` also reads a
+  line as `X.Y.*`, but it has no production caller and
+  vergil-project/vergil-tooling#4740 removes it.)
 - **`vrg-tooling-install`** takes only an exact `vX.Y.Z` tag. vergil-tooling's
   `[publish].consumer-refresh` runs `vrg-tooling-install v<VERSION>` then
   `vrg-vm update --all`; vergil-claude-plugin's runs `vrg-host plugins` then
@@ -185,15 +186,23 @@ pending-release table and the issue list), and a **state block**:
   malformed or missing block on resume, or one naming a version other than
   the issue's, is a refusal that names the block, never a fallback to
   in-memory defaults.
+- **Locked.** `prepare` locks the tracking issue when it creates it, so only
+  repository collaborators can comment. Every run, a resume and a supersede
+  included, ensures the issue is locked before it reads the state, locking
+  an inherited issue that is not.
+- **The state is read from the body only,** never from comments or other
+  events.
 - **The identity rule.** Every time `vrg-release` reads the tracking issue,
-  it checks every identity on it: the issue's author, its body's last editor
-  and every editor in its edit history, every comment's author and last
-  editor, and the actor of every timeline event (label, rename, close,
-  reopen and the like). Each must be one of the `human` logins of
-  `vrg-trusted-authors`. Any other identity stops the run at once, before
+  it checks every identity that can change its state: the issue's author,
+  its body's last editor and every editor in its edit history, and every
+  actor that closed or reopened it. Each must be one of the `human` logins
+  of `vrg-trusted-authors`. Any other identity stops the run at once, before
   any write or stage, with an error that names the identity and what it did,
   as a suspected security breach. The human inspects and cleans up the
   issue, then resumes.
+- **Other traces are warnings.** A comment by another identity, a
+  cross-reference, a mention, a subscription or a label by another identity
+  cannot change the state; the run lists each as a warning and carries on.
 
 ### 4.3 Resume runs only what is not done
 
@@ -203,6 +212,16 @@ the first undone stage on. A stage marks itself done in the block when it
 succeeds, alongside the facts later stages need (the PRs, the tag, the run
 IDs). So a resume after `finalize` never re-enters the branch work of
 `prepare` through `teardown-worktree`, whose release branch is gone.
+
+- **The worktree.** A resume adopts the release worktree only when its first
+  undone stage is at or before `teardown-worktree`; otherwise it runs from
+  the root checkout. Every branch-work stage (`prepare`, `merge-release`,
+  `back-merge-bump`, `teardown-worktree`) stops the run when it fails, and
+  `finalize`, which prunes the release branches, runs only after all of them
+  have succeeded. So a resume that reaches a branch-work stage always finds
+  its branch, and none after `finalize` needs one.
+- **Checks on every resume.** Preflight's host, authentication and config
+  checks run on every resume; its fresh-start checks do not.
 
 - **Facts are checked, not trusted.** Before a stage relies on a recorded
   fact, it confirms it against GitHub or git: the tag exists on the recorded
@@ -242,9 +261,11 @@ publish-status
   left and the one command that finishes it, `vrg-release --resume` (or,
   for a release that cannot finish, `vrg-release --supersede X.Y.Z`).
 
-**Gating.** `promote` and `install` need only the stages through
-`confirm-develop`; `cd-publish`, `package-index` and `update-deps` never
-hold them back. `release-records` and `close-tracking` need every stage
+**Gating.** `promote` needs only the stages through `confirm-develop`, and
+`install` needs those and `promote`; `cd-publish`, `package-index` and
+`update-deps` never hold either back. Before it runs, `install` checks that
+`vX.Y` names this release's tag, and refuses if it does not.
+`release-records` and `close-tracking` need every stage
 before them. A stage that fails leaves the issue open, and the run ends
 non-zero. `OPTIONAL_STAGES` is removed: no stage is optional.
 
@@ -298,9 +319,8 @@ recorded as failed.
   commit, in one `git ls-remote`, never by picking the newest `vX.Y.Z`.
   The release it names is the `vX.Y.Z` tag on that commit; none is a
   refusal. Every caller (the dev-container cache, `vrg-vm`, and the CLI)
-  gets that one meaning, and `vm_packages.apt_pin` pins the exact version of
-  that release rather than `X.Y.*`. A tag demoted with `vrg-promote` is then
-  followed everywhere.
+  gets that one meaning, so a tag demoted with `vrg-promote` is followed
+  everywhere.
 - **`vrg-tooling-install` takes `vX.Y`** as well as `vX.Y.Z`, through the
   fixed resolver.
 - **Installs follow the line.** The install template gains a `<MINOR>`
@@ -321,17 +341,28 @@ recorded as failed.
 
 A fresh start refuses while **any** `release: X.Y.Z` tracking issue is open
 in the repo, naming it and the `vrg-release --resume` that finishes it. This
-replaces the same-version check. `--resume X.Y.Z` still accepts a version,
+replaces the same-version check. An open tracking issue with no state block,
+left by older tooling, gets its own refusal, which names the old-tooling
+recovery: finish the release by hand, then close the issue.
+`--resume X.Y.Z` still accepts a version,
 and the "multiple in-flight releases" refusal stays for a repo left with
 several by older tooling.
 
 A release that `--resume` cannot finish, because the defect is in the tagged
 commit, is superseded with **`vrg-release --supersede X.Y.Z`**:
 
-- **Eligible only when** `X.Y.Z` is the open release, its tag and GitHub
-  Release exist, and its only stages left are among `cd-publish`,
-  `package-index`, `update-deps` and `install`. Otherwise the run refuses
-  and names what is open. A bare `vrg-release` never supersedes.
+- **Eligible only when** `X.Y.Z` is the open release and either:
+  - its tag and GitHub Release exist, and its only stages left are among
+    `cd-publish`, `package-index`, `update-deps` and `install`; or
+  - it halted at `confirm-main` with no tag, because its CD release job
+    failed.
+
+  Otherwise the run refuses and names what is open. A bare `vrg-release`
+  never supersedes.
+- **An untagged superseded release** leaves its release commit on `main`
+  without a tag. The superseding release's fresh-start check that `main`
+  holds nothing `develop` lacks accepts that commit, named in the superseded
+  state block, and the superseding release's back-merge reconciles it.
 - **It is a fresh release** with every fresh-start check, and it combines
   with a `minor` or `major` bump. It cannot be combined with `--resume`.
 - **The new release absorbs** the superseded release's issue list (read from
@@ -384,8 +415,8 @@ Released: vergil-project/vergil-tooling v2.1.340 on 2026-11-20
   `vrg-release`. A record counts, for idempotency here and as evidence
   anywhere (§4.10), only when its comment's author and last editor are both
   `human` logins of `vrg-trusted-authors`. A record marker on a comment by
-  any other identity is a refusal that names the comment: in `vrg-release`,
-  the identity rule's stop (§4.2).
+  any other identity never counts: `release-records` and every consumer
+  ignore it and name it as a warning.
 - **Idempotent.** Before posting, the stage reads the issue's comments for a
   counting record; one found is recorded as posted in the state block. A run
   interrupted partway posts only the rest.
@@ -394,20 +425,27 @@ Released: vergil-project/vergil-tooling v2.1.340 on 2026-11-20
 
 ### 4.10 Agents read the records
 
-Every consumer of a record applies §4.9's human-authored rule: a record
-whose author or last editor is not a `human` login is refused and named,
-never counted.
+A record is one accepted form of release evidence, for the subset of tasks
+`vrg-release` records: development tasks closed by a `feature/` PR in a repo
+that releases with `vrg-release`. A blocked-by task **can** carry one, and
+where a deployment depends on such a task having been released, its record
+is the evidence. Every other dependency and precondition, human attestation
+included, is checked as it is today.
 
-- **The deployment-task scaffold** names the release precondition as: each
-  blocked-by task carries a human-authored `Released:` record. Human
-  attestation stays only for a release outside `vrg-release` (none today).
-- **`issue-deploy`** reads each blocked-by task's comments for the record and
-  takes it as the release evidence, then cross-checks it with the existing
-  `merge-base --is-ancestor` check of the task's merge commit against the
-  recorded tag. A record and an ancestry check that disagree are a blocked
-  precondition, never a pass.
+- **`vrg-release-record check <task-ref>`** (new, vergil-tooling) is the one
+  reader. Using the tool's own GitHub access, it finds the task's records,
+  applies §4.9's human-authored rule (author and last editor), runs the
+  `merge-base --is-ancestor` cross-check of the task's merge commit against
+  the recorded tag, and prints the record and a verdict as JSON. A record
+  and an ancestry check that disagree are a failed verdict, never a pass.
+  Records by other identities are listed as warnings.
+- **The deployment-task scaffold** names it as the way to confirm that a
+  blocked-by development task is released.
+- **`issue-deploy`** calls it for each blocked-by task whose release the
+  deployment depends on, and treats a failed verdict as a blocked
+  precondition.
 - **`epic-implement`**, where it walks a task's dependencies for release
-  evidence, uses the record the same way.
+  evidence, calls it the same way.
 - **`epic-create`'s** "Checking that a release carries the changes"
   paragraph names the record first and the ancestry check as its cross-check.
 
@@ -416,8 +454,8 @@ never counted.
 - **No release in flight at the switch.** The stage list changes, so the
   checklist check refuses to resume a release started by the older tooling,
   and its tracking issue has no state block. The deployment of the new
-  vergil-tooling first finishes every open release tracking issue with the
-  older tooling.
+  vergil-tooling first lists the open `release:` tracking issues across the
+  fleet's released repos, and finishes each with the older tooling.
 - **`vergil.toml` keys.** vergil-tooling and vergil-claude-plugin move to
   `[publish].install` in the same release window; the deprecated key covers
   any repo that lags.
@@ -442,20 +480,21 @@ never counted.
 Implementation lands mainly in vergil-tooling, with the skill and docs
 changes in vergil-claude-plugin. The plan sequences it; in outline:
 
-1. The tracking-issue state block, the identity rule, and resume from the
-   first undone stage.
-2. One release at a time, and `--supersede`.
-3. The issue list in `preflight` and the Contents section.
-4. Resumable publishing and dependency update: `cd-publish`, `package-index`
+1. `vX.Y` follows its tag in `resolve()`, and `vrg-tooling-install vX.Y`,
+   shipped first and on its own; the install-template change depends on it.
+2. The tracking-issue state block, the lock, the identity rule, and resume
+   from the first undone stage.
+3. One release at a time, and `--supersede`.
+4. The issue list in `preflight` and the Contents section.
+5. Resumable publishing and dependency update: `cd-publish`, `package-index`
    dispatch, CD release-job recovery, `update-deps` as a required stage,
    `OPTIONAL_STAGES` removed.
-5. Promote and install decoupled from packaging, and the install rename.
-6. `vX.Y` follows its tag in `resolve()` and `apt_pin`, and
-   `vrg-tooling-install vX.Y`.
+6. Promote and install decoupled from packaging, the install gated on
+   `promote`, and the install rename.
 7. The opt-outs removed, with `vrg-submit-pr` always finishing.
 8. `release-records` and `close-tracking`.
-9. The deployment scaffold, `issue-deploy`, `epic-implement` and
-   `epic-create`.
+9. `vrg-release-record check`, then the deployment scaffold, `issue-deploy`,
+   `epic-implement` and `epic-create`.
 10. Docs: the release guide and references, and the `--no-finalize`
     workflows in `submit-pr.md`, `git-workflow.md` and
     vergil-claude-plugin's `repository-standards.md`, with the
@@ -479,12 +518,17 @@ changes in vergil-claude-plugin. The plan sequences it; in outline:
   its tracking issue is closed with a pointer.
 - Every issue closed by a `feature/` PR in the release carries exactly one
   human-authored record, after any number of resumes.
-- Any non-human identity on a tracking issue stops `vrg-release` before it
-  writes anything.
+- The tracking issue is locked, and any non-human identity that edited its
+  body or closed or reopened it stops `vrg-release` before it writes
+  anything; foreign comments and cross-references are only warnings.
+- A release halted at `confirm-main` with no tag is superseded with
+  `--supersede X.Y.Z`.
+- `install` refuses when `promote` failed or `vX.Y` does not name the
+  release.
 - A fresh `vrg-release` refuses while any tracking issue is open.
 - After `vrg-promote` demotes `vX.Y`, the dev-container cache, `vrg-vm` and
   `vrg-tooling-install vX.Y` all install the release the tag names.
 - The removed flags fail with their removal message.
-- `issue-deploy` takes a deployment task's release precondition from
-  human-authored records alone, with the ancestry cross-check passing, and
-  refuses a record by any other identity.
+- `vrg-release-record check` passes a task with a human-authored record and
+  a passing ancestry check, and never counts a record by any other identity;
+  `issue-deploy` takes a released dependency's evidence from it.
