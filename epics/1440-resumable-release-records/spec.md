@@ -30,8 +30,9 @@ for one.
 
 ### 2.1 Goals
 
-- Every issue closed by a `feature/` PR in a release gets one `Released:`
-  record from `vrg-release`, posted once the release is fully complete.
+- Every issue a `feature/` PR in a release closes, through a trusted closing
+  reference (§4.1), gets one `Released:` record from `vrg-release`, posted
+  once the release is fully complete.
 - `vrg-release --resume` finishes any release that did not finish: a halted
   stage, a failed CD publish job, a package index that has not listed the
   release, a failed dependency update, or a failed install.
@@ -43,8 +44,8 @@ for one.
 - The tracking issue closes only after every record is posted.
 - `vX.Y` means the release its rolling tag names, in every vergil-tooling
   install path, so demoting the tag with `vrg-promote` is honoured (§4.6).
-- `issue-deploy`, `epic-implement` and the deployment-task scaffold take a
-  human-authored `Released:` record as release evidence (§4.10).
+- `issue-deploy` and the deployment-task scaffold take a human-authored
+  `Released:` record as release evidence (§4.10).
 
 ### 2.2 Non-goals
 
@@ -151,12 +152,19 @@ truncation-checked as the existing connections are).
   contribute none. A closing reference to an issue in another repo is
   ignored: the placement law means it should not exist, and the record is
   posted only in the released repo.
+- **Trusted closing references only.** A closing reference counts only when
+  it comes from a closing line in the PR body, using the keywords the
+  fleet's linkage rules sanction (`lib/linkage.py`), and every identity in
+  the body's history (its author and every editor) is a trusted author
+  (`human` or `agents` of `vrg-trusted-authors`). A reference linked by hand
+  counts only when the identity that linked it is trusted. Any other
+  reference contributes no issue, and the run names it in a warning.
 - **Shown up front.** `preflight` prints the pending-release table and, under
   it, the issue list with each issue's PR, before any branch or issue is
   created.
 - **An incomplete lookup refuses the release**, as `pending_release` already
   refuses a partial list: there is never a release whose issue list is
-  missing an issue.
+  missing a trusted closing reference.
 - **An empty list is valid.** A release whose PRs close no issues posts no
   records.
 
@@ -261,10 +269,11 @@ publish-status
   left and the one command that finishes it, `vrg-release --resume` (or,
   for a release that cannot finish, `vrg-release --supersede X.Y.Z`).
 
-**Gating.** `promote` needs only the stages through `confirm-develop`, and
-`install` needs those and `promote`; `cd-publish`, `package-index` and
-`update-deps` never hold either back. Before it runs, `install` checks that
-`vX.Y` names this release's tag, and refuses if it does not.
+**Gating.** `promote` and `finalize` need only the stages through
+`confirm-develop`, and `install` needs those and `promote`; `cd-publish`,
+`package-index` and `update-deps` never hold any of them back. Before it
+runs, `install` checks that `vX.Y` names this release's tag, and refuses if
+it does not.
 `release-records` and `close-tracking` need every stage
 before them. A stage that fails leaves the issue open, and the run ends
 non-zero. `OPTIONAL_STAGES` is removed: no stage is optional.
@@ -355,14 +364,18 @@ commit, is superseded with **`vrg-release --supersede X.Y.Z`**:
   - its tag and GitHub Release exist, and its only stages left are among
     `cd-publish`, `package-index`, `update-deps` and `install`; or
   - it halted at `confirm-main` with no tag, because its CD release job
-    failed.
+    failed, as its state block records (the failed CD release run).
 
   Otherwise the run refuses and names what is open. A bare `vrg-release`
   never supersedes.
 - **An untagged superseded release** leaves its release commit on `main`
   without a tag. The superseding release's fresh-start check that `main`
   holds nothing `develop` lacks accepts that commit, named in the superseded
-  state block, and the superseding release's back-merge reconciles it.
+  state block, and the superseding release's back-merge reconciles it. Its
+  `develop` VERSION was never bumped, so the superseding release takes the
+  next patch, `X.Y.(Z+1)`, unless a `minor` or `major` bump is given. Its
+  release branch `release/X.Y.Z` (local and remote) and its release worktree
+  are removed when the superseded tracking issue is closed.
 - **It is a fresh release** with every fresh-start check, and it combines
   with a `minor` or `major` bump. It cannot be combined with `--resume`.
 - **The new release absorbs** the superseded release's issue list (read from
@@ -435,22 +448,24 @@ included, is checked as it is today.
 - **`vrg-release-record check <task-ref>`** (new, vergil-tooling) is the one
   reader. Using the tool's own GitHub access, it finds the task's records,
   applies §4.9's human-authored rule (author and last editor), runs the
-  `merge-base --is-ancestor` cross-check of the task's merge commit against
-  the recorded tag, and prints the record and a verdict as JSON. A record
-  and an ancestry check that disagree are a failed verdict, never a pass.
+  `merge-base --is-ancestor` cross-check of the merge commit of each of the
+  task's trusted closing PRs (§4.1) against the recorded tag, and prints the
+  record and a verdict as JSON. A record and an ancestry check that disagree are a failed verdict, never a pass.
   Records by other identities are listed as warnings.
 - **The deployment-task scaffold** names it as the way to confirm that a
   blocked-by development task is released.
 - **`issue-deploy`** calls it for each blocked-by task whose release the
   deployment depends on, and treats a failed verdict as a blocked
   precondition.
-- **`epic-implement`**, where it walks a task's dependencies for release
-  evidence, calls it the same way.
 - **`epic-create`'s** "Checking that a release carries the changes"
   paragraph names the record first and the ancestry check as its cross-check.
 
 ## 5. Migration
 
+- **A release freeze.** No partly landed release tooling is ever released:
+  from the first merge that changes the release state until the release
+  that ships the whole change is cut, no vergil-tooling release is cut. The
+  resolver fix (§4.6) ships first, on its own, before the freeze.
 - **No release in flight at the switch.** The stage list changes, so the
   checklist check refuses to resume a release started by the older tooling,
   and its tracking issue has no state block. The deployment of the new
@@ -493,8 +508,8 @@ changes in vergil-claude-plugin. The plan sequences it; in outline:
    `promote`, and the install rename.
 7. The opt-outs removed, with `vrg-submit-pr` always finishing.
 8. `release-records` and `close-tracking`.
-9. `vrg-release-record check`, then the deployment scaffold, `issue-deploy`,
-   `epic-implement` and `epic-create`.
+9. `vrg-release-record check`, then the deployment scaffold, `issue-deploy`
+   and `epic-create`.
 10. Docs: the release guide and references, and the `--no-finalize`
     workflows in `submit-pr.md`, `git-workflow.md` and
     vergil-claude-plugin's `repository-standards.md`, with the
@@ -516,8 +531,9 @@ changes in vergil-claude-plugin. The plan sequences it; in outline:
 - A release whose remaining stage cannot succeed is superseded with
   `--supersede X.Y.Z`; its issues get records naming the new version, and
   its tracking issue is closed with a pointer.
-- Every issue closed by a `feature/` PR in the release carries exactly one
-  human-authored record, after any number of resumes.
+- Every issue closed through a trusted closing reference by a `feature/` PR
+  in the release carries exactly one human-authored record, after any number
+  of resumes.
 - The tracking issue is locked, and any non-human identity that edited its
   body or closed or reopened it stops `vrg-release` before it writes
   anything; foreign comments and cross-references are only warnings.

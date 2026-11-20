@@ -24,7 +24,7 @@ then read as release evidence through `vrg-release-record check`.
   `release-records` and `close-tracking`; `vrg-release-record check` and the
   deployment scaffold.
 - **vergil-claude-plugin** changes the skills that read release evidence:
-  `issue-deploy`, `epic-implement` and `epic-create`, and its docs.
+  `issue-deploy` and `epic-create`, and its docs.
 - **The config switch** (`[publish].install`, `v<MINOR>`) lands in each
   repo's `vergil.toml` only once the tooling that reads it is installed,
   because a release is run by the installed tooling, not the one it ships.
@@ -42,7 +42,7 @@ then read as release evidence through `vrg-release-record check`.
 
 - **Release freeze.** No vergil-tooling release is cut from `develop`
   from the merge of Task 3a until Task 13's release is cut, which needs
-  every one of Tasks 3a to 9a and 10 to 12 merged. Task 2d's release of
+  every one of Tasks 3a to 12 merged. Task 2d's release of
   Task 2 alone comes before it. The human enforces it: Task 3a's
   report-ready notes say its merge opens the freeze, and Task 13 records
   the cut that ends it. An urgent vergil-tooling fix during the window waits
@@ -128,28 +128,27 @@ blocked by.
   7a and 7b.
 - **9a** (vergil-tooling): `vrg-release --no-promote` and `--no-install`
   removed. Blocked by 8.
+- **9b** (vergil-tooling): `vrg-finalize-pr --no-install`, and
+  `vrg-submit-pr --no-finalize` and `--no-install`, removed; `vrg-submit-pr`
+  always finishes; their docs. Blocked by 9a.
 - **10** (vergil-tooling): `release-records` and `close-tracking`. Blocked
   by 6, 7a, 7b and 8.
 - **11** (vergil-tooling): `--supersede`. Blocked by 5 and 10.
 - **12** (vergil-tooling): `vrg-release-record check` and the deployment
   scaffold. Blocked by 10.
 - **13** (.github, deployment): the fleet's open tracking issues cleared
-  with the older tooling, then the vergil-tooling release carrying 3a to 9a
-  and 10 to 12 cut and installed, ending the freeze; the fixture runs and
-  Task 19 filed with its version. Blocked by 3a, 3b, 4, 5, 6, 7a, 7b, 8, 9a,
-  10, 11 and 12.
+  with the older tooling, then the vergil-tooling release carrying 3a to 12
+  cut and installed, ending the freeze; the fixture runs and Task 19 filed
+  with its version. Blocked by 3a, 3b, 4, 5, 6, 7a, 7b, 8, 9a, 9b, 10, 11
+  and 12.
 
 ### Config, skills and validation
 
-- **9b** (vergil-tooling): `vrg-finalize-pr --no-install`, and
-  `vrg-submit-pr --no-finalize` and `--no-install`, removed; `vrg-submit-pr`
-  always finishes; their docs. Blocked by 13 (outside the freeze).
 - **14a** (vergil-tooling): vergil-tooling's `vergil.toml` moves to
   `[publish].install` with `vrg-tooling-install v<MINOR>`. Blocked by 13.
 - **14b** (vergil-claude-plugin): vergil-claude-plugin's `vergil.toml` moves
   to `[publish].install`. Blocked by 13.
-- **15** (vergil-claude-plugin): `issue-deploy`, `epic-implement` and
-  `epic-create` use `vrg-release-record check`; `repository-standards.md`
+- **15** (vergil-claude-plugin): `issue-deploy` and `epic-create` use `vrg-release-record check`; `repository-standards.md`
   drops `--no-finalize`. Blocked by 13.
 - **16** (.github, deployment): the vergil-claude-plugin release carrying
   14b and 15, installed. Blocked by 14b and 15.
@@ -158,6 +157,9 @@ blocked by.
   command. Blocked by 14a and 16.
 - **18** (fixture runs, all six fixtures): filed with `fixture-run` by Task
   13, once its release version is known.
+- **20** (vergil-tooling): the deprecated `[publish].consumer-refresh`
+  fallback removed, one minor version after Task 13's release. Blocked by
+  14a and 14b.
 - **19** (.github, validation): each fixture run's release left a locked,
   closed tracking issue and a record on every issue it closed. Filed by
   Task 13, blocked by the six fixture runs' release tasks.
@@ -166,8 +168,8 @@ blocked by.
 
 - **Follow-on brainstorm** (.github, #1444). Blocked by 17, so it starts
   once the records have run on a real release.
-- **Documentation review** (vergil-tooling, #4837). Blocked by 2, 3a to 8,
-  9a, 9b, 10 to 12, 14a, 14b and 15. Its sweep covers the docs repo's
+- **Documentation review** (vergil-tooling, #4837). Blocked by 2, 3a to
+  12, 14a, 14b, 15 and 20. Its sweep covers the docs repo's
   release and workflow pages, and spawns a docs-repo task for them.
 - **Retrospective** (.github, #1442). Blocked by everything else.
 
@@ -181,7 +183,7 @@ Notes:
   releases that ship 2 (Task 2d) and 3a to 12 (Task 13) are cut by the
   older tooling and post no records (spec §5).
 - **The freeze** opens when 3a merges and ends with Task 13's cut, whatever
-  order 3a to 12 merge in. Task 9b lands after it.
+  order 3a to 12 merge in.
 - **Filing.** Every task above but 18 and 19 is filed at epic-create's
   filing step, in its repo, linked under #1440, with its `Blocked-by:`
   refs. Task 13 files 18 (with `fixture-run`, naming its version) and 19
@@ -204,7 +206,8 @@ Spec §4.6.
 - Modify: `src/vergil_tooling/lib/tooling_install.py` (`resolve`,
   `install_release`, module docstring)
 - Modify: `src/vergil_tooling/lib/tooling_release.py` (docstring: a line
-  installs the release its tag names)
+  installs the release its tag names), `src/vergil_tooling/lib/vm_packages.py`
+  (docstring)
 - Modify: `src/vergil_tooling/bin/vrg_tooling_install.py` (metavar and help
   `vX.Y or vX.Y.Z`)
 - Test: `tests/vergil_tooling/test_tooling_install.py`,
@@ -227,7 +230,11 @@ Spec §4.6.
   `test_resolve_line_without_tag_raises` (`v3.2` absent: raises naming the
   ref, never falling back to a patch); `test_resolve_line_commit_without_release_tag_raises`;
   `test_install_release_line_installs_and_reports_exact_tag` (output names
-  `vX.Y.Z`, not `vX.Y`); `test_vrg_tooling_install_help_names_line`.
+  `vX.Y.Z`, not `vX.Y`); `test_vrg_tooling_install_help_names_line`;
+  `test_resolve_tooling_tag_follows_demoted_line` (in
+  `test_tooling_release.py`) and `test_vm_resolve_follows_demoted_line` (in
+  `test_vm_packages.py`), each with `v2.1` peeling to an older patch than
+  the newest.
 - [ ] **Step 2:** Run `vrg-container-run -- pytest
   tests/vergil_tooling/test_tooling_install.py -k line`. Expect FAIL.
 - [ ] **Step 3: Implement.** One `ls_remote(GIT_URL, "refs/tags/vX.Y*")`
@@ -280,7 +287,9 @@ Spec §4.2.
   main_cd_run: str | None, develop_cd_run: str | None,
   failed_jobs: tuple[FailedJob, ...], index_listed: bool, without_deps: bool,
   done: tuple[str, ...], install_done: bool, records_posted: tuple[str, ...],
-  supersedes: str | None, superseded_main_commit: str | None)`;
+  supersedes: str | None, superseded_main_commit: str | None,
+  failed_release_run: str | None (the CD release run `confirm-main` saw
+  fail))`;
   `parse_state(body: str) -> StateBlock` raising `StateBlockError` (missing,
   duplicated, bad JSON, unknown or missing key, wrong type);
   `render_state(state: StateBlock) -> str`; `upsert_state(body: str, state:
@@ -288,7 +297,8 @@ Spec §4.2.
 - Produces, in `tracking.py`: `read_state(ctx) -> StateBlock` (body read,
   then `parse_state`, then the version check against the title);
   `write_state(ctx, state) -> None` (read-modify-write of the body).
-  Task 3b inserts the guard into `read_state`.
+  Task 3b inserts the guard into both `read_state` and `write_state`'s own
+  read.
 
 - [ ] **Step 1: Write the failing tests:** `test_state_round_trip`;
   `test_parse_state_missing_block_raises`; `test_parse_state_two_blocks_raises`;
@@ -343,7 +353,8 @@ Spec §4.2.
   `test_guard_truncated_connection_raises`;
   `test_ensure_locked_locks_unlocked_issue`; `test_ensure_locked_is_noop_when_locked`;
   `test_read_state_stops_before_any_write` (no `issue edit` or `comment`
-  call is made after a breach).
+  call is made after a breach); `test_write_state_stops_on_edit_between_read_and_write`
+  (a foreign body edit after a guarded read: the write is not made).
 - [ ] **Step 2:** Run them. Expect FAIL.
 - [ ] **Step 3: Implement.** The breach error's message starts
   `suspected security breach on tracking issue #<N>:` and tells the human
@@ -487,7 +498,9 @@ Spec §4.1.
   nameWithOwner }`, the PR's `body`, `author`, `userContentEdits` and
   `ConnectedEvent` timeline items, in the same query, every connection
   checked with `_complete_nodes`. A reference counts as from the body when
-  the body's `Closes`/`Fixes`/`Resolves` lines name it.
+  a closing line in the body names it, matched with the sanctioned keywords
+  of `lib/linkage.py` (`Close`, `Closes`, `Closed`), never a list of its
+  own. Test: `test_issue_list_counts_closed_keyword` (`Closed #N`).
 - [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
   Expect PASS.
 - [ ] **Step 5:** Commit `vrg-commit --type feat --scope release --message
@@ -521,9 +534,15 @@ Spec §4.5.
   `test_cd_publish_fresh_run_defers`; `test_cd_publish_resume_reruns_main`;
   `test_cd_publish_resume_develop_superseded_by_later_success`;
   `test_cd_publish_second_resume_reruns_only_remaining`;
-  `test_confirm_main_resume_reruns_ci_then_cd`.
+  `test_confirm_main_resume_reruns_ci_then_cd`;
+  `test_deferred_publish_failures_derived_from_state`;
+  `test_confirm_main_records_failed_release_run` (a failed CD release job
+  writes `failed_release_run` before the stage fails).
 - [ ] **Step 2:** Run them. Expect FAIL.
-- [ ] **Step 3: Implement.**
+- [ ] **Step 3: Implement.** `ReleaseContext.deferred_publish_failures`
+  becomes a read-only property derived from `state.failed_jobs` and
+  `state.index_listed`; `confirm.py` and `package_index` write the state
+  instead of appending to a list.
 - [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
   Expect PASS.
 - [ ] **Step 5:** Commit `vrg-commit --type feat --scope release --message
@@ -582,6 +601,19 @@ Spec §4.4, §4.6.
   `promote_pending`); `orchestrator.py`'s `_publish_status_stage` and
   `_close_finalize_outcome` name only `vrg-release --resume` or
   `vrg-release --supersede X.Y.Z`
+- Modify, for the rename (every `consumer-refresh`/`consumer_refresh`
+  name): `src/vergil_tooling/bin/vrg_release.py`,
+  `src/vergil_tooling/bin/vrg_host.py`,
+  `src/vergil_tooling/bin/vrg_tooling_install.py`,
+  `src/vergil_tooling/lib/host_status.py`, `src/vergil_tooling/lib/progress.py`,
+  `src/vergil_tooling/lib/release/context.py`,
+  `src/vergil_tooling/lib/release/package_index.py`,
+  `src/vergil_tooling/lib/tooling_install.py`,
+  `src/vergil_tooling/data/host_dependencies.toml`; tests
+  `test_github_config_lib.py`, `test_vrg_github_repo_config.py`,
+  `test_vrg_host.py`, and `test_consumer_refresh.py` and
+  `test_release_handoff.py`, which move with the stage.
+  `PublishConfig.consumer_refresh` is renamed `install`.
 - Modify: `src/vergil_tooling/lib/config.py` (`publish.install`, reading
   `consumer-refresh` with a deprecation warning when `install` is absent;
   both present is an error)
@@ -593,7 +625,8 @@ Spec §4.4, §4.6.
 
 - Produces: the stage order of spec §4.4; `holds(stage: str, failed:
   Sequence[str]) -> list[str]`, the failed stages that hold *stage* back:
-  for `finalize`, those through `confirm-develop`; for `install`, those and
+  for `promote` and `finalize`, those through `confirm-develop`; for
+  `install`, those and
   `promote`; for `release-records` and `close-tracking`, every failed stage;
   `install(ctx) -> None`, which
   needs `promote` done, calls `check_line_on_release(ctx)` (one
@@ -606,6 +639,7 @@ Spec §4.4, §4.6.
   `test_promote_runs_with_index_deferred`;
   `test_install_runs_with_index_deferred`;
   `test_finalize_and_install_run_after_failed_cd_publish`;
+  `test_promote_held_by_failed_confirm_develop`;
   `test_update_deps_failure_does_not_hold_install`;
   `test_publish_status_names_only_resume_or_supersede`;
   `test_no_output_names_hand_run_commands` (no run output contains
@@ -639,7 +673,8 @@ Spec §4.8. Blocked by 8.
 - Produces: removal messages of the form `vrg-release: --<flag> was
   removed; promote and install are part of every release`. `vrg-finalize-pr
   --release --no-install` and `vrg-submit-pr --release --no-install` still
-  pass `--no-install` on until Task 9b, so each now fails with this message.
+  pass `--no-install` on until Task 9b, so each fails with this message in
+  between; no release is cut in between (the freeze).
 
 - [ ] **Step 1: Write the failing tests:** `test_no_promote_removed_message`,
   `test_no_install_removed_message`, each exiting 1 before any side effect.
@@ -652,7 +687,7 @@ Spec §4.8. Blocked by 8.
 
 ### Task 9b: the submit and finalize opt-outs go (vergil-tooling)
 
-Spec §4.8. Blocked by 13, so it lands outside the freeze.
+Spec §4.8. Blocked by 9a; it ships in Task 13's release.
 
 **Files:**
 
@@ -759,15 +794,18 @@ Spec §4.7.
   `ReleaseError` unless either the tag and Release exist and every stage
   before `release-records` that is not done is in `{"cd-publish",
   "package-index", "update-deps", "install"}`, or the first undone stage is
-  `confirm-main` and no tag exists; `absorb(old: StateBlock, new_issues) ->
+  `confirm-main`, no tag exists and `failed_release_run` is set; `absorb(old: StateBlock, new_issues) ->
   tuple[IssueEntry, ...]`; `close_superseded(repo, number, new_version) ->
-  None`, after the new tracking issue exists, which also deletes the local
-  and remote `release/X.Y.Z` branch of an untagged superseded release.
+  None`, after the new tracking issue exists, which also removes an
+  untagged superseded release's release worktree and its local and remote
+  `release/X.Y.Z` branch.
 
 - [ ] **Step 1: Write the failing tests:**
   `test_supersede_refuses_bare_release`; `test_supersede_eligible_delivery_left`;
   `test_supersede_eligible_untagged_confirm_main`;
   `test_supersede_untagged_takes_next_patch_and_passes_branch_check`;
+  `test_supersede_untagged_removes_worktree_and_branch`;
+  `test_supersede_refuses_confirm_main_halt_without_failed_release_run`;
   `test_supersede_refuses_merge_release_halt`. The eligibility fixtures are
   state blocks written by a simulated run of the pipeline, not built by
   hand;
@@ -830,7 +868,7 @@ Spec §4.10.
 
 ### Task 13: vergil-tooling release with the resumable release (deployment, .github)
 
-Blocked by 3a, 3b, 4, 5, 6, 7a, 7b, 8, 9a, 10, 11 and 12.
+Blocked by 3a, 3b, 4, 5, 6, 7a, 7b, 8, 9a, 9b, 10, 11 and 12.
 
 - **Before the cut (agent-safe, then human-run):** list the open `release:`
   tracking issues in every fleet repo that releases with `vrg-release`
@@ -842,17 +880,17 @@ Blocked by 3a, 3b, 4, 5, 6, 7a, 7b, 8, 9a, 10, 11 and 12.
   comment says so, then close the issue). The listing is re-run until it is
   empty.
 - **Precondition (human-attested):** the freeze held (no vergil-tooling
-  release since Task 2d's); every one of Tasks 3a to 8, 9a and 10 to 12 is
-  merged; and the release carrying them is then cut, published and
-  installed on the host and the VMs, its version named in a comment. That
+  release since Task 2d's); every one of Tasks 3a to 12 is merged; and the
+  release carrying them is then cut, published and installed on the host and the VMs, its version named in a comment. That
   cut ends the freeze. It is cut with the older tooling, so it posts no
   records (spec §5).
 - **Procedure (agent-safe):**
-  1. For each of Tasks 3a to 8, 9a and 10 to 12, check that its PR's merge
+  1. For each of Tasks 3a to 12, check that its PR's merge
      commit is in the release: `vrg-git fetch origin tag <tag>`, `vrg-git
      ls-remote origin refs/tags/<tag> 'refs/tags/<tag>^{}'`, then `vrg-git
      merge-base --is-ancestor <merge-sha> <tag-sha>` exits 0.
   2. `vrg-release --help` lists `--supersede` and not `--no-install`;
+     `vrg-submit-pr --help` does not list `--no-finalize`;
      `vrg-release-record --help` exits 0.
   3. Re-run the tracking-issue listing: still empty.
   4. File the fixture runs (Task 18) with the version, then Task 19 blocked
@@ -895,8 +933,6 @@ Spec §4.10. Blocked by 13.
   precondition; exit 4 (`none`, a release from before the switch or from a
   repo outside `vrg-release`) falls back to the existing ancestry recipe,
   which stays in the skill; one worked example for each)
-- Modify: `skills/epic-implement/SKILL.md` (release evidence for a
-  dependency through the same command)
 - Modify: `skills/epic-create/SKILL.md` ("Checking that a release carries
   the changes" names the command first, the ancestry check as its
   cross-check)
@@ -967,3 +1003,23 @@ six release tasks `fixture-run` printed.
   change task; every issue in the tracking issue's state block carries
   exactly one human-authored record for the version.
 - **SUCCESS:** every check passes for all six fixtures.
+
+### Task 20: the deprecated install key goes (vergil-tooling)
+
+Spec §4.6. Blocked by 14a and 14b; cut it into the first minor release after
+Task 13's.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/config.py` (the `consumer-refresh` key is
+  an unknown key again, refused like any other)
+- Test: `tests/vergil_tooling/test_config.py`
+
+- [ ] **Step 1: Write the failing test:**
+  `test_config_refuses_removed_consumer_refresh_key`.
+- [ ] **Step 2:** Run it. Expect FAIL.
+- [ ] **Step 3: Implement**, deleting the fallback and its warning.
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type feat --scope config --message
+  "remove the deprecated consumer-refresh key"`, then report-ready.
