@@ -36,27 +36,32 @@ attention, from the many ad-hoc, proxy and management epics.
 
 ### 2.1 Goals
 
-- **G1.** Every open epic in the six orgs of §3 carries exactly one
-  category label, from the set `epic-management`, `ad-hoc`, `proxy` and
+- **G1.** Every epic in the six orgs of §3, open or closed, carries exactly
+  one category label, from the set `epic-management`, `ad-hoc`, `proxy` and
   `epic-development`.
 - **G2.** An epic gets its category label when it is created, from the
   tool that creates it.
-- **G3.** The epics that exist before this epic ships get their category
-  label once, from a one-off deployment that also creates the two new
-  labels in every repo of the six orgs.
+- **G3.** The epics that exist before this epic ships, open and closed,
+  get their category label once, from a one-off deployment that also
+  creates the two new labels in every epic home of the six orgs.
 
 ### 2.2 Non-goals
 
 - Renaming `ad-hoc`, `proxy` or the per-kind management labels (`intake`,
   `planning`, `deferred`, `hoshin`). They stay, with their current meaning.
 - Changing how any tool decides an epic's category.
-- Category labels on archives, on tasks or on closed epics.
+- Category labels on archives or on tasks.
 - **Ongoing drift repair.** No audit pass or sweep checks the category
   labels after the one-off. Once the tools apply the label at creation and
   the existing epics are labelled once, a check would be more machinery
   than the problem needs. An epic created outside the tools, or whose
   label is removed by hand, stays wrong until someone notices; since the
-  labels are for display only (§2.3), that changes no behaviour.
+  labels are for display only (§2.3), that changes no behaviour. The tools
+  can reopen a closed epic today (`add_child`, `vrg-intake-route`,
+  `vrg-epic-audit --close`); because the one-off labels closed epics too, a
+  reopened epic already carries its label. Whether a closed development
+  epic may be reopened at all is a separate question, tracked in
+  vergil-project/vergil-tooling#4844.
 
 ### 2.3 Anti-goals
 
@@ -130,7 +135,7 @@ tools derive it today; no new rule is introduced:
 
 One function, in `lib/epics.py`, returns the category and its category
 label for a set of labels and a title. Every creation path (§5.3) uses it,
-and the one-off (§5.4) applies the same rules, so they never disagree.
+and the one-off (§5.5) applies the same rules, so they never disagree.
 
 `ad-hoc` and `proxy` are both a category label and the marker the
 derivation reads. The derivation reads them first; the category label
@@ -147,8 +152,10 @@ reports that as an error, never a guess.
   epic gets `epic-development`, and one created with `--label intake` (or
   `planning`, `deferred`, `hoshin`) gets `epic-management`. `vrg-epic-create`
   does not call `ensure_labels` today; it gains the call, for every label it
-  applies, before it creates the issue. An ambiguous label set (§5.2) makes
-  it refuse, creating nothing.
+  applies, before it creates the issue. It refuses, creating nothing, an
+  ambiguous label set (§5.2) and a `--label` of `epic-development` or
+  `epic-management`: the category label is always derived, never given by
+  the caller.
 - **`ensure_standing_epic`** adds `epic-management` when it creates an
   intake, planning, deferred or hoshin epic. The label is passed only to
   `ensure_labels` and to `create_issue`, as an extra label at creation.
@@ -161,27 +168,43 @@ reports that as an error, never a guess.
   duplicated. Ad-hoc creation is unchanged.
 - **`--proxy-for`** is unchanged: a proxy keeps `epic` + `proxy`.
 
-### 5.4 The one-off deployment
+### 5.4 Creating a registered label by name
 
-One deployment task, run once after a vergil-tooling release carries §5.1
-to §5.3, so that no epic is created unlabelled after the backfill:
+`vrg-ensure-label`'s single-label mode today creates a label from the
+`--color` and `--description` it is given and never reads the registry;
+only `--sync` does. It gains a registry-backed form: `vrg-ensure-label
+--repo <owner>/<repo> --label <name>` with no `--color` and no
+`--description` creates or updates that one label from its registry
+definition, by calling `ensure_labels`. A name not in the registry fails
+with `UnknownLabelError`. Passing `--color` or `--description` keeps
+today's behaviour.
 
-1. **Create the labels.** In every repo of each of the six orgs, create
-   `epic-development` and `epic-management` from their registry
-   definitions, using the existing label code (`ensure_labels`, as
-   `vrg-ensure-label` exposes it). Only these two labels: a full
-   `vrg-ensure-label --sync` would also delete and recolour other labels,
-   which this epic does not intend in the dormant orgs.
-2. **Label the open epics.** In every epic home of the six orgs (each
-   org's `.github`, and every private repo that homes its own epics), add
-   to each open epic the category label §5.2 derives for it, when it is
-   `epic-development` or `epic-management`. Nothing else is added or
-   removed: `ad-hoc`, `proxy`, `epic` and the per-kind management labels
-   already carry their categories.
-3. **Report the rest.** An open epic whose labels are ambiguous (§5.2) is
-   left unlabelled and listed in the result for a human.
+### 5.5 The one-off deployment
 
-The result comment records, per org, the repos the labels were created in
+One deployment task, run once the vergil-tooling release that carries §5.1
+to §5.4 is **deployed**: installed on every host and runner that creates
+epics, not merely released. Otherwise a host on the old tooling could
+create an unlabelled epic after the backfill.
+
+1. **Create the labels.** In every epic home of the six orgs (each org's
+   `.github`, and every private repo that homes its own epics), create
+   `epic-development` and `epic-management` with the registry-backed form
+   of §5.4. Only these two labels: a full `vrg-ensure-label --sync` would
+   also delete and recolour other labels, which this epic does not intend
+   in the dormant orgs. Other repos need no step: epics live only in epic
+   homes, and every tool that applies a label creates it there first
+   (`ensure_labels`). Archived repos, which are read-only, are never
+   touched.
+2. **Label the epics.** In each of those homes, add to every `epic`
+   issue, open or closed, that is not an archive, the category label §5.2
+   derives for it, when it is `epic-development` or `epic-management`.
+   Nothing else is added or removed: `ad-hoc`, `proxy`, `epic` and the
+   per-kind management labels already carry their categories, and no
+   issue's state changes.
+3. **Report the rest.** An epic whose labels are ambiguous (§5.2) is left
+   unlabelled and listed in the result for a human.
+
+The result comment records, per org, the homes the labels were created in
 and the epics labelled, and then `Outcome: SUCCESS` only when both steps
 finished for all six orgs. Re-running it is safe: creating a present label
 and adding a present label are both no-ops.
@@ -190,7 +213,8 @@ and adding a present label are both no-ops.
 
 - An unregistered label: `ensure_labels` raises `UnknownLabelError`, and
   the creating command fails before it creates anything.
-- An ambiguous label set at creation: `vrg-epic-create` refuses.
+- An ambiguous label set, or a caller-given category label, at creation:
+  `vrg-epic-create` refuses.
 - A failed `gh` call in the one-off: reported with its error, and the
   deployment stays open (no `Outcome: SUCCESS`) until a re-run finishes it.
 - An ambiguous existing epic: reported in the one-off's result, not
@@ -198,12 +222,12 @@ and adding a present label are both no-ops.
 
 ## 7. Left to the plan
 
-- How the work splits into tasks, and the release task the deployment is
-  blocked by.
-- How the one-off is carried out: a procedure over `vrg-ensure-label` and
-  `vrg-gh issue edit`, or a small reviewed script that uses the §5.2
-  function. Either way it applies §5.2's rules exactly.
-- How the one-off lists every repo and epic home of an org.
+- How the work splits into tasks, and the release and install steps the
+  deployment is blocked by.
+- How step 2 of the one-off is carried out: a procedure over `vrg-gh issue
+  list` and `vrg-gh issue edit`, or a small reviewed script that uses the
+  §5.2 function. Either way it applies §5.2's rules exactly.
+- How the one-off finds every epic home of an org.
 - The label colours.
 - Which docs describe the categories: the epic convention, the site docs
   in `vergil-tooling/docs/site`, and the `epic-create` skill's notes. The
