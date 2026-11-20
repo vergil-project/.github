@@ -840,3 +840,34 @@ Spec §4.7. Blocked by 15.
   5. A sweep preview (`vrg-epic-audit` without `--close`) does not plan to
      close any proxy whose primary is open.
 - **SUCCESS:** every check passes.
+
+## Evolution during execution
+
+The task list above is left as planned; each entry below records a change
+made during execution. The spec stays as approved.
+
+### 2026-11-20: the deployment tasks check the release with git ancestry
+
+**What changed:**
+
+- **Tasks 6d (vergil-project/.github#1425) and 14
+  (vergil-project/.github#1427)** no longer confirm that the release notes
+  list their PRs. Each confirms instead that the release's tag contains
+  every PR's merge commit, with
+  `vrg-git merge-base --is-ancestor <merge-sha> <tag>`, as `issue-deploy`
+  prescribes. The change is made by a scope change the human posts on each
+  issue; the other checks of both tasks are unchanged.
+- **Tasks 3 (vergil-project/.github#1423) and 12
+  (vergil-project/.github#1426)** already closed on the ancestry check
+  ([#1423's outcome](https://github.com/vergil-project/.github/issues/1423#issuecomment-7041468843),
+  [#1426's outcome](https://github.com/vergil-project/.github/issues/1426#issuecomment-7041479999)),
+  so their release-notes step above is superseded as run.
+
+**Why:**
+
+- The GitHub release body is only a link to the docs, so the release-notes
+  wording could be met only from the in-repo CHANGELOG. The human ruled
+  that the deterministic git-history check is the one that counts.
+- The wording came from `epic-create`'s deployment-task scaffold;
+  vergil-project/vergil-claude-plugin#1216 fixes it there, so later plans
+  ask for the ancestry check.
