@@ -36,28 +36,37 @@ attention, from the many ad-hoc, proxy and management epics.
 
 ### 2.1 Goals
 
-- **G1.** Every live epic carries exactly one category label, from the set
-  `epic-management`, `ad-hoc`, `proxy` and `epic-development`.
+- **G1.** Every open epic in the six orgs of §3 carries exactly one
+  category label, from the set `epic-management`, `ad-hoc`, `proxy` and
+  `epic-development`.
 - **G2.** An epic gets its category label when it is created, from the
   tool that creates it.
-- **G3.** An epic whose category label is missing or wrong is corrected
-  without a human, by the daily epic sweep. The first sweep after release
-  backfills every existing epic.
+- **G3.** The epics that exist before this epic ships get their category
+  label once, from a one-off deployment that also creates the two new
+  labels in every repo of the six orgs.
 
 ### 2.2 Non-goals
 
 - Renaming `ad-hoc`, `proxy` or the per-kind management labels (`intake`,
   `planning`, `deferred`, `hoshin`). They stay, with their current meaning.
 - Changing how any tool decides an epic's category.
-- Category labels on archives or on tasks.
+- Category labels on archives, on tasks or on closed epics.
+- **Ongoing drift repair.** No audit pass or sweep checks the category
+  labels after the one-off. Once the tools apply the label at creation and
+  the existing epics are labelled once, a check would be more machinery
+  than the problem needs. An epic created outside the tools, or whose
+  label is removed by hand, stays wrong until someone notices; since the
+  labels are for display only (§2.3), that changes no behaviour.
 
 ### 2.3 Anti-goals
 
 - **A second source of truth.** If a tool read the new labels to decide
   behaviour, a missing or stray label could change how an epic is rolled
-  up, swept or queued. The new labels must never be read for that.
-- **A label repair that hides a problem.** A repair the sweep cannot make
-  (a failed `gh` call) fails the run. It is never skipped silently.
+  up, swept or queued. The new labels must never be read for that, and
+  never used to find an existing epic.
+- **A silent half-deployment.** A label the one-off cannot create or apply
+  (a failed `gh` call) is reported with its error, and the deployment does
+  not record success until every repo and epic is done.
 
 ## 3. Constraints
 
@@ -65,14 +74,12 @@ attention, from the many ad-hoc, proxy and management epics.
   (`vergil-tooling` `src/vergil_tooling/data/labels.json`); `ensure_labels`
   refuses any other (`UnknownLabelError`) and creates a registered label in
   a repo on first use.
-- The daily sweep (`.github` `epic-sweep.yml`, calling vergil-actions
-  `ops-epic-sweep.yml`) runs `vrg-epic-audit --close` with an app token that
-  already has org-wide `issues: write`. It installs vergil-tooling at the
-  `.github` repo's `vergil.toml` pin (`v2.1`, a line pin), so a vergil-tooling
-  release on that line reaches it with no workflow change.
-- Epics are homed by visibility (`resolve_epic_home`): a public repo's epics
-  in `<owner>/.github`, a private repo's in itself. The labels apply in every
-  home.
+- Epics are homed by visibility (`resolve_epic_home`): a public repo's
+  epics in `<owner>/.github`, a private repo's in itself.
+- The six orgs in scope are `vergil-project`, `logical-minds-foundry`,
+  `mq-rest-admin-project`, `mnemosys-project`, `diogenes-project` and
+  `vergils-nemesis`. Each holds open epics today. The last three are
+  dormant; the one-off only manages labels there and runs no other code.
 
 ## 4. Approaches
 
@@ -86,11 +93,13 @@ attention, from the many ad-hoc, proxy and management epics.
   doing the same job, or replace them, which means renaming the labels the
   code keys on throughout `lib/epics.py`, `lib/proxies.py` and
   `lib/epic_audit.py`, plus every existing epic and archive.
-- **Repair: report only.** The audit could flag drift for a human instead of
-  fixing it. Rejected: the backfill would then need its own migration, and
-  the reports would need someone to keep up with them. The sweep already
-  repairs drift of the same shape (it strips the retired
-  `triage`/`idea`/`research` labels).
+- **Existing epics: a one-off deployment (chosen), not a self-healing
+  audit.** A `vrg-epic-audit` pass run by the daily sweep could add missing
+  labels and remove wrong ones, and so backfill on its first run. Rejected
+  as unnecessary complexity: once the tools label every new epic, the only
+  epics without a label are the ones that exist today, and labelling them
+  once is a mechanical task. It would also have covered only the orgs that
+  run the daily sweep, which three of the six do not.
 
 ## 5. Design
 
@@ -119,76 +128,82 @@ tools derive it today; no new rule is introduced:
 | proxy | `is_proxy` | `proxy` |
 | development | an `epic` that is none of the above | `epic-development` |
 
-One function, in `lib/epics.py`, returns an issue's category and its
-expected category label. Creation (§5.3) and the audit (§5.4) both use it,
-so the two can never disagree.
+One function, in `lib/epics.py`, returns the category and its category
+label for a set of labels and a title. Every creation path (§5.3) uses it,
+and the one-off (§5.4) applies the same rules, so they never disagree.
 
 `ad-hoc` and `proxy` are both a category label and the marker the
 derivation reads. The derivation reads them first; the category label
 follows from the result.
 
 An issue that carries the markers of two categories at once (for example
-`ad-hoc` and `proxy`) has no single derived category. The audit reports it
-and does not repair it (§5.4).
+`ad-hoc` and `proxy`) has no single derived category. The function
+reports that as an error, never a guess.
 
 ### 5.3 Applied at creation
 
-- **`vrg-epic-create`** adds `epic-development` to the epic it creates when
-  its derived category is development: no `--label` that makes it a standing
-  kind, and not `--proxy-for`.
+- **`vrg-epic-create`** applies the category label the §5.2 function
+  derives from the epic's final label set, whatever the category: a plain
+  epic gets `epic-development`, and one created with `--label intake` (or
+  `planning`, `deferred`, `hoshin`) gets `epic-management`. `vrg-epic-create`
+  does not call `ensure_labels` today; it gains the call, for every label it
+  applies, before it creates the issue. An ambiguous label set (§5.2) makes
+  it refuse, creating nothing.
 - **`ensure_standing_epic`** adds `epic-management` when it creates an
-  intake, planning, deferred or hoshin epic. Ad-hoc creation is unchanged.
+  intake, planning, deferred or hoshin epic. The label is passed only to
+  `ensure_labels` and to `create_issue`, as an extra label at creation.
+  `StandingKind.labels` stays as it is, and so does every lookup that filters
+  on it (`_find_epic_by_title`, `_await_listed`, `find_standing_epic`):
+  `StandingKind.labels` is also the filter that finds the existing epic, so
+  adding the label there would make every existing standing epic invisible
+  until labelled, and create a duplicate. A test checks that an existing
+  standing epic without `epic-management` is found and reused, not
+  duplicated. Ad-hoc creation is unchanged.
 - **`--proxy-for`** is unchanged: a proxy keeps `epic` + `proxy`.
 
-Each path calls `ensure_labels` before applying the label, as every
-label-applying command does.
+### 5.4 The one-off deployment
 
-### 5.4 Checked and repaired by the audit
+One deployment task, run once after a vergil-tooling release carries §5.1
+to §5.3, so that no epic is created unlabelled after the backfill:
 
-A new pass in `vrg-epic-audit` reads every open epic in each home the audit
-already covers and compares its category labels with its derived category:
+1. **Create the labels.** In every repo of each of the six orgs, create
+   `epic-development` and `epic-management` from their registry
+   definitions, using the existing label code (`ensure_labels`, as
+   `vrg-ensure-label` exposes it). Only these two labels: a full
+   `vrg-ensure-label --sync` would also delete and recolour other labels,
+   which this epic does not intend in the dormant orgs.
+2. **Label the open epics.** In every epic home of the six orgs (each
+   org's `.github`, and every private repo that homes its own epics), add
+   to each open epic the category label §5.2 derives for it, when it is
+   `epic-development` or `epic-management`. Nothing else is added or
+   removed: `ad-hoc`, `proxy`, `epic` and the per-kind management labels
+   already carry their categories.
+3. **Report the rest.** An open epic whose labels are ambiguous (§5.2) is
+   left unlabelled and listed in the result for a human.
 
-- **Missing:** the expected category label is absent.
-- **Wrong:** a category label of another category is present
-  (`epic-development` or `epic-management` on an epic of another category).
-- **Ambiguous:** the epic carries the markers of two categories (§5.2).
-
-Without `--close` the pass reports each finding, like the audit's other
-passes. With `--close` (the sweep) it adds each missing label and removes
-each wrong one, then reports what it changed. It never repairs an ambiguous
-epic: that is reported for a human, because which marker is wrong is a
-judgement.
-
-The pass only ever adds or removes `epic-development` and
-`epic-management`. It never touches `ad-hoc`, `proxy`, `epic` or a
-per-kind management label, since those are the markers the derivation
-reads. A `gh` failure while repairing fails the run with its error.
-
-Closed epics are not checked: the goal is filtering the live set, and the
-backfill does not need to rewrite history. (Whether the GitHub UI filter for
-closed epics benefits enough to include them is left to the plan; see §7.)
-
-### 5.5 Backfill
-
-There is no separate migration. Once a vergil-tooling release on the `v2.1`
-line carries §5.1 to §5.4, the next daily sweep adds the category label to
-every existing open epic. A validation task confirms that run.
+The result comment records, per org, the repos the labels were created in
+and the epics labelled, and then `Outcome: SUCCESS` only when both steps
+finished for all six orgs. Re-running it is safe: creating a present label
+and adding a present label are both no-ops.
 
 ## 6. Error handling
 
 - An unregistered label: `ensure_labels` raises `UnknownLabelError`, and
-  the creating command fails. Nothing is created half-labelled silently.
-- A failed label write at creation: the command fails with the `gh` error,
-  and the audit's next run repairs the label if the epic itself was
-  created.
-- A failed repair in the sweep: the run fails with the `gh` error.
-- An ambiguous epic: reported, never repaired.
+  the creating command fails before it creates anything.
+- An ambiguous label set at creation: `vrg-epic-create` refuses.
+- A failed `gh` call in the one-off: reported with its error, and the
+  deployment stays open (no `Outcome: SUCCESS`) until a re-run finishes it.
+- An ambiguous existing epic: reported in the one-off's result, not
+  labelled.
 
 ## 7. Left to the plan
 
-- How the work splits into tasks, and the release and validation tasks
-  around them.
-- Whether the audit pass also covers closed epics.
+- How the work splits into tasks, and the release task the deployment is
+  blocked by.
+- How the one-off is carried out: a procedure over `vrg-ensure-label` and
+  `vrg-gh issue edit`, or a small reviewed script that uses the §5.2
+  function. Either way it applies §5.2's rules exactly.
+- How the one-off lists every repo and epic home of an org.
 - The label colours.
 - Which docs describe the categories: the epic convention, the site docs
   in `vergil-tooling/docs/site`, and the `epic-create` skill's notes. The
