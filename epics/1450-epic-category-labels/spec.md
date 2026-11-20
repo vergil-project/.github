@@ -191,8 +191,9 @@ create an unlabelled epic after the backfill.
    by the ad-hoc migration but still carry `epic`, and the retired
    `standing` label that marked them is gone, so §5.2 would read them as
    development epics. In every unarchived repo of the six orgs, `epic` is
-   removed from each issue whose title starts with `Epic (standing):`.
-   They stop being epics and get no category label.
+   removed from each closed issue whose title starts with
+   `Epic (standing):`. They stop being epics and get no category label. An
+   open one is left unchanged and reported for a human.
 2. **Create the labels.** In every epic home of the six orgs (each org's
    `.github`, and every private repo that homes its own epics), create
    `epic-development` and `epic-management` with the registry-backed form
@@ -232,7 +233,7 @@ present label are all no-ops.
 
 - How the work splits into tasks, and the release and install steps the
   deployment is blocked by.
-- How step 2 of the one-off is carried out: a procedure over `vrg-gh issue
+- How step 3 of the one-off is carried out: a procedure over `vrg-gh issue
   list` and `vrg-gh issue edit`, or a small reviewed script that uses the
   §5.2 function. Either way it applies §5.2's rules exactly.
 - How the one-off finds every epic home of an org.

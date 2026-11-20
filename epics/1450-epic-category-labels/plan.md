@@ -313,8 +313,13 @@ Spec §5.5. Blocked by 2a and 2b.
   3. For each org whose `.github` runs the daily epic sweep
      (`vergil-project`, `logical-minds-foundry`, `mq-rest-admin-project`),
      read the `vergil` pin in its `.github` repo's `vergil.toml` on
-     `develop`: it is the `v2.1` line pin, or an exact version at or after
-     the release, so the sweep (which can create intake epics) installs it.
+     `develop`: it is an exact version at or after the release, or the
+     `v2.1` line pin. For a line pin, confirm the line resolves to this
+     release or later under the resolver in force: if vergil-tooling has a
+     rolling `v2.1` tag (epic vergil-project/.github#1440 moves line pins to
+     it), `vrg-git merge-base --is-ancestor <release-tag-sha>
+     <v2.1-tag-sha>` exits 0; otherwise the release is the newest `v2.1.Z`
+     tag. This makes the sweep (which can create intake epics) install it.
   4. `vrg-ensure-label --help` lists the form, and `vrg-epic-create --help`
      mentions the derived category label.
 - **SUCCESS:** every check passes, recorded with the version and tag.
@@ -336,13 +341,18 @@ Spec §5.5. Blocked by 3.
      six orgs, list the issues labelled `epic` whose title starts with
      `Epic (standing):` (`vrg-gh issue list --repo <r> --label epic
      --state all --search 'in:title "Epic (standing)"' --json
-     number,title`), keep only titles that start with that prefix, and
-     remove `epic` from each (`vrg-gh issue edit <n> --repo <r>
-     --remove-label epic`). On 2026-11-20 there were 8: in vergil-project's
-     `.github`, `vergil-tooling`, `vergil-claude-plugin`, `vergil-actions`,
-     `vergil-containers` and `vergil-vm`, and in logical-minds-foundry's
-     `.github` and `mq-resiliency-lab-for-linux`. They are closed, dead
-     umbrellas from before the ad-hoc migration and stop being epics.
+     number,title,state`), keep only titles that start with that prefix,
+     and remove `epic` from each closed one (`vrg-gh issue edit <n> --repo
+     <r> --remove-label epic`). An open one is left unchanged and reported
+     for a human: removing `epic` from an open issue would make the sweep's
+     orphan pass move it into intake. On 2026-11-20 there were 13, all
+     closed: in vergil-project's `.github`, `vergil-tooling`,
+     `vergil-claude-plugin`, `vergil-actions`, `vergil-containers` and
+     `vergil-vm`; in logical-minds-foundry's `.github` and
+     `mq-resiliency-lab-for-linux`; and in mq-rest-admin-project's
+     `mq-rest-admin-rust`, `mq-rest-admin-python`, `mq-rest-admin-go`,
+     `mq-rest-admin-dev-environment` and `mq-rest-admin-common`. They are
+     dead umbrellas from before the ad-hoc migration and stop being epics.
      Record each ref.
   3. **Create the labels.** For each home, `vrg-ensure-label --repo <home>
      --label epic-development` and `vrg-ensure-label --repo <home> --label
@@ -364,6 +374,9 @@ Spec §5.5. Blocked by 3.
 
      for row in json.load(sys.stdin):
          names = {label["name"] for label in row["labels"]}
+         if epics.is_archive(names, row["title"]):
+             print(f"{row['number']}\tarchive\t-")
+             continue
          try:
              category = epics.epic_category(names, row["title"])
          except epics.AmbiguousEpicCategoryError as exc:
@@ -379,8 +392,9 @@ Spec §5.5. Blocked by 3.
 
      **Sanity check, before presenting:** the script printed one line per
      row of the listing; and every row whose labels include `intake`,
-     `planning`, `deferred` or `hoshin` (and not `archive`) is classified
-     `management` or `ambiguous`. A failed check stops the run.
+     `planning`, `deferred` or `hoshin`, and that the script did not print
+     as `archive` (the §5.2 archive rule, label or stamped title), is
+     classified `management` or `ambiguous`. A failed check stops the run.
 
      Present per home: counts by category, the `add` lines, and the
      `ambiguous` lines. The human confirms.
