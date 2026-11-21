@@ -411,3 +411,33 @@ Spec §5.5. Blocked by 3.
   `gh` call is recorded with its error and the task stays open; a re-run
   is safe, since removing an absent label, creating a present label and
   adding a present label are all no-ops.
+
+## Evolution during execution
+
+The task list above is left as planned; each entry below records a change
+made during execution. The spec stays as approved.
+
+### 2026-11-21: a fix task for the `vrg-ensure-label` help text
+
+Task 3 (#1459) step 4 checks that `vrg-ensure-label --help` describes the
+registry-backed `--label` form, but Task 2b's steps did not change the
+help text, so the check failed on `v2.1.332`. The run filed
+vergil-project/vergil-tooling#4870 under this epic, fixed by PR #4872. The
+human ruled that the installed code (the registry-backed branch and its
+`UnknownLabelError` handling) satisfies that half of the check, so Task 3
+closed with SUCCESS and Task 4 did not wait for #4870's release.
+
+### 2026-11-21: the documentation review spawned two doc tasks
+
+The sweep (vergil-tooling#4843) filed vergil-project/docs#152 for
+`epics-and-tasks.md`, as the plan foresaw, and also
+vergil-project/vergil-claude-plugin#1234: the `epic-create` skill said a
+new epic gets only the `epic` label.
+
+### 2026-11-21: the one-off retired 14 legacy umbrellas, not 13
+
+Task 4 step 2's live listing found a 14th closed `Epic (standing):` issue,
+mq-rest-admin-project/.github#22. The human ruled that the step's rule
+governs and the list above is a dated snapshot. The human also ruled that
+two closed `[archived]`-titled epics (vergil-project/.github#683 and #443),
+which the archive rule does not recognise, get no special handling.
