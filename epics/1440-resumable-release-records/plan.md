@@ -1027,3 +1027,41 @@ Task 13's.
   Expect PASS.
 - [ ] **Step 5:** Commit `vrg-commit --type feat --scope config --message
   "remove the deprecated consumer-refresh key"`, then report-ready.
+
+## Evolution during execution
+
+The task list above is left as planned; each entry below records a change
+made during execution. The spec stays as approved.
+
+### 2026-11-21: two tasks filed from merge reviews
+
+**What changed:**
+
+- **Added vergil-project/vergil-tooling#4877: release versions sort as
+  semantic versions in `vrg-release`.** Blocked by Task 5
+  (vergil-project/vergil-tooling#4849).
+- **Added vergil-project/vergil-tooling#4878: recover a release whose
+  tracking issue tripped the identity rule.** Blocked by Task 3b
+  (vergil-project/vergil-tooling#4847) and Task 11
+  (vergil-project/vergil-tooling#4857).
+- **Task 13 (vergil-project/.github#1455) now waits for both,** on the
+  human's ruling, and its deploy step 1 checks their merge commits as well.
+  The change is made by a scope change the human posts on
+  vergil-project/.github#1455.
+- **The documentation review** (vergil-project/vergil-tooling#4837) also
+  covers both.
+
+**Why:**
+
+- vergil-project/vergil-tooling#4877 comes from Task 5's merge review.
+  Task 5's open-release refusal sorted versions as strings, so `2.0.10` was
+  listed before `2.0.9`. The human ruled that versions must sort as
+  semantic versions, never as strings.
+- vergil-project/vergil-tooling#4878 comes from Task 3b's merge-review item
+  N0.1. GitHub keeps body edit history and close and reopen events
+  permanently, so the identity rule stops every later `--resume`, and
+  Task 11's `--supersede`, on a tracking issue a foreign identity has
+  edited, closed or reopened. Spec §4.2's "clean up, then resume"
+  therefore cannot work. The human ruled `file`.
+- Both fix behaviour this epic introduces, so they ship inside the freeze
+  in Task 13's release.
