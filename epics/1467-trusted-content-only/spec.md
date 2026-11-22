@@ -71,8 +71,13 @@ Failures even if the code works:
 
 ## 3. Constraints
 
-- **Order.** This epic starts implementation only once epic #1440 is
-  closed, and assumes all of it is delivered. The one exception is a change
+- **Order.** This epic starts implementation once epic #1440's code is
+  delivered and released (its release task, #1455, validated live by
+  #1457), and assumes all of it; #1440's documentation review, fixture
+  runs, follow-on brainstorm and retrospective need not close first. The
+  task that moves #1440's release rules onto the layer also waits for
+  #1440's fixture-release validation (#1496), since a fix found there could
+  change those rules. The one exception is a change
   that uses nothing of #1440 or of the trust layer (the plan names it),
   which may ship as soon as it is filed. #892 is planned right after this
   epic's docs PR and implemented after this epic closes.
@@ -383,13 +388,18 @@ builder's call.
   lists every skipped untrusted item on stderr.
   Skills that read issue or PR content use it instead of raw
   `vrg-gh issue view --comments` or body reads.
+- **Searches and lists.** The command also has a trusted list and search
+  mode: it keeps only the results whose content the layer trusts and
+  reports the rest. Every search or list whose results a skill acts on
+  uses it, not only reads of a single issue or PR.
 - **The hook backstop is a blocklist against accidents.** Agents are not
   the adversary; the hook catches a skill that, by mistake, reads raw
   content instead of using the trusted command. For agents, the hook guard
   refuses the obvious raw forms (`--comments`; `--json` selecting `body`,
   `comments` or `reviews`; `api` paths ending in `/comments` or `/reviews`;
   an `issue view` or `pr view` with no `--json`, whose default output
-  prints the body), naming the trusted command. It is not a security
+  prints the body; the raw search and list forms), naming the trusted
+  command. It is not a security
   boundary: forms it cannot see (a GraphQL query in a quoted string or a
   file, for example) are
   accepted as outside it, and an allowlist, if ever needed, is a separate
