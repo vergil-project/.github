@@ -11,8 +11,9 @@ sweeps, refreshes, rebuilds, releases and publishes); 15 of them get a
 reporting step here, one is deprecated and one is out of scope (§4.1).
 When one of them fails, the only signal today is a GitHub notification
 email; only the language lifecycle check files an issue on its own
-failure, and only partly. Email is noise, so failures go unseen until they hurt something, and several jobs are red
-right now with nobody tracking them.
+failure, and only partly. Email is noise, so failures go unseen until
+they hurt something, and several jobs are red right now with nobody
+tracking them.
 
 **The why:** the goal for the rest of 2026 is to keep the automation
 running green, all day, every day. That needs every failure recorded as
