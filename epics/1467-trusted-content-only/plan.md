@@ -274,7 +274,10 @@ Notes:
   - GHSA-vmpw-wqxx-r7wj to Task 16;
   - GHSA-m3j7-p7h2-h5hf to Task 5b;
   - GHSA-qp8h-4r9w-vv37 to Tasks 3b and 3c;
-  - GHSA-p5wm-892c-jw6j to Task 15.
+  - GHSA-p5wm-892c-jw6j to Task 15;
+  - GHSA-mfqq-jvrp-94q5 to Tasks 3b and 3d;
+  - GHSA-g5qg-42hw-q5cw to Task 2;
+  - GHSA-8x97-j643-qxv6 to Task 8b.
 
   A task Task 2 files later joins the advisory it fixes by a retarget from
   one of that advisory's tasks, with the complete set as `--to`.
