@@ -14,9 +14,9 @@ any GitHub account can write some of that content. The rule this epic
 enforces everywhere:
 
 > Automation acts only on GitHub content written by a trusted identity:
-> the human's own account or one of the human's agent App accounts, as
-> `vrg-trusted-authors` lists them, or the org's own automation App, as
-> its `VRG_AUTOMATION_APP` variable names it.
+> the human's own account, one of the human's agent App accounts, or the
+> automation App of a Vergil-managed org, as the human's Vergil
+> configuration names them.
 
 Much of this is in place (the `trusted_authors` library, trusted comment
 filters in the ruling, scope-change, queue sizing, proxy and planning-close
@@ -74,8 +74,8 @@ Failures even if the code works:
 - **Order.** This epic starts implementation only once epic #1440 is
   closed, and assumes all of it is delivered. #892 is planned right after
   this epic's docs PR and implemented after this epic closes.
-- **Security run.** The findings live in seven private advisories tracking
-  the planning issue: GHSA-jj85-qr28-7jwh, GHSA-r4j2-cwcp-xg56,
+- **Security run.** The findings live in private advisories tracking the
+  planning issue. The site inventory is in seven of them: GHSA-jj85-qr28-7jwh, GHSA-r4j2-cwcp-xg56,
   GHSA-hrq4-7qg2-7xxf, GHSA-w5hq-5p7v-qgc8, GHSA-777j-j57r-92ff,
   GHSA-q6hx-8c85-9f56 and GHSA-crcw-h2ff-qgr5. Their site inventory
   (written 2026-10-28) is the work list; each task re-checks its sites
@@ -85,9 +85,14 @@ Failures even if the code works:
   only by GHSA ID.
 - **No silent failures** (fleet principle): a failure to read who wrote
   something is itself a stop, never "trusted" or "absent".
-- **Repos.** Every repo whose content the tooling reads: the vergil-project
-  repos, public and private. The code changes land in vergil-tooling,
+- **Repos.** Every repo of the orgs listed in the human's Vergil
+  configuration (§5.1a). The code changes land in vergil-tooling,
   vergil-claude-plugin, vergil-actions and vergil-containers.
+- **Proportion.** This is tactical, GitHub-specific hardening: the fleet
+  plans to move to a self-hosted forge with no outside access, which will
+  reshape this security architecture. Each mechanism is the simplest one
+  that gives the protection; nothing is built for cases that cannot occur
+  today.
 - **Content reads live in vergil-tooling.** vergil-tooling is an
   application, not a library, and the fleet's tooling lives in it. Only
   vergil-tooling reads behaviour-driving GitHub content; other repos
@@ -123,53 +128,70 @@ An identity is trusted when it holds one of three roles:
   configuration, the human's agent App identities, and a **Bot** account.
 - **`automation`**, **for the org whose repo holds the content**: that org's
   automation App, which runs fully mechanized workflows with no agent in
-  them, and a **Bot** account. Its login is `<slug>[bot]`, derived from the
-  org's existing `VRG_AUTOMATION_APP` Actions variable
-  (`lib/automation_identity.py`), which stays the one definition of each
-  org's automation App: read from the job's environment under Actions, and
-  read back through the API once per org (cached per process) elsewhere.
-  The trusted-authors configuration gets no automation key. An automation
-  identity is not trusted in another org's repos.
+  them, and a **Bot** account. Its slug is the `automation_app` of that
+  org's stanza in the human's Vergil configuration (§5.1a), and its login
+  is `<slug>[bot]`. An automation identity is not trusted in another org's
+  repos.
 
 **Matching.** A login is compared after a leading `app/` or a trailing
 `[bot]` is stripped, **and** the identity's account type (GraphQL
 `__typename`, or REST `type`) must be the one its role requires. A login
-that matches a role with the wrong account type, or whose type cannot be
-read, is a stop, never trusted.
+that matches a role with the wrong account type is a stop, never trusted.
+
+**Deleted accounts.** An identity GitHub reports as deleted (a `null`
+author, editor or actor, or the `ghost` login) is **untrusted**, and follows
+§5.3's outcome for its kind: reported for a comment, a stop only where the
+content is load-bearing. A stop for an unreadable identity is kept for
+real read failures (an API error, a missing field, an incomplete page).
 
 The three roles stay distinct (PR provenance names the role; `vrg-ruling`
 never accepts an automation identity as an agent; #892 can treat each
 separately), but by default all three are "trusted". One loader is the only
 reader of the roles; a missing or invalid configuration is a stop.
 
-### 5.1a Where the list lives
+### 5.1a Where the configuration lives
 
-The `human` and `agents` lists change very rarely and are never looked up
-at run time.
+These are fixed values, set once and never looked up at run time. The
+human's host `~/.config/vergil/identities.toml` is the single source:
 
-- **Host:** the `[trusted_authors]` stanza of
-  `~/.config/vergil/identities.toml` is the single source.
-- **Agent VMs:** `vrg-vm` delivers it as `trusted-authors.toml`, as today.
+```toml
+[trusted_authors]
+human  = ["<human-login>"]
+agents = ["<agent-app-slug>", "<agent-app-slug>"]
+
+# One stanza per org Vergil manages. Adding an org to Vergil adds its
+# stanza, as a step of setting the org up. Values are opaque strings,
+# never derived from the org's name.
+[orgs.<org>]
+automation_app = "<automation-app-slug>"
+```
+
+- **Vergil orgs are the listed orgs.** An org without a stanza is not
+  managed by Vergil: it is never swept, reported on or trusted, whoever
+  owns it.
+- **Host and agent VMs** read the file: in place on the host, and on VMs
+  through `vrg-vm`'s delivery (as `trusted-authors.toml` today), which
+  carries the `orgs` stanzas too.
 - **GitHub Actions runners** (the sweep, the rollup, the refresh, any other
-  unattended job that reads content): a new `vrg-*` command publishes the
-  host stanza to an org Actions variable in each org. It is a delivered
-  copy, never edited by hand; the command reports a drift between it and
-  the host.
+  unattended job that reads content) get a derived copy. A new `vrg-*`
+  command, run by the human at org setup and whenever the file changes,
+  writes each listed org's `VRG_AUTOMATION_APP` and a delivered
+  `human`/`agents` list as org Actions variables, from the file. Workflows
+  pass them into the job environment; the loader under Actions reads them
+  there and stops when they are missing or invalid. The existing uses of
+  `VRG_AUTOMATION_APP` (`lib/automation_identity.py`) read the same,
+  now-derived value.
+- **The copies are checked with the human's token.** A human-run check
+  compares each listed org's variables with the file and flags any drift,
+  and any repository-level variable of either name (which would override
+  the org copy in that repo's jobs). `hoshin start` runs it each morning
+  with the outsider report (§6.5). An Actions job trusts the values it was
+  handed between checks; the account-type rule (§5.1) still applies in the
+  job. Nothing automated needs new permissions.
 - **Dev containers:** not needed; tests use fixtures, never live reads.
 
-**The Actions copies are verified, not assumed.** A repository variable
-overrides an org variable of the same name, so for both the delivered list
-and `VRG_AUTOMATION_APP`:
-
-- the publish command refuses, and its drift report flags, a
-  repository-level variable of either name in any repo of the org;
-- the loader uses the delivered list only when the run is a GitHub Actions
-  job, and even then it reads the org variable back through the API with
-  the job's token and stops when the delivered value differs or cannot be
-  read. An environment that merely claims to be Actions gains nothing.
-
 Today the daily sweep skips its trusted-comment checks under `--close`
-because runners have no list; with the variable, they run there too.
+because runners have no list; with the delivered copy, they run there too.
 
 ### 5.2 Trusted content, by kind
 
@@ -222,8 +244,11 @@ because runners have no list; with the variable, they run there too.
 only: repo, number, kind (issue, PR, comment, review, edit, event), login,
 time and the field concerned. They never print untrusted text, so none of
 it enters an agent's context through a tool's output. Under GitHub Actions,
-whose logs are public, they print counts only and point to the private
-outsider report (§6.5).
+whose logs are public, a batch run prints counts by cause: stops caused by
+untrusted content or identities are counted only, and the human-run
+outsider report (§6.5) lists them; stops caused by a read failure (an API
+error, a missing field, an incomplete page) involve no outsider and are
+listed with their repo and number, so they can be diagnosed.
 
 **Outsider-opened issues and PRs.** One that a run merely encounters
 (orphan detection, listings, the sweep) is reported, with a clean exit;
@@ -273,10 +298,13 @@ list. Each site is fixed by moving it onto the layer and applying §5.3:
 - **PR lookup by branch name** (GHSA-r4j2-cwcp-xg56): the branch lookups in
   the release, finalize, worktree, CI-evidence and deps-gate paths, and the
   tracking-issue resolver's fallback. The vergil-containers lifecycle
-  publisher's PR handling (finding, refreshing and closing its
-  `lifecycle/*` PRs) moves into vergil-tooling, on the existing
-  `mechanized_pr` same-repo logic, and the containers workflow calls that
-  command; vergil-containers keeps only its build logic.
+  publisher's GitHub handling (finding, refreshing and closing its
+  `lifecycle/*` PRs, and syncing its labelled issues) moves into
+  vergil-tooling, and the containers workflow calls that command;
+  vergil-containers keeps only its build logic. The same-repo filter in
+  `mechanized_pr` is extracted as a shared helper for it; lifecycle PRs keep
+  their own behaviour (one PR per change, refreshed in place, merged by the
+  human) and are never auto-merged.
 - **State parsed from comments** (GHSA-hrq4-7qg2-7xxf): the queue views
   (planning markers, deferral notes, latest notes), intake routing's
   planning-epic guard, the operational-outcome audit and the security-record
@@ -345,12 +373,14 @@ builder's call.
 ### 6.5 The outsider report and the morning review
 
 - A read-only report command (placement the builder's call, e.g. a mode of
-  `vrg-epic-audit`) lists, across the org's repos, newest first: issues and
+  `vrg-epic-audit`) lists, across the repos of every listed org (§5.1a),
+  newest first: issues and
   PRs opened by untrusted accounts, untrusted comments and reviews,
   untrusted edits to trusted bodies, and untrusted closes or reopens. It
   takes a `--since` time. It writes nothing on GitHub.
-- `hoshin start` runs it with the time of the last daily review and shows
-  the human what is new. Untrusted edits to trusted bodies and untrusted
+- `hoshin start` runs it, per org, with the time of the last daily review
+  and shows the human what is new, together with the configuration check of
+  §5.1a. Untrusted edits to trusted bodies and untrusted
   closes are called out first, as possible tampering. The report carries
   metadata and links only (repo, number, kind, login, time), never the
   outsider's text, so none of it enters an agent's context as content.
@@ -368,22 +398,34 @@ their text, and deliberately forged input: a forged `Blocked-by:`,
 edited by an outsider; a fork PR on a `release/*`, `release/post-*`,
 `lifecycle/*` and task branch; an outsider closing a tracked issue; an
 issue titled like a fix task or a release by an outsider; a User account
-whose login matches an App role; a repository variable shadowing a
-delivered org variable. Each test checks the stop or the report, not just
-that the content is ignored, and that its output carries no untrusted text.
+whose login matches an App role; a deleted account as author, editor or
+actor; a repository variable shadowing a delivered org variable. Each test
+checks the stop or the report, not just that the content is ignored, and
+that its output carries no untrusted text. Fixtures copy the field shapes
+of real recorded GitHub responses (how each role's author, account type,
+edit history, events and deleted accounts actually come back), so a test
+cannot pass on a shape GitHub never returns.
 
 ### 6.7 Validation
 
 A validation task, after the vergil-tooling and vergil-claude-plugin
-releases carrying the epic are installed, runs the forged cases end to end
-from a non-trusted test account the human controls, in a scratch
-**private** vergil-project repo. The cases that need collaborator rights
-(editing a trusted body, closing another's issue) run while that account
-holds temporary write access to the scratch repo only; the validation then
-revokes the access and confirms the revocation. It confirms each stop, each
-report, and the morning review's listing. It also confirms the automation
-App's own refresh, lifecycle and archive work still runs clean, and that a
-scheduled sweep under Actions reads the published list.
+releases carrying the epic are installed, checks the layer against **real
+data** in the listed orgs, with no scratch repo and no test account. Its
+purpose is to prove that live GitHub responses match what the fixtures
+assume:
+
+- the trusted read command and the outsider report, run on real issues,
+  report the untrusted comments already present and never act on them, and
+  pass the content of all three roles (the human, the agents, the
+  automation App);
+- the automation App's own refresh, lifecycle and archive work runs clean;
+- a scheduled sweep under Actions reads the delivered copies and runs its
+  trusted checks;
+- the morning review shows the outsider listing and the configuration
+  check.
+
+The forged cases (fork PRs, forged markers, edits and closes by outsiders,
+deleted accounts) are covered by the §6.6 fixtures only.
 
 ## 7. Left to the builder
 
