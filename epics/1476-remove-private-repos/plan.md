@@ -72,9 +72,13 @@ sites.
   `.github/workflows/**`: Tasks 5, 7a–7z, and 11 if its template tests fall
   under that path. report-ready records the task, and the human's
   `vrg-submit-pr` pushes it.
-- **Repo-level settings stay as they are.** Visibility, Dependabot alerts
-  and secret scanning are not changed. Each repo keeps the
-  code-scanning-based required checks it has.
+- **Repo-level settings follow visibility, through the nightly config
+  update.** No task changes a repo's settings by hand. Every repo that is
+  public today keeps the settings it has. The lab repo is the exception:
+  the first nightly `vrg-github-repo-config update` after its flip brings it
+  up to the public-repo settings, which means secret scanning on and the
+  CodeQL and GHAS checks required. Task 3 closes the window in which its
+  CI still skips CodeQL.
 
 ## Review focus
 
@@ -118,15 +122,15 @@ Repos are abbreviated: `lmf/` is `logical-minds-foundry/`, `vp/` is
 | --- | --- | --- | --- |
 | 1 Publish the lab repo | `lmf/.github` | deployment | 2 |
 | 2 Archive the gateway | `lmf/.github` | deployment | none |
-| 3 Lab caller cleanup, pass 1 | `lmf/mq-gateway-replay-lab` | impl | 1 |
+| 3 Lab caller cleanup, pass 1 | `lmf/mq-gateway-replay-lab` | impl | the flip |
 | 4 Pass 1, resiliency lab | `lmf/mq-resiliency-lab-for-linux` | impl | none |
 | 5 Drop private-repo SARIF paths | `vp/vergil-actions` | impl | 2, 3, 4 |
 | 6 Release vergil-actions | `vp/vergil-actions` | deployment | 5 |
 | FR Fixture runs, all six | the fixture repos | fixture-run | 6 |
 | 7a–7z Caller cleanup, pass 2 | each caller repo | impl | 6 |
 | 8 Epic home, queue placement | `vp/vergil-tooling` | impl | 1, 2 |
-| 9 Epic-audit visibility passes | `vp/vergil-tooling` | impl | 1, 2 |
-| 10 Token-coverage guard | `vp/vergil-tooling` | impl | 1, 2 |
+| 9 Epic-audit visibility passes | `vp/vergil-tooling` | impl | 8 |
+| 10 Token-coverage guard | `vp/vergil-tooling` | impl | 9 |
 | 11 GHAS inference, scaffolding | `vp/vergil-tooling` | impl | 1–4, 6 |
 | 12 Routing, linking, proxies | `vp/vergil-tooling` | impl | 1, 2 |
 | 13 Dependabot reporting | `vp/vergil-tooling` | impl | 1, 2 |
@@ -141,6 +145,16 @@ Task 7's rows are filed one per repo from the list in Task 7. Once filed, a
 task in `logical-minds-foundry` is named by its full ref in every
 `Blocked-by:`. Security advisory GHSA-2v43-fjxg-fv3c, which tracks the
 planning issue, is retargeted to Task 13 when the tasks are filed.
+
+Two rows need a note:
+
+- **Task 3 waits on the flip, not on a closed issue.** It has no
+  `Blocked-by:`. It is filed, under the proxy, as soon as Task 1 step 1 has
+  confirmed the flip, and run straight away (see the Global constraints).
+- **Tasks 8, 9 and 10 are chained** because they edit the same files:
+  `lib/epic_audit.py`, `bin/vrg_epic_audit.py` and `bin/vrg_adhoc_epic.py`.
+  PRs validated separately could still break develop once both merge.
+  Tasks 11, 12 and 13 touch none of those files, and stay parallel.
 
 ---
 
@@ -157,11 +171,18 @@ scan or review precedes the flip.
   logical-minds-foundry/mq-gateway-replay-lab --json visibility,isArchived`.
   Expected: `"visibility":"PUBLIC"`, `"isArchived":false`. If it prints
   anything else, comment "blocked: preconditions not met" and stop.
-- [ ] **Step 2: Move the queue items.** Move each open child of #322
-  (intake) and #329 (deferred) under the `logical-minds-foundry/.github`
-  epic of the same kind with `vrg-epic-move`. Then close #322 and #329 with
-  `Repo is now public; queue items moved to <target ref>.` Do not use
-  `vrg-epic-audit --close`.
+- [ ] **Step 2: Move the queue items.** The org's nightly epic sweep
+  (`logical-minds-foundry/.github`'s `epic-sweep.yml`) moves a now-public
+  repo's queue items on its own, so check first.
+  - If #322 and #329 are already closed with the sweep's `Repo is now
+    public; queue items moved to …` comment, record the sweep's moves and
+    go on.
+  - Otherwise, move each open child of #322 (intake) and #329 (deferred)
+    under the `logical-minds-foundry/.github` epic of the same kind with
+    `vrg-epic-move`. Then close #322 and #329 with `Repo is now public;
+    queue items moved to <target ref>.`
+
+  The agent does not run `vrg-epic-audit --close` itself.
 - [ ] **Step 3: Move the ad-hoc work.** Run `vrg-adhoc-epic ensure --repo
   logical-minds-foundry/mq-gateway-replay-lab` and confirm it reports
   `Epic (ad hoc): mq-gateway-replay-lab` in `logical-minds-foundry/.github`.
@@ -199,8 +220,10 @@ Run with `issue-deploy`.
 
 ### Task 3: mq-gateway-replay-lab: caller cleanup, pass 1
 
-Repo: `logical-minds-foundry/mq-gateway-replay-lab`, filed under the proxy
-once Task 1 has closed (a proxy refuses a private target).
+Repo: `logical-minds-foundry/mq-gateway-replay-lab`. It is filed under the
+proxy as soon as Task 1 step 1 confirms the flip, since a proxy refuses a
+private target, and it is run straight away. Until it merges, the nightly
+config update requires a CodeQL check that the lab's CI skips.
 
 **Files:** modify `.github/workflows/ci.yml` (the `upload-sarif: false`
 line in the `security:` job's `with:`), and `vergil.toml` if it sets
@@ -213,6 +236,11 @@ line in the `security:` job's `with:`), and `vergil.toml` if it sets
   CI runs, its CodeQL, Trivy and Semgrep jobs all report `success`.
 - [ ] **Step 3:** Commit (`vrg-commit --type ci --scope security`). This
   touches `.github/workflows/**`, so the human pushes it.
+- [ ] **Step 4: After the merge,** run `vrg-github-repo-config audit --repo
+  logical-minds-foundry/mq-gateway-replay-lab`. Expected: no drift. The
+  ruleset requires the CodeQL and GHAS checks, secret scanning is on, and
+  a new PR's CodeQL check reports `success`. If it shows drift, the human
+  runs `vrg-github-repo-config update` for the repo. Then re-run the audit.
 
 ### Task 4: mq-resiliency-lab-for-linux: caller cleanup, pass 1
 
@@ -253,18 +281,18 @@ Repo: `vergil-project/vergil-actions`.
   row done in place.
 
 **Interfaces:** produces `ci-security.yml@v2.1` with no `upload-sarif`
-input. Task 7 relies on whether its jobs still request `actions: read`.
+input, and no `actions: read` request at the workflow level or in any job.
+Tasks 7 and 11 rely on both.
 
-- [ ] **Step 1: Decide each `actions: read` by evidence.** For each job in
-  `ci-security.yml`, remove the grant when its only consumer is
-  `codeql-action/upload-sarif`. GitHub documents that action as needing it
-  only on private repos.
-  - The evidence job downloads same-run artifacts with
-    `actions/download-artifact`, which uses the runtime token. Check that
-    action's docs for the version pinned. Remove the grant if same-run
-    downloads need no `actions: read`, and keep it with a corrected comment
-    if they do.
-  - Record the result for each job in the PR body. Task 7 reads it.
+- [ ] **Step 1: Remove every `actions: read`** from `ci-security.yml`: the
+  workflow-level grant, its comment, and each job's grant.
+  - `codeql-action/upload-sarif` needs it only on private repos.
+  - The evidence job downloads only same-run artifacts with
+    `actions/download-artifact`. Its docs say `actions: read` is needed
+    only for downloads from another run or repo.
+  - If the PR's own CI shows that a job fails without the grant, stop and
+    report it. Keeping a grant is a spec change, not the implementer's
+    call.
 - [ ] **Step 2: Pin the gate.** In the evidence tests, assert two cases:
   - with `run-security: true` and `run-codeql: true`, the gate requires
     `needs.codeql.result == 'success'`;
@@ -313,13 +341,10 @@ epic. Each is the same one-line change.
 **What changes.** In `.github/workflows/ci.yml`, in the `security:` job,
 delete the `actions: read` line and the two-line comment above it
 (`Requested by ci-security.yml@…: codeql-action/upload-sarif needs it on
-private repos…`). That applies only if Task 5 removed every
-`actions: read` request from `ci-security.yml`.
-
-- If Task 5 kept one, the row instead rewrites the comment to give the real
-  reason, and keeps the grant.
-- Never touch an `actions: read` that has another reason: the workflow
-  level, or a `cd.yml` evidence harvest.
+private repos…`). Task 5 has removed every `actions: read` request from
+`ci-security.yml`, so the grant is no longer needed. Never touch an
+`actions: read` that has another reason: the workflow level, or a `cd.yml`
+evidence harvest.
 
 These are the rows, from a fleet-wide search of `origin/develop` on
 2026-11-22. Re-run the search when filing.
@@ -358,10 +383,16 @@ no grant.
     the `--repo` hint.
 - Modify `src/vergil_tooling/lib/queue_view.py`: the repo-scoped planning
   view, and the `.github`-is-public branch for advisories, go.
-- Modify the CLIs: `vrg_queue.py`, `vrg_epic_docs.py`, `vrg_roadmap.py` and
-  `vrg_epic_audit.py`.
-  - Where `--repo` exists only to reach a self-homed queue or home, remove
-    the flag.
+- Modify the CLIs:
+  - In `vrg_epic_docs.py`, `vrg_roadmap.py` and `vrg_epic_audit.py`, remove
+    `--repo` where it exists only to reach a self-homed queue or home.
+    Before removing each flag, confirm from its help text and its callers
+    that self-homing is its only use. If it has another use, keep it as
+    for `vrg-queue`, below.
+  - `vrg_queue.py`'s `--repo` stays. It also narrows `adhoc` and `hoshin`
+    to one repo and picks another org, and hoshin and epic-implement call
+    it that way. Only its self-home help clause, and the self-home branch
+    behind it, go.
   - In `vrg_epic_create.py`, `vrg_issue_create.py`, `vrg_intake_create.py`,
     `vrg_adhoc_epic.py` and `vrg_epic_move.py`, `--repo` names a target
     repo, so it stays. Only its self-home help text, and the home echo's
@@ -468,8 +499,7 @@ Task 14 relies on this task having removed their calls to `is_public`.
     public;
   - in the generated `ci.yml`, the private-only `upload-sarif: false` block
     goes;
-  - the template's `actions: read` grant goes, or follows Task 5 step 1's
-    result.
+  - the template's `actions: read` grant on the security job goes.
 - Tests: `test_github_config_lib.py`, `test_ci_evidence_harvest.py`,
   `test_repo_init.py`, the config tests, and `test_vrg_github_repo_*`.
 - Docs: the GHAS and visibility passages in `docs/site/`.
@@ -477,12 +507,16 @@ Task 14 relies on this task having removed their calls to `is_public`.
 **Interfaces:** `desired_repo_settings(*, is_org: bool) ->
 DesiredRepoSettings`.
 
+- [ ] **Step 0: Precondition: re-run the `ghas` search.** For each of the
+  six organizations, search every non-archived repo's `vergil.toml` on its
+  default branch for a `ghas` key. Expected: no hits. A hit means a repo
+  would fail to load once this change deploys. If there is one, stop and
+  report it, so that it gets a cleanup PR first.
 - [ ] **Step 1: Write the failing tests.**
   - `test_project_ghas_is_retired`: loading a `vergil.toml` with
     `[project] ghas = true` raises with the exact retirement reason.
   - `test_repo_init_ci_has_no_upload_sarif`: the generated `ci.yml` has no
-    `upload-sarif`, and its security job has no `actions: read`. The second
-    half applies only if Task 5 removed the request.
+    `upload-sarif`, and its security job has no `actions: read`.
   - `test_desired_settings_have_no_visibility`.
 - [ ] **Step 2:** Run them. Expected: FAIL.
 - [ ] **Step 3:** Make the edits. Collapse the 117 `visibility=` fixtures in
@@ -576,8 +610,11 @@ release.
   Tasks 8–14: `vrg-git merge-base --is-ancestor <merge sha> <tag sha>`
   exits 0 for each.
 - [ ] **Step 2:** Sync the release onto the host and VMs with the existing
-  deploy steps, and confirm that `vrg-queue --help` no longer lists
-  `--repo`.
+  deploy steps.
+  - For each of `vrg-epic-audit`, `vrg-epic-docs` and `vrg-roadmap` whose
+    `--repo` Task 8 removed, confirm its `--help` no longer lists `--repo`.
+  - Confirm that `vrg-queue --help` still lists `--repo`, without the
+    self-home clause.
 - [ ] **Step 3:** Record the outcome, with the version.
 
 ### Task 16: vergil-claude-plugin: hoshin
