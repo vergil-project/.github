@@ -147,15 +147,49 @@ task in `logical-minds-foundry` is named by its full ref in every
 
 These rows need a note:
 
-- **Task 3 waits on the flip, not on a closed issue.** It has no
-  `Blocked-by:`. It is filed, under the proxy, as soon as Task 1 step 1 has
-  confirmed the flip, and run straight away (see the Global constraints).
+- **Task 1 files the two tasks that land in the lab repo.** A proxy refuses
+  a private target, so these two cannot be filed while the lab repo is
+  private: Task 3 and the lab's Task 7 row. Task 1 files both, under the
+  proxy, as soon as its step 1 confirms the flip. Task 3 has no
+  `Blocked-by:` and runs straight away (see the Global constraints). The
+  lab's Task 7 row is blocked by Task 6. Every other task was filed at
+  planning time.
 - **Tasks 8, 9 and 10 are chained** because they edit the same files:
   `lib/epic_audit.py`, `bin/vrg_epic_audit.py` and `bin/vrg_adhoc_epic.py`.
   PRs validated separately could still break develop once both merge.
 - **Task 12 is chained after Task 10.** Deleting `PrivateHomeError` also
   edits its handlers in `bin/vrg_epic_audit.py` and `bin/vrg_queue.py`.
   Tasks 11 and 13 touch none of those files, and stay parallel.
+
+**Filed tasks.**
+
+- **Proxies:** `logical-minds-foundry/.github#414`,
+  `mnemosys-project/.github#117` and `mq-rest-admin-project/.github#51`.
+- **Tasks 1–6:** Task 1 `logical-minds-foundry/.github#416`, Task 2
+  `logical-minds-foundry/.github#415`, Task 4
+  `logical-minds-foundry/mq-resiliency-lab-for-linux#1748`, Task 5
+  `vergil-project/vergil-actions#1349` and Task 6
+  `vergil-project/vergil-actions#1350`.
+- **Tasks 8–15:** `vergil-project/vergil-tooling#4901` to `#4908`, in task
+  order.
+- **Tasks 16 and 17:** `vergil-project/vergil-claude-plugin#1239` and
+  `#1240`.
+- **Task 7 rows:**
+  - vergil-project: `docs#156`, `.github#1483`, `packages#61`,
+    `vergil-claude-plugin#1238`, `vergil-containers#982`,
+    `vergil-python#96`, `vergil-tooling#4900` and `vergil-vm#442`;
+  - the fixtures: `python-app#38`, `python-lib#45`, `rust-app#53`,
+    `rust-lib#59`, `ts-app#55` and `ts-lib#54`;
+  - `logical-minds-foundry`: `docs#36`, `.github#417`,
+    `mq-resiliency-lab-for-linux#1749` and
+    `mq-resiliency-observability#82`;
+  - `mnemosys-project`: `docs#31`, `.github#118` and `melete#276`;
+  - `mq-rest-admin-project`: `.github#52`, `mq-rest-admin-common#235`,
+    `mq-rest-admin-dev-environment#179`, `mq-rest-admin-go#331`,
+    `mq-rest-admin-python#535` and `mq-rest-admin-rust#130`.
+- **Fixture runs** (change, release and validation, all blocked by Task 6):
+  `vergil-fixture-python-lib#46–48`, `python-app#39–41`, `rust-lib#60–62`,
+  `rust-app#54–56`, `ts-lib#55–57` and `ts-app#56–58`.
 
 ---
 
