@@ -13,15 +13,15 @@ of that come GitHub Advanced Security (GHAS) inference, counts-only reporting
 in hoshin, and a token-coverage guard. Two repos in the fleet are private,
 and the special cases cost far more than those two repos are worth.
 
-After this epic:
+This epic first removes the last private repos, by operational tasks:
 
-- Vergil manages only **non-archived repos owned by one of the fleet's six
-  GitHub organizations**: `vergil-project`, `logical-minds-foundry`,
-  `mnemosys-project`, `diogenes-project`, `mq-rest-admin-project` and
-  `vergils-nemesis`.
-- Every such repo is **public**. Meeting a private one is a loud, named
-  error, never a silent fallback.
-- Every epic and queue homes in its org's `.github`.
+- `logical-minds-foundry/mq-gateway-replay-lab` is made public;
+- `logical-minds-foundry/mq-protocol-gateway` is archived.
+
+From then on, **every repo Vergil manages is public**. That is an invariant
+of the fleet, and the code is written to it. Vergil no longer branches on
+visibility anywhere, and nothing checks the invariant at runtime. Every epic
+and queue homes in its org's `.github`.
 
 ### 1.1 Why now
 
@@ -34,24 +34,19 @@ simplifies the rest of 2026's work. It also shrinks what the port has to
 re-implement.
 
 Vergil is a personal laboratory, not a community-collaborative system, so
-there is no need to design for shared private work. The human has declared
-the content of both private repos public.
+there is no need to design for shared private work. The two repos were
+private only out of caution, while it was unclear whether an employer
+contract allowed the code to be shared. It does. The human has declared the
+content of both repos public, with nothing in them that matters.
 
 ## 2. Goals
 
 1. No current Vergil code, workflow, skill or doc branches on repo
-   visibility, except the single guard in §4.1 and the audit check in §4.2.
-2. A repo that Vergil meets fails loudly with a clear reason when it is any
-   of these:
-   - private;
-   - owned by a personal account, not an organization;
-   - outside the six organizations.
-3. Archived repos are invisible to Vergil. Every org-wide listing skips them,
-   and no tool acts on one.
-4. Each epic and queue homes in `<org>/.github`. Nothing self-homes.
-5. `logical-minds-foundry/mq-gateway-replay-lab` is public, and its queues
-   live in `logical-minds-foundry/.github`.
-6. `logical-minds-foundry/mq-protocol-gateway` is archived. Its open issues
+   visibility.
+2. Each epic and queue homes in `<org>/.github`. Nothing self-homes.
+3. `logical-minds-foundry/mq-gateway-replay-lab` is public. Its queues and
+   ad-hoc work live in `logical-minds-foundry/.github`.
+4. `logical-minds-foundry/mq-protocol-gateway` is archived. Its open issues
    are closed first.
 
 ## 3. Non-goals and anti-goals
@@ -65,6 +60,8 @@ the content of both private repos public.
   - Any that still carry a `vergil.toml` or Vergil-made epics are cleaned up
     by the human, outside this epic.
   - Their visibility is never inspected or changed.
+- **Non-goal: a central list of the fleet's organizations.** A separate
+  epic introduces one.
 - **Non-goal: historical records.** Past specs, plans, superpowers docs, paad
   reports, changelogs and release notes keep their mentions. That includes
   epic #130's visibility-based epic home. They record what was true then.
@@ -75,10 +72,14 @@ the content of both private repos public.
   - the merge-review private state directory;
   - `"private": true` in `package.json`;
   - CMake `PRIVATE`.
-- **Anti-goal: a fallback.** No path may quietly treat a private repo as
-  public. It also may not drop such a repo from a listing, or home its epics
-  somewhere "safe". The guard refuses, and the refusal names the repo and
-  the rule.
+- **Anti-goal: a runtime guard.** No check is added that a repo is public,
+  owned by an organization, in the fleet, or not archived, and no audit
+  asserts that every repo is public. The invariant is established once, by
+  the operational tasks. The human will not create a private repo, and the
+  fleet's time on GitHub is three to six months. A check that runs all the
+  time to stop the architecture regressing guards against ourselves. It is
+  complexity the fleet does not need. If a private repo ever appears, things
+  break where they break.
 - **Anti-goal: one big removal.** Each subsystem is removed in its own PR. A
   removal can then be backed out and deployed independently while agents
   merge to develop. Review size is not the reason, since an agent reviews
@@ -86,44 +87,7 @@ the content of both private repos public.
 
 ## 4. Design
 
-### 4.1 The guard (one rule, one place)
-
-One `vergil-tooling` function, called `require_supported_repo(owner, repo)`
-below (the builder names it), is the only place that inspects visibility. It
-raises a single error type, with one message per case:
-
-- **The owner is not an organization:** "Vergil requires repositories owned
-  by an organization; `<owner>` is a personal account."
-- **The owner is not one of the six organizations:** "`<owner>` is not a
-  Vergil organization."
-- **The repo is archived:** "`<owner>/<repo>` is archived; Vergil does not
-  act on archived repositories."
-- **The repo is private:** "Private repositories are unsupported;
-  `<owner>/<repo>` is private."
-
-- **Probe failures stay loud.** Any probe failure raises a loud error, as
-  `resolve_epic_home` does today.
-- **Where it is called.** It is called wherever Vergil today resolves a
-  repo's epic or queue home, or decides a repo's visibility. Every one of
-  those paths therefore refuses instead of branching.
-- **The six organizations.** The list lives in one checked place, and the
-  builder chooses where. A fixed constant is acceptable, since the list
-  changes rarely and a change to it is a reviewed PR.
-- **Archived repos in listings.** Every org-wide listing skips archived
-  repos before anything else: the epic audit's open-issue scan, the
-  queue-home scan, the GitHub config audit and the Dependabot audit.
-  Skipping an archived repo in a listing is not a refusal. A tool aimed at
-  one directly gets the error.
-
-### 4.2 The audit check
-
-The GitHub config audit (`vrg-github-repo-config` and the daily
-`ops.yml`) reports a failure for every non-archived repo of a Vergil
-organization that is private. It is a fail-loud invariant. If a repo is
-ever made private, the audit fails rather than Vergil quietly self-homing
-it. That replaces the visibility-flip guide, which goes.
-
-### 4.3 What is removed
+### 4.1 What is removed
 
 The inventory was taken against each repo's `develop` on 2026-11-22. It is a
 guide, not a contract: each removal task's acceptance (§5) is behavioural,
@@ -131,14 +95,17 @@ so anything the inventory missed is still in scope.
 
 **vergil-tooling: epic home and queue placement.**
 
-- `lib/epics.py`: these collapse to `<org>/.github` behind the guard:
-  - `resolve_epic_home`, with its self-home branches, including the
-    no-`.github` owner case (#3603), which the organization rule now
-    refuses;
+- `lib/epics.py`: these collapse to `<org>/.github`, with no visibility
+  probe:
+  - `resolve_epic_home`, with its self-home branches, including the private
+    no-`.github` owner case (#3603);
   - `queue_home`;
   - `_queue_homes`;
   - the ad-hoc drain and archive-home self-home paths;
   - bare-`#N` resolution against a self-home.
+
+  The existing refusal when `<org>/.github` does not exist (#3643) is not a
+  visibility branch, and stays.
 - `require_org_home` keeps its existence check, but its message loses the
   `--repo` private hint.
 - The `--repo` self-home paths and help text go from `vrg-queue`,
@@ -159,7 +126,7 @@ output sections:
   "Queues of now-public repos" section;
 - `private_under_public_epic`.
 
-`move_public_queues` is used once, by §4.4, before it is removed.
+`move_public_queues` is used once, by §4.2, before it is removed.
 
 **vergil-tooling: token-coverage guard.**
 
@@ -175,15 +142,15 @@ output sections:
 
 - `lib/github_config.py`:
   - `ghas_available` and the `ghas` flag threaded through its callers;
-  - `allow_forking` for private org repos;
+  - the `visibility` parameter of `desired_repo_settings`, and
+    `allow_forking` for private org repos;
   - `_is_private_forking_error` and `_PRIVATE_FORKING_HELP`;
-  - the "missing visibility means private" default, which becomes a loud
-    error.
+  - the "missing visibility means private" default.
 - `lib/ci_evidence.py`'s GHAS call.
 - The "requires GHAS for private repos" skip in `vrg-github-repo-config`.
 - `[project].ghas` in `lib/config.py` is retired: a `vergil.toml` that still
   sets it is rejected with a retirement reason. Every repo that sets it
-  drops it first (§4.5).
+  drops it first (§4.3).
 - `lib/repo_init.py` and `vrg-github-repo-init`:
   - the `--visibility` flag and its prompt go (repos are created public);
   - the private-only `upload-sarif: false` block in the generated `ci.yml`
@@ -193,17 +160,18 @@ output sections:
 
 - `intake_route._guard_visibility` and its call sites go.
 - `vrg-epic-link`'s less-visible-epic guard goes.
-- `lib/proxies.py`'s private refusal is replaced by the guard.
+- `lib/proxies.py`'s private refusal goes.
+- `security_records._resolve_home`'s private-`.github` branch and
+  `PrivateHomeError` go.
 
 **vergil-tooling: reporting.** `vrg-dependabot-audit`'s itemized-for-private
 versus counts-only split collapses to one report.
 
 **vergil-tooling: visibility primitives.** `lib/github.py`'s
-`repo_visibility` and `is_public` remain only as the guard's and audit's
-probes. `repo_exists`'s docstring loses its self-homing framing.
-`security_records._resolve_home` and `PrivateHomeError` either fold into the
-guard or remain as a "`.github` is public" assertion. The builder chooses,
-and the assertion must still fail loudly.
+`repo_visibility` and `is_public` go once nothing calls them.
+`repo_exists`, which is built on `repo_visibility`, is kept with an
+existence probe of its own, and its docstring loses its self-homing
+framing.
 
 **vergil-tooling: docs.**
 
@@ -214,16 +182,17 @@ and the assertion must still fail loudly.
   `guides/security-records.md`.
 - Each removal PR carries its own doc edits.
 
-**vergil-actions.**
+**vergil-actions.** SARIF always uploads and CodeQL always runs.
 
-- `ci-security.yml` loses the `upload-sarif` input. SARIF always uploads and
-  CodeQL always runs.
+- `ci-security.yml` loses the `upload-sarif` input.
+- The Semgrep and Trivy actions lose their own `upload-sarif` inputs. They
+  also lose the fallback steps that attach SARIF as an artifact when the
+  input is not `true`.
 - The gate's "skipped (no GHAS)" handling goes.
-- The private-repo input docs go from the Semgrep and Trivy actions, and
-  from their docs pages and the `ops-epic-sweep` page.
+- The private-repo input docs go from those actions' docs pages, the
+  `ci-security` workflow page and the `ops-epic-sweep` page.
 - Removing an input from a reusable workflow breaks every caller still
-  passing it. So every caller in the six organizations drops `upload-sarif`
-  first (§4.5).
+  passing it. So every caller drops `upload-sarif` first (§4.3).
 
 **vergil-claude-plugin (skills).**
 
@@ -247,22 +216,31 @@ and the assertion must still fail loudly.
 of private and queue homes) and vergil-project/vergil-claude-plugin#1139
 (move runbooks to that listing) are closed as superseded by this epic.
 
-### 4.4 The operational side
+### 4.2 The operational side
 
 These run before any code is removed, because the removal makes self-homed
-queues unreachable.
+queues unreachable. Every operational task is filed in
+`logical-minds-foundry/.github`, under that org's proxy of this epic: a proxy
+refuses a private target repo, and both repos are private until these tasks
+run.
 
 **Publish `logical-minds-foundry/mq-gateway-replay-lab`.**
 
-1. Scan its full git history for secrets. Its own issue #307 asks for this.
-   A human attests the result. A finding is fixed (rotated, history
-   rewritten if needed) before the flip, never after.
-2. Flip the repo to public. This is a human action.
-3. Move its self-homed queues (intake, deferred) into
+1. Flip the repo to public. This is a human action, on the human's
+   declaration that its content is public (§1.1). No scan or review of its
+   history, issues, logs or artifacts precedes it.
+2. Move its self-homed queues (intake, deferred) into
    `logical-minds-foundry/.github`, using `vrg-epic-audit`'s existing
-   now-public queue move. Its ad-hoc epic and ad-hoc archive are moved or
-   closed the same way.
-4. Drop `upload-sarif: false` and any `ghas` key from it. That is an
+   now-public queue move. That move needs the repo to be public, so it
+   follows the flip.
+3. The queue move does not cover ad-hoc work, so handle it separately:
+   - Move each open child of the repo's ad-hoc epic (#71) under the
+     `logical-minds-foundry/.github` ad-hoc epic with `vrg-epic-move`.
+   - Close #71 and the ad-hoc archive (#319), each with a pointer to where
+     its items went.
+4. Close the repo's #307 ("secret-scan history + make public") as
+   superseded by this task, with a pointer.
+5. Drop `upload-sarif: false` and any `ghas` key from it. That is an
    ordinary PR in the repo.
 
 **Archive `logical-minds-foundry/mq-protocol-gateway`.**
@@ -271,89 +249,80 @@ queues unreachable.
    ad-hoc archive, as not planned, with a pointer to this epic.
 2. Archive it, leaving it private. This is a human action.
 
-From then on the guard and listings ignore it. If the repo is ever
-unarchived, the audit check (§4.2) fails until it is made public.
+Once both are done, `vrg-gh repo list` for each of the six organizations
+shows no non-archived private repo. That one-time check is the publish
+task's last step, and it establishes the invariant of §1.
 
-### 4.5 Fleet-wide caller cleanup
+### 4.3 Fleet-wide caller cleanup
 
-Before `[project].ghas` is retired and before the `upload-sarif` input is
-removed, every repo in the six organizations stops setting them. For
-example, `logical-minds-foundry/mq-resiliency-lab-for-linux` sets both
-`ghas` and `upload-sarif: true` today. Each such repo gets an ordinary PR.
-The plan lists them from a fleet-wide search at plan time, and the removal
-tasks re-run that search as a precondition.
+Before `[project].ghas` is retired and before the `upload-sarif` inputs are
+removed, every non-archived repo stops setting them. For example,
+`logical-minds-foundry/mq-resiliency-lab-for-linux` sets both `ghas` and
+`upload-sarif: true` today. Archived repos are left alone: they are
+read-only and run no CI. Each repo that needs it gets an ordinary PR. The
+plan lists them from a fleet-wide search at plan time, and the removal tasks
+re-run that search as a precondition.
 
 ## 5. Acceptance
 
-- **Grep.** In vergil-tooling, vergil-actions and vergil-claude-plugin, a
-  case-insensitive grep over current files for these terms returns hits
-  only in the guard, the audit check, their tests and the historical paths:
+- **Grep.** In vergil-tooling, vergil-actions and vergil-claude-plugin, run
+  a case-insensitive grep over current files for these terms:
   - `self-home`, `self_home`, `self-homed`;
   - `private repo`, `private home`;
   - `upload-sarif`, `ghas_available`, `[project].ghas`;
-  - `visibility`, outside the retained probes and the timing sense of the
-    word.
+  - `visibility`.
 
-  The historical paths are `docs/specs/`, `docs/plans/`, `docs/superpowers/`,
-  `docs/reports/`, `paad/`, `releases/` and `CHANGELOG.md`.
-- **The guard.** Each of the four guard cases has a test proving its message.
-  `vrg-queue`, `vrg-epic-create` and `vrg-issue-create` refuse a private
-  target loudly.
-- **The audit check.** It fails on a private, non-archived repo and ignores
-  an archived one, proven by tests.
-- **The two repos.** `vrg-gh repo list` for each of the six organizations
-  shows no non-archived private repo. `mq-gateway-replay-lab` is public with
-  its queues in `logical-minds-foundry/.github`, and `mq-protocol-gateway`
+  It returns no hits outside these allowed uses:
+  - the `github/codeql-action/upload-sarif` action, which does the upload;
+  - `vrg-gh`'s allow-list entries for `gh`'s own `--visibility` flag;
+  - `visibility` in its timing sense;
+  - the `[project].ghas` retirement and its test;
+  - the historical paths `docs/specs/`, `docs/plans/`, `docs/superpowers/`,
+    `docs/reports/`, `paad/`, `releases/` and `CHANGELOG.md`.
+- **No inputs left.** No reusable workflow or action in vergil-actions has
+  an input named `upload-sarif`.
+- **Homes.** `vrg-queue`, `vrg-epic-create` and `vrg-issue-create` resolve
+  every repo's home to `<org>/.github` without a visibility probe.
+- **The two repos.** `mq-gateway-replay-lab` is public. Its queues and
+  ad-hoc work are in `logical-minds-foundry/.github`. `mq-protocol-gateway`
   is archived.
-- **The audits run clean.** The org-wide `vrg-epic-audit` and the GitHub
-  config audit run clean across the six organizations against the released
-  guard.
 - **Validation passes.** `vrg-container-run -- vrg-validate` passes in each
   changed repo, with vergil-tooling at 100% branch coverage.
 
 ## 6. Delivery shape
 
-Operational first, then the guard, then one removal per subsystem.
+Operational first, then the caller cleanup, then one removal per subsystem.
 
-1. **Operational** (in `logical-minds-foundry`, under a proxy of this
-   epic): publish the lab repo (§4.4) and archive the gateway (§4.4). The
-   human-gated steps (secret-scan attestation, visibility flip, archive)
-   are attested preconditions, never performed by the agent.
-2. **Caller cleanup** (§4.5): one PR per repo that sets `ghas` or
+1. **Operational** (in `logical-minds-foundry/.github`, under a proxy of
+   this epic): publish the lab repo and archive the gateway (§4.2). The
+   visibility flip and the archive are human-attested preconditions, never
+   performed by the agent.
+2. **Caller cleanup** (§4.3): one PR per repo that sets `ghas` or
    `upload-sarif`.
-3. **Guard** (§4.1, §4.2): one vergil-tooling PR. Then a release (a
-   human-gated precondition), a deployment, and a **validation** that runs
-   the org-wide audits across the six organizations against the released
-   guard. The validation proves that no private repo is reachable, so every
-   private branch is now dead code. Every removal task is blocked by it.
-4. **Removals**, one PR each, independent of each other once the guard is
-   validated:
+3. **Removals**, one PR each. Each is blocked by both operational tasks and
+   is otherwise independent:
    - epic home and queue placement;
-   - epic-audit visibility passes (also blocked by the lab repo's queue
-     move);
+   - epic-audit visibility passes;
    - token-coverage guard;
    - GHAS inference and scaffolding (also blocked by the caller cleanup);
    - routing, linking and proxies;
    - Dependabot reporting.
-5. **vergil-actions**: drop `upload-sarif` (blocked by the caller cleanup).
-   It ships in a vergil-actions release. Because it changes the shared
-   security workflow every language uses, the plan seeds **fixture runs**
-   for all four fixtures, blocked by that release.
-6. **vergil-claude-plugin**: the hoshin change, and the epic-skill change,
+4. **vergil-actions**: drop the `upload-sarif` inputs (blocked by the caller
+   cleanup). It ships in a vergil-actions release. Because it changes the
+   shared security workflow every language uses, the plan seeds **fixture
+   runs** for all four fixtures, blocked by that release.
+5. **vergil-claude-plugin**: the hoshin change, and the epic-skill change,
    each its own PR. The epic-skill change is blocked by the epic-home
    removal's release, so the runbooks never describe a tool that does not
    exist yet.
-7. The documentation-review (vergil-project/vergil-tooling#4893) and
+6. The documentation-review (vergil-project/vergil-tooling#4893) and
    retrospective (vergil-project/.github#1478) bookends close the epic.
 
 ## 7. Left to the builder
 
-- The guard's name, module and error type, and where the six-organization
-  list lives (§4.1).
-- Whether `security_records`' private-home check folds into the guard or
-  stays as an assertion (§4.3).
-- For each related token path in §4.3, whether visibility is its only
+- For each related token path in §4.1, whether visibility is its only
   reason.
+- Whether `repo_visibility` and `is_public` keep any caller (§4.1).
 - Wording of the doc and skill edits.
 - Whether a test that mixes private and public cases is trimmed or
   rewritten.
