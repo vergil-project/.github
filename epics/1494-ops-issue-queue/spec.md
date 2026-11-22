@@ -6,8 +6,9 @@
 
 ## 1. Intent
 
-The fleet runs 17 unattended jobs (scheduled ops jobs, sweeps, refreshes,
-rebuilds, releases and publishes). When one of them fails, the only signal
+The fleet runs 17 jobs with no human watching them (scheduled ops jobs,
+sweeps, refreshes, rebuilds, releases and publishes); 16 of them are in
+this epic's scope (§4.1). When one of them fails, the only signal
 today is a GitHub notification email; only the language lifecycle check
 files an issue on its own failure, and only partly. Email is noise, so
 failures go unseen until they hurt something, and several jobs are red
@@ -27,20 +28,18 @@ fed by the automation itself) down to a single operator.
   `operations`: `Epic (operations): <org>`, labelled `epic` +
   `operations`, with the derived category label `epic-management`. It is
   the org's queue for operational issues: those filed by unattended
-  automation and any filed by hand. A private repo has its own (§5.1).
-- **G2. The hoshin epic exists.** `Epic (hoshin): vergil-project` is
-  created now, so the `epic-management` filter shows it. The code already
-  labels it correctly; it simply has never been created.
-- **G3. Every unattended job reports itself.** Each of the jobs in the
+  automation and any filed by hand.
+- **G2. Every unattended job reports itself.** Each of the jobs in the
   inventory (§4) ends with a reporting step that files an **ops issue**
   under its org's operations epic when the job fails or finds one or more
   problems, and records a green run on an open issue.
-- **G4. Every unattended job runs as its org's automation bot**, the
+- **G3. Every unattended job runs as its org's automation bot**, the
   GitHub App behind `APP_CLIENT_ID`/`APP_PRIVATE_KEY`, except where §5.4
   records an exception.
-- **G5. Existing issue-filers follow the same rules.** The automation that
-  files operational issues today files them under the operations epic and
-  stops closing them automatically.
+- **G4. Existing issue-filers follow the same rules.** The automation that
+  files operational issues files them under the operations epic and
+  closes none of them automatically. For the one such job today, the
+  language lifecycle check, this binds its redesign (§5.5).
 
 ### 2.2 Non-goals (follow-on epics, recorded in the follow-on brainstorm)
 
@@ -139,8 +138,19 @@ automation App token; "verified" means the job checks the token against
     `@v2.0`); push to main; CD, including vergil-actions' own. Mixed: tags
     and the index dispatch use the App; the GitHub Release uses
     `GITHUB_TOKEN`; registries use OIDC or `CARGO_REGISTRY_TOKEN`.
+    **Out of scope:** a push to main comes only from a release a person
+    runs and watches with `vrg-release`, and epic
+    vergil-project/.github#1440's release records already track and
+    recover each failed CD publish job, so an ops issue would track the
+    same failure twice. Its package-index dispatch steps are covered the
+    same way.
 17. **`image-publish`**: vergil-containers `cd.yml` →
     `cd-docker-publish.yml`; push. `GITHUB_TOKEN`.
+
+Jobs 15 and 17 also run on a release, but they run on every push to
+develop as well, including the merges of self-merging automation PRs
+(github-config sync, upstream refresh) that nobody watches, so they stay
+in scope.
 
 The stable names are this spec's proposal; the plan may refine them
 before any reporting step ships, never after.
@@ -175,7 +185,8 @@ automation; the macOS host's launchd was not inspected.
   the hook. Only github-config and upstream-refresh `publish` verify that
   their token is the automation App's.
 - **Silent today:** pin-exposure exits 0 when it finds lagging pins; the
-  release job's package-index dispatch steps continue on error.
+  release job's package-index dispatch steps continue on error (job 16,
+  out of scope).
 - **Existing issue-filers:** the language lifecycle check files
   `language-lifecycle` issues under `Epic (ad hoc): vergil-containers` and
   closes a failure issue when its family recovers (`recovered in run …`)
@@ -194,14 +205,10 @@ automation; the macOS host's launchd was not inspected.
   `epic` + `operations`, archive `Archive (operations):` labelled
   `archive` + `operations`. It is a management kind, so
   `category_labels` derives `epic-management` with no new code.
-- Homed like the queue kinds (`queue_home`), not like hoshin: a public
-  repo's ops issues go under `Epic (operations): <org>` in `<org>/.github`;
-  a private repo self-homes its own `Epic (operations): <repo>` in its own
-  issue list, so nothing about private work, not even a sub-issue count,
-  reaches the public `.github`. Today that is two repos:
-  `logical-minds-foundry/mq-protocol-gateway` and
-  `logical-minds-foundry/mq-gateway-replay-lab`, both running `ops.yml`.
-  The sweep drains every home the kind has, as it does the queues.
+- Homed like hoshin (`hoshin_home`): always `Epic (operations): <org>` in
+  `<org>/.github`, one per org, whatever repo the job ran in. No repo
+  self-homes one, and nothing branches on a repo's visibility (epic
+  vergil-project/.github#1476 removes private-repo support).
 - `--epic operations` resolves it in `vrg-issue-create` and
   `vrg-epic-move`, created on first use by `ensure_standing_epic`.
 - It is drained into quarterly archives by the sweep like the other
@@ -223,9 +230,17 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
   [--step <failing step>] [--findings-file <md>]
 ```
 
+- **Every read goes through the trust layer** of epic
+  vergil-project/.github#1467, a prerequisite of this epic: the issue
+  lookup, the previous-occurrence lookup and any read of an issue's body or
+  comments. Only an issue, and only a comment, written by the org's
+  automation App or a trusted identity counts; a title or label alone
+  never identifies an ops issue. pin-exposure's last recorded state is
+  read the same way.
 - **Find the issue** by the report key: an **open** issue in `--repo`
   labelled `ops-report` whose title is exactly
-  `ops: <repo> / <job-name> failing`. A closed issue is never matched.
+  `ops: <repo> / <job-name> failing`, written by the automation App. A
+  closed issue is never matched.
 - **failure / findings / cancelled**: no open issue → create one with
   `vrg-issue-create --epic operations`, labelled `ops-report`, its body
   naming the job, the run, the step, the date, and the most recent closed
@@ -233,8 +248,12 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
   open issue → add a comment with the same facts. `--findings-file` adds
   the job's findings (already public-safe, written by the job) to the body
   or comment.
-- **success**: an open issue → add a "succeeded on DATE, RUN-LINK"
-  comment. No open issue → do nothing.
+- **success**: comments only on a change of state. An open issue whose
+  latest trusted report is a failure, findings or cancelled → add a
+  "recovered on DATE, RUN-LINK" comment. An open issue already marked
+  recovered, or no open issue → do nothing. Every failure is recorded,
+  and only the first green run after one is: the history reads fail,
+  fail, recovered, fail, and so on.
 - **Never closes an issue.**
 - Two open issues with the same key (a race) → comment on the oldest,
   name the other in that comment, close neither.
@@ -255,9 +274,6 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
   - **pin-exposure** reports when the set of lagging pins differs from what
     its open issue last recorded; an unchanged lag adds no nightly comment,
     and the issue stays open until the human decides it is dealt with.
-  - **The release job's** package-index dispatch steps, which continue on
-    error, report a finding when they fail. A caller turning evidence
-    enforcement off is a choice, not a failure, and is not reported.
 - The reporter creates its labels if a repo lacks them (`ensure_labels`),
   so a repo outside github-config's label sync still works.
 
@@ -275,34 +291,51 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
 
 ### 5.5 Existing issue-filers
 
-- The language lifecycle check files all its issues, failure and change
-  issues alike, under the operations epic instead of ad-hoc, and stops
-  closing any of them: on a recovery, or a change no longer reported, it
-  comments ("recovered in run …", "no longer reported in run …") and
-  leaves the issue open. It keeps its per-family issues, which are finer
-  than per-job; its generic `vrg-ops-report` step reports only a crash of
-  the job itself, and a family error does not also turn the job red, so
-  one red night opens one issue.
+- The language lifecycle check's publisher is not changed here. Epic
+  vergil-project/.github#1467 (§6.2) disables it until
+  vergil-project/.github#1128 re-architects its PR and issue handling.
+  That redesign follows this epic's rules: every issue it files, failure
+  and change issues alike, goes under the operations epic, and it closes
+  none of them automatically (a recovery, or a change no longer reported,
+  is a comment). Once the job is re-enabled, it gets the generic
+  `vrg-ops-report` step for its own crash, like any other job (§5.3).
 - `vrg-update-deps` is not unattended and is out of scope.
 - The epic sweep and rollup keep their housekeeping; their own failures
   are reported like any other job's.
 
 ### 5.6 Rollout
 
+- **Prerequisite:** the trust layer of epic vergil-project/.github#1467
+  has shipped in vergil-tooling before `vrg-ops-report` is built on it.
+- **Reporter first, identity second.** The reporting rollout (G1, G2, G4)
+  ships first and depends on no identity change: the `ops-report` action
+  mints its own App token whatever identity the job's other steps use.
+  The identity changes (G3) follow, starting with the GHCR proof (§5.4),
+  so an App that cannot do the GHCR work reshapes only the identity
+  tasks, never the queue.
 - vergil-tooling: the standing kind, labels and `vrg-ops-report`;
   released.
-- vergil-actions: the `ops-report` action, and the reporting step and
-  identity fix in each shared reusable workflow; released and tagged.
+- **Callers pass the App secrets first.** Callers pin the moving `@v2.1`
+  tag, so they pick up a vergil-actions release at once. A reusable
+  workflow that gains reporting but declares no secrets today
+  (`cd-docs.yml`, `cd-docs-refresh.yml`, `publish-index.yml`) gets
+  `APP_CLIENT_ID` and `APP_PRIVATE_KEY` declared `required: false`, and
+  every caller of it passes them, before the release that adds its
+  reporting step. Otherwise that release turns every caller's run red.
+- vergil-actions: the `ops-report` action, and the reporting step in each
+  shared reusable workflow; released and tagged once the caller pass is
+  complete. The identity fixes in those workflows ship in a later
+  release.
 - Each caller repo picks up the tag and adds reporting to the jobs it
-  defines itself (vergil-containers' rebuilds, pin-exposure, lifecycle,
+  defines itself (vergil-containers' rebuilds, pin-exposure,
   cleanup, cache warm; docs' refresh; packages' publish-index).
 - A one-off deployment first checks that the automation App
   (`APP_CLIENT_ID`, `APP_PRIVATE_KEY`, `VRG_AUTOMATION_APP`) is configured
-  in every org and private repo with unattended jobs, then creates each
-  operations epic (one per org with unattended jobs, one per private repo
-  running them) and `Epic (hoshin): vergil-project`.
+  in every org with unattended jobs, then creates each org's operations
+  epic.
 - Scope is every unattended job that exists today, in every org, including
-  the sweep, rollup and release in mq-rest-admin, mnemosys and diogenes.
+  the sweep and rollup in mq-rest-admin and mnemosys, but not the release
+  (job 16).
   Adding jobs an org lacks is F3.
 - Validation: each repo's first scheduled run after rollout shows the
   reporter ran (an ops issue for a job already red, such as
