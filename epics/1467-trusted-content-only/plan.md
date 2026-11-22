@@ -43,9 +43,14 @@ otherwise reported, and a guard test and an agent hook keep new raw reads out.
 ## Global Constraints
 
 - **Start.** No implementation task starts before epic
-  vergil-project/.github#1440 is closed; this plan assumes all of it.
-  Tasks 2 and 3a carry `Blocked-by: vergil-project/.github#1442`, #1440's
-  retrospective, and every other task chains from them. The one
+  vergil-project/.github#1440's code is delivered and released; this plan
+  assumes all of it. Tasks 2, 3a and 12 carry
+  `Blocked-by: vergil-project/.github#1455`, #1440's release task (validated
+  live by vergil-project/.github#1457), and every other task chains from
+  them. Task 3d is also blocked by vergil-project/.github#1496, #1440's
+  fixture-release validation. #1440's remaining bookends need not close
+  first (changed 2026-11-22: see
+  [Evolution during execution](#evolution-during-execution)). The one
   exception is Task 5b, which uses nothing of #1440 or of the trust
   layer and has no blocker (spec §3).
 - **One definition.** Every trust decision goes through `lib/trust.py`
@@ -141,15 +146,16 @@ blocked by.
   outside vergil-tooling that reads GitHub content, filing a task for each
   one that reads behaviour-driving content; and inventory every `vrg-gh`
   read in the plugin's skills and agents for Tasks 16, 17a and 17b.
-  Blocked by #1442.
+  Blocked by #1455.
 - **3a** (vergil-tooling): the `[orgs.<org>]` configuration, roles in the
-  loader, VM delivery, the Actions loader. Blocked by #1442.
+  loader, VM delivery, the Actions loader. Blocked by #1455.
 - **3b** (vergil-tooling): `lib/trust.py`: identities, roles, issue bodies
   and comments, errors, skip reporting. Blocked by 3a.
 - **3c** (vergil-tooling): close and reopen events, branch PR lookup,
   reviews and inline review comments. Blocked by 3b.
 - **3d** (vergil-tooling): #1440's identity rule, trusted closing references
-  and record rule onto the layer with #1440's parameters. Blocked by 3c.
+  and record rule onto the layer with #1440's parameters. Blocked by 3c
+  and #1496.
 - **4** (vergil-tooling): `vrg-trusted-authors publish` and `check`.
   Blocked by 3a.
 - **5a** (vergil-actions): pass `VRG_TRUSTED_AUTHORS` into every job that
@@ -190,7 +196,7 @@ blocked by.
 - **11** (vergil-tooling): outsider-opened issues are never attached,
   routed, sized or published. Blocked by 3b.
 - **12** (vergil-containers): the lifecycle job disabled until
-  vergil-project/.github#1128. Blocked by #1442.
+  vergil-project/.github#1128. Blocked by #1455.
 
 ### Commands, enforcement, skills
 
@@ -292,7 +298,7 @@ This PR. Done when it merges.
 
 Spec §3, §6.2 ("Outside vergil-tooling").
 
-- **Preconditions:** #1440 closed.
+- **Preconditions:** #1455 closed (#1440's code delivered and released).
 - **Procedure:** at `origin/develop` of every repo of every org listed in
   the configuration (enumerated when the task runs; today including
   vergil-actions, vergil-containers, vergil-claude-plugin, vergil-vm,
@@ -1372,3 +1378,55 @@ Spec §6.7.
 Tasks filed during execution (by Task 2 or otherwise) are recorded here,
 each with its repo, what it delivers and what it is blocked by, and the
 tasks it blocks.
+
+### 2026-11-22: the start, Task 2's findings and three rulings
+
+**What changed:**
+
+- **The epic starts before epic #1440's bookends close.** Tasks 2
+  (vergil-project/.github#1486), 3a (vergil-project/vergil-tooling#4911)
+  and 12 (vergil-project/vergil-containers#983) are now
+  `Blocked-by: vergil-project/.github#1455` instead of #1442. Task 3d
+  (vergil-project/vergil-tooling#4914) is also blocked by
+  vergil-project/.github#1496, #1440's fixture-release validation. The
+  Global Constraints' "Start" bullet, the delivery table's blockers for 2,
+  3a, 3d and 12, Task 2's precondition and spec §3's "Order" bullet now say
+  so.
+- **Who locks a release tracking issue (vergil-project/.github#1503) stays
+  a separate follow-up,** and the trust layer's identity handling does not
+  change.
+- **Task 12 keeps the plan's `if: false`** for the lifecycle job, with a
+  targeted actionlint ignore of the `if-cond` rule for `ops.yml` only.
+- **Task 2's inventory covered every vergil-project repo but
+  vergil-tooling.** It filed no task, so nothing joined Tasks 15 or 18.
+- **Tasks 13, 16, 17a and 17b now cover searches and lists
+  (GHSA-crcw-h2ff-qgr5).** Task 13's `vrg-issue-read` gains a trusted list
+  and search mode, which keeps only results whose content the layer
+  trusts and reports the rest. Tasks 17a and 17b use it for every search
+  or list whose results a skill acts on. Task 16's blocklist also refuses
+  the raw search and list forms. Spec §6.4 now says so.
+- **Tasks 17b and 17c are never worked in parallel.** They are worked one
+  after the other, or batched.
+
+**Why:**
+
+- The human ruled that the epic starts now. Epic #1440's code is delivered
+  and released (vergil-project/.github#1455, validated live by
+  vergil-project/.github#1457); its documentation review, fixture runs,
+  follow-on brainstorm and retrospective remain. Task 3d waits for
+  vergil-project/.github#1496 because a fix found there could change the
+  release rules 3d moves onto the layer.
+- The question of who locks a release tracking issue came from #1440's
+  first live release. The API shows the lock and the close made by the
+  human's own account (`User`), so the identity handling needs no change.
+  The human ruled that vergil-project/.github#1503 stays separate.
+- actionlint's `if-cond` rule rejects a constant `if: false`. The human
+  ruled a targeted ignore of that one rule for `ops.yml`, so the plan's
+  condition stands.
+- The configuration had no org list when Task 2 ran (Task 3a adds it), so
+  its scope was the vergil-project org. It found no behaviour-driving read
+  that needed a new task.
+- Task 2 found skills that act on the results of a search or a list, not
+  only on a single issue or PR. The human ruled the changes above.
+- Task 2 assigned `skills/hoshin/SKILL.md` to Task 17b, and Task 17c also
+  edits it.
