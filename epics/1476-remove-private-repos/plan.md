@@ -120,7 +120,7 @@ Repos are abbreviated: `lmf/` is `logical-minds-foundry/`, `vp/` is
 
 | Task | Repo | Kind | Blocked by |
 | --- | --- | --- | --- |
-| 1 Publish the lab repo | `lmf/.github` | deployment | 2 |
+| 1 Publish the lab repo | `lmf/.github` | deployment | none |
 | 2 Archive the gateway | `lmf/.github` | deployment | none |
 | 3 Lab caller cleanup, pass 1 | `lmf/mq-gateway-replay-lab` | impl | the flip |
 | 4 Pass 1, resiliency lab | `lmf/mq-resiliency-lab-for-linux` | impl | none |
@@ -143,10 +143,9 @@ Repos are abbreviated: `lmf/` is `logical-minds-foundry/`, `vp/` is
 
 Task 7's rows are filed one per repo from the list in Task 7. Once filed, a
 task in `logical-minds-foundry` is named by its full ref in every
-`Blocked-by:`. Security advisory GHSA-2v43-fjxg-fv3c, which tracks the
-planning issue, is retargeted to Task 13 when the tasks are filed.
+`Blocked-by:`.
 
-Two rows need a note:
+These rows need a note:
 
 - **Task 3 waits on the flip, not on a closed issue.** It has no
   `Blocked-by:`. It is filed, under the proxy, as soon as Task 1 step 1 has
@@ -197,9 +196,9 @@ scan or review precedes the flip.
   prints nothing. Each moved item appears under its new parent in
   `logical-minds-foundry/.github`.
 - [ ] **Step 6: Record** the outcome, with the moved and closed refs. No
-  fleet-wide visibility check follows. With the gateway archived (Task 2)
-  and the lab public, the human's statement that no other private repo
-  exists establishes the invariant.
+  fleet-wide visibility check follows. Once this task and Task 2 are both
+  done, the human's statement that no other private repo exists
+  establishes the invariant. The two tasks run independently.
 
 ### Task 2: Archive logical-minds-foundry/mq-protocol-gateway
 
@@ -276,7 +275,13 @@ Repo: `vergil-project/vergil-actions`.
   harness test that passes `upload-sarif`.
 - Modify: the docs pages `workflows/ci-security.md`,
   `ci-gates/security-scanning.md`, `actions/shared-security-trivy.md`,
-  `ci-security-semgrep.md`, `ci-security-codeql.md` and `ops-epic-sweep.md`.
+  `ci-security-semgrep.md`, `ci-security-codeql.md` and `ops-epic-sweep.md`,
+  and the `upload-sarif` row in `ci-gates/required-checks.md`.
+- Not here: `workflows/ops-github-config.md` (the Dependabot counts
+  passage) and the self-homed-queue comment in
+  `.github/workflows/ops-epic-sweep.yml`. Both describe vergil-tooling
+  behaviour that Tasks 13 and 9 remove later, so the documentation review
+  updates them once that has shipped.
 - Modify: this repo's own `.github/workflows/ci.yml`, at the `security:`
   job's `actions: read` grant and its comment, which is this repo's Task 7
   row done in place.
@@ -303,7 +308,8 @@ Tasks 7 and 11 rely on both.
   through `vrg-container-run`. Expected: pass.
 - [ ] **Step 3: Delete the inputs, fallbacks and docs** listed above. Run
   the leftover search over the repo. Expected: the only hits are
-  `codeql-action/upload-sarif` uses and historical paths.
+  `codeql-action/upload-sarif` uses, historical paths, and the two
+  passages left for the documentation review (Files, above).
 - [ ] **Step 4: Check the callers.** For each of the six organizations,
   search every non-archived repo's `.github/workflows/` for `upload-sarif:`.
   Expected: no hits, once Tasks 3 and 4 have merged. If there is a hit, stop
@@ -322,7 +328,8 @@ release that moves the `v2.1` tag. The agent never cuts it.
   `vrg-git merge-base --is-ancestor <Task 5 merge sha> <v2.1 tag sha>`
   exits 0.
 - [ ] **Step 2:** Confirm that `ci-security.yml` at `v2.1` has no
-  `upload-sarif` input.
+  `upload-sarif` input, and no `actions: read` at the workflow level or in
+  any job. Task 7 depends on the second check.
 - [ ] **Step 3:** Record the outcome, with the release version.
 
 ### Fixture runs
@@ -384,6 +391,8 @@ no grant.
     the `--repo` hint.
 - Modify `src/vergil_tooling/lib/queue_view.py`: the repo-scoped planning
   view, and the `.github`-is-public branch for advisories, go.
+- Modify `src/vergil_tooling/lib/roadmap.py`: the explicit *home*
+  parameter, which exists for a private repo that self-homes, goes.
 - Modify the CLIs:
   - In `vrg_epic_docs.py`, `vrg_roadmap.py` and `vrg_epic_audit.py`, remove
     `--repo` where it exists only to reach a self-homed queue or home.
@@ -412,9 +421,12 @@ no grant.
 Task 14 relies on this task having removed their calls to `is_public`.
 
 - [ ] **Step 1: Write the failing tests.**
-  - `test_resolve_epic_home_is_org_dotgithub_without_probe`: with
+  - `test_resolve_epic_home_does_not_call_is_public`: with
     `github.is_public` patched to raise, `resolve_epic_home("o", "r") ==
-    "o/.github"`.
+    "o/.github"`. The #3643 existence check still goes through
+    `repo_exists`, which reads `repo_visibility` until Task 14. So spec
+    §5's "Homes" condition (no visibility probe) holds fully only after
+    Task 14.
   - `test_resolve_epic_home_missing_dotgithub_keeps_3643_message`: when
     `o/.github` does not exist, it raises `EpicHomeError` naming
     `o/.github`.
@@ -462,7 +474,11 @@ Task 14 relies on this task having removed their calls to `is_public`.
   `_login_coverage_gap`.
 - Modify `src/vergil_tooling/bin/vrg_adhoc_epic.py`: `_refuse_partial_org`
   and its `--all-in` call.
+- Modify `src/vergil_tooling/bin/vrg_epic_audit.py`: the `coverage_gap`
+  call site.
 - Tests: their tests.
+- Docs: the private-repo token passages in
+  `docs/site/docs/guides/credential-management.md`.
 - Review: `vrg_gh.py`'s multi-owner refusal, the `live_branches` ls-remote
   fallback, and the #3463 cross-org token comments.
 
@@ -506,7 +522,10 @@ Task 14 relies on this task having removed their calls to `is_public`.
   - the template's `actions: read` grant on the security job goes.
 - Tests: `test_github_config_lib.py`, `test_ci_evidence_harvest.py`,
   `test_repo_init.py`, the config tests, and `test_vrg_github_repo_*`.
-- Docs: the GHAS and visibility passages in `docs/site/`.
+- Docs: the GHAS and visibility passages in `docs/site/`, at least
+  `guides/ci-architecture.md`, `reference/config-audit.md`, the
+  `[project].ghas` row in `reference/lint/repo-profile.md`, and
+  `--visibility` in `guides/consuming-repo-setup.md`.
 
 **Interfaces:** `desired_repo_settings(*, is_org: bool) ->
 DesiredRepoSettings`.
@@ -559,8 +578,6 @@ DesiredRepoSettings`.
 - [ ] **Step 5:** Commit.
 
 ### Task 13: vergil-tooling: Dependabot reporting
-
-Tracks security advisory GHSA-2v43-fjxg-fv3c.
 
 **Files:**
 
@@ -616,9 +633,12 @@ release.
 
 - [ ] **Step 1:** Confirm that the release tag contains each merge of
   Tasks 8–14: `vrg-git merge-base --is-ancestor <merge sha> <tag sha>`
-  exits 0 for each.
-- [ ] **Step 2:** Sync the release onto the host and VMs with the existing
-  deploy steps.
+  exits 0 for each. Each of those task issues should also carry the
+  release's `Released:` record (vergil-tooling #4896). Note any that does
+  not, but the ancestry check decides.
+- [ ] **Step 2:** Confirm that the release's `install` stage (`vrg-release`,
+  since vergil-tooling #4894) ran on the host and VMs, or that the human
+  attests it did. Then check the installed version on each.
   - For each of `vrg-epic-audit`, `vrg-epic-docs` and `vrg-roadmap` whose
     `--repo` Task 8 removed, confirm its `--help` no longer lists `--repo`.
   - Confirm that `vrg-queue --help` still lists `--repo`, without the
@@ -657,6 +677,8 @@ release.
   "Private work stays private" rule.
 - `skills/epic-implement/SKILL.md` and `skills/intake-capture/SKILL.md`:
   the private-home mentions.
+- `skills/epic-retrospective/SKILL.md`: the "the repo itself when private"
+  branch of where the retrospective goes. The §5 grep does not match it.
 - `docs/site/docs/skills/index.md`.
 
 - [ ] **Step 1:** Make the edits. Every flag a skill names must exist in the
@@ -670,7 +692,9 @@ release.
 
 - **Documentation review** (vergil-project/vergil-tooling#4893). Sweep the
   site docs for leftovers, and the `docs` repo's
-  `management/epics-and-tasks.md`, `intake.md` and `index.md`. File a
-  same-repo task in each repo that needs a change.
+  `management/epics-and-tasks.md`, `intake.md` and `index.md`. Also cover
+  vergil-actions' `workflows/ops-github-config.md` and the comment in its
+  `.github/workflows/ops-epic-sweep.yml`, which Task 5 leaves for this
+  review. File a same-repo task in each repo that needs a change.
 - **Retrospective** (vergil-project/.github#1478), with
   `epic-retrospective`.

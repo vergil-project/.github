@@ -212,7 +212,8 @@ self-homing framing.
 
   Any part of the security screen that also guards something other than
   private names (advisory text, secrets) stays.
-- `epic-create`, `epic-review`, `epic-implement` and `intake-capture` lose
+- `epic-create`, `epic-review`, `epic-implement`, `epic-retrospective` and
+  `intake-capture` lose
   their self-homed-queue and private-home branches. That includes
   `epic-review`'s "private work stays private" rule, and `--proxy-for`'s
   private refusal note.
@@ -239,8 +240,10 @@ run.
    (#322) and deferred epic (#329) under the `logical-minds-foundry/.github`
    epic of the same kind, with `vrg-epic-move`. Then close #322 and #329,
    each with a pointer to where its items went. The agent does this
-   directly; `vrg-epic-audit --close` and its org-wide close pass are not
-   used.
+   directly and never runs `vrg-epic-audit --close` itself. The org's
+   nightly epic sweep, which does run that pass, may move the items first
+   once the repo is public. Either way is acceptable, and the task records
+   whichever did the move.
 3. Move its ad-hoc work:
    - Create `Epic (ad hoc): mq-gateway-replay-lab` in
      `logical-minds-foundry/.github` with `vrg-adhoc-epic`, as every other
@@ -250,7 +253,7 @@ run.
    - Close #71 and the ad-hoc archive (#319), each with a pointer to where
      its items went.
 4. Close the repo's #307 ("secret-scan history + make public") as
-   superseded by this task, with a pointer.
+   completed, with a comment saying this task supersedes it.
 5. Drop `upload-sarif: false` and any `ghas` key from it. That is an
    ordinary PR in the repo.
 
