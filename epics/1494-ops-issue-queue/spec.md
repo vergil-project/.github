@@ -7,8 +7,11 @@
 ## 1. Intent
 
 The fleet runs 17 jobs with no human watching them (scheduled ops jobs,
-sweeps, refreshes, rebuilds, releases and publishes); 15 of them get a
-reporting step here, one is deprecated and one is out of scope (§4.1).
+sweeps, refreshes, rebuilds, releases and publishes); 12 of them get a
+reporting step here, two (the security-signal jobs) are recorded
+privately by the morning review, one is deprecated and one is out of
+scope, and the disabled language lifecycle job gets one in its redesign
+(§4.1, §2.3, §5.5).
 When one of them fails, the only signal today is a GitHub notification
 email; only the language lifecycle check files an issue on its own
 failure, and only partly. Email is noise, so failures go unseen until
@@ -45,7 +48,8 @@ fed by the automation itself) down to a single operator.
   (vergil-claude-plugin `skills/hoshin/references/daily.md`) takes its
   failures from each org's operations epic: issues opened, failure
   comments and recoveries since the last review. Actions run history
-  stays only as a backstop for runs that never reported (follow-on F1).
+  stays as a backstop for runs that never reported (follow-on F1), and
+  is the source for the two security-signal jobs (§2.3).
 
 ### 2.2 Non-goals (follow-on epics, recorded in the follow-on brainstorm)
 
@@ -58,6 +62,9 @@ fed by the automation itself) down to a single operator.
 - **F3. Filling the coverage gaps:** mq-rest-admin has no `ops.yml`,
   mnemosys has no epic sweep, diogenes runs an older release workflow, and
   vergils-nemesis has only CI. This epic covers the jobs that exist today.
+- **F4. Automated security records for the security-signal jobs:** their
+  failures recorded from Actions as neutral security records, one open
+  record per job, instead of by hand at the morning review (§2.3).
 - Tooling to work the operations queue (triage, bulk close, reports).
   The queue's shape will be learned by using it first.
 - Removing GitHub email notifications. They may stay; they are no longer
@@ -82,12 +89,14 @@ fed by the automation itself) down to a single operator.
 - **Publishing a security signal.** A job whose failure means a security
   finding exists (today `dependabot-audit` and `github-config`, the
   configuration audit, and any security scan added later) files no
-  public ops issue. Its failure is recorded through
-  `vrg-security-record`, and anything public about it names only the
-  neutral record, never the repo's alerts or the job's output. This
-  follows the fleet's existing rule for security-related failures
-  (hoshin's daily review names the dependency audit and the GitHub-config
-  audit among them). Every other job reports publicly as above.
+  public ops issue and gets no reporting step in this epic. hoshin's
+  daily review reads its runs from Actions run history and records each
+  failure through `vrg-security-record`, as the fleet's existing rule for
+  security-related failures already requires (it names the dependency
+  audit and the GitHub-config audit among them); anything public about
+  it names only the neutral record, never the repo's alerts or the
+  job's output. Recording these from Actions is follow-on F4. Every
+  other job reports publicly as above.
 
 ## 3. Terms
 
@@ -245,7 +254,10 @@ automation; the macOS host's launchd was not inspected.
   issue as its PR's task. The human and the agent working the queue close
   an ops issue once the automation is fixed or the problem is otherwise
   dealt with. The nightly sweep's drift close skips ops issues, and
-  `vrg-intake-route` does not route them; they are not queue items.
+  `vrg-intake-route` never routes an ops issue out of the operations
+  epic; they are not queue items. An intake item may be routed *into* the
+  operations epic as a one-off, so an operational problem captured by
+  hand reaches the queue through intake review.
 
 ### 5.2 The reporter: `vrg-ops-report` (vergil-tooling)
 
@@ -293,7 +305,7 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
   (`develop`), the rule `ops-github-config.yml` and
   `ops-upstream-refresh.yml` already apply; on any other ref it reports
   nothing.
-- A composite action `actions/ops-report` mints the App token, passes
+- A composite action `actions/ops/report` mints the App token, passes
   the trust layer's inputs (the delivered trusted-author list and
   `VRG_AUTOMATION_APP`, as epic vergil-project/.github#1467 §5.1a
   defines them) into the reporter's environment, and runs
@@ -315,9 +327,9 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
   finds while succeeding is not this epic's model: a job that finds
   drift fixes it with an automated PR, and a fix it cannot make fails the
   job. The report-only `pin-exposure` job is therefore deprecated (§5.5).
-- A security-signal job (§2.3) reports through the security-record path,
-  never `vrg-ops-report`'s public issue; how the reporter or the
-  workflow routes it is the plan's to decide.
+- A security-signal job (§2.3) gets no reporting step and never reaches
+  `vrg-ops-report`'s public issue; the morning review records it
+  privately.
 - The reporter creates its labels if a repo lacks them (`ensure_labels`),
   so a repo outside github-config's label sync still works.
 
