@@ -260,9 +260,8 @@ run.
    ad-hoc archive, as not planned, with a pointer to this epic.
 2. Archive it, leaving it private. This is a human action.
 
-Once both are done, `vrg-gh repo list` for each of the six organizations
-shows no non-archived private repo. That one-time check is the publish
-task's last step, and it establishes the invariant of §1.
+Once both are done, the invariant of §1 holds. The human has enumerated
+the only two private repos, and nothing checks for others.
 
 ### 4.3 Fleet-wide caller cleanup
 
