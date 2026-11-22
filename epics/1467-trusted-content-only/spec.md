@@ -192,11 +192,12 @@ automation_app = "<automation-app-slug>"
   Variables permission at org and repository level (a one-off setup step),
   and the daily GitHub config audit runs a check, as that App, that flags a
   missing or invalid variable and any repository-level variable of either
-  name (which would override the org copy in that repo's jobs), and writes
-  the variables' current values (logins and slugs only, all public) into
-  its job summary. `hoshin start`, on the host, renders the expected values
-  from the file and compares them with the latest audit's summary, so drift
-  between the file and the published copy is caught against the source.
+  name (which would override the org copy in that repo's jobs), and
+  uploads the variables' current values (logins and slugs only, all public)
+  as a run artifact. `hoshin start`, on the host, renders the expected
+  values from the file and compares them with the latest audit's artifact,
+  so drift between the file and the published copy is caught against the
+  source.
   An Actions job trusts the values it was handed between audits; the
   account-type rule (§5.1) still applies in the job. The agent Apps get no
   new permissions.
@@ -314,13 +315,11 @@ list. Each site is fixed by moving it onto the layer and applying §5.3:
 - **PR lookup by branch name** (GHSA-r4j2-cwcp-xg56): the branch lookups in
   the release, finalize, worktree, CI-evidence and deps-gate paths, and the
   tracking-issue resolver's fallback. The vergil-containers lifecycle
-  publisher's GitHub handling (finding, refreshing and closing its
-  `lifecycle/*` PRs, and syncing its labelled issues) moves into
-  vergil-tooling, and the containers workflow calls that command;
-  vergil-containers keeps only its build logic. The same-repo filter in
-  `mechanized_pr` is extracted as a shared helper for it; lifecycle PRs keep
-  their own behaviour (one PR per change, refreshed in place, merged by the
-  human) and are never auto-merged.
+  publisher is **disabled** rather than ported: its PR and issue handling
+  is re-architected under vergil-project/.github#1128 (one PR per run,
+  opened with the automation identity), and that redesign reads GitHub only
+  through this trust layer. Until it lands the lifecycle job is off, so it
+  reads nothing; the cost is a later sight of new toolchain versions.
 - **State parsed from comments** (GHSA-hrq4-7qg2-7xxf): the queue views
   (planning markers, deferral notes, latest notes), intake routing's
   planning-epic guard, the operational-outcome audit and the security-record
@@ -356,7 +355,8 @@ are confirmed in the plan, not re-done.
 script and workflow step outside vergil-tooling that reads GitHub content
 (the `gh` calls in vergil-actions workflow steps, scripts in the other
 repos), and confirms each reads nothing behaviour-driving. Any that does
-moves into vergil-tooling the same way as the lifecycle publisher.
+moves into vergil-tooling, or is disabled like the lifecycle publisher
+until it can.
 
 ### 6.3 The guard test (vergil-tooling)
 
@@ -381,9 +381,11 @@ builder's call.
   the adversary; the hook catches a skill that, by mistake, reads raw
   content instead of using the trusted command. For agents, the hook guard
   refuses the obvious raw forms (`--comments`; `--json` selecting `body`,
-  `comments` or `reviews`; `api` paths ending in `/comments` or `/reviews`),
-  naming the trusted command. It is not a security boundary: forms it cannot
-  see (a GraphQL query in a quoted string or a file, for example) are
+  `comments` or `reviews`; `api` paths ending in `/comments` or `/reviews`;
+  an `issue view` or `pr view` with no `--json`, whose default output
+  prints the body), naming the trusted command. It is not a security
+  boundary: forms it cannot see (a GraphQL query in a quoted string or a
+  file, for example) are
   accepted as outside it, and an allowlist, if ever needed, is a separate
   follow-up.
 - No skill shows untrusted text to the human or the agent; the outsider
@@ -414,8 +416,8 @@ copy the shape of the spam comments seen on vergil-project issues
 their text, and deliberately forged input: a forged `Blocked-by:`,
 `Parent:`, planning marker set,
 `Outcome: SUCCESS`, deferral note and `Closes` line; a trusted body later
-edited by an outsider; a fork PR on a `release/*`, `release/post-*`,
-`lifecycle/*` and task branch; an outsider closing a tracked issue; an
+edited by an outsider; a fork PR on a `release/*`, `release/post-*` and
+task branch; an outsider closing a tracked issue; an
 issue titled like a fix task or a release by an outsider; a User account
 whose login matches an App role; a deleted account as author, editor or
 actor; a repository variable shadowing a delivered org variable. Each test
@@ -436,8 +438,9 @@ assume:
 - the trusted read command and the outsider report, run on real issues,
   report the untrusted comments already present and never act on them, and
   pass the content of all three roles (the human, the agents, the
-  automation App);
-- the automation App's own refresh, lifecycle and archive work runs clean;
+  automation App), on issues and on a PR;
+- the automation App's own refresh and archive work runs clean, and the
+  lifecycle job is disabled;
 - a scheduled sweep under Actions reads the delivered copies and runs its
   trusted checks;
 - the morning review shows the outsider listing and the configuration
