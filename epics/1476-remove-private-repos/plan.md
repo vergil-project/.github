@@ -132,7 +132,7 @@ Repos are abbreviated: `lmf/` is `logical-minds-foundry/`, `vp/` is
 | 9 Epic-audit visibility passes | `vp/vergil-tooling` | impl | 8 |
 | 10 Token-coverage guard | `vp/vergil-tooling` | impl | 9 |
 | 11 GHAS inference, scaffolding | `vp/vergil-tooling` | impl | 1–4, 6 |
-| 12 Routing, linking, proxies | `vp/vergil-tooling` | impl | 1, 2 |
+| 12 Routing, linking, proxies | `vp/vergil-tooling` | impl | 10 |
 | 13 Dependabot reporting | `vp/vergil-tooling` | impl | 1, 2 |
 | 14 Visibility primitives | `vp/vergil-tooling` | impl | 8–13 |
 | 15 Release vergil-tooling | `vp/vergil-tooling` | deployment | 14 |
@@ -154,7 +154,9 @@ Two rows need a note:
 - **Tasks 8, 9 and 10 are chained** because they edit the same files:
   `lib/epic_audit.py`, `bin/vrg_epic_audit.py` and `bin/vrg_adhoc_epic.py`.
   PRs validated separately could still break develop once both merge.
-  Tasks 11, 12 and 13 touch none of those files, and stay parallel.
+- **Task 12 is chained after Task 10.** Deleting `PrivateHomeError` also
+  edits its handlers in `bin/vrg_epic_audit.py` and `bin/vrg_queue.py`.
+  Tasks 11 and 13 touch none of those files, and stay parallel.
 
 ---
 
@@ -194,11 +196,10 @@ scan or review precedes the flip.
   logical-minds-foundry/mq-gateway-replay-lab --state open --label epic`
   prints nothing. Each moved item appears under its new parent in
   `logical-minds-foundry/.github`.
-- [ ] **Step 6: Check the invariant.** For each of the six organizations,
-  run `vrg-gh repo list <org> --no-archived --visibility private --json
-  name`. Expected: `[]` for each. Task 2 has already archived the gateway.
-- [ ] **Step 7: Record** the outcome, with the moved and closed refs and
-  the six empty listings.
+- [ ] **Step 6: Record** the outcome, with the moved and closed refs. No
+  fleet-wide visibility check follows. With the gateway archived (Task 2)
+  and the lab public, the human's statement that no other private repo
+  exists establishes the invariant.
 
 ### Task 2: Archive logical-minds-foundry/mq-protocol-gateway
 
@@ -491,8 +492,11 @@ Task 14 relies on this task having removed their calls to `is_public`.
   "requires GHAS for private repos" skip.
 - Modify `src/vergil_tooling/lib/config.py`: retire `ghas`. Remove it from
   `_PROJECT_FIELDS` and the `ghas` attribute, and reject it with the reason
-  in Global constraints. Follow the existing retired-key pattern in that
-  module.
+  in Global constraints. Removing it from `_PROJECT_FIELDS` alone would
+  only warn, because unknown keys warn. So the project parser rejects
+  `[project].ghas` explicitly. The error is modelled on the
+  `_RETIRED_PRIMARY_LANGUAGES` one, not on `_DEPRECATED_INSTALL_KEY`, which
+  warns and keeps reading the old key.
 - Modify `src/vergil_tooling/lib/repo_init.py` and
   `bin/vrg_github_repo_init.py`:
   - the `--visibility` flag and its prompt go, so repos are always created
@@ -537,8 +541,12 @@ DesiredRepoSettings`.
   calls go.
 - Modify `src/vergil_tooling/lib/security_records.py`: the
   private-`.github` branch of `_resolve_home`, and `PrivateHomeError`, go.
+- Modify the handlers that catch `PrivateHomeError`:
+  `src/vergil_tooling/bin/vrg_epic_audit.py`, `bin/vrg_queue.py` (its
+  `_VIEW_ERRORS`) and `bin/vrg_security_record.py`.
 - Tests: `test_intake_route.py`, `test_vrg_epic_link.py`,
-  `test_proxies.py` and `test_security_records.py`.
+  `test_proxies.py`, `test_security_records.py`, `test_vrg_epic_audit.py`,
+  `test_vrg_queue.py` and `test_vrg_security_record.py`.
 - Docs: the private passages in `guides/security-records.md`.
 
 - [ ] **Step 1: Write the failing test**
