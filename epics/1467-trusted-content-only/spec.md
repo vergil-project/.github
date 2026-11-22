@@ -136,7 +136,10 @@ An identity is trusted when it holds one of three roles:
 **Matching.** A login is compared after a leading `app/` or a trailing
 `[bot]` is stripped, **and** the identity's account type (GraphQL
 `__typename`, or REST `type`) must be the one its role requires. A login
-that matches a role with the wrong account type is a stop, never trusted.
+that matches a role with the wrong account type is never trusted. Like any
+untrusted identity it follows §5.3's outcome for its kind: reported, with
+its own cause, for a comment, review or comment editor; a stop only where
+the content is load-bearing.
 
 **Deleted accounts.** An identity GitHub reports as deleted (a `null`
 author, editor or actor, or the `ghost` login) is **untrusted**, and follows
@@ -175,8 +178,10 @@ automation_app = "<automation-app-slug>"
 - **GitHub Actions runners** (the sweep, the rollup, the refresh, any other
   unattended job that reads content) get a derived copy. A new `vrg-*`
   command, run by the human at org setup and whenever the file changes,
-  writes each listed org's `VRG_AUTOMATION_APP` and a delivered
-  `human`/`agents` list as org Actions variables, from the file. Workflows
+  writes each listed org's `VRG_AUTOMATION_APP` and a delivered copy (the
+  `human`/`agents` lists and **every** listed org's automation App, so a job
+  reading another org's content judges it as the host does) as org Actions
+  variables, from the file. Workflows
   pass them into the job environment; the loader under Actions reads them
   there and stops when they are missing or invalid. The existing uses of
   `VRG_AUTOMATION_APP` (`lib/automation_identity.py`) read the same,
@@ -185,13 +190,16 @@ automation_app = "<automation-app-slug>"
   human's credentials: what it needs is granted to the org's automation
   App, which only mechanized code uses. Each automation App gets read-only
   Variables permission at org and repository level (a one-off setup step),
-  and the daily GitHub config audit runs a check, as that App, that
-  compares the org's variables with the delivered copy and flags any drift,
-  and any repository-level variable of either name (which would override
-  the org copy in that repo's jobs). `hoshin start` shows the latest audit
-  result with the outsider report (§6.5). An Actions job trusts the values
-  it was handed between audits; the account-type rule (§5.1) still applies
-  in the job. The agent Apps get no new permissions.
+  and the daily GitHub config audit runs a check, as that App, that flags a
+  missing or invalid variable and any repository-level variable of either
+  name (which would override the org copy in that repo's jobs), and writes
+  the variables' current values (logins and slugs only, all public) into
+  its job summary. `hoshin start`, on the host, renders the expected values
+  from the file and compares them with the latest audit's summary, so drift
+  between the file and the published copy is caught against the source.
+  An Actions job trusts the values it was handed between audits; the
+  account-type rule (§5.1) still applies in the job. The agent Apps get no
+  new permissions.
 - **The human does the one-off setup.** Adding an org's stanza, publishing
   the variables from the file, and granting the automation App its
   permission are setup steps, done by the human when an org is set up or
@@ -369,12 +377,15 @@ builder's call.
   body is untrusted, and lists every skipped untrusted item on stderr.
   Skills that read issue or PR content use it instead of raw
   `vrg-gh issue view --comments` or body reads.
-- **The hook backstop is an allowlist.** For agents, the hook guard allows
-  only named display-only `vrg-gh` read forms and fields (such as state,
-  labels, number, title, URL, parent and timestamps). Every other `vrg-gh`
-  read of issues, PRs, search results or GraphQL is refused, naming the
-  trusted command. A new read form is refused until it is added to the
-  allowlist, and each addition is a reviewed change with a test.
+- **The hook backstop is a blocklist against accidents.** Agents are not
+  the adversary; the hook catches a skill that, by mistake, reads raw
+  content instead of using the trusted command. For agents, the hook guard
+  refuses the obvious raw forms (`--comments`; `--json` selecting `body`,
+  `comments` or `reviews`; `api` paths ending in `/comments` or `/reviews`),
+  naming the trusted command. It is not a security boundary: forms it cannot
+  see (a GraphQL query in a quoted string or a file, for example) are
+  accepted as outside it, and an allowlist, if ever needed, is a separate
+  follow-up.
 - No skill shows untrusted text to the human or the agent; the outsider
   report (§6.5) carries metadata and links only.
 
