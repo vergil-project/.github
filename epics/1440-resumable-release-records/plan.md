@@ -1065,3 +1065,50 @@ made during execution. The spec stays as approved.
   therefore cannot work. The human ruled `file`.
 - Both fix behaviour this epic introduces, so they ship inside the freeze
   in Task 13's release.
+
+### 2026-11-22: a develop fix and three tasks filed during execution
+
+**What changed:**
+
+- **Added vergil-project/vergil-tooling#4882, a develop fix.** It merged
+  as vergil-project/vergil-tooling#4883 before any other merge.
+- **Added vergil-project/vergil-tooling#4886: a resume refuses a missing
+  release branch.** Blocked by Task 4 (vergil-project/vergil-tooling#4848).
+- **Added vergil-project/vergil-tooling#4889: a resume past
+  `merge-release` finishes without the deleted release branch.** Blocked by
+  vergil-project/vergil-tooling#4886.
+- **Added vergil-project/vergil-claude-plugin#1236: `pr-watch` may push a
+  fix whose only merge-review stop was a ruling that left the branch as
+  reviewed.** It is worked in this epic.
+- **Task 13 (vergil-project/.github#1455) now also waits for
+  vergil-project/vergil-tooling#4886 and
+  vergil-project/vergil-tooling#4889,** and **Task 16
+  (vergil-project/.github#1456) waits for
+  vergil-project/vergil-claude-plugin#1236,** on the human's rulings. Each
+  change is made by a scope change the human records on its task.
+- **The documentation review** (vergil-project/vergil-tooling#4837) also
+  covers vergil-project/vergil-tooling#4886,
+  vergil-project/vergil-tooling#4889 and
+  vergil-project/vergil-claude-plugin#1236.
+
+**Why:**
+
+- vergil-project/vergil-tooling#4882 fixes develop. Tasks 3b
+  (vergil-project/vergil-tooling#4879) and 5
+  (vergil-project/vergil-tooling#4880) each passed on their own. Merged
+  together, they left `cast` unimported in `tracking.py`, and develop
+  failed validation. The human approved the fix as a blocker.
+- vergil-project/vergil-tooling#4886 comes from Task 4's merge-review item
+  R1, ruled `file`. A resume that adopted the worktree used to cut a new
+  `release/<version>` from develop when the branch was missing locally and
+  on origin.
+- vergil-project/vergil-tooling#4889 comes from
+  vergil-project/vergil-tooling#4886's run, ruled `file`. The fleet sets
+  `delete_branch_on_merge`, so after the release PR merges,
+  vergil-project/vergil-tooling#4886's refusal would stop a resume whose
+  remaining stages no longer need the branch.
+- vergil-project/vergil-claude-plugin#1236 comes from Task 4's `pr-watch`
+  run. A `file` ruling that changed nothing still ended the review
+  `not-eligible (human-ruling)`, and `pr-watch` then held a validated fix
+  for a second human decision. The human ruled to file it and work it in
+  this epic.
