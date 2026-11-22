@@ -237,9 +237,15 @@ automation; the macOS host's launchd was not inspected.
 - The `operations` label (on the epic) and the `ops-report` label (on an
   ops issue the reporter files, §5.2) are added to the label registry
   (`data/labels.json`).
-- Ops issues are ordinary, PR-workable tasks: a fix lands as a PR in the
-  repo, which closes the ops issue only when the human decides it is
-  fixed. `vrg-intake-route` does not route them; they are not queue items.
+- **Ops issues are not PR-workable.** An ops issue records that something
+  broke; it is never the task a PR closes. `vrg-pr-workflow report-ready`
+  and `vrg-submit-pr` refuse an issue whose parent is an operations epic,
+  as they refuse a queue item. A code fix found while working an ops issue
+  is filed as a follow-up task in its own repo, never linked to the ops
+  issue as its PR's task. The human and the agent working the queue close
+  an ops issue once the automation is fixed or the problem is otherwise
+  dealt with. The nightly sweep's drift close skips ops issues, and
+  `vrg-intake-route` does not route them; they are not queue items.
 
 ### 5.2 The reporter: `vrg-ops-report` (vergil-tooling)
 

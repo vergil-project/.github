@@ -55,6 +55,15 @@ vergil-containers); Markdown (vergil-claude-plugin, .github).
   log excerpts or environment values (spec §2.3).
 - **Security-signal jobs** (`dependabot-audit`, `github-config`) file no
   public ops issue and get no reporting job (spec §2.3).
+- **Every reporting job starts with `actions/checkout@v6`**
+  (`persist-credentials: false`), before the `ops-report` action: setting
+  up Vergil reads the workspace's `vergil.toml`, and local `./actions/`
+  refs resolve against the workspace.
+- **Every reporting job has `concurrency: { group:
+  ops-report/${{ github.repository }}/<job>, cancel-in-progress: false }`**,
+  so reports for one key run one at a time. Tasks 7 and 8 assert it in
+  `reporting-jobs.test.sh` and `test_ops_reporting.py`
+  (`test_reporting_job_concurrency_per_key`).
 - **The App token is minted only on `refs/heads/develop`**; on any other
   ref the reporting step reports nothing (spec §5.3).
 - **Release pushes report nothing** for `docs-deploy-develop` and
@@ -106,11 +115,14 @@ and named by full ref once filed.
   the `--epic operations` sentinel.
 - **2b** (vergil-tooling): `vrg-ops-report`. Blocked by 2a and
   vergil-project/vergil-tooling#4912.
-- **3** (.github, deployment): the vergil-tooling release carrying 2a, 2b
-  and vergil-project/vergil-tooling#4912, installed. Blocked by 2a, 2b.
+- **2c** (vergil-tooling): ops issues are not PR-workable or routable,
+  and the sweep
+  skips them. Blocked by 2a.
+- **3** (.github, deployment): the vergil-tooling release carrying 2a, 2b, 2c
+  and vergil-project/vergil-tooling#4912, installed. Blocked by 2a, 2b, 2c.
 - **4** (vergil-actions): the `ops-report` action, and optional App
   secrets declared on `cd-docs.yml`, `cd-docs-refresh.yml` and
-  `publish-index.yml`. Blocked by 2b.
+  `publish-index.yml`. Blocked by 2b and vergil-project/vergil-actions#1351.
 - **5** (.github, deployment): the vergil-actions release carrying 4,
   with `v2.1` moved. Blocked by 3, 4.
 
@@ -133,13 +145,15 @@ All are blocked by 5.
 - **6p–6t** (mq-rest-admin-project, under its proxy):
   `mq-rest-admin-common`, `mq-rest-admin-dev-environment`,
   `mq-rest-admin-python`, `mq-rest-admin-go`, `mq-rest-admin-rust`.
+  (`mq-rest-admin-java` is archived on GitHub, never runs, and has no
+  task.)
 
 ### Reporter: reporting and rollout
 
 - **7** (vergil-actions): reporting jobs in `ops-github-config.yml`,
   `ops-epic-sweep.yml`, `ops-epic-rollup.yml`, `ops-upstream-refresh.yml`,
   `cd-docs.yml`, `cd-docs-refresh.yml`, `publish-index.yml`, and its own
-  `cd.yml` local call. Blocked by 4
+  `cd.yml` local call. Blocked by 3, 4, 11
   and vergil-project/vergil-actions#1351.
 - **8** (vergil-containers): reporting jobs for `nightly-rebuild-dev`,
   `nightly-rebuild-prod`, `image-publish`, `package-cleanup`,
@@ -183,7 +197,8 @@ All are blocked by 5.
 - **Documentation review** (vergil-tooling, bookend
   vergil-project/vergil-tooling#4938). Blocked by 13, not by 20, so a
   stalled GHCR proof never holds the reporter docs; the identity docs are
-  covered when the sweep runs. Its sweep covers the docs repo's `docs/site/docs/management/epics-and-tasks.md`
+  covered when the sweep runs. Its sweep covers the docs repo's
+  `docs/site/docs/management/epics-and-tasks.md`
   (the epic kinds) and vergil-actions' workflow READMEs.
 - **Follow-on brainstorm** (.github, bookend #1497). Blocked by 13.
 - **Retrospective** (.github, bookend #1498). Blocked by everything else.
@@ -242,6 +257,10 @@ Spec §5.1.
   returning `(<owner>/.github, <owner>)` through `require_org_home`, as
   `hoshin_home` does;
   `ensure_operations_epic(target_repo: str) -> IssueRef`.
+- Produces: an ensure-only command for a standing epic that creates or
+  reuses it and prints its ref, creating no task (for example
+  `vrg-epic-create --standing operations --org <org>`; the exact form is
+  the implementer's, named in the CLI reference). Task 11 uses it.
 - Produces: registry labels `operations` ("Perpetual epic of an org's
   operational issues; never auto-closes") and `ops-report` ("Ops issue
   filed by vrg-ops-report for an unattended job; never auto-closes");
@@ -264,11 +283,14 @@ Spec §5.1.
   `test_data_labels.py`:
   `test_operations_labels_registered` with the exact descriptions above.
   In `test_vrg_issue_create.py`: `test_epic_operations_sentinel_accepted`.
+  For the ensure-only command: `test_ensure_standing_operations_creates_no_task`
+  and `test_ensure_standing_operations_reuses_existing`.
 - [ ] **Step 2: Run them.** `vrg-container-run -- pytest
   tests/vergil_tooling/test_epics.py tests/vergil_tooling/test_data_labels.py
   tests/vergil_tooling/test_vrg_issue_create.py -q`. Expect FAIL.
 - [ ] **Step 3: Implement** `OPERATIONS`, `operations_home`,
-  `ensure_operations_epic` and the sentinel entry. Add the two
+  `ensure_operations_epic`, the sentinel entry and the ensure-only
+  command. Add the two
   labels and the new `epic-management` description to `labels.json`;
   list `operations` in the `--epic` help of both CLIs and in the CLI
   reference.
@@ -276,6 +298,65 @@ Spec §5.1.
 - [ ] **Step 5: Commit** `vrg-commit --type feat --scope epics --message
   "add the operations standing epic kind"`, then `vrg-container-run --
   vrg-validate` and report-ready.
+
+### Task 2c: ops issues are not PR-workable (vergil-tooling)
+
+Spec §5.1. Blocked by 2a.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/epics.py` (`queue_item_kind`'s
+  neighbour; `_QUEUE_REFUSAL_TAILS`)
+- Modify: `src/vergil_tooling/bin/vrg_pr_workflow.py`,
+  `src/vergil_tooling/bin/vrg_submit_pr.py`,
+  `src/vergil_tooling/lib/pr_workflow/batch_rules.py` (call the new
+  function instead of `queue_item_kind`)
+- Modify: `src/vergil_tooling/lib/epic_audit.py` (`_open_task_drift`)
+- Modify: `src/vergil_tooling/lib/intake_route.py` (beside the hoshin
+  item refusal, `HOSHIN_ITEM_REFUSAL`)
+- Test: `tests/vergil_tooling/test_epics.py`,
+  `tests/vergil_tooling/test_vrg_pr_workflow.py`,
+  `tests/vergil_tooling/test_vrg_submit_pr.py`,
+  `tests/vergil_tooling/test_epic_audit.py`,
+  `tests/vergil_tooling/test_intake_route.py`
+
+**Intake routing.** An item already under an operations epic is never
+routed anywhere (an ops issue stays until it is closed by hand). An
+intake item may be routed *into* the operations epic as a one-off
+(`--epic operations`), so a hand-captured operational problem reaches
+the queue through intake review.
+
+**Interfaces:**
+
+- Consumes: Task 2a's `OPERATIONS`.
+- Produces: `unbuildable_parent_kind(ref: str, *, default_repo: str) ->
+  str | None`: the queue kind of the native parent, as
+  `queue_item_kind` returns it, or `"operations"` when the parent is an
+  operations epic, else `None`. A failed lookup raises, as
+  `queue_item_kind`'s does.
+- Produces: `_QUEUE_REFUSAL_TAILS["operations"]` = "it is an ops issue,
+  which no PR closes: file the fix as a follow-up task in its own repo,
+  and close the ops issue by hand once the problem is dealt with."
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_unbuildable_parent_kind_operations` and
+  `test_unbuildable_parent_kind_queue_unchanged` (`test_epics.py`);
+  `test_report_ready_refuses_ops_issue` (`test_vrg_pr_workflow.py`);
+  `test_submit_refuses_ops_issue` (`test_vrg_submit_pr.py`);
+  `test_task_drift_skips_ops_issue` (a merged PR whose linkage names an
+  issue under an operations epic yields no drift; `test_epic_audit.py`);
+  `test_route_refuses_item_under_operations` and
+  `test_route_one_off_into_operations_allowed` (`test_intake_route.py`).
+  Run them. Expect FAIL.
+- [ ] **Step 2: Implement** `unbuildable_parent_kind`, switch the three
+  callers to it, add the refusal tail, have `_open_task_drift` return
+  `None` for an issue whose native parent is an operations epic, and add
+  `OPERATIONS_ITEM_REFUSAL` to `intake_route.py` ("{item} is an ops issue
+  under {epic}; it is closed by hand once dealt with, never routed").
+- [ ] **Step 3: Run the tests.** Expect PASS. Then the refactor step.
+- [ ] **Step 4: Commit** `vrg-commit --type feat --scope epics --message
+  "refuse PRs for ops issues and keep the sweep off them"`, then
+  `vrg-container-run -- vrg-validate` and report-ready.
 
 ### Task 2b: `vrg-ops-report` (vergil-tooling)
 
@@ -348,6 +429,13 @@ Spec §5.2, §5.3 (combined results).
     `test_report_none_does_nothing` (no read, no write).
   - `test_report_two_open_comments_oldest` (comments on the lower number,
     naming the other; no close call).
+  - `test_report_relinks_orphan` (an open ops issue with no native
+    parent, or a parent other than the org's operations epic, is linked
+    under the operations epic on the next report of any result; a
+    failed link exits 1).
+  - `test_report_waits_until_created_issue_listed` (after a create,
+    `report()` polls the title lookup until it lists the new issue, as
+    `epics._await_listed` does, and raises if it never does).
   - `test_report_never_closes` (no `gh issue close` across every case).
   - `test_report_body_has_no_log_text` (the body holds only the marker,
     run URL, job, step, date and previous occurrence).
@@ -361,7 +449,14 @@ Spec §5.2, §5.3 (combined results).
   `ops-report` label in the repo with `ensure_labels` before creating.
   Read issues only through `trust.read_issue(..., roles={Role.AUTOMATION})`;
   list candidates by title and label, then keep those whose
-  `author_role` is `Role.AUTOMATION`.
+  `author_role` is `Role.AUTOMATION`. After a create, wait until the
+  lookup lists the new issue (reuse `epics._await_listed`'s pattern and
+  budget), so a run right behind it finds it rather than creating a
+  second. Whenever `report()` finds or creates an issue, it checks the
+  native parent and links it under `ensure_operations_epic` when it is
+  missing or different (`vrg-issue-create` creates, then links, so a
+  failed link leaves an orphan that the sweep would otherwise attach to
+  intake).
 - [ ] **Step 4: Run the tests.** Expect PASS. Then the refactor step.
 - [ ] **Step 5: Commit** `vrg-commit --type feat --scope ops --message
   "add vrg-ops-report for unattended job failures"`, then
@@ -369,13 +464,13 @@ Spec §5.2, §5.3 (combined results).
 
 ### Task 3: vergil-tooling release for the reporter (deployment, .github)
 
-Spec §5.6. Blocked by 2a, 2b.
+Spec §5.6. Blocked by 2a, 2b, 2c.
 
 - **Precondition (human-attested):** a vergil-tooling release containing
-  Tasks 2a, 2b and vergil-project/vergil-tooling#4912 is published and
+  Tasks 2a, 2b, 2c and vergil-project/vergil-tooling#4912 is published and
   installed on the host and every VM, its version and tag named.
 - **Procedure:**
-  1. For the merge commit of each of those three PRs, `vrg-git
+  1. For the merge commit of each of those four PRs, `vrg-git
      merge-base --is-ancestor <merge-sha> <tag-sha>` in vergil-tooling
      exits 0.
   2. The `v2.1` line resolves to this release or later, so Actions jobs
@@ -386,7 +481,8 @@ Spec §5.6. Blocked by 2a, 2b.
 
 ### Task 4: the `ops-report` action and optional secrets (vergil-actions)
 
-Spec §5.3, §5.6.
+Spec §5.3, §5.6. Blocked by 2b and vergil-project/vergil-actions#1351 (its
+delivery of `VRG_TRUSTED_AUTHORS` is the one this action follows).
 
 **Files:**
 
@@ -405,8 +501,11 @@ Spec §5.3, §5.6.
 - Produces: the action `vergil-project/vergil-actions/actions/ops/report`
   with inputs `job` (stable name, required), `results` (comma list of
   `needs.*.result` values, required), `step` (optional), `app-client-id`
-  and `app-private-key` (required). It sets up Vergil, passes
-  `VRG_TRUSTED_AUTHORS` and `VRG_AUTOMATION_APP` from `vars` into the
+  and `app-private-key` (required), and `automation-app` and
+  `trusted-authors` (required; each reporting job passes
+  `${{ vars.VRG_AUTOMATION_APP }}` and `${{ vars.VRG_TRUSTED_AUTHORS }}`,
+  since a composite action cannot read `vars`). It sets up Vergil, passes
+  those two inputs as `VRG_AUTOMATION_APP` and `VRG_TRUSTED_AUTHORS` into the
   reporter's environment, mints an issues-only App token for the repo and
   its org `.github`, and runs `vrg-ops-report --repo
   ${{ github.repository }} --job … --results … --run-url <run URL>`.
@@ -419,7 +518,8 @@ Spec §5.3, §5.6.
   step and every later step is conditioned on it;
   `ops-report-inputs.test.sh` asserts the token requests only
   `permission-issues: write` and the reporter step receives
-  `VRG_TRUSTED_AUTHORS` and `VRG_AUTOMATION_APP` from `vars`;
+  `VRG_TRUSTED_AUTHORS` and `VRG_AUTOMATION_APP` from the action's inputs,
+  and the action's metadata contains no `vars.` or `secrets.` expression;
   `optional-secrets.test.sh` asserts the three workflows declare both
   secrets with `required: false`. Run them. Expect FAIL.
 - [ ] **Step 2: Implement** the action and the three declarations.
@@ -464,7 +564,10 @@ titled `Pass the App secrets to the shared docs and publish workflows`.
 
 ### Task 7: reporting jobs in the shared workflows (vergil-actions)
 
-Spec §5.3, §4.1. Blocked by 4, vergil-project/vergil-actions#1351.
+Spec §5.3, §4.1. Blocked by 3, 4, 11 and vergil-project/vergil-actions#1351:
+vergil-actions' own local `cd-docs.yml` call runs develop's copy, so its
+reporting job goes live when this task merges, and needs the released
+`vrg-ops-report` and the org checks first.
 
 **Files:**
 
@@ -484,16 +587,27 @@ Spec §5.3, §4.1. Blocked by 4, vergil-project/vergil-actions#1351.
   `actions/ops/report/tests/ops-report-skipped.test.sh`,
   `actions/ops/report/tests/release-push-skip.test.sh`,
   `actions/ops/report/tests/docs-refresh-reports-once.test.sh`
+- Modify: `actions/ops/upstream-refresh/tests/key-boundary.test.sh` (the
+  boundary's new written rule, below)
 
 **Interfaces:**
 
 - Consumes: Task 4's action; the stable job names in Global Constraints.
 
+**The upstream-refresh key boundary.** The guard keeps the App key off
+the runner that runs the repo's untrusted refresh hook. It gains one rule
+and loses none: a third job, `report`, is allowed; it never runs the
+hook, downloads no artifact, and is the only place other than
+`publish`'s step where `APP_CLIENT_ID` and `APP_PRIVATE_KEY` appear (as
+inputs to the `ops-report` action). Its `if: always()` is the one `if:`
+the guard permits. A fixture that adds a secret to `prepare` still fails.
+
 - [ ] **Step 1: Write the failing shell tests:** `reporting-jobs.test.sh`
   asserts each workflow above has one reporting job per stable name, with
   `if: always()`, `needs` naming every GitHub job of that name, `results`
   built from those `needs.*.result` values, and `job` set to the stable
-  name; and that `ops-github-config.yml` has no reporting job for
+  name, its first step `actions/checkout@v6` with `persist-credentials:
+  false`; and that `ops-github-config.yml` has no reporting job for
   `github-config` or `dependabot-audit`. `ops-report-skipped.test.sh`
   asserts the `results` passed for upstream-refresh include both
   `prepare` and `publish`.
@@ -501,8 +615,9 @@ Spec §5.3, §4.1. Blocked by 4, vergil-project/vergil-actions#1351.
   conditioned off for `refs/heads/main` and for a head commit that merges
   a `release/*` branch. `docs-refresh-reports-once.test.sh` asserts the
   `cd-docs.yml` reporting job is conditioned on `inputs.report`, and the
-  refresh's nested call passes `report: false` and both secrets. Run
-  them. Expect FAIL.
+  refresh's nested call passes `report: false` and both secrets.
+  `key-boundary.test.sh` gains the `report` job rule above and a fixture
+  with a secret on `prepare` that must fail. Run them. Expect FAIL.
 - [ ] **Step 2: Implement** the reporting jobs, each calling
   `./actions/ops/report` with the job's App secrets.
 - [ ] **Step 3: Run** the tests and `vrg-container-run -- vrg-validate`.
@@ -530,7 +645,9 @@ reporter here goes live).
   `test_each_job_has_a_reporting_job` (the five stable names, `if:
   always()`, `needs` every GitHub job of the name);
   `test_image_publish_report_skips_release_pushes`;
-  `test_reporting_uses_ops_report_action_at_v2_1`. Run it. Expect FAIL.
+  `test_reporting_uses_ops_report_action_at_v2_1`;
+  `test_reporting_job_checks_out_first` (`actions/checkout@v6`, with
+  `persist-credentials: false`, before the action). Run it. Expect FAIL.
 - [ ] **Step 2: Implement** the reporting jobs, calling
   `vergil-project/vergil-actions/actions/ops/report@v2.1` with the App
   secrets the repo already holds.
@@ -597,8 +714,8 @@ Spec §5.6. Blocked by 3.
      (`vrg-trusted-authors check`, from epic #1467), and the App secrets
      exist in each repo that runs an in-scope job (listed in the result).
      A missing one is a FAILURE naming it.
-  2. Create each org's operations epic with `vrg-issue-create --epic
-     operations` resolution (or `ensure_operations_epic`), and confirm it
+  2. Create each org's operations epic with Task 2a's ensure-only
+     command, and confirm it
      carries `epic`, `operations` and `epic-management`.
 - **SUCCESS:** four operations epics exist, each check passed.
 
@@ -647,10 +764,16 @@ Spec §5.4. Blocked by 13.
   in to GHCR with it, and a missing secret or a failed mint fails the job.
   There is no fallback to `GITHUB_TOKEN` once the input is `true`.) and
   `.github/workflows/ops.yml` (`nightly-rebuild-dev` passes
-  `app-registry-login: true` and both secrets)
+  `app-registry-login: true` and both secrets), and
+  `.github/workflows/package-cleanup.yml` (a `workflow_dispatch` boolean
+  input `app-token-dry-run`, default `false`: when `true`, the run is a
+  dry run only and every GHCR call uses an App token minted with
+  `permission-packages: write`, with no fallback; scheduled runs are
+  unchanged)
 - Test: `docker/versions/test_ops_reporting.py`
   (`test_nightly_rebuild_dev_uses_app_token`,
-  `test_app_registry_login_has_no_github_token_fallback`)
+  `test_app_registry_login_has_no_github_token_fallback`,
+  `test_cleanup_app_token_dry_run_is_dry_and_app_only`)
 
 A reusable-workflow call job has no steps, and a minted token cannot
 cross jobs as an output (GitHub blanks outputs holding a masked secret),
@@ -670,8 +793,8 @@ Blocked by 15.
 
 - **Procedure:** the next nightly `nightly-rebuild-dev` run after 15
   merges logs in with the App token and pushes every `dev-*` image; a
-  manual `package-cleanup` dry run with the same token lists versions it
-  could delete.
+  `package-cleanup` dispatch with `app-token-dry-run: true` (Task 15)
+  lists the versions it could delete, using only the App token.
 - **SUCCESS:** both succeed. **FAILURE:** record the error; Task 17 then
   records exceptions instead of switching.
 
@@ -720,12 +843,18 @@ Spec §5.4. Blocked by 13.
   `dependabot-audit`), `ops-epic-sweep.yml`, `ops-epic-rollup.yml` (each
   checks its token against `VRG_AUTOMATION_APP`, as `github-config`
   does)
+- Modify: `actions/cd/docs/deploy/action.yml` (its git identity becomes
+  the App's `<slug>[bot]`, from an input, instead of
+  `github-actions[bot]`)
 - Create: `actions/ops/report/tests/app-identity.test.sh`
 
 - [ ] **Step 1:** Write the failing shell test: no write step in the six
-  workflows uses `secrets.GITHUB_TOKEN`, and the four jobs run the
-  `VRG_AUTOMATION_APP` check before their first write. Run it. Expect
-  FAIL.
+  workflows uses `secrets.GITHUB_TOKEN` or `github.token`; every
+  write-path `actions/checkout` passes an App `token:`; the docs deploy
+  action sets no `github-actions[bot]` identity; and the four jobs run
+  the `VRG_AUTOMATION_APP` check before their first write. Confirm it
+  fails on today's `cd-docs.yml` (it must not pass before the change).
+  Run it. Expect FAIL.
 - [ ] **Step 2:** Implement. A step whose operation the App cannot
   perform (found while implementing) keeps `GITHUB_TOKEN` with a comment
   giving the reason, and is listed in the PR notes for the exceptions
