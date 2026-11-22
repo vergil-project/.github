@@ -509,8 +509,8 @@ Spec §5.2, §6.1.
   int, *, roles=ALL_ROLES) -> Judgement` (the latest close's actor, so a
   caller or #892 can require a role; callers that act on the close
   raise `UntrustedContentError` when `role` is `None`);
-  `is_same_repo(repo: str, item: Mapping[str, object]) -> bool` (`isCrossRepository` false and
-  `headRepository` owner/name equal to *repo*); `PRRef(number: int, url:
+  `is_same_repo(repo: str, item: Mapping[str, object]) -> bool`
+  (`isCrossRepository` false and `headRepository` owner/name equal to *repo*); `PRRef(number: int, url:
   str, title: str, head: str, head_oid: str, author_role: Role, state:
   str)`, with `head` the branch name and `head_oid` the head commit;
   `prs_for_branch(repo: str, branch: str, *, state: Literal["open",
