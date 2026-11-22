@@ -7,10 +7,10 @@
 ## 1. Intent
 
 The fleet runs 17 jobs with no human watching them (scheduled ops jobs,
-sweeps, refreshes, rebuilds, releases and publishes); 16 of them are in
-this epic's scope (§4.1). When one of them fails, the only signal
-today is a GitHub notification email; only the language lifecycle check
-files an issue on its own failure, and only partly. Email is noise, so
+sweeps, refreshes, rebuilds, releases and publishes); 15 of them get a
+reporting step here, one is deprecated and one is out of scope (§4.1).
+When one of them fails, the only signal today is a GitHub notification
+email; only the language lifecycle check files an issue on its own failure, and only partly. Email is noise, so
 failures go unseen until they hurt something, and several jobs are red
 right now with nobody tracking them.
 
@@ -31,8 +31,8 @@ fed by the automation itself) down to a single operator.
   automation and any filed by hand.
 - **G2. Every unattended job reports itself.** Each of the jobs in the
   inventory (§4) ends with a reporting step that files an **ops issue**
-  under its org's operations epic when the job fails or finds one or more
-  problems, and records a green run on an open issue.
+  under its org's operations epic when the job fails, and records the
+  first green run after a failure on an open issue.
 - **G3. Every unattended job runs as its org's automation bot**, the
   GitHub App behind `APP_CLIENT_ID`/`APP_PRIVATE_KEY`, except where §5.4
   records an exception.
@@ -40,6 +40,11 @@ fed by the automation itself) down to a single operator.
   files operational issues files them under the operations epic and
   closes none of them automatically. For the one such job today, the
   language lifecycle check, this binds its redesign (§5.5).
+- **G5. The morning review reads the queue.** hoshin's daily review
+  (vergil-claude-plugin `skills/hoshin/references/daily.md`) takes its
+  failures from each org's operations epic: issues opened, failure
+  comments and recoveries since the last review. Actions run history
+  stays only as a backstop for runs that never reported (follow-on F1).
 
 ### 2.2 Non-goals (follow-on epics, recorded in the follow-on brainstorm)
 
@@ -73,6 +78,13 @@ fed by the automation itself) down to a single operator.
 - **Leaking secrets into public issues.** Ops issue bodies and comments are
   public. They carry the run link, the job, the step name and the
   conclusion, never log excerpts or environment values.
+- **Publishing a security signal.** A job whose failure means a security
+  finding exists (today `dependabot-audit`, and any security scan added
+  later) files no public ops issue. Its failure is recorded through
+  `vrg-security-record`, and anything public about it names only the
+  neutral record, never the repo's alerts or the job's output. This
+  follows the fleet's existing rule for security-related failures. Every
+  other job, `github-config` included, reports publicly as above.
 
 ## 3. Terms
 
@@ -116,7 +128,9 @@ automation App token; "verified" means the job checks the token against
    daily; vergil-containers and vergil-python. `prepare` uses a read-only
    `GITHUB_TOKEN` by design; `publish` uses the App, verified.
 7. **`pin-exposure`**: vergil-containers `ops.yml`; daily. Read-only
-   `GITHUB_TOKEN`.
+   `GITHUB_TOKEN`. **Deprecated, not reported:** it only prints how far
+   pins lag upstream, to a run summary nobody reads; `upstream-refresh`
+   (job 6) is the job that fixes lag, with a self-merging bump PR (§5.5).
 8. **`language-lifecycle`**: vergil-containers `ops.yml`; daily. App,
    unverified.
 9. **`nightly-rebuild-dev`**: vergil-containers `ops.yml` →
@@ -150,7 +164,11 @@ automation App token; "verified" means the job checks the token against
 Jobs 15 and 17 also run on a release, but they run on every push to
 develop as well, including the merges of self-merging automation PRs
 (github-config sync, upstream refresh) that nobody watches, so they stay
-in scope.
+in scope, reported only on pushes outside a release. A push to `main`
+and a release's develop back-merge (recognised by its merge commit's
+release branch) report nothing: the release records of epic
+vergil-project/.github#1440 already track and recover their failed CD
+jobs, as for job 16.
 
 The stable names are this spec's proposal; the plan may refine them
 before any reporting step ships, never after.
@@ -226,30 +244,29 @@ One command, run once at the end of every unattended job's run:
 
 ```text
 vrg-ops-report --repo <owner>/<repo> --job <job-name> \
-  --result <success|failure|cancelled|findings> --run-url <url> \
-  [--step <failing step>] [--findings-file <md>]
+  --result <success|failure|cancelled> --run-url <url> \
+  [--step <failing step>]
 ```
 
 - **Every read goes through the trust layer** of epic
   vergil-project/.github#1467, a prerequisite of this epic: the issue
   lookup, the previous-occurrence lookup and any read of an issue's body or
-  comments. Only an issue, and only a comment, written by the org's
-  automation App or a trusted identity counts; a title or label alone
-  never identifies an ops issue. pin-exposure's last recorded state is
-  read the same way.
+  comments. Only an issue, and only a report comment, written by the
+  org's automation App counts; a title or label alone never identifies an
+  ops issue. The `ops-report` label is the reporter's alone: an ops issue
+  filed by hand is an ordinary issue under the operations epic, and the
+  reporter never matches it.
 - **Find the issue** by the report key: an **open** issue in `--repo`
   labelled `ops-report` whose title is exactly
   `ops: <repo> / <job-name> failing`, written by the automation App. A
   closed issue is never matched.
-- **failure / findings / cancelled**: no open issue → create one with
+- **failure / cancelled**: no open issue → create one with
   `vrg-issue-create --epic operations`, labelled `ops-report`, its body
   naming the job, the run, the step, the date, and the most recent closed
   issue with the same title ("previous occurrence: #N") if one exists. An
-  open issue → add a comment with the same facts. `--findings-file` adds
-  the job's findings (already public-safe, written by the job) to the body
-  or comment.
+  open issue → add a comment with the same facts.
 - **success**: comments only on a change of state. An open issue whose
-  latest trusted report is a failure, findings or cancelled → add a
+  latest trusted report is a failure or cancelled → add a
   "recovered on DATE, RUN-LINK" comment. An open issue already marked
   recovered, or no open issue → do nothing. Every failure is recorded,
   and only the first green run after one is: the history reads fail,
@@ -263,17 +280,35 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
 
 ### 5.3 The reporting step in workflows (vergil-actions)
 
-- A composite action `actions/ops-report` mints the App token and runs
+- The action mints the App token only on the default branch's ref
+  (`develop`), the rule `ops-github-config.yml` and
+  `ops-upstream-refresh.yml` already apply; on any other ref it reports
+  nothing.
+- A composite action `actions/ops-report` mints the App token, passes
+  the trust layer's inputs (the delivered trusted-author list and
+  `VRG_AUTOMATION_APP`, as epic vergil-project/.github#1467 §5.1a
+  defines them) into the reporter's environment, and runs
   `vrg-ops-report`.
 - Each workflow containing an unattended job adds a final job, one per
   reported job or one reporting all of them, that runs with `if:
   always()`, reads `needs.<job>.result`, and calls the action with that
   job's name. The job name is passed explicitly and is stable (§3).
-- Jobs that find problems while succeeding report `findings` instead of
-  exiting 0 in silence:
-  - **pin-exposure** reports when the set of lagging pins differs from what
-    its open issue last recorded; an unchanged lag adds no nightly comment,
-    and the issue stays open until the human decides it is dealt with.
+- **One result per named job.** A named job may span several GitHub jobs
+  (upstream-refresh is `prepare` and `publish`; package-cleanup is
+  `cleanup` and `reap-aliases`; publish-index is `build-index` and
+  `deploy`). Its result combines all of theirs, in this order: any
+  `failure` → failure; else any `cancelled` → cancelled; else at least
+  one `success` (the rest `skipped`) → success; all `skipped` → no
+  report at all. So a failed `prepare` that skips `publish` reports as an
+  upstream-refresh failure, and a run where every job was skipped by
+  design reports nothing.
+- A job reports only whether it worked. Reporting a problem that a job
+  finds while succeeding is not this epic's model: a job that finds
+  drift fixes it with an automated PR, and a fix it cannot make fails the
+  job. The report-only `pin-exposure` job is therefore deprecated (§5.5).
+- A security-signal job (§2.3) reports through the security-record path,
+  never `vrg-ops-report`'s public issue; how the reporter or the
+  workflow routes it is the plan's to decide.
 - The reporter creates its labels if a repo lacks them (`ensure_labels`),
   so a repo outside github-config's label sync still works.
 
@@ -299,6 +334,11 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
   none of them automatically (a recovery, or a change no longer reported,
   is a comment). Once the job is re-enabled, it gets the generic
   `vrg-ops-report` step for its own crash, like any other job (§5.3).
+- **`pin-exposure` is deprecated.** Its job is removed from
+  vergil-containers' `ops.yml`, with a note that `upstream-refresh` is the
+  path that fixes pin lag. A lag `upstream-refresh` cannot fix (a bump it
+  cannot open or merge) fails that job, and the failure reaches the
+  operations queue like any other.
 - `vrg-update-deps` is not unattended and is out of scope.
 - The epic sweep and rollup keep their housekeeping; their own failures
   are reported like any other job's.
@@ -307,7 +347,7 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
 
 - **Prerequisite:** the trust layer of epic vergil-project/.github#1467
   has shipped in vergil-tooling before `vrg-ops-report` is built on it.
-- **Reporter first, identity second.** The reporting rollout (G1, G2, G4)
+- **Reporter first, identity second.** The reporting rollout (G1, G2, G4, G5)
   ships first and depends on no identity change: the `ops-report` action
   mints its own App token whatever identity the job's other steps use.
   The identity changes (G3) follow, starting with the GHCR proof (§5.4),
@@ -327,15 +367,18 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
   complete. The identity fixes in those workflows ship in a later
   release.
 - Each caller repo picks up the tag and adds reporting to the jobs it
-  defines itself (vergil-containers' rebuilds, pin-exposure,
-  cleanup, cache warm; docs' refresh; packages' publish-index).
+  defines itself (vergil-containers' rebuilds, cleanup, cache warm; docs'
+  refresh; packages' publish-index).
+- vergil-claude-plugin: hoshin's daily review reads the operations epics
+  (G5), once the first of them exists.
 - A one-off deployment first checks that the automation App
-  (`APP_CLIENT_ID`, `APP_PRIVATE_KEY`, `VRG_AUTOMATION_APP`) is configured
-  in every org with unattended jobs, then creates each org's operations
+  (`APP_CLIENT_ID`, `APP_PRIVATE_KEY`, `VRG_AUTOMATION_APP`) and the trust
+  layer's delivered trusted-author list are configured in every org with
+  unattended jobs, then creates each org's operations
   epic.
 - Scope is every unattended job that exists today, in every org, including
-  the sweep and rollup in mq-rest-admin and mnemosys, but not the release
-  (job 16).
+  the sweep in mq-rest-admin and the rollup in mq-rest-admin and
+  mnemosys, but not the release (job 16).
   Adding jobs an org lacks is F3.
 - Validation: each repo's first scheduled run after rollout shows the
   reporter ran (an ops issue for a job already red, such as
@@ -357,5 +400,4 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
 - The exact `vrg-ops-report` flag names and body layout.
 - Whether a workflow uses one reporting job per reported job or one for
   all of them.
-- How `findings` are produced by each job that has them.
 - The order of the rollout across repos.
