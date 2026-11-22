@@ -1112,3 +1112,49 @@ made during execution. The spec stays as approved.
   `not-eligible (human-ruling)`, and `pr-watch` then held a validated fix
   for a second human decision. The human ruled to file it and work it in
   this epic.
+
+### 2026-11-22: stage and count fixes, a task filed and the release
+
+**What changed:**
+
+- **`close-tracking` moved from Task 10 to Task 8.** Task 8
+  (vergil-project/vergil-tooling#4853) split `close-finalize` into
+  `finalize` and a new `close-tracking` stage. Task 10
+  (vergil-project/vergil-tooling#4856) then added only `release-records`,
+  placed before `close-tracking`. It also made `close-tracking` close the
+  issue only once every record is posted.
+- **Task 12 (vergil-project/vergil-tooling#4858) also fixed the
+  connected-event count,** in Task 6's closing-reference check and in
+  Task 3b's tracking-issue guard. The fix reads `filteredCount`, which
+  counts only items from the page's cursor onward, so the guard sums it
+  across pages.
+- **Added vergil-project/vergil-tooling#4899: the release's target version
+  recorded in the state block,** so a resume never drops the version bump.
+  It was made a blocker of Task 13 by a scope change on
+  vergil-project/.github#1455.
+- **vergil-project/vergil-tooling#4878 settled the breach recovery.** A
+  `--supersede` of a breached release rebuilds it from GitHub and git
+  facts, and never reads the breached state block.
+- **Task 13 released v2.1.334.** Before the cut, the one open tracking
+  issue in the fleet was closed (vergil-project/vergil-containers#953).
+  Task 13 then filed the fixture runs and Task 19
+  (vergil-project/.github#1496).
+
+**Why:**
+
+- With `close-tracking` in Task 8, something closes the tracking issue
+  between Tasks 8 and 10, and any failed stage keeps the issue open, so a
+  failure is always resumable.
+- Task 6's closing-reference check read GitHub's unfiltered
+  `timelineItems.totalCount`, so it refused almost every real PR. The
+  human ruled `fix` on Task 12's branch. The audit the ruling asked for
+  found the same mistake in Task 3b's tracking-issue guard, and the human
+  ruled `keep` on carrying that fix in Task 12.
+- vergil-project/vergil-tooling#4899 came from Task 11's run
+  (vergil-project/vergil-tooling#4857). The human ruled `file` as a
+  blocker of Task 13.
+- For vergil-project/vergil-tooling#4878, the human accepted the design.
+  A low-severity residual risk was recorded as a security advisory, with
+  no mitigation task, on the human's ruling.
+- vergil-project/vergil-containers#953 was closed because its deferred
+  publish had already been delivered.
