@@ -126,8 +126,6 @@ output sections:
   "Queues of now-public repos" section;
 - `private_under_public_epic`.
 
-`move_public_queues` is used once, by §4.2, before it is removed.
-
 **vergil-tooling: token-coverage guard.**
 
 - `coverage_gap`, `_login_coverage_gap` and `vrg-adhoc-epic`'s
@@ -154,7 +152,8 @@ output sections:
 - `lib/repo_init.py` and `vrg-github-repo-init`:
   - the `--visibility` flag and its prompt go (repos are created public);
   - the private-only `upload-sarif: false` block in the generated `ci.yml`
-    goes.
+    goes, and so does its `actions: read` grant, once vergil-actions no
+    longer requests it (§4.3).
 
 **vergil-tooling: routing, linking and proxies.**
 
@@ -165,13 +164,15 @@ output sections:
   `PrivateHomeError` go.
 
 **vergil-tooling: reporting.** `vrg-dependabot-audit`'s itemized-for-private
-versus counts-only split collapses to one report.
+versus counts-only split collapses to the counts-only report: counts by
+severity plus a link to the repo's Security tab. It never prints per-alert
+detail, because its workflow logs are world-readable.
 
 **vergil-tooling: visibility primitives.** `lib/github.py`'s
-`repo_visibility` and `is_public` go once nothing calls them.
-`repo_exists`, which is built on `repo_visibility`, is kept with an
-existence probe of its own, and its docstring loses its self-homing
-framing.
+`repo_visibility` and `is_public` go, once the other removals have taken
+away their callers. `repo_exists`, which is built on `repo_visibility`, is
+kept with an existence probe of its own, and its docstring loses its
+self-homing framing.
 
 **vergil-tooling: docs.**
 
@@ -189,10 +190,15 @@ framing.
   also lose the fallback steps that attach SARIF as an artifact when the
   input is not `true`.
 - The gate's "skipped (no GHAS)" handling goes.
+- `ci-security.yml`'s jobs stop requesting the `actions: read` permission,
+  which `codeql-action/upload-sarif` needs only on private repos.
 - The private-repo input docs go from those actions' docs pages, the
   `ci-security` workflow page and the `ops-epic-sweep` page.
 - Removing an input from a reusable workflow breaks every caller still
-  passing it. So every caller drops `upload-sarif` first (§4.3).
+  passing it, so every caller drops `upload-sarif` first. Removing a
+  permission is the reverse: a caller that stops granting one the reusable
+  workflow still requests fails at startup, so vergil-actions stops
+  requesting `actions: read` first (§4.3).
 
 **vergil-claude-plugin (skills).**
 
@@ -229,13 +235,18 @@ run.
 1. Flip the repo to public. This is a human action, on the human's
    declaration that its content is public (§1.1). No scan or review of its
    history, issues, logs or artifacts precedes it.
-2. Move its self-homed queues (intake, deferred) into
-   `logical-minds-foundry/.github`, using `vrg-epic-audit`'s existing
-   now-public queue move. That move needs the repo to be public, so it
-   follows the flip.
-3. The queue move does not cover ad-hoc work, so handle it separately:
-   - Move each open child of the repo's ad-hoc epic (#71) under the
-     `logical-minds-foundry/.github` ad-hoc epic with `vrg-epic-move`.
+2. Move its self-homed queue items. Move each open child of its intake epic
+   (#322) and deferred epic (#329) under the `logical-minds-foundry/.github`
+   epic of the same kind, with `vrg-epic-move`. Then close #322 and #329,
+   each with a pointer to where its items went. The agent does this
+   directly; `vrg-epic-audit --close` and its org-wide close pass are not
+   used.
+3. Move its ad-hoc work:
+   - Create `Epic (ad hoc): mq-gateway-replay-lab` in
+     `logical-minds-foundry/.github` with `vrg-adhoc-epic`, as every other
+     repo in the org has.
+   - Move each open child of the repo's own ad-hoc epic (#71) under it with
+     `vrg-epic-move`.
    - Close #71 and the ad-hoc archive (#319), each with a pointer to where
      its items went.
 4. Close the repo's #307 ("secret-scan history + make public") as
@@ -255,32 +266,47 @@ task's last step, and it establishes the invariant of §1.
 
 ### 4.3 Fleet-wide caller cleanup
 
-Before `[project].ghas` is retired and before the `upload-sarif` inputs are
-removed, every non-archived repo stops setting them. For example,
-`logical-minds-foundry/mq-resiliency-lab-for-linux` sets both `ghas` and
-`upload-sarif: true` today. Archived repos are left alone: they are
-read-only and run no CI. Each repo that needs it gets an ordinary PR. The
-plan lists them from a fleet-wide search at plan time, and the removal tasks
-re-run that search as a precondition.
+Callers are cleaned up in two passes, in an order that never breaks CI.
+Every caller uses `ci-security.yml` through the moving `@v2.1` tag, so a
+vergil-actions release reaches them all at once.
+
+1. **Before the vergil-actions change:** every non-archived repo stops
+   setting `upload-sarif` and `[project].ghas`. For example,
+   `logical-minds-foundry/mq-resiliency-lab-for-linux` sets both today. The
+   input defaults to `true`, so dropping `upload-sarif: true` changes
+   nothing.
+2. **After the vergil-actions release that stops requesting `actions:
+   read`:** every non-archived repo stops granting it, and drops its
+   private-repo comment.
+
+Archived repos are left alone: they are read-only and run no CI. Each repo
+that needs it gets an ordinary PR in each pass. The plan lists them from a
+fleet-wide search at plan time, and each task that depends on a pass re-runs
+that search as a precondition.
 
 ## 5. Acceptance
 
 - **Grep.** In vergil-tooling, vergil-actions and vergil-claude-plugin, run
-  a case-insensitive grep over current files for these terms:
+  a case-insensitive, word-bounded grep over current files for these terms:
   - `self-home`, `self_home`, `self-homed`;
-  - `private repo`, `private home`;
+  - `private repo`, `private repos`, `private home`;
   - `upload-sarif`, `ghas_available`, `[project].ghas`;
   - `visibility`.
 
-  It returns no hits outside these allowed uses:
+  Word-bounded means `\bprivate repos?\b`, so "private reports" is not a
+  hit. It returns no hits outside these allowed uses:
   - the `github/codeql-action/upload-sarif` action, which does the upload;
   - `vrg-gh`'s allow-list entries for `gh`'s own `--visibility` flag;
-  - `visibility` in its timing sense;
+  - `visibility` in a sense other than repository visibility, such as
+    timing or a session's visibility;
   - the `[project].ghas` retirement and its test;
   - the historical paths `docs/specs/`, `docs/plans/`, `docs/superpowers/`,
     `docs/reports/`, `paad/`, `releases/` and `CHANGELOG.md`.
-- **No inputs left.** No reusable workflow or action in vergil-actions has
-  an input named `upload-sarif`.
+- **No inputs or grants left.** No reusable workflow or action in
+  vergil-actions has an input named `upload-sarif`. Neither vergil-actions'
+  `ci-security.yml` nor any non-archived caller, nor the `ci.yml` that
+  `vrg-github-repo-init` generates, requests or grants `actions: read` for
+  the security workflow.
 - **Homes.** `vrg-queue`, `vrg-epic-create` and `vrg-issue-create` resolve
   every repo's home to `<org>/.github` without a visibility probe.
 - **The two repos.** `mq-gateway-replay-lab` is public. Its queues and
@@ -291,38 +317,45 @@ re-run that search as a precondition.
 
 ## 6. Delivery shape
 
-Operational first, then the caller cleanup, then one removal per subsystem.
+Operational first, then the caller cleanup and the vergil-actions change
+in their safe order, then one removal per subsystem.
 
 1. **Operational** (in `logical-minds-foundry/.github`, under a proxy of
    this epic): publish the lab repo and archive the gateway (§4.2). The
    visibility flip and the archive are human-attested preconditions, never
    performed by the agent.
-2. **Caller cleanup** (§4.3): one PR per repo that sets `ghas` or
+2. **Caller cleanup, pass 1** (§4.3): one PR per repo that sets `ghas` or
    `upload-sarif`.
-3. **Removals**, one PR each. Each is blocked by both operational tasks and
-   is otherwise independent:
+3. **vergil-actions**: drop the `upload-sarif` inputs, their artifact
+   fallback and the `actions: read` request (blocked by pass 1). It ships in
+   a vergil-actions release. Because it changes the shared security workflow
+   every language uses, the plan seeds **fixture runs** for every fixture in
+   the `fixture-run` table, blocked by that release.
+4. **Caller cleanup, pass 2** (§4.3): one PR per repo that grants `actions:
+   read`, blocked by that vergil-actions release.
+5. **Removals** in vergil-tooling, one PR each. Each is blocked by both
+   operational tasks:
    - epic home and queue placement;
    - epic-audit visibility passes;
    - token-coverage guard;
-   - GHAS inference and scaffolding (also blocked by the caller cleanup);
+   - GHAS inference and scaffolding (also blocked by pass 1 and by the
+     vergil-actions release, since its generated `ci.yml` drops the
+     `actions: read` grant);
    - routing, linking and proxies;
-   - Dependabot reporting.
-4. **vergil-actions**: drop the `upload-sarif` inputs (blocked by the caller
-   cleanup). It ships in a vergil-actions release. Because it changes the
-   shared security workflow every language uses, the plan seeds **fixture
-   runs** for all four fixtures, blocked by that release.
-5. **vergil-claude-plugin**: the hoshin change, and the epic-skill change,
+   - Dependabot reporting;
+   - visibility primitives, last, blocked by the six removals above, which
+     take away their callers.
+6. **vergil-claude-plugin**: the hoshin change, and the epic-skill change,
    each its own PR. The epic-skill change is blocked by the epic-home
    removal's release, so the runbooks never describe a tool that does not
    exist yet.
-6. The documentation-review (vergil-project/vergil-tooling#4893) and
+7. The documentation-review (vergil-project/vergil-tooling#4893) and
    retrospective (vergil-project/.github#1478) bookends close the epic.
 
 ## 7. Left to the builder
 
 - For each related token path in §4.1, whether visibility is its only
   reason.
-- Whether `repo_visibility` and `is_public` keep any caller (§4.1).
 - Wording of the doc and skill edits.
 - Whether a test that mixes private and public cases is trimmed or
   rewritten.
