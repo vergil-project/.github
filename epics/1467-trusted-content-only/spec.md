@@ -72,8 +72,10 @@ Failures even if the code works:
 ## 3. Constraints
 
 - **Order.** This epic starts implementation only once epic #1440 is
-  closed, and assumes all of it is delivered. #892 is planned right after
-  this epic's docs PR and implemented after this epic closes.
+  closed, and assumes all of it is delivered. The one exception is a change
+  that uses nothing of #1440 or of the trust layer (the plan names it),
+  which may ship as soon as it is filed. #892 is planned right after this
+  epic's docs PR and implemented after this epic closes.
 - **Security run.** The findings live in private advisories tracking the
   planning issue. The site inventory is in seven of them: GHSA-jj85-qr28-7jwh, GHSA-r4j2-cwcp-xg56,
   GHSA-hrq4-7qg2-7xxf, GHSA-w5hq-5p7v-qgc8, GHSA-777j-j57r-92ff,
@@ -290,7 +292,9 @@ returning only trusted items plus the list of skipped untrusted ones, and
 raising a single error type for the stop outcome. It fetches the fields it
 needs (author, edit history, event actors, cross-repository flags) itself,
 so a caller cannot forget them; the layer owns the list of fields a trust
-decision needs.
+decision needs. Where it judges data a caller already fetched, it checks
+that the data is complete (every field it needs present, every connection
+fully paged) and raises a read failure when it is not.
 
 **Readers are parameterised.** Each reader takes the roles it accepts
 (`human`, `agents`, `automation`) and the editor rule (author and every
@@ -349,7 +353,7 @@ list. Each site is fixed by moving it onto the layer and applying §5.3:
 Smaller items in the inventory (the relay-ref payload author, the submit
 linkage's body fallback, the CI full-matrix choice on a fork's `release/*`
 head) are in scope too. Sites already fixed, or removed since the audit,
-are confirmed in the plan, not re-done.
+are confirmed in each task's PR notes, not re-done.
 
 **Outside vergil-tooling.** The first implementation task inventories every
 script and workflow step outside vergil-tooling that reads GitHub content
@@ -373,8 +377,10 @@ builder's call.
 
 - **The command** (name the builder's call, e.g. `vrg-issue-read`) prints an
   issue's or PR's trusted body, comments, reviews and inline review
-  comments, as text and JSON. It exits non-zero with the stop error when the
-  body is untrusted, and lists every skipped untrusted item on stderr.
+  comments, as text and JSON. By default it exits non-zero with the stop
+  error when the body is untrusted; an explicit opt-out exists only for
+  listing or display reads, and each skill read that uses it says why. It
+  lists every skipped untrusted item on stderr.
   Skills that read issue or PR content use it instead of raw
   `vrg-gh issue view --comments` or body reads.
 - **The hook backstop is a blocklist against accidents.** Agents are not
@@ -458,8 +464,9 @@ deleted accounts) are covered by the §6.6 fixtures only.
 - The task split, within the plan's sizing rule, and the sequencing against
   the vergil-tooling and vergil-claude-plugin releases. The pieces depend
   on each other, so the order is fixed in outline: the layer and the list
-  delivery first, then the sites by group, then the guard test and the hook,
-  then the outsider report, then validation.
+  delivery first, then the sites by group with the outsider report
+  alongside them, then the guard test (which then covers the report's code),
+  the skills and the hook, then validation.
 
 ## 8. Follow-on
 
