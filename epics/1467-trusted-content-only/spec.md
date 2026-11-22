@@ -181,13 +181,21 @@ automation_app = "<automation-app-slug>"
   there and stops when they are missing or invalid. The existing uses of
   `VRG_AUTOMATION_APP` (`lib/automation_identity.py`) read the same,
   now-derived value.
-- **The copies are checked with the human's token.** A human-run check
-  compares each listed org's variables with the file and flags any drift,
+- **The copies are checked by automation.** Automation never needs the
+  human's credentials: what it needs is granted to the org's automation
+  App, which only mechanized code uses. Each automation App gets read-only
+  Variables permission at org and repository level (a one-off setup step),
+  and the daily GitHub config audit runs a check, as that App, that
+  compares the org's variables with the delivered copy and flags any drift,
   and any repository-level variable of either name (which would override
-  the org copy in that repo's jobs). `hoshin start` runs it each morning
-  with the outsider report (§6.5). An Actions job trusts the values it was
-  handed between checks; the account-type rule (§5.1) still applies in the
-  job. Nothing automated needs new permissions.
+  the org copy in that repo's jobs). `hoshin start` shows the latest audit
+  result with the outsider report (§6.5). An Actions job trusts the values
+  it was handed between audits; the account-type rule (§5.1) still applies
+  in the job. The agent Apps get no new permissions.
+- **The human does the one-off setup.** Adding an org's stanza, publishing
+  the variables from the file, and granting the automation App its
+  permission are setup steps, done by the human when an org is set up or
+  the file changes; everything recurring is automated.
 - **Dev containers:** not needed; tests use fixtures, never live reads.
 
 Today the daily sweep skips its trusted-comment checks under `--close`
@@ -379,8 +387,8 @@ builder's call.
   untrusted edits to trusted bodies, and untrusted closes or reopens. It
   takes a `--since` time. It writes nothing on GitHub.
 - `hoshin start` runs it, per org, with the time of the last daily review
-  and shows the human what is new, together with the configuration check of
-  §5.1a. Untrusted edits to trusted bodies and untrusted
+  and shows the human what is new, together with the latest result of the
+  configuration audit of §5.1a. Untrusted edits to trusted bodies and untrusted
   closes are called out first, as possible tampering. The report carries
   metadata and links only (repo, number, kind, login, time), never the
   outsider's text, so none of it enters an agent's context as content.
