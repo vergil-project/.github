@@ -1099,8 +1099,8 @@ Spec §5.1a, §6.5.
 ## Task 18: first vergil-tooling release (deployment, .github)
 
 - **Preconditions:** Tasks 3a to 15 (all but 12b), 5a and 5b merged. The
-  human attests the `[orgs.<org>]` stanzas are in the host `identities.toml` for every
-  Vergil org (`vrg-trusted-authors` lists them).
+  human attests the `[orgs.<org>]` stanzas are in the host
+  `identities.toml` for every Vergil org (`vrg-trusted-authors` lists them).
 - **Human-run steps:** tag vergil-actions with 5a and 5b; cut and install
   the vergil-tooling release; run `vrg-trusted-authors publish` for each
   listed org; `vrg-vm update --all`.
