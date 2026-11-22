@@ -14,8 +14,9 @@ any GitHub account can write some of that content. The rule this epic
 enforces everywhere:
 
 > Automation acts only on GitHub content written by a trusted identity:
-> the human's own account, one of the human's agent App accounts, or the
-> org's own automation App, as `vrg-trusted-authors` lists them.
+> the human's own account or one of the human's agent App accounts, as
+> `vrg-trusted-authors` lists them, or the org's own automation App, as
+> its `VRG_AUTOMATION_APP` variable names it.
 
 Much of this is in place (the `trusted_authors` library, trusted comment
 filters in the ruling, scope-change, queue sizing, proxy and planning-close
@@ -87,6 +88,13 @@ Failures even if the code works:
 - **Repos.** Every repo whose content the tooling reads: the vergil-project
   repos, public and private. The code changes land in vergil-tooling,
   vergil-claude-plugin, vergil-actions and vergil-containers.
+- **Content reads live in vergil-tooling.** vergil-tooling is an
+  application, not a library, and the fleet's tooling lives in it. Only
+  vergil-tooling reads behaviour-driving GitHub content; other repos
+  configure it or call its commands. Its Python code calls `gh` and `git`
+  directly and manages its own credentials for its context; the `vrg-gh`
+  and `vrg-git` wrappers and the trusted read command (§6.4) are for agents
+  working interactively, never called from Python automation.
 
 ## 4. Approaches
 
@@ -107,39 +115,58 @@ Failures even if the code works:
 
 ### 5.1 Trusted identity
 
-The trusted-authors configuration gains a third list. A login is trusted
-when, after a leading `app/` or a trailing `[bot]` is stripped, it is one
-of:
+An identity is trusted when it holds one of three roles:
 
-- the `human` logins (global);
-- the `agents` logins (global): the human's agent App identities;
-- the `automation` logins **of the org whose repo holds the content**:
-  each org's automation App, which runs fully mechanized workflows with no
-  agent in them (`automation.<org> = ["<login>"]`). An automation login is
-  not trusted in another org's repos.
+- **`human`** (global): a `human` login of the trusted-authors
+  configuration, and a **User** account.
+- **`agents`** (global): an `agents` login of the trusted-authors
+  configuration, the human's agent App identities, and a **Bot** account.
+- **`automation`**, **for the org whose repo holds the content**: that org's
+  automation App, which runs fully mechanized workflows with no agent in
+  them, and a **Bot** account. Its login is `<slug>[bot]`, derived from the
+  org's existing `VRG_AUTOMATION_APP` Actions variable
+  (`lib/automation_identity.py`), which stays the one definition of each
+  org's automation App: read from the job's environment under Actions, and
+  read back through the API once per org (cached per process) elsewhere.
+  The trusted-authors configuration gets no automation key. An automation
+  identity is not trusted in another org's repos.
 
-The three lists stay distinct (PR provenance names the role; `vrg-ruling`
-never accepts an automation login as an agent; #892 can treat each
-separately), but for this epic all three are "trusted". One loader
-(`trusted_authors.load_trusted_authors`) is the only reader; a missing or
-invalid configuration is a stop.
+**Matching.** A login is compared after a leading `app/` or a trailing
+`[bot]` is stripped, **and** the identity's account type (GraphQL
+`__typename`, or REST `type`) must be the one its role requires. A login
+that matches a role with the wrong account type, or whose type cannot be
+read, is a stop, never trusted.
+
+The three roles stay distinct (PR provenance names the role; `vrg-ruling`
+never accepts an automation identity as an agent; #892 can treat each
+separately), but by default all three are "trusted". One loader is the only
+reader of the roles; a missing or invalid configuration is a stop.
 
 ### 5.1a Where the list lives
 
-The list changes very rarely and is never looked up at run time.
+The `human` and `agents` lists change very rarely and are never looked up
+at run time.
 
 - **Host:** the `[trusted_authors]` stanza of
   `~/.config/vergil/identities.toml` is the single source.
-- **Agent VMs:** `vrg-vm` delivers it as `trusted-authors.toml`, as today,
-  now with the `automation` key.
-- **GitHub Actions runners** (the sweep, the rollup, the refresh, the
-  containers lifecycle publisher, any other unattended job that reads
-  content): a new `vrg-*` command publishes the host stanza to an org
-  Actions variable in each org. The loader reads that variable only when
-  it runs under Actions, and fails loudly when it is unset or invalid. It is
-  a delivered copy, never edited by hand; the command reports a drift
-  between it and the host.
+- **Agent VMs:** `vrg-vm` delivers it as `trusted-authors.toml`, as today.
+- **GitHub Actions runners** (the sweep, the rollup, the refresh, any other
+  unattended job that reads content): a new `vrg-*` command publishes the
+  host stanza to an org Actions variable in each org. It is a delivered
+  copy, never edited by hand; the command reports a drift between it and
+  the host.
 - **Dev containers:** not needed; tests use fixtures, never live reads.
+
+**The Actions copies are verified, not assumed.** A repository variable
+overrides an org variable of the same name, so for both the delivered list
+and `VRG_AUTOMATION_APP`:
+
+- the publish command refuses, and its drift report flags, a
+  repository-level variable of either name in any repo of the org;
+- the loader uses the delivered list only when the run is a GitHub Actions
+  job, and even then it reads the org variable back through the API with
+  the job's token and stops when the delivered value differs or cannot be
+  read. An environment that merely claims to be Actions gains nothing.
 
 Today the daily sweep skips its trusted-comment checks under `--close`
 because runners have no list; with the variable, they run there too.
@@ -178,9 +205,9 @@ because runners have no list; with the variable, they run there too.
   implemented, run or deployed; a trusted body an untrusted identity has
   edited; an outsider-opened issue or PR the action targets; an untrusted
   close or reopen the tool would act on. The tool or skill refuses before
-  any write on that item, with an error naming the identity, what it wrote
-  or did, and where. It never falls back to other content or defaults. The
-  human decides next.
+  any write on that item, with an error naming the identity, what it did
+  and where. It never falls back to other content or defaults. The human
+  decides next.
 - **Report** everything else. An untrusted comment, even one carrying a
   well-formed marker (`Outcome: SUCCESS`, `Blocked-by:`, a planning marker
   set, a deferral note), is filtered out; the trusted state is intact, so
@@ -191,16 +218,25 @@ because runners have no list; with the variable, they run there too.
   stop applies to its item only. The run skips that item, carries on with
   the rest, and exits non-zero at the end, listing every stopped item.
 
-An **outsider-opened issue** is a stop for anything that would route, link,
-size, attach, work or publish it. The daily sweep's orphan attach skips it
-(reporting it), intake routing refuses it, and the activity log leaves it
-out.
+**Metadata only.** Stop errors and skip reports carry metadata and links
+only: repo, number, kind (issue, PR, comment, review, edit, event), login,
+time and the field concerned. They never print untrusted text, so none of
+it enters an agent's context through a tool's output. Under GitHub Actions,
+whose logs are public, they print counts only and point to the private
+outsider report (§6.5).
+
+**Outsider-opened issues and PRs.** One that a run merely encounters
+(orphan detection, listings, the sweep) is reported, with a clean exit;
+the outsider report shows it to the human. It is a stop only when a tool
+is pointed at that item to act on it: intake routing, sizing,
+implementing, validating, deploying, publishing. The daily sweep's orphan
+attach never attaches one, and the activity log leaves it out.
 
 ### 5.4 Groundwork for #892
 
-The layer reports, for each trusted item, whether it came from the `human`
-login or an agent login, so #892 can require the human at chosen gates by
-changing a parameter rather than a parser.
+Every reader takes the roles it accepts as a parameter (§6.1), and reports
+for each trusted item which role it came from, so #892 can require the
+`human` role at chosen gates by changing a parameter rather than a parser.
 
 ## 6. The design
 
@@ -211,10 +247,21 @@ One module (name the builder's call; it extends or absorbs
 returning only trusted items plus the list of skipped untrusted ones, and
 raising a single error type for the stop outcome. It fetches the fields it
 needs (author, edit history, event actors, cross-repository flags) itself,
-so a caller cannot forget them. It reuses #1440's identity rule and trusted
-closing references; where #1440 implemented them inside the release
-package, they move into the layer and the release package calls them, with
-epic #1440's behaviour unchanged. The existing `comments.trusted()`,
+so a caller cannot forget them; the layer owns the list of fields a trust
+decision needs.
+
+**Readers are parameterised.** Each reader takes the roles it accepts
+(`human`, `agents`, `automation`) and the editor rule (author and every
+editor, or author and last editor). The default is §5.2's: all three roles,
+author and every editor. Callers that need a narrower rule pass it.
+
+It reuses #1440's identity rule, trusted closing references and record
+rule; where #1440 implemented them inside the release package, they move
+into the layer and the release package calls them **with #1440's own
+parameters**, so its behaviour is unchanged: the release tracking issue
+accepts the `human` role only, closing references accept `human` and
+`agents` only, and `Released:` records accept the `human` role for author
+and last editor. The existing `comments.trusted()`,
 `trusted_comment_bodies()`, `trusted_comment_lines()` and
 `epic_size.trusted_logins()` become thin calls into it, or are replaced.
 
@@ -225,9 +272,11 @@ list. Each site is fixed by moving it onto the layer and applying §5.3:
 
 - **PR lookup by branch name** (GHSA-r4j2-cwcp-xg56): the branch lookups in
   the release, finalize, worktree, CI-evidence and deps-gate paths, and the
-  tracking-issue resolver's fallback. The containers lifecycle publisher
-  (vergil-containers) applies the same same-repo rule; the existing
-  `mechanized_pr` same-repo check is the pattern.
+  tracking-issue resolver's fallback. The vergil-containers lifecycle
+  publisher's PR handling (finding, refreshing and closing its
+  `lifecycle/*` PRs) moves into vergil-tooling, on the existing
+  `mechanized_pr` same-repo logic, and the containers workflow calls that
+  command; vergil-containers keeps only its build logic.
 - **State parsed from comments** (GHSA-hrq4-7qg2-7xxf): the queue views
   (planning markers, deferral notes, latest notes), intake routing's
   planning-epic guard, the operational-outcome audit and the security-record
@@ -259,6 +308,12 @@ linkage's body fallback, the CI full-matrix choice on a fork's `release/*`
 head) are in scope too. Sites already fixed, or removed since the audit,
 are confirmed in the plan, not re-done.
 
+**Outside vergil-tooling.** The first implementation task inventories every
+script and workflow step outside vergil-tooling that reads GitHub content
+(the `gh` calls in vergil-actions workflow steps, scripts in the other
+repos), and confirms each reads nothing behaviour-driving. Any that does
+moves into vergil-tooling the same way as the lifecycle publisher.
+
 ### 6.3 The guard test (vergil-tooling)
 
 A test in vergil-tooling fails when code outside the trust layer reads
@@ -278,12 +333,14 @@ builder's call.
   body is untrusted, and lists every skipped untrusted item on stderr.
   Skills that read issue or PR content use it instead of raw
   `vrg-gh issue view --comments` or body reads.
-- **The hook backstop.** The hook guard refuses an agent's `vrg-gh` reads of
-  bodies, comments or reviews (`issue view` / `pr view` with those fields or
-  `--comments`, and `api` calls to the comment and review endpoints),
-  naming the trusted command. Display-only reads stay allowed.
-- Skills that show untrusted content to the human (none should need to, but
-  the report below does) mark it as data, never as instructions.
+- **The hook backstop is an allowlist.** For agents, the hook guard allows
+  only named display-only `vrg-gh` read forms and fields (such as state,
+  labels, number, title, URL, parent and timestamps). Every other `vrg-gh`
+  read of issues, PRs, search results or GraphQL is refused, naming the
+  trusted command. A new read form is refused until it is added to the
+  allowlist, and each addition is a reviewed change with a test.
+- No skill shows untrusted text to the human or the agent; the outsider
+  report (§6.5) carries metadata and links only.
 
 ### 6.5 The outsider report and the morning review
 
@@ -297,27 +354,33 @@ builder's call.
   closes are called out first, as possible tampering. The report carries
   metadata and links only (repo, number, kind, login, time), never the
   outsider's text, so none of it enters an agent's context as content.
-  Nothing about outsider
-  activity goes into the public logbook beyond the count and the fact that
-  it was shown.
+- The public logbook records only that the outsider check ran, with no
+  count and no detail. The count and the listing stay in the terminal.
 
 ### 6.6 Tests
 
-Every migrated site gets tests built from real spam comments seen on
-vergil-project issues (captured as fixtures) and from deliberately forged
-input: a forged `Blocked-by:`, `Parent:`, planning marker set,
+Every migrated site gets tests built from synthetic fixtures: ones that
+copy the shape of the spam comments seen on vergil-project issues
+(structure, marker placement, link patterns) with neutralised URLs, never
+their text, and deliberately forged input: a forged `Blocked-by:`,
+`Parent:`, planning marker set,
 `Outcome: SUCCESS`, deferral note and `Closes` line; a trusted body later
 edited by an outsider; a fork PR on a `release/*`, `release/post-*`,
 `lifecycle/*` and task branch; an outsider closing a tracked issue; an
-issue titled like a fix task or a release by an outsider. Each test checks
-the stop or the report, not just that the content is ignored.
+issue titled like a fix task or a release by an outsider; a User account
+whose login matches an App role; a repository variable shadowing a
+delivered org variable. Each test checks the stop or the report, not just
+that the content is ignored, and that its output carries no untrusted text.
 
 ### 6.7 Validation
 
 A validation task, after the vergil-tooling and vergil-claude-plugin
 releases carrying the epic are installed, runs the forged cases end to end
-against a scratch issue set in a vergil-project repo (posted from a
-non-trusted test account the human controls), and confirms each stop, each
+from a non-trusted test account the human controls, in a scratch
+**private** vergil-project repo. The cases that need collaborator rights
+(editing a trusted body, closing another's issue) run while that account
+holds temporary write access to the scratch repo only; the validation then
+revokes the access and confirms the revocation. It confirms each stop, each
 report, and the morning review's listing. It also confirms the automation
 App's own refresh, lifecycle and archive work still runs clean, and that a
 scheduled sweep under Actions reads the published list.
@@ -329,7 +392,10 @@ scheduled sweep under Actions reads the published list.
 - How the layer batches API calls (edit history and event actors cost
   extra queries); correctness first, then cost.
 - The task split, within the plan's sizing rule, and the sequencing against
-  the vergil-tooling and vergil-claude-plugin releases.
+  the vergil-tooling and vergil-claude-plugin releases. The pieces depend
+  on each other, so the order is fixed in outline: the layer and the list
+  delivery first, then the sites by group, then the guard test and the hook,
+  then the outsider report, then validation.
 
 ## 8. Follow-on
 
