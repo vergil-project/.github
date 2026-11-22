@@ -139,8 +139,8 @@ Repos are abbreviated: `lmf/` is `logical-minds-foundry/`, `vp/` is
 
 Task 7's rows are filed one per repo from the list in Task 7. Once filed, a
 task in `logical-minds-foundry` is named by its full ref in every
-`Blocked-by:`. Security advisory GHSA-2v43-fjxg-fv3c, which tracks the planning issue, is retargeted
-to Task 13 when the tasks are filed.
+`Blocked-by:`. Security advisory GHSA-2v43-fjxg-fv3c, which tracks the
+planning issue, is retargeted to Task 13 when the tasks are filed.
 
 ---
 
