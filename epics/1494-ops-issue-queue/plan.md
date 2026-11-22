@@ -2,7 +2,7 @@
 
 - **Epic:** vergil-project/.github#1494
 - **Planning issue:** vergil-project/.github#1470 (review history is in its comments)
-- **Status:** draft, in design review
+- **Status:** approved
 
 > **For agentic workers:** each task is one issue and one PR in the repo named
 > in its heading, worked with `issue-implement`. Operational tasks
@@ -239,6 +239,65 @@ Notes:
   switching it; the reporter is unaffected.
 - **Filing.** Every task above is filed at epic-create's filing step, in
   its repo, under #1494 or its org's proxy, with its `Blocked-by:` refs.
+
+### Filed tasks
+
+Each task as filed, linked under the epic or, for another org's repo,
+under that org's proxy (logical-minds-foundry/.github#420,
+mnemosys-project/.github#120, mq-rest-admin-project/.github#53).
+
+- **2a:** vergil-project/vergil-tooling#4962
+- **2b:** vergil-project/vergil-tooling#4963
+- **2c:** vergil-project/vergil-tooling#4964
+- **3:** vergil-project/.github#1510
+- **4:** vergil-project/vergil-actions#1361
+- **5:** vergil-project/.github#1511
+- **6a:** vergil-project/docs#160
+- **6b:** vergil-project/vergil-claude-plugin#1255
+- **6c:** vergil-project/vergil-containers#986
+- **6d:** vergil-project/vergil-tooling#4965
+- **6e:** vergil-project/vergil-vm#444
+- **6f:** vergil-project/vergil-fixture-python-lib#62
+- **6g:** vergil-project/vergil-fixture-python-app#55
+- **6h:** vergil-project/vergil-fixture-rust-lib#76
+- **6i:** vergil-project/vergil-fixture-rust-app#70
+- **6j:** vergil-project/vergil-fixture-ts-lib#71
+- **6k:** vergil-project/vergil-fixture-ts-app#72
+- **6l:** logical-minds-foundry/docs#38
+- **6m:** logical-minds-foundry/mq-resiliency-observability#84
+- **6n:** logical-minds-foundry/mq-resiliency-lab-for-linux#1754
+- **6o:** mnemosys-project/docs#33
+- **6p:** mq-rest-admin-project/mq-rest-admin-common#236
+- **6q:** mq-rest-admin-project/mq-rest-admin-dev-environment#180
+- **6r:** mq-rest-admin-project/mq-rest-admin-python#536
+- **6s:** mq-rest-admin-project/mq-rest-admin-go#332
+- **6t:** mq-rest-admin-project/mq-rest-admin-rust#131
+- **7:** vergil-project/vergil-actions#1362
+- **8:** vergil-project/vergil-containers#987
+- **9:** vergil-project/vergil-containers#988
+- **10:** vergil-project/vergil-claude-plugin#1256
+- **10b:** vergil-project/.github#1513
+- **11:** vergil-project/.github#1512
+- **12:** vergil-project/.github#1514
+- **13:** vergil-project/.github#1515
+- **15:** vergil-project/vergil-containers#989
+- **16:** vergil-project/.github#1516
+- **16b:** vergil-project/.github#1517
+- **17:** vergil-project/vergil-containers#990
+- **18:** vergil-project/vergil-actions#1363
+- **19:** vergil-project/.github#1518
+- **19b:** vergil-project/.github#1519
+- **20:** vergil-project/.github#1520
+- **14** (fixture runs, change → release → validation):
+  - vergil-fixture-python-lib: #63 → #64 → #65
+  - vergil-fixture-python-app: #56 → #57 → #58
+  - vergil-fixture-rust-lib: #77 → #78 → #79
+  - vergil-fixture-rust-app: #71 → #72 → #73
+  - vergil-fixture-ts-lib: #72 → #73 → #74
+  - vergil-fixture-ts-app: #73 → #74 → #75
+- **Bookends:** documentation review vergil-project/vergil-tooling#4938,
+  follow-on brainstorm vergil-project/.github#1497 (both blocked by 13),
+  retrospective vergil-project/.github#1498.
 
 ---
 
