@@ -80,12 +80,14 @@ fed by the automation itself) down to a single operator.
   public. They carry the run link, the job, the step name and the
   conclusion, never log excerpts or environment values.
 - **Publishing a security signal.** A job whose failure means a security
-  finding exists (today `dependabot-audit`, and any security scan added
-  later) files no public ops issue. Its failure is recorded through
+  finding exists (today `dependabot-audit` and `github-config`, the
+  configuration audit, and any security scan added later) files no
+  public ops issue. Its failure is recorded through
   `vrg-security-record`, and anything public about it names only the
   neutral record, never the repo's alerts or the job's output. This
-  follows the fleet's existing rule for security-related failures. Every
-  other job, `github-config` included, reports publicly as above.
+  follows the fleet's existing rule for security-related failures
+  (hoshin's daily review names the dependency audit and the GitHub-config
+  audit among them). Every other job reports publicly as above.
 
 ## 3. Terms
 
