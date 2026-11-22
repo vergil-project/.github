@@ -1,0 +1,1156 @@
+# trusted-content-only — implementation plan
+
+- **Epic:** vergil-project/.github#1467
+- **Planning issue:** vergil-project/.github#579 (review history is in its comments)
+- **Status:** draft, in design review
+
+> **For agentic workers:** each task is one issue and one PR in the repo named
+> in its heading, worked with `issue-implement`. Operational tasks
+> (deployment, validation) are worked with `issue-deploy` or
+> `issue-validate`. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** every read of GitHub content that drives Vergil's behaviour goes
+through one trust layer in vergil-tooling and acts only on content from the
+`human`, `agents` or per-org `automation` roles of the human's Vergil
+configuration; untrusted content stops the item it is load-bearing for and is
+otherwise reported, and a guard test and an agent hook keep new raw reads out.
+
+**Architecture:**
+
+- **vergil-tooling** does all of it but the skills: the configuration (roles
+  and the Vergil org list), the trust layer, the publish and check commands,
+  every migrated site, the trusted read command, the outsider report, the
+  lifecycle PR and issue handling moved out of vergil-containers, the guard
+  test and the hook allowlist.
+- **vergil-actions** passes the delivered configuration into the jobs that
+  read content, and stops treating a fork's `release/*` head as a release.
+- **vergil-containers** hands its GitHub handling to the vergil-tooling
+  command and keeps only its build logic.
+- **vergil-claude-plugin** switches every skill that reads issue or PR
+  content to the trusted read command, and adds the outsider report and the
+  configuration check to `hoshin start`.
+- **Operational tasks:** an inventory of content reads outside
+  vergil-tooling; a first vergil-tooling release (with the vergil-actions
+  tag and the org variables published); a plugin release; a second
+  vergil-tooling release carrying the hook; fixture runs; and a validation
+  on real data.
+
+**Tech Stack:** Python 3 and pytest (vergil-tooling), GitHub Actions YAML
+(vergil-actions), Python (vergil-containers), Markdown skills
+(vergil-claude-plugin).
+
+**Spec:** [`spec.md`](spec.md) in this directory. Executors read both.
+
+## Global Constraints
+
+- **Start.** No implementation task starts before epic
+  vergil-project/.github#1440 is closed; this plan assumes all of it.
+  Tasks 2 and 3a carry `Blocked-by: vergil-project/.github#1442`, #1440's
+  retrospective, and every other task chains from them.
+- **One definition.** Every trust decision goes through `lib/trust.py`
+  (Task 3b); the roles come only from `trusted_authors.load_trusted_authors()`
+  (Task 3a). No module compares a login with a list itself.
+- **Roles and types** (spec §5.1): `human` must be a GraphQL `User`;
+  `agents` and `automation` must be a `Bot`. A login is normalised by
+  stripping a leading `app/` and a trailing `[bot]`. A role match with the
+  wrong type is a stop. An `automation` identity is trusted only in repos of
+  its own org.
+- **Deleted accounts** (spec §5.1): a `null` author, editor or actor, or the
+  `ghost` login, is untrusted, never a read failure.
+- **Fail loudly** (spec §3): an API error, a missing field or a truncated
+  connection (`pageInfo.hasNextPage` true where the reader does not page)
+  raises `TrustReadError` naming the call. Never "trusted", "absent" or
+  "nothing found".
+- **Metadata only** (spec §5.3): stop errors and skip reports print repo,
+  number, kind, login, time and field, never untrusted text. Under
+  `GITHUB_ACTIONS=true`, batch runs print counts by cause, listing only
+  read-failure stops by repo and number.
+- **Batch runs** stop the item, not the run, and exit non-zero at the end
+  when any item stopped. An outsider-opened issue a batch run merely
+  encounters is reported with a clean exit.
+- **Content reads live in vergil-tooling** (spec §3): Python automation calls
+  `gh` and `git` directly with its own credentials; it never calls `vrg-gh`,
+  `vrg-git` or the trusted read command.
+- **Proportion** (spec §3): the simplest mechanism that protects; nothing
+  for cases that cannot occur today.
+- **Public wording:** issues, commits, PR text and docs describe mechanisms
+  only and name findings by GHSA ID alone.
+- **Fixtures** copy the field shapes of real recorded GitHub responses, and
+  synthetic spam keeps the shape (structure, marker placement, link
+  patterns) with neutralised URLs, never real text (spec §6.6).
+- **Tests and validation** run through `vrg-container-run`; a task is done
+  when `vrg-container-run -- vrg-validate` passes.
+- **Site docs:** each tooling task updates the docs for what it changes
+  (`docs/site/docs/reference/cli-tools-overview.md` and the reference page
+  of each command it touches); the documentation review sweeps the rest.
+- **Refactor step:** every code task ends with tests green, then removes the
+  duplication it introduced (each replaced login comparison), then re-runs
+  the tests.
+- **Re-check first:** every site task first re-checks its sites against
+  current `develop` (some are fixed, removed or moved since the audit, and
+  #1440 changed the release ones), and records in its PR notes each site it
+  found fixed or gone.
+- **Fixture runs:** the epic changes release tooling and a shared CI
+  workflow, which every language fixture uses, so it seeds a fixture run for
+  all six fixtures (Task 19).
+
+## Review Focus
+
+1. **An edit history or comment list longer than one page.** The reader
+   raises, never judges the first page alone. Pinned in Task 3b
+   (`test_read_issue_truncated_edits_raises`,
+   `test_read_issue_truncated_comments_raises`).
+2. **The same App author in each form GitHub returns** (`app/x`, `x`,
+   `x[bot]`), across REST and GraphQL. Each maps to its role. Pinned in
+   Task 3b (`test_role_of_app_login_forms`).
+3. **An automation comment in an org that is not its own, or in an org with
+   no stanza.** Untrusted and reported. Pinned in Task 3b
+   (`test_automation_untrusted_in_other_org`,
+   `test_unlisted_org_has_no_automation_role`).
+4. **A same-repo PR and a fork PR on one branch name.** The same-repo PR is
+   returned, the fork reported. Pinned in Task 3c
+   (`test_prs_for_branch_skips_fork_and_reports`).
+5. **A job under Actions with the delivered configuration missing.** The
+   loader stops before any write. Pinned in Task 3a
+   (`test_load_under_actions_without_env_raises`).
+
+---
+
+## Delivery table
+
+Each line gives the task, its repo and kind, what it delivers, and what it is
+blocked by.
+
+### Foundation
+
+- **1** (.github, task #1468): spec and plan, this PR.
+- **2** (.github, validation): inventory every script and workflow step
+  outside vergil-tooling that reads GitHub content; file a task for each one
+  that reads behaviour-driving content. Blocked by #1442.
+- **3a** (vergil-tooling): the `[orgs.<org>]` configuration, roles in the
+  loader, VM delivery, the Actions loader. Blocked by #1442.
+- **3b** (vergil-tooling): `lib/trust.py`: identities, roles, issue bodies
+  and comments, errors, skip reporting. Blocked by 3a.
+- **3c** (vergil-tooling): close and reopen events, branch PR lookup,
+  reviews and inline review comments. Blocked by 3b.
+- **3d** (vergil-tooling): #1440's identity rule, trusted closing references
+  and record rule onto the layer with #1440's parameters. Blocked by 3c.
+- **4** (vergil-tooling): `vrg-trusted-authors publish` and `check`.
+  Blocked by 3a.
+- **5a** (vergil-actions): pass `VRG_TRUSTED_AUTHORS` into the jobs that
+  read content. Blocked by 3a.
+- **5b** (vergil-actions): a fork's `release/*` head never gets the release
+  matrix. Blocked by #1442.
+
+### Sites
+
+- **6a** (vergil-tooling): release PR lookups and the deps-gate branch
+  delete. Blocked by 3c and 3d.
+- **6b** (vergil-tooling): finalize, worktree and tracking-issue resolver
+  lookups. Blocked by 3c.
+- **6c** (vergil-tooling): CI evidence's PR choice and check-run matching.
+  Blocked by 3c.
+- **7a** (vergil-tooling): the queue views and intake routing's
+  planning-epic guard. Blocked by 3b.
+- **7b** (vergil-tooling): the operational-outcome audit and the
+  security-record comment dedup. Blocked by 3b.
+- **8a** (vergil-tooling): body parents, child search, blockers and the
+  rollup's closer check. Blocked by 3c.
+- **8b** (vergil-tooling): the sweep's body parents, nativising and drift
+  closes. Blocked by 3d and 8a.
+- **8c** (vergil-tooling): security-record body lines, `show`, resume and
+  retarget. Blocked by 3b.
+- **8d** (vergil-tooling): the open-task check, the release marker test,
+  the submit linkage and the relay-ref payload. Blocked by 8a.
+- **9** (vergil-tooling): the dependency-update fix task and the
+  release-start gate. Blocked by 3c.
+- **10** (vergil-tooling): PR provenance roles and the inline review-comment
+  reader. Blocked by 3c.
+- **11** (vergil-tooling): outsider-opened issues are never attached,
+  routed, sized or published. Blocked by 3b.
+- **12a** (vergil-tooling): the lifecycle PR and issue command. Blocked by
+  3c.
+- **12b** (vergil-containers): the publisher calls it and drops its GitHub
+  handling. Blocked by 18.
+
+### Commands, enforcement, skills
+
+- **13** (vergil-tooling): the trusted read command `vrg-issue-read`.
+  Blocked by 3c.
+- **14** (vergil-tooling): the outsider report. Blocked by 3c.
+- **15** (vergil-tooling): the guard test. Blocked by 6a to 12a, 13 and 14.
+- **16** (vergil-tooling): the hook allowlist. Blocked by 18 (so it ships
+  only in the second release, after the skills).
+- **17a** (vergil-claude-plugin): `issue-implement`, `epic-implement`,
+  `issue-validate`, `issue-deploy`, `pr-watch`. Blocked by 18.
+- **17b** (vergil-claude-plugin): `epic-review`, `epic-create`,
+  `epic-retrospective`, `deprecation-triage`. Blocked by 18.
+- **17c** (vergil-claude-plugin): `hoshin start` runs the outsider report
+  and the configuration check. Blocked by 18.
+
+### Operational
+
+- **18** (.github, deployment): the human adds the `[orgs.<org>]` stanzas;
+  the vergil-actions tag with 5a and 5b; the vergil-tooling release with 3a
+  to 15 (all but 12b), installed; `vrg-trusted-authors publish` for each
+  org; Task 19 filed. Blocked by 3a to 15 (all but 12b), 5a and 5b.
+- **19** (fixture runs, all six fixtures): filed with `fixture-run` by Task
+  18, `--after` Task 18.
+- **20** (.github, deployment): the vergil-claude-plugin release with 17a to
+  17c, installed. Blocked by 17a, 17b and 17c.
+- **21** (.github, deployment): the vergil-tooling release with 16,
+  installed. Blocked by 16 and 20.
+- **22** (.github, validation): the layer on real data. Blocked by 21, 12b
+  and the six fixture runs' validate tasks.
+
+### Bookends
+
+- **Documentation review** (vergil-tooling, #4887). Blocked by every task
+  above but 19 and 22. Its sweep covers the docs repo and the plugin's
+  skill docs, and spawns a per-repo task for each.
+- **Retrospective** (.github, #1469). Blocked by everything else.
+- **Follow-on:** vergil-project/.github#892, planned right after this plan's
+  docs PR. Not a task of this epic.
+
+Notes:
+
+- **Merged is not deployed.** The skills (17a to 17c) call `vrg-issue-read`
+  and the report, so they wait for Task 18's release. The hook (16) refuses
+  raw reads, so it ships only after the skills that stop needing them are
+  installed (Task 20), in Task 21's release.
+- **Actions first.** Task 18 tags vergil-actions with 5a before the
+  vergil-tooling cut, so every job that runs the new tooling already
+  receives `VRG_TRUSTED_AUTHORS`; it then publishes the variable right after
+  installing. A scheduled job in that gap stops loudly and is re-run.
+- **Filing.** Every task above but 19 is filed at epic-create's filing step,
+  in its repo, linked under #1467, with its `Blocked-by:` refs. The security
+  advisories tracking the planning issue are retargeted then, one at a time,
+  all in vergil-project:
+  - GHSA-jj85-qr28-7jwh to Tasks 3b, 15 and 16;
+  - GHSA-r4j2-cwcp-xg56 to Tasks 5b, 6a, 6b, 6c, 12a and 12b;
+  - GHSA-hrq4-7qg2-7xxf to Tasks 7a and 7b;
+  - GHSA-w5hq-5p7v-qgc8 to Tasks 8a, 8b, 8c and 8d;
+  - GHSA-777j-j57r-92ff to Tasks 8a and 9;
+  - GHSA-q6hx-8c85-9f56 to Tasks 6c and 10;
+  - GHSA-crcw-h2ff-qgr5 to Tasks 13, 17a and 17b;
+  - GHSA-h24x-mm5p-j8vg, GHSA-f7mp-c8cv-mxjv and GHSA-rcf4-699q-jgpr to
+    Task 3b;
+  - GHSA-3qxq-x48m-v8jj to Task 11;
+  - GHSA-363j-9x97-29fm to Task 16;
+  - GHSA-5mvv-5h3p-64m3 to Tasks 3a and 4;
+  - GHSA-578x-r7xr-gcx8 to Tasks 2, 12a and 12b.
+
+---
+
+## Task 1: spec and plan (.github, #1468)
+
+This PR. Done when it merges.
+
+## Task 2: inventory of content reads outside vergil-tooling (validation, .github)
+
+Spec §3, §6.2 ("Outside vergil-tooling").
+
+- **Preconditions:** #1440 closed.
+- **Procedure:** at `origin/develop` of vergil-actions, vergil-containers,
+  vergil-claude-plugin, vergil-vm, docs and the six fixture repos, list every
+  `gh` call, `gh api` path, `actions/github-script` step and script that
+  reads issue or PR bodies, comments, reviews, titles, branch names or
+  events. For each, record repo, file and line, what it reads, and whether
+  the result drives behaviour. Skills are out of scope (Tasks 17a to 17c).
+- **Acceptance:** every behaviour-driving read is either the lifecycle
+  publisher (Task 12) or has a task filed under #1467 moving it into
+  vergil-tooling (with `vrg-issue-create --epic vergil-project/.github#1467`,
+  Blocked-by 3c). The comment lists each read found, by file and line, with
+  no content quoted. `Outcome: SUCCESS`.
+
+## Task 3a: roles and the Vergil org list in the configuration (vergil-tooling)
+
+Spec §5.1, §5.1a.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/trusted_authors.py`
+- Modify: `src/vergil_tooling/lib/vm_guest.py` (`inject_trusted_authors`
+  renders the orgs)
+- Modify: `src/vergil_tooling/bin/vrg_trusted_authors.py` (prints
+  `org: <org> automation: <slug>` lines; `--json` adds `orgs`)
+- Modify: `src/vergil_tooling/lib/automation_identity.py`
+  (`automation_app_slug(org)` reads the configuration, not the API)
+- Test: `tests/vergil_tooling/test_trusted_authors.py`,
+  `tests/vergil_tooling/test_automation_identity.py`
+
+**Interfaces:**
+
+- Produces: `OrgConfig(automation_app: str)`;
+  `TrustedAuthors(human: tuple[str, ...], agents: tuple[str, ...], orgs:
+  Mapping[str, OrgConfig])`; `parse_trusted_authors(raw: Mapping[str,
+  object], orgs: Mapping[str, object] | None) -> TrustedAuthors` (rejects an
+  `app/` or `[bot]` suffix on any value, an org with no `automation_app`,
+  and a login in two lists); `load_trusted_authors() -> TrustedAuthors`:
+  the VM file, else the host `identities.toml` (`[trusted_authors]` plus
+  `[orgs.*]`), else, only when `GITHUB_ACTIONS == "true"` and neither file
+  exists, `$VRG_TRUSTED_AUTHORS` (compact JSON: `{"human": [...], "agents":
+  [...], "orgs": {"<org>": {"automation_app": "<slug>"}}}`); otherwise
+  `TrustedAuthorsNotConfiguredError`. `vergil_orgs(authors) -> tuple[str,
+  ...]`. `render_vm_file(authors)` writes `[orgs.<org>]` tables.
+  `render_actions_value(authors, org: str) -> str`, the JSON for one org.
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_parse_orgs_stanza`; `test_parse_rejects_org_without_automation_app`;
+  `test_parse_rejects_bot_suffix`; `test_vm_file_round_trips_orgs`;
+  `test_load_under_actions_reads_env` (no files, `GITHUB_ACTIONS=true`,
+  valid env); `test_load_under_actions_without_env_raises`;
+  `test_load_env_ignored_when_file_exists`;
+  `test_load_env_ignored_outside_actions`;
+  `test_render_actions_value_has_one_org`;
+  `test_automation_app_slug_reads_config`;
+  `test_automation_app_slug_unlisted_org_raises`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.** The `ValueError` messages name the file and
+  the key, as today.
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type feat --scope trust --message
+  "add the Vergil org list and per-org automation identities to the trusted
+  authors"`, then report-ready. The PR notes give the human the stanza to add
+  to `identities.toml` before Task 18.
+
+## Task 3b: the trust layer — identities, issues and comments (vergil-tooling)
+
+Spec §5.1 to §5.3, §6.1.
+
+**Files:**
+
+- Create: `src/vergil_tooling/lib/trust.py`
+- Modify: `src/vergil_tooling/lib/trusted_authors.py`
+  (`trusted_comment_bodies`, `trusted_comment_lines` call `trust`)
+- Modify: `src/vergil_tooling/lib/rulings/comments.py` (`trusted` calls
+  `trust`)
+- Modify: `src/vergil_tooling/lib/epic_size.py` (`trusted_logins` removed;
+  its callers use `trust`)
+- Test: `tests/vergil_tooling/test_trust.py` (new), and the existing tests
+  of the three modified modules
+
+**Interfaces:**
+
+- Consumes: Task 3a's `TrustedAuthors`, `load_trusted_authors`.
+- Produces:
+  - `class Role(StrEnum)`: `HUMAN = "human"`, `AGENTS = "agents"`,
+    `AUTOMATION = "automation"`; `ALL_ROLES: frozenset[Role]`.
+  - `Identity(login: str | None, typename: str | None)`; `None` login is a
+    deleted account.
+  - `role_of(identity: Identity, *, org: str, authors: TrustedAuthors) ->
+    Role | None`: `None` for untrusted or deleted; raises
+    `UntrustedContentError` for a role match with the wrong type.
+  - `EditorRule = Literal["every", "last"]`.
+  - `Skipped(repo: str, number: int, kind: str, login: str | None, at: str,
+    field: str)`, with `kind` one of `issue`, `pr`, `comment`, `review`,
+    `review-comment`, `edit`, `event`.
+  - `UntrustedContentError(item: Skipped, reason: str)` and
+    `TrustReadError(call: str, detail: str)`; both messages metadata only.
+  - `TrustedComment(id: str, body: str, role: Role, at: str)`;
+    `IssueContent(body: str | None, body_role: Role | None, author_role:
+    Role | None, comments: tuple[TrustedComment, ...], skipped:
+    tuple[Skipped, ...])`.
+  - `read_issue(repo: str, number: int, *, roles: frozenset[Role] =
+    ALL_ROLES, editors: EditorRule = "every", require_body: bool = False,
+    authors: TrustedAuthors | None = None) -> IssueContent`: one GraphQL
+    read of the author, `userContentEdits` editors, `lastEditedAt`,
+    comments with their authors and editors, each with `__typename`;
+    `require_body=True` raises `UntrustedContentError` when the body is
+    untrusted.
+  - `judge_comments(comments: Sequence[Mapping[str, object]], *, repo: str,
+    number: int, roles=ALL_ROLES, authors) -> tuple[list[TrustedComment],
+    list[Skipped]]` for callers that already fetched comments with the
+    fields `COMMENT_FIELDS` names.
+  - `COMMENT_FIELDS: str`, the GraphQL selection a caller must request.
+  - `report_skipped(skipped: Sequence[Skipped], *, stream: TextIO) ->
+    None` and `BatchStops` (`add(item, cause)`, `exit_code() -> int`,
+    `print_summary(stream)`), which under `GITHUB_ACTIONS=true` print counts
+    by cause and list read-failure stops by repo and number only.
+
+- [ ] **Step 1: Write the failing tests:** `test_role_of_human_user`;
+  `test_role_of_app_login_forms` (`app/x`, `x`, `x[bot]` with `Bot` all
+  map to `agents`); `test_role_of_user_matching_app_slug_raises`;
+  `test_role_of_deleted_is_untrusted`; `test_role_of_ghost_is_untrusted`;
+  `test_automation_untrusted_in_other_org`;
+  `test_unlisted_org_has_no_automation_role`;
+  `test_read_issue_body_untrusted_after_outsider_edit`;
+  `test_read_issue_last_editor_rule`; `test_read_issue_require_body_raises`;
+  `test_read_issue_skips_spam_comment_and_reports`;
+  `test_read_issue_roles_parameter_narrows`;
+  `test_read_issue_truncated_edits_raises`;
+  `test_read_issue_truncated_comments_raises`;
+  `test_read_issue_api_error_raises`;
+  `test_errors_carry_no_untrusted_text`;
+  `test_batch_summary_counts_only_under_actions`;
+  `test_batch_summary_lists_read_failures_under_actions`. Fixtures: recorded
+  response shapes for a User, an App in each login form, a deleted account
+  and a synthetic spam comment.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.** The existing helpers keep their signatures and
+  become calls into `trust`.
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type feat --scope trust --message
+  "add the trust layer for issue bodies and comments"`, then report-ready.
+
+## Task 3c: events, branch PR lookup and reviews (vergil-tooling)
+
+Spec §5.2, §6.1.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/trust.py`
+- Modify: `src/vergil_tooling/lib/mechanized_pr.py` (`_same_repo` becomes
+  `trust.is_same_repo`)
+- Test: `tests/vergil_tooling/test_trust.py`,
+  `tests/vergil_tooling/test_mechanized_pr.py`
+
+**Interfaces:**
+
+- Consumes: Task 3b.
+- Produces: `StateEvent(kind: Literal["closed", "reopened"], actor:
+  Identity, at: str)`; `read_events(repo: str, number: int) ->
+  tuple[StateEvent, ...]`; `closed_by_trusted(repo: str, number: int, *,
+  roles=ALL_ROLES) -> bool` (the latest close's actor; raises
+  `UntrustedContentError` when untrusted); `is_same_repo(repo: str, item:
+  Mapping[str, object]) -> bool` (`isCrossRepository` false and
+  `headRepository` owner/name equal to *repo*); `PRRef(number: int, head:
+  str, author_role: Role, state: str)`; `prs_for_branch(repo: str, branch:
+  str, *, state: Literal["open", "merged", "all"], roles=ALL_ROLES) ->
+  tuple[list[PRRef], list[Skipped]]`; `PRReviewContent(reviews:
+  tuple[TrustedComment, ...], review_comments: tuple[TrustedComment, ...],
+  skipped: tuple[Skipped, ...])`; `read_reviews(repo: str, pr: int, *,
+  roles=ALL_ROLES) -> PRReviewContent`.
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_closed_by_trusted_human`; `test_closed_by_outsider_raises`;
+  `test_closed_by_deleted_account_raises`;
+  `test_prs_for_branch_skips_fork_and_reports`;
+  `test_prs_for_branch_only_fork_returns_empty_and_reports`;
+  `test_prs_for_branch_untrusted_author_skipped`;
+  `test_is_same_repo_checks_head_repository`;
+  `test_read_reviews_skips_outsider_review`;
+  `test_read_reviews_skips_edited_by_outsider`;
+  `test_read_events_truncated_raises`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type feat --scope trust --message
+  "add trusted events, branch lookups and reviews to the trust layer"`, then
+  report-ready.
+
+## Task 3d: #1440's rules onto the layer (vergil-tooling)
+
+Spec §6.1 ("Readers are parameterised").
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/release/guard.py` (`check_tracking_issue`
+  uses `trust.role_of` with `roles={Role.HUMAN}`)
+- Modify: `src/vergil_tooling/lib/pending_release.py`
+  (`trusted_closing_refs` takes `roles` and uses the layer; default
+  `{Role.HUMAN, Role.AGENTS}`)
+- Modify: `src/vergil_tooling/lib/release/records.py` (record authors:
+  `roles={Role.HUMAN}`, `editors="last"`)
+- Test: the existing tests of the three modules
+
+**Interfaces:**
+
+- Consumes: Tasks 3b and 3c.
+- Produces: `trusted_closing_refs(pr: Mapping[str, object], *, repo: str,
+  roles: frozenset[Role] = frozenset({Role.HUMAN, Role.AGENTS}), authors:
+  TrustedAuthors) -> tuple[tuple[int, ...], list[Skipped]]`, which Task 8b
+  reuses.
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_tracking_guard_rejects_agent_with_layer`;
+  `test_tracking_guard_rejects_user_named_like_app`;
+  `test_closing_refs_exclude_automation_by_default`;
+  `test_record_last_editor_rule_kept`. Every existing test of the three
+  modules passes unchanged.
+- [ ] **Step 2:** Run them. Expect the new ones to FAIL.
+- [ ] **Step 3: Implement.** No behaviour of #1440 changes beyond the
+  account-type check.
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type refactor --scope release
+  --message "move the release identity rules onto the trust layer"`, then
+  report-ready.
+
+## Task 4: publish and check the Actions copies (vergil-tooling)
+
+Spec §5.1a.
+
+**Files:**
+
+- Create: `src/vergil_tooling/lib/trust_publish.py`
+- Modify: `src/vergil_tooling/bin/vrg_trusted_authors.py` (subcommands
+  `publish [--org ORG]` and `check [--org ORG]`)
+- Test: `tests/vergil_tooling/test_trust_publish.py` (new)
+
+**Interfaces:**
+
+- Consumes: Task 3a's `render_actions_value`, `vergil_orgs`.
+- Produces: `ORG_VARIABLES = ("VRG_TRUSTED_AUTHORS", "VRG_AUTOMATION_APP")`;
+  `publish(org: str, authors: TrustedAuthors) -> None` (sets both org
+  variables, visibility `all`, refusing first if `check` finds a repo-level
+  shadow); `check(org: str, authors: TrustedAuthors) -> list[str]`, one
+  finding per missing or differing org variable and per repository-level
+  variable of either name in any repo of the org. `check` exits 1 with
+  findings, 0 without; it runs with the human's token and refuses under
+  agent identity modes.
+
+- [ ] **Step 1: Write the failing tests:** `test_publish_sets_both_variables`;
+  `test_publish_refuses_when_repo_shadow_exists`;
+  `test_check_clean`; `test_check_flags_drift`;
+  `test_check_flags_repo_level_shadow`;
+  `test_check_api_error_raises`; `test_check_refuses_agent_mode`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type feat --scope trust --message
+  "publish and check the Actions copies of the trusted authors"`, then
+  report-ready.
+
+## Task 5a: deliver the configuration to content-reading jobs (vergil-actions)
+
+Spec §5.1a.
+
+**Files:**
+
+- Modify: `.github/workflows/ops-epic-sweep.yml`,
+  `.github/workflows/ops-epic-rollup.yml`,
+  `.github/workflows/ops-upstream-refresh.yml`, and any other workflow whose
+  steps run a vergil-tooling command that reads issue or PR content (the
+  task lists them in its PR notes)
+
+- [ ] **Step 1:** Add `VRG_TRUSTED_AUTHORS: ${{ vars.VRG_TRUSTED_AUTHORS }}`
+  to the `env` of each step that runs such a command. Do not set
+  `VRG_AUTOMATION_APP` where the job does not run as the automation
+  identity (that variable selects the identity mode).
+- [ ] **Step 2:** Run `vrg-container-run -- vrg-validate` (actionlint).
+  Expect PASS.
+- [ ] **Step 3:** Commit `vrg-commit --type ci --scope ops --message "pass
+  the trusted authors into the jobs that read content"`, then report-ready.
+
+## Task 5b: no release matrix for a fork's `release/*` head (vergil-actions)
+
+**Files:**
+
+- Modify: `.github/workflows/ci-package.yml` (the full-matrix choice)
+
+- [ ] **Step 1:** Choose the full matrix for a `release/*` head only when
+  `github.event.pull_request.head.repo.full_name == github.repository`.
+- [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
+- [ ] **Step 3:** Commit `vrg-commit --type ci --scope ci-package --message
+  "give only same-repo release heads the full matrix"`, then report-ready.
+
+## Task 6a: release PR lookups and the deps-gate delete (vergil-tooling)
+
+Spec §5.2 (PR found by branch name), §6.2.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/github.py` (`_first_pr_for_branch`,
+  `pr_for_branch` call `trust.prs_for_branch`)
+- Modify: `src/vergil_tooling/lib/release/prepare.py`,
+  `src/vergil_tooling/lib/release/bump.py`,
+  `src/vergil_tooling/lib/release/preflight.py` (deps gate)
+- Test: `tests/vergil_tooling/test_github.py`,
+  `tests/vergil_tooling/test_release_prepare.py`,
+  `tests/vergil_tooling/test_release_bump.py`,
+  `tests/vergil_tooling/test_release_preflight.py`
+
+**Interfaces:**
+
+- Consumes: Task 3c's `prs_for_branch`, `is_same_repo`.
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_prepare_ignores_fork_release_pr`;
+  `test_bump_ignores_fork_post_release_pr`;
+  `test_deps_gate_never_deletes_for_fork_pr`;
+  `test_pr_for_branch_reports_fork`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type fix --scope release --message
+  "adopt only same-repo trusted PRs in the release"`, then report-ready.
+
+## Task 6b: finalize, worktree and resolver lookups (vergil-tooling)
+
+**Files:**
+
+- Modify: `src/vergil_tooling/bin/vrg_finalize_pr.py` (`_resolve_open_prs`,
+  `_infer_pr`), `src/vergil_tooling/lib/worktrees.py`
+  (`_resolve_pr_state`), `src/vergil_tooling/bin/vrg_resolve_tracking_issue.py`
+  (no first-PR fallback)
+- Test: `tests/vergil_tooling/test_vrg_finalize_pr.py`,
+  `tests/vergil_tooling/test_worktrees.py`,
+  `tests/vergil_tooling/test_vrg_resolve_tracking_issue.py`
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_finalize_never_adopts_fork_pr`;
+  `test_worktree_state_ignores_fork_pr`;
+  `test_resolve_tracking_issue_no_first_pr_fallback` (several PRs and no
+  merged one: an error naming them, never the first).
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type fix --scope pr --message "find
+  PRs by branch only among same-repo trusted PRs"`, then report-ready.
+
+## Task 6c: CI evidence (vergil-tooling)
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/ci_evidence.py`
+- Test: `tests/vergil_tooling/test_ci_evidence.py`
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_evidence_has_no_first_pr_fallback`;
+  `test_evidence_ignores_fork_pr_for_commit`;
+  `test_check_runs_matched_by_app_and_workflow` (a check run with the right
+  name from another app does not count).
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.** Match check runs by app slug `github-actions`
+  and the workflow name the gate configuration names.
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type fix --scope ci-evidence
+  --message "attest only the commit's same-repo PR and its own check runs"`,
+  then report-ready.
+
+## Task 7a: the queue views and the planning-epic guard (vergil-tooling)
+
+Spec §5.2 (markers in comments), §6.2.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/queue_view.py` (planning markers, deferral
+  notes and latest notes from trusted comments; skips reported),
+  `src/vergil_tooling/lib/intake_route.py` (`_planning_epic_states`)
+- Test: `tests/vergil_tooling/test_queue_view.py`,
+  `tests/vergil_tooling/test_intake_route.py`
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_forged_planning_markers_ignored_and_reported`;
+  `test_forged_deferral_ignored`; `test_latest_note_from_trusted_only`;
+  `test_forged_epic_marker_does_not_block_drop`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type fix --scope queue --message
+  "read queue markers and notes only from trusted comments"`, then
+  report-ready.
+
+## Task 7b: the outcome audit and the record dedup (vergil-tooling)
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/epic_audit.py`
+  (`closed_operational_without_success`),
+  `src/vergil_tooling/lib/security_records.py` (unmark comment dedup)
+- Test: `tests/vergil_tooling/test_epic_audit.py`,
+  `tests/vergil_tooling/test_security_records.py`
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_forged_outcome_does_not_hide_hand_closed_task`;
+  `test_unmark_dedup_ignores_outsider_comment`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type fix --scope audit --message
+  "count outcomes and dedup comments only from trusted authors"`, then
+  report-ready.
+
+## Task 8a: parents, blockers and the rollup (vergil-tooling)
+
+Spec §5.2 (structural lines, close), §6.2.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/epics.py` (`parent_of` body fallback and
+  `child_states` search fallback from trusted bodies only; `blockers_of`
+  from a trusted body; `rollup` acts on a close only when
+  `trust.closed_by_trusted`), `src/vergil_tooling/lib/intake_route.py`
+  (`_route`)
+- Test: `tests/vergil_tooling/test_epics.py`,
+  `tests/vergil_tooling/test_intake_route.py`
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_parent_of_ignores_untrusted_body_line`;
+  `test_child_states_search_ignores_untrusted_bodies`;
+  `test_blockers_of_untrusted_body_raises` (load-bearing: a stop);
+  `test_rollup_stops_on_outsider_close`;
+  `test_route_parent_fallback_trusted_only`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type fix --scope epics --message
+  "read parents and blockers only from trusted bodies, and roll up only
+  trusted closes"`, then report-ready.
+
+## Task 8b: the sweep's body parents and drift closes (vergil-tooling)
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/epic_audit.py` (`body_only_parents`,
+  `nativize_parents`, `task_drift`, `close_drift`, `epic_drift`,
+  `closed_epic_open_child`, `reopen_epics_with_open_children`),
+  `src/vergil_tooling/bin/vrg_epic_audit.py` (its trusted checks run under
+  `--close` too, with `BatchStops`)
+- Test: `tests/vergil_tooling/test_epic_audit.py`,
+  `tests/vergil_tooling/test_vrg_epic_audit.py`
+
+**Interfaces:**
+
+- Consumes: Task 3d's `trusted_closing_refs`; Task 8a.
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_nativize_skips_untrusted_body_parent`;
+  `test_task_drift_ignores_untrusted_closing_line`;
+  `test_task_drift_ignores_body_edited_after_merge_by_outsider`;
+  `test_close_runs_trusted_checks`;
+  `test_close_stop_is_per_item_and_exits_nonzero`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type fix --scope audit --message
+  "nativize parents and close drift only from trusted content"`, then
+  report-ready.
+
+## Task 8c: security-record body lines (vergil-tooling)
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/intake_route.py` (`Security advisory:`
+  lines and `_recreate` from a trusted body),
+  `src/vergil_tooling/lib/security_records.py` (`retarget`'s re-run reads
+  the moved comment from trusted authors only),
+  `src/vergil_tooling/bin/vrg_security_record.py` (`show <issue>` prints
+  only advisories whose tracking names the issue; `_find_resumed_issue`
+  from trusted bodies)
+- Test: `tests/vergil_tooling/test_intake_route.py`,
+  `tests/vergil_tooling/test_security_records.py`,
+  `tests/vergil_tooling/test_vrg_security_record.py`
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_show_issue_omits_untracked_advisory`;
+  `test_resume_ignores_untrusted_body_match`;
+  `test_retarget_rerun_ignores_outsider_moved_comment`;
+  `test_route_security_lines_untrusted_body_raises`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type fix --scope security-record
+  --message "trust security-record lines only from trusted bodies"`, then
+  report-ready.
+
+## Task 8d: task checks, release marker, linkage and relay (vergil-tooling)
+
+**Files:**
+
+- Modify: `src/vergil_tooling/bin/vrg_git.py` (`_check_issue_is_open_task`
+  requires a trusted author), `src/vergil_tooling/lib/release/__init__.py`
+  (`is_release_tracking_issue` requires a trusted body),
+  `src/vergil_tooling/bin/vrg_submit_pr.py` (`_task_linkage` through Task
+  8a's `parent_of`), `src/vergil_tooling/lib/pr_workflow/github_transport.py`
+  (the relay payload's commit author is a trusted identity)
+- Test: the tests of those four modules
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_open_task_check_refuses_outsider_issue`;
+  `test_release_marker_untrusted_body_not_tracking`;
+  `test_submit_linkage_ignores_untrusted_parent_line`;
+  `test_relay_payload_untrusted_commit_author_raises`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type fix --scope trust --message
+  "require trusted authors for task checks, release markers, linkage and
+  relay payloads"`, then report-ready.
+
+## Task 9: the deps fix task and the release-start gate (vergil-tooling)
+
+Spec §6.2 (adoption by title and acting on closes).
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/update_deps/pr.py` (fix task adopted only
+  with a trusted author and body), `src/vergil_tooling/lib/release/preflight.py`
+  (acts on the fix task's close only when `closed_by_trusted`; the fix-task
+  link from the deps PR body only from a trusted body; the start gate's open
+  `release:` issues: an untrusted one is reported, never a blocker)
+- Test: `tests/vergil_tooling/test_update_deps_pr.py`,
+  `tests/vergil_tooling/test_release_preflight.py`
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_fix_task_by_outsider_not_adopted`;
+  `test_outsider_close_of_fix_task_does_not_clear_gate`;
+  `test_fix_task_link_from_untrusted_body_ignored`;
+  `test_outsider_release_issue_does_not_block_start`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type fix --scope release --message
+  "adopt fix tasks and release issues only when trusted"`, then
+  report-ready.
+
+## Task 10: PR provenance and review comments (vergil-tooling)
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/pr_provenance.py` (roles from `trust`; a
+  login with no role is `UNTRUSTED` and flagged, never `HUMAN`),
+  `src/vergil_tooling/bin/vrg_pr_review_comments.py` (returns trusted
+  comments only through `trust.read_reviews`; skips reported)
+- Test: `tests/vergil_tooling/test_pr_provenance.py`,
+  `tests/vergil_tooling/test_vrg_pr_review_comments.py`
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_provenance_stranger_is_untrusted`;
+  `test_provenance_roles_from_config_not_suffix`;
+  `test_review_comments_omit_outsider_and_report`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type fix --scope pr --message
+  "classify PR identities and review comments through the trust layer"`,
+  then report-ready.
+
+## Task 11: outsider-opened issues (vergil-tooling)
+
+Spec §5.3 (outsider-opened issues and PRs).
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/epic_audit.py` (`attach_orphans` never
+  attaches one; reports it; clean exit),
+  `src/vergil_tooling/lib/intake_route.py` (routing one is a stop),
+  `src/vergil_tooling/lib/epic_size.py` (sizing one is a stop),
+  `src/vergil_tooling/lib/activity_log.py` (leaves out outsider-opened or
+  outsider-closed issues)
+- Test: the tests of those four modules
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_attach_orphans_skips_outsider_issue_clean_exit`;
+  `test_route_outsider_issue_stops`; `test_size_outsider_issue_stops`;
+  `test_activity_log_omits_outsider_issue`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type fix --scope intake --message
+  "never attach, route, size or publish outsider-opened issues"`, then
+  report-ready.
+
+## Task 12a: the lifecycle PR and issue command (vergil-tooling)
+
+Spec §6.2 (lifecycle publisher).
+
+**Files:**
+
+- Create: `src/vergil_tooling/lib/lifecycle_sync.py`,
+  `src/vergil_tooling/bin/vrg_lifecycle_sync.py` (entry point
+  `vrg-lifecycle-sync`)
+- Test: `tests/vergil_tooling/test_lifecycle_sync.py` (new)
+
+**Interfaces:**
+
+- Consumes: Task 3c's `prs_for_branch`, `is_same_repo`; Task 3b's
+  `read_issue`.
+- Produces: `vrg-lifecycle-sync --repo OWNER/REPO --manifest PATH`. The
+  manifest is JSON: `{"prs": [{"branch": "lifecycle/...", "title": ...,
+  "body": ...}], "stale_prefix": "lifecycle/", "issues": [{"label": ...,
+  "title": ..., "body": ...}]}`. Branches are pushed by the caller. For each
+  PR: refresh the same-repo trusted PR on that branch in place or open one;
+  close same-repo trusted PRs under the prefix not in the manifest; never
+  enable auto-merge. For each issue: update the trusted labelled issue with
+  that title or open one. Fork or untrusted matches are skipped and
+  reported.
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_refreshes_existing_pr_in_place`; `test_opens_missing_pr`;
+  `test_closes_stale_same_repo_pr`; `test_never_touches_fork_pr`;
+  `test_never_enables_auto_merge`; `test_issue_sync_ignores_outsider_issue`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement**, porting the PR and issue behaviour of
+  vergil-containers `docker/versions/lifecycle/publish.py` (its `--prs` and
+  issue sync) as it is, with the same-repo and trust checks added.
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type feat --scope lifecycle --message
+  "add vrg-lifecycle-sync for lifecycle PRs and issues"`, then report-ready.
+
+## Task 12b: the publisher uses the command (vergil-containers)
+
+**Files:**
+
+- Modify: `docker/versions/lifecycle/publish.py` (writes the manifest and
+  pushes branches; its `gh` PR and issue code is removed),
+  `.github/workflows/ops.yml` (calls `vrg-lifecycle-sync` with the
+  manifest)
+- Test: the publisher's existing tests
+
+- [ ] **Step 1:** Update the tests to assert the manifest the publisher
+  writes. Run them. Expect FAIL.
+- [ ] **Step 2: Implement.** No `gh` call that reads PRs or issues remains
+  in the repo.
+- [ ] **Step 3:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
+- [ ] **Step 4:** Commit `vrg-commit --type refactor --scope lifecycle
+  --message "hand lifecycle PRs and issues to vrg-lifecycle-sync"`, then
+  report-ready. (A `.github/workflows/` change: the human's submit pushes
+  the branch.)
+
+## Task 13: the trusted read command (vergil-tooling)
+
+Spec §6.4.
+
+**Files:**
+
+- Create: `src/vergil_tooling/bin/vrg_issue_read.py` (entry point
+  `vrg-issue-read`)
+- Test: `tests/vergil_tooling/test_vrg_issue_read.py` (new)
+
+**Interfaces:**
+
+- Consumes: Task 3b's `read_issue`, Task 3c's `read_reviews`.
+- Produces: `vrg-issue-read OWNER/REPO#N [--pr] [--json] [--require-body]
+  [--roles human,agents,automation]`. Text output: the trusted body, then
+  each trusted comment (and, with `--pr`, reviews and inline review
+  comments) with its role and time. `--json` gives `IssueContent` and
+  `PRReviewContent` as JSON. Skips go to stderr as metadata. Exit 0 on
+  success; 3 when `--require-body` and the body is untrusted
+  (`UntrustedContentError`); 1 on a read failure.
+
+- [ ] **Step 1: Write the failing tests:** `test_prints_trusted_only`;
+  `test_require_body_untrusted_exits_3`; `test_json_shape`;
+  `test_skips_to_stderr_metadata_only`; `test_pr_reviews`;
+  `test_read_failure_exits_1`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type feat --scope trust --message
+  "add vrg-issue-read for skills"`, then report-ready.
+
+## Task 14: the outsider report (vergil-tooling)
+
+Spec §6.5.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/bin/vrg_epic_audit.py` (`--untrusted --since
+  ISO`), Create: `src/vergil_tooling/lib/outsider_report.py`
+- Test: `tests/vergil_tooling/test_outsider_report.py` (new)
+
+**Interfaces:**
+
+- Consumes: Task 3a's `vergil_orgs`; Tasks 3b and 3c.
+- Produces: `OutsiderItem(org, repo, number, kind, login, at, url,
+  tamper: bool)`; `outsider_activity(org: str, *, since: str) ->
+  list[OutsiderItem]` (issues and PRs opened by untrusted accounts,
+  untrusted comments and reviews, untrusted edits to trusted bodies,
+  untrusted closes and reopens, newest first, from items updated since
+  *since*); `vrg-epic-audit --untrusted --since ISO` prints every listed
+  org's items, tamper items (edits to trusted bodies, closes) first,
+  metadata and links only; it writes nothing on GitHub.
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_lists_outsider_issue_and_comment`;
+  `test_tamper_items_first`; `test_no_untrusted_text_in_output`;
+  `test_only_listed_orgs`; `test_since_filters`;
+  `test_read_failure_raises`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type feat --scope audit --message
+  "add the outsider report"`, then report-ready.
+
+## Task 15: the guard test (vergil-tooling)
+
+Spec §6.3.
+
+**Files:**
+
+- Create: `tests/vergil_tooling/test_trust_guard.py`,
+  `tests/vergil_tooling/trust_guard_exemptions.toml`
+
+- [ ] **Step 1: Write the test** `test_no_content_read_outside_trust_layer`:
+  it scans `src/vergil_tooling/` (AST) for calls that run `gh` or `vrg-gh`
+  with `issue view`, `pr view`, `issue list`, `pr list`, `search` or `api`,
+  and fails when one outside `lib/trust.py` requests a content field
+  (`body`, `comments`, `reviews`, `userContentEdits`, `timelineItems`,
+  `headRefName`, `--comments`) or a content API path, unless the exemption
+  file lists it with a reason. Also `test_exemptions_are_display_only` (each
+  entry names fields from the display-only set) and
+  `test_guard_catches_planted_read` (a fixture source file).
+- [ ] **Step 2:** Run it. Fix any remaining raw read by moving it onto the
+  layer or exempting a display-only read with a reason.
+- [ ] **Step 3:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
+- [ ] **Step 4:** Commit `vrg-commit --type test --scope trust --message
+  "fail on content reads outside the trust layer"`, then report-ready.
+
+## Task 16: the hook allowlist (vergil-tooling)
+
+Spec §6.4.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/bin/vrg_hook_guard.py`
+- Create: `src/vergil_tooling/data/vrg_gh_read_allowlist.toml`
+- Test: `tests/vergil_tooling/test_vrg_hook_guard.py`
+
+**Interfaces:**
+
+- Produces: for agent identity modes, a `vrg-gh` command of `issue view`,
+  `issue list`, `pr view`, `pr list`, `search` or `api` is allowed only when
+  it matches an allowlist entry (subcommand plus `--json` fields from the
+  display-only set: `number`, `title`, `state`, `labels`, `url`,
+  `createdAt`, `updatedAt`, `closedAt`, `parent`, `author`, and REST or
+  GraphQL forms listed by path and field); everything else is refused with a
+  message naming `vrg-issue-read`. Human mode is unchanged.
+
+- [ ] **Step 1: Write the failing tests:**
+  `test_agent_issue_view_comments_refused`;
+  `test_agent_api_graphql_body_refused`;
+  `test_agent_issue_list_json_body_refused`;
+  `test_agent_api_issue_path_refused`;
+  `test_agent_display_fields_allowed`;
+  `test_human_mode_unchanged`; `test_refusal_names_vrg_issue_read`.
+- [ ] **Step 2:** Run them. Expect FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4:** Run the tests and `vrg-container-run -- vrg-validate`.
+  Expect PASS.
+- [ ] **Step 5:** Commit `vrg-commit --type feat --scope hook --message
+  "allow agents only display-only vrg-gh reads"`, then report-ready.
+
+## Task 17a: work skills read through the layer (vergil-claude-plugin)
+
+Spec §6.2 (skills), §6.4.
+
+**Files:**
+
+- Modify: `skills/issue-implement/SKILL.md` (the body and resume comments
+  through `vrg-issue-read --require-body`; exit 3 is a stop for the human),
+  `skills/epic-implement/SKILL.md` (dispatch only a task whose body
+  `vrg-issue-read --require-body` accepts), `skills/issue-validate/SKILL.md`,
+  `skills/issue-deploy/SKILL.md`,
+  `skills/issue-validate/references/operational-task-lifecycle.md` (the
+  commands and steps only from a trusted body), `skills/pr-watch/SKILL.md`
+  (review feedback through `vrg-issue-read --pr`)
+
+- [ ] **Step 1:** Replace each raw `vrg-gh issue view` body or `--comments`
+  read with `vrg-issue-read`, and state the stop.
+- [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
+- [ ] **Step 3:** Commit `vrg-commit --type fix --scope skills --message
+  "read task bodies and comments through vrg-issue-read"`, then
+  report-ready.
+
+## Task 17b: review and planning skills (vergil-claude-plugin)
+
+**Files:**
+
+- Modify: `skills/epic-review/SKILL.md`, `skills/epic-create/SKILL.md`
+  (resume reads through `vrg-issue-read`), `skills/epic-retrospective/SKILL.md`,
+  `skills/deprecation-triage/SKILL.md` (dedup only against trusted issues),
+  `skills/hoshin/references/daily.md` (the rulings read)
+
+- [ ] **Step 1:** Replace each raw read with `vrg-issue-read`; drop the
+  hand-written trusted-author instructions it makes redundant.
+- [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
+- [ ] **Step 3:** Commit `vrg-commit --type fix --scope skills --message
+  "read queue and planning content through vrg-issue-read"`, then
+  report-ready.
+
+## Task 17c: the morning review (vergil-claude-plugin)
+
+Spec §5.1a, §6.5.
+
+**Files:**
+
+- Modify: `skills/hoshin/SKILL.md`, `skills/hoshin/references/daily.md`
+
+- [ ] **Step 1:** `hoshin start` runs `vrg-epic-audit --untrusted --since
+  <last daily review>` and `vrg-trusted-authors check` for every listed
+  org, shows the human what is new (tamper items first) and any check
+  finding, and records in the logbook only that the outsider check and the
+  configuration check ran, with no count or detail.
+- [ ] **Step 2:** Run `vrg-container-run -- vrg-validate`. Expect PASS.
+- [ ] **Step 3:** Commit `vrg-commit --type feat --scope hoshin --message
+  "run the outsider report and the configuration check each morning"`,
+  then report-ready.
+
+## Task 18: first vergil-tooling release (deployment, .github)
+
+- **Preconditions:** Tasks 3a to 15 (all but 12b), 5a and 5b merged. The
+  human attests the `[orgs.<org>]` stanzas are in the host `identities.toml` for every
+  Vergil org (`vrg-trusted-authors` lists them).
+- **Human-run steps:** tag vergil-actions with 5a and 5b; cut and install
+  the vergil-tooling release; run `vrg-trusted-authors publish` for each
+  listed org; `vrg-vm update --all`.
+- **Procedure:** confirm each merge is in the release with `vrg-git
+  merge-base --is-ancestor <merge-sha> <tag-sha>` for every task above;
+  run `vrg-trusted-authors check` (exit 0); file Task 19 with
+  `fixture-run <epic-ref> python-lib,python-app,rust-lib,rust-app,ts-lib,ts-app
+  --validates "vergil-tooling <version> and vergil-actions <tag>" --after
+  <this task>`.
+- **Acceptance:** the release and the tag carry every task; the check is
+  clean; the fixture runs are filed. `Outcome: SUCCESS`.
+
+## Task 19: fixture runs (all six fixtures)
+
+Filed by Task 18 with `fixture-run`, `--after` Task 18.
+
+## Task 20: plugin release (deployment, .github)
+
+- **Preconditions:** Tasks 17a to 17c merged; Task 18 closed.
+- **Human-run steps:** cut and install the vergil-claude-plugin release.
+- **Procedure:** ancestry check of 17a to 17c's merges against the tag.
+- **Acceptance:** `Outcome: SUCCESS`.
+
+## Task 21: second vergil-tooling release (deployment, .github)
+
+- **Preconditions:** Task 16 merged; Task 20 closed.
+- **Human-run steps:** cut and install the vergil-tooling release;
+  `vrg-vm update --all`.
+- **Procedure:** ancestry check of 16's merge; in an agent session, a raw
+  `vrg-gh issue view <ref> --comments` is refused and names
+  `vrg-issue-read`.
+- **Acceptance:** `Outcome: SUCCESS`.
+
+## Task 22: the layer on real data (validation, .github)
+
+Spec §6.7.
+
+- **Preconditions:** Task 21 closed; Task 12b merged; the six fixture
+  runs' validate tasks closed.
+- **Procedure:**
+  1. `vrg-issue-read` on three issues that carry existing untrusted
+     comments: each is reported on stderr, never printed.
+  2. `vrg-issue-read` on issues with comments by the human, an agent and
+     the automation App: all three pass with their roles.
+  3. `vrg-epic-audit --untrusted --since <a date before the release>` lists
+     the existing untrusted items, metadata only.
+  4. The next scheduled sweep and an upstream-refresh run under Actions
+     succeed, and their logs show the trusted checks ran (counts only).
+  5. The next lifecycle run in vergil-containers refreshes or opens its PRs
+     through `vrg-lifecycle-sync`, none auto-merged.
+  6. `hoshin start` shows the outsider listing and a clean configuration
+     check, and the logbook entry records only that both ran.
+- **Acceptance:** every step as stated. `Outcome: SUCCESS`.
