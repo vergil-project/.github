@@ -1338,3 +1338,55 @@ human's.
   `identity-architecture.md`, `credential-management.md`, `account-setup.md`
   and `cli-tools-overview.md`; and any repo CLAUDE.md Task 16a lists.
 - **R2 (#1386):** retrospective, with `epic-retrospective`.
+
+## Evolution during execution
+
+- **2026-11-23: Task 6a waits for Tasks 4 and 5.** The first run of Task 6a
+  (vergil-project/vergil-tooling#4777) found that its request commands
+  compute their inputs with `changed_protected` and `ProtectedChange` (Task
+  4) and `change_fingerprint` (Task 5), which the plan did not list. By the
+  human's ruling, 6a waits for both. The delivery table, the side-by-side
+  note and the Task 6a section were edited in place by
+  vergil-project/.github#1558, before any implementation task had shipped.
+- **2026-11-23: the Task 3c caller tasks are filed.** The Task 3a run
+  (vergil-project/vergil-actions#1339) filed them by the human's ruling,
+  each blocked by Task 3r (vergil-project/vergil-actions#1340):
+  - **vergil-project**, under this epic: vergil-project/.github#1563,
+    vergil-project/docs#171, vergil-project/packages#63,
+    vergil-project/vergil-actions#1388,
+    vergil-project/vergil-claude-plugin#1297,
+    vergil-project/vergil-containers#1014,
+    vergil-project/vergil-fixture-python-app#68,
+    vergil-project/vergil-fixture-python-lib#75,
+    vergil-project/vergil-fixture-ts-app#86,
+    vergil-project/vergil-fixture-ts-lib#85,
+    vergil-project/vergil-fixture-rust-app#83,
+    vergil-project/vergil-fixture-rust-lib#89,
+    vergil-project/vergil-python#98, vergil-project/vergil-tooling#5060 and
+    vergil-project/vergil-vm#447.
+  - **logical-minds-foundry**, under its new proxy of this epic,
+    logical-minds-foundry/.github#422: logical-minds-foundry/.github#423,
+    logical-minds-foundry/docs#40,
+    logical-minds-foundry/mq-gateway-replay-lab#346,
+    logical-minds-foundry/mq-resiliency-lab-for-linux#1757 and
+    logical-minds-foundry/mq-resiliency-observability#87.
+  - **mnemosys-project**, under its new proxy of this epic,
+    mnemosys-project/.github#122: mnemosys-project/.github#123,
+    mnemosys-project/docs#35 and mnemosys-project/melete#278.
+
+  Task 3d's precondition, every caller task closed, now means these 23.
+- **2026-11-23: a new task gives the config job's token Actions read.**
+  The Task 3b run (vergil-project/vergil-tooling#4773) found that GitHub
+  lists the environment reads under the App's Actions read permission,
+  which the token minted by `ops-github-config.yml`'s update job did not
+  request. Without it, the nightly `update` would report the `automation`
+  environment as not checked after Task 3f. By the human's ruling,
+  vergil-project/vergil-actions#1387 adds `permission-actions: read` to that
+  token. It lands before Task 3f (vergil-project/vergil-tooling#4783), and
+  each in-scope org's automation App is granted Actions read by the human
+  before it merges.
+- **2026-11-23: Task 3d also moves `GHCR_CLEANUP_TOKEN`.** The Task 3a
+  inventory found this write-capable token, read by vergil-containers'
+  `package-cleanup.yml` cleanup and reap-aliases jobs, which the plan did not
+  name. The human added it to Task 3d (vergil-project/.github#1410) by a
+  scope change on that issue.
