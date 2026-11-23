@@ -1430,3 +1430,84 @@ tasks it blocks.
   only on a single issue or PR. The human ruled the changes above.
 - Task 2 assigned `skills/hoshin/SKILL.md` to Task 17b, and Task 17c also
   edits it.
+
+### 2026-11-23: a split, three batches and five filed tasks
+
+**What changed:**
+
+- **Task 11 (vergil-project/vergil-tooling#4928) is also blocked by Task 3c**
+  (`Blocked-by: vergil-project/vergil-tooling#4913`). The delivery table
+  listed only 3b.
+- **Task 11 is split.** It keeps the orphan-attach, routing and sizing stops
+  (a scope change on vergil-project/vergil-tooling#4928). Its activity-log
+  part is now vergil-project/vergil-tooling#4970, `Blocked-by:` Task 13
+  (vergil-project/vergil-tooling#4929), which adds a batched trusted search
+  read (`trust.search_window`). GHSA-3qxq-x48m-v8jj tracks both.
+- **Task 5c's job runs only in the org's `.github` repository** (a scope
+  change on vergil-project/vergil-actions#1353), and its artifact is the one
+  result Task 17c reads.
+- **Task 3d left `lib/release/rebuild.py`'s superseding-release search to
+  Task 7c** (vergil-project/vergil-tooling#4921), which moves the remaining
+  login-only readers.
+- **Three batch PRs, one commit per issue:**
+  - Tasks 7a, 7b and 8c: vergil-project/vergil-tooling#4961.
+  - Tasks 6b, 6c, 9 and 10: vergil-project/vergil-tooling#4972.
+  - Tasks 8a and 11: vergil-project/vergil-tooling#4973. Task 11 first left
+    the 7a, 7b and 8c batch, then rejoined with 8a once 3c had merged.
+- **Five tasks filed under #1467, all in vergil-tooling:**
+  - vergil-project/vergil-tooling#4966: queue views stop per item when an
+    item's comments cannot be read (spec §5.3).
+  - vergil-project/vergil-tooling#4967: the tracking-issue resolver reports
+    an API fallback failure as exit 2.
+  - vergil-project/vergil-tooling#4970: the activity log's batched trusted
+    read (see Task 11's split above).
+  - vergil-project/vergil-tooling#4971: the queue lists and the epic audit
+    stop per child on an untrusted body; `Blocked-by:`
+    vergil-project/vergil-tooling#4922 and
+    vergil-project/vergil-tooling#4966.
+  - vergil-project/vergil-tooling#4978: the outsider report lists every
+    untrusted edit of reviews and inline review comments, recorded as
+    GHSA-53fm-95wx-jf6h; `Blocked-by:` Task 14
+    (vergil-project/vergil-tooling#4930).
+- **Departures from the task text,** each recorded in its PR's notes:
+  - Task 6a deleted `github.pr_for_branch` and `closed_pr_for_branch`
+    instead of routing them through the layer. A test checks they stay
+    gone.
+  - Task 8b's `task_drift` does not use Task 3d's `trusted_closing_refs`;
+    it applies the same body rule to the lines it reads.
+  - Task 12's stale lifecycle page was left to the documentation sweep and
+    is recorded on vergil-project/vergil-tooling#4887.
+- **Live checks run by the human:**
+  - The trust layer's GraphQL queries (Tasks 3b and 3c,
+    vergil-project/vergil-tooling#4913, and
+    vergil-project/vergil-tooling#4970's batched close search) ran against
+    live GitHub with no schema errors.
+  - Relay-ref commits link to the human's `User` account
+    (vergil-project/vergil-tooling#4925).
+  - Editing an old issue comment moves the issue's `updatedAt`, so the
+    outsider report's search finds the edit
+    (vergil-project/vergil-tooling#4978). Edits of PR reviews were not
+    tested and are left to Task 22.
+
+**Why:**
+
+- Leaving outsider-closed issues out needs Task 3c's close-event reader.
+- The activity log reads every issue closed across the org in a 30-day
+  window, so per-item trust reads would exhaust the docs deploy's token.
+  The human ruled the split.
+- The trusted-authors check covers the whole org, so one run a night is
+  enough.
+- The batches followed the human's rulings. The human set aside the
+  batching guideline against security-labelled issues, which is
+  experimental.
+- vergil-project/vergil-tooling#4966 and vergil-project/vergil-tooling#4967
+  were filed by rulings on the merge reviews of
+  vergil-project/vergil-tooling#4919 and vergil-project/vergil-tooling#4917.
+  vergil-project/vergil-tooling#4971 was filed by the human's ruling, and
+  vergil-project/vergil-tooling#4978 by the human's ruling on Task 14's
+  item N0.S1.
+- Deleting the two functions avoids an import cycle, and the release was
+  their last caller. Task 8b's sweep must also close tasks linked by a plain
+  `Ref` line and by cross-repo refs. Task 12's page was left to the sweep on
+  the human's ruling.
+- The agent identity cannot call `gh api`, so the human ran the live checks.
