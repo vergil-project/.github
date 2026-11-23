@@ -1012,3 +1012,44 @@ Blocked by 17, 19, 19b.
   its reason. The reporter still reports (no ops issue opened by the
   switch itself, or one that has recovered).
 - **SUCCESS:** every job accounted for.
+
+## Evolution during execution
+
+### 2026-11-23: Task 7's identity test, Task 11's checks and Task 10's reads
+
+**What changed:**
+
+- **Task 7 also modifies
+  `actions/ops/github-config/tests/automation-env.test.sh`**
+  (vergil-actions). It extends the test to accept a step that sets
+  `VRG_AUTOMATION_APP` from `vars` with no earlier token step and no App
+  credentials from secrets, on `ops-report` `uses:` steps only. This adds
+  the test to Task 7's **Files** list; the task text above stays as
+  written.
+- **Task 11's step-1 checks were run by the human,** as themselves. The
+  deploy run (vergil-project/.github#1512) recorded the result from their
+  output. Follow-ups filed: vergil-project/vergil-claude-plugin#1288 and
+  vergil-project/vergil-tooling#5042.
+- **Task 10 locates each operations epic with the default trusted
+  roles.** Only the ops issues are read with `--roles automation`.
+  `vrg-ops-report` is unaffected.
+- **Follow-ups filed during execution, outside the plan,** all ad hoc:
+  vergil-project/vergil-tooling#5021, vergil-project/vergil-tooling#5022,
+  vergil-project/vergil-tooling#5042,
+  vergil-project/vergil-claude-plugin#1288 and
+  vergil-project/.github#1543.
+
+**Why:**
+
+- The test rejects any step that sets `VRG_AUTOMATION_APP` in its `env`
+  without a `GH_TOKEN` from an earlier token step or the App credentials
+  from secrets. The plan's convention, a reporting job's
+  `uses: ./actions/ops/report` step setting `VRG_AUTOMATION_APP` from
+  `vars`, has neither, because the `ops-report` action mints its own
+  token. The run of Task 4 (vergil-project/vergil-actions#1361) found
+  this.
+- `vrg-trusted-authors check` refuses the user agent mode, and the agent
+  cannot read Actions secrets.
+- The four operations epics were created by the user agent in Task 11, so
+  an automation-only read of an epic's body is refused. `vrg-ops-report`
+  finds the epic by its title and labels, not by reading its body.
