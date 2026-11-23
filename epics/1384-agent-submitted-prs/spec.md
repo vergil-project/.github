@@ -563,6 +563,15 @@ the managed-file sync). The actor check still applies to every PR.
 first set, when it goes live before the permission grant (§5). It never
 audits earlier merges, which predate the mechanism.
 
+**Who sets the markers.** Repository init (`vrg-github-repo-init`), already
+a human-run step, creates both markers at the tips of `develop` and `main`,
+for a new repo and when it adopts an existing one. The repos that exist at
+go-live get theirs once, as part of the rollout. No recurring human step
+remains. From then on every repo has its markers, so a missing marker is a
+finding, reported like any other (§4.8, security signal). The audit never
+re-creates a marker, since re-creating a deleted one at the current tip
+would silently skip every merge since the last run.
+
 What this detects, and what it does not. GitHub records the login that
 merged, not the tool, so the audit cannot tell a merge by the user agent
 through `vrg-submit-pr` from one by the same login through the raw API or an
