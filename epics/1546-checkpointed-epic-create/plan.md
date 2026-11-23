@@ -323,6 +323,7 @@ Spec §4.4. Blocked by 2a.
 Run: `vrg-container-run -- pytest tests/vergil_tooling/test_checkpoint.py
 tests/vergil_tooling/test_vrg_checkpoint.py -v`
 Expected: FAIL on the missing `reconcile`.
+
 - [ ] **Step 3: Implement** `reconcile` and the subcommand.
 - [ ] **Step 4: Run to verify they pass** (the Step 2 command): PASS.
 - [ ] **Step 5: Document** `reconcile` in `cli-tools-overview.md`.
