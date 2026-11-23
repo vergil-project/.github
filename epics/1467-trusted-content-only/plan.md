@@ -1545,9 +1545,12 @@ tasks it blocks.
 - **The five tasks block the documentation-review bookend, not Task 18.**
   The first release ships whichever of them have merged by the cut; the
   rest ship in a later release.
-- **mq-rest-admin-project/.github#55 is filed** under the proxy
-  mq-rest-admin-project/.github#54: mq-rest-admin-project has no `Ops`
-  workflow, so its daily config audit and trusted-authors check never ran.
+- **mq-rest-admin-project has no `Ops` workflow**, so its daily config
+  audit and trusted-authors check never ran. The gap is filed as
+  mq-rest-admin-project/.github#55 in that repository's ad-hoc epic
+  (mq-rest-admin-project/.github#36), outside this epic. The proxy
+  mq-rest-admin-project/.github#54, created when it was first filed, has no
+  tasks.
 - **The configuration lists four Vergil orgs:** vergil-project,
   logical-minds-foundry, mnemosys-project and mq-rest-admin-project.
 
@@ -1561,6 +1564,7 @@ tasks it blocks.
 - These reads already exist in the released tooling, so the first release
   does not make them worse. The human ruled that the release goes ahead
   without waiting for all five.
-- Task 18 found the missing workflow, and the human ruled the filing.
+- Task 18 found the missing workflow. The human ruled it out of this
+  epic's scope, as ad-hoc work for if and when the project is revived.
 - The human left two other orgs unconfigured, so they are not
   Vergil-managed.
