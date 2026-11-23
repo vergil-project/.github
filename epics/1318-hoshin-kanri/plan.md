@@ -397,3 +397,59 @@ level heading; an entry that ran late or was not performed adds a space and
   broke is a new task under the epic.
 
 ## Evolution during execution
+
+These entries were written at the retrospective, from the task comments. They
+were not added as each change happened.
+
+- **2026-11-18 — Task 3b's scope set to skeleton level (#1168).**
+  - **What changed:** the human posted two scope changes:
+    - The checklists set the shape and structure of each review only. Fine
+      detail is left to iteration and to the tools under #1140, #1316 and #1317.
+    - Fix Task 3a's reference screen to use `vrg-gh issue view`, because the
+      user agent cannot run `gh api`.
+    - "Releases cut" uses `--limit 1000` with a truncation rule. With no limit,
+      the query returns 30 releases.
+    - "Fleet shape" stops naming archived repos.
+  - **Why:** the first merge review judged the checklists as final content.
+- **2026-11-18 — Task 4's install steps run by the human (#1170).**
+  - **What changed:** the human ran `vrg-host plugins` and `vrg-vm update
+    --all`, which the plan had listed as agent-safe. The human's release-version
+    attestation was recorded by the agent, at the human's request.
+  - **Why:** both commands refuse the agent identity. The plan template's
+    mislabelling is fixed outside this epic, in vergil-claude-plugin#1177.
+- **2026-11-23 — Task added: #1263.**
+  - **What changed:** a task to tighten the skill's security rules for prose the
+    mechanical screen cannot catch. The validation (docs#139) was recorded as
+    SUCCESS.
+  - **Why:** validating the bootstrap found 2 entry lines that break the
+    security rules. Merged entries are never edited, so the rules are fixed
+    forward.
+- **2026-11-23 — Task added: #1266.**
+  - **What changed:** a task for two wording fixes: rule 4's example, and the
+    skill's reference table.
+  - **Why:** #1263's merge review found two older problems, and the human ruled
+    to file them as one task.
+- **2026-11-23 — Release of #1263 and #1266 installed by the human, with no
+  deployment task.**
+  - **Why:** the human's ruling, to keep it simple.
+- **2026-11-23 — Spec decision reversed; tasks added: #1277 and docs#164.**
+  - **What changed:** `pr-watch` now fixes logbook PRs like any other, and skips
+    merge review for those fixes. The logbook run itself still skips merge
+    review. docs#164 corrects the docs site's `pr-watch` entry.
+  - **Why:** the human ruled the spec's "`pr-watch` never fixes a logbook PR"
+    wrong. A failing PR needs fixing, and its fixes are mechanical. The
+    documentation review (docs#136) had already merged the old wording before
+    the ruling, hence docs#164.
+- **2026-11-23 — Task added: #1278.**
+  - **What changed:** "Epic drift" no longer says an exit of 1 is a partial
+    report.
+  - **Why:** the documentation review carried this item from #1168's merge
+    review, and the human ruled to file it.
+- **2026-11-23 — Changes from outside the epic, found by the documentation
+  review.**
+  - **What changed:** `epic-implement`'s adhoc-mode `Logbook:` skip, which #1166
+    added, was removed by vergil-claude-plugin#1226. Logbook tasks now live
+    under their own hoshin epic, not the docs repo's ad-hoc epic the spec names.
+  - **Why:** decided elsewhere. The spec stays as written.
+- **2026-11-23 — The retrospective does not wait for the release of #1277 and #1278.**
+  - **Why:** the human's ruling. That release is delayed by another epic.
