@@ -132,7 +132,7 @@ Repos: `T` vergil-tooling, `P` vergil-claude-plugin, `A` vergil-actions, `G`
 | 3d | Move the secrets | — | deploy | 3f, 3r, 3c |
 | 4 | Protected-path set and match | T | task | — |
 | 5 | Change fingerprint | T | task | — |
-| 6a | Two request kinds and the structured reply | T | task | — |
+| 6a | Two request kinds and the structured reply | T | task | 4, 5 |
 | 6b | Past-exchange verifier and lookup | T | task | 6a |
 | 7 | Merge-review record | T | task | 5 |
 | 7d | Release tooling: record commands | T | deploy | 5, 6a, 6b, 7 |
@@ -166,8 +166,10 @@ Repos: `T` vergil-tooling, `P` vergil-claude-plugin, `A` vergil-actions, `G`
 | R1 | Documentation review (#4751) | T | docs | 19v, 16b |
 | R2 | Retrospective (#1386) | G | retro | R1 |
 
-Once 1b has merged, tasks 2, 3a, 3b, 4, 5, 6a, 10, 14 and 15f have no
-blockers and can be worked side by side. Tasks 2, 2d, 3a–3f and 3r are
+Once 1b has merged, tasks 2, 3a, 3b, 4, 5, 10, 14 and 15f have no
+blockers and can be worked side by side. Task 6a follows once 4 and 5
+have merged, since its request commands compute their inputs with their
+interfaces. Tasks 2, 2d, 3a–3f and 3r are
 the standalone hardening the spec puts
 first (§5 step 0). They land even if the rest stalls.
 
@@ -592,6 +594,8 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
 
 **Interfaces:**
 
+- Consumes: `changed_protected` and `ProtectedChange` (Task 4), and
+  `change_fingerprint` (Task 5).
 - Produces:
   - `RequestKind = Literal["protected-change", "merge-review-exemption"]`;
   - `render_protected_change_request(changes: list[ProtectedChange],
