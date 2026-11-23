@@ -60,6 +60,17 @@ Copied from the spec; every task's requirements include them.
   the commit's diff against its parent is used.
 - Every check fails closed: an unreadable registry, sign-off, record or API
   response refuses. Nothing passes silently.
+- Every comment read goes through the trust layer of epic
+  vergil-project/.github#1467 (`lib/trust.py`): the readers are built on
+  `trust.read_comment_stream`, through `rulings.comments.read_stream`, with
+  the roles they accept. "Trusted" is the trust layer's judgement. The human
+  and agent logins come from `load_trusted_authors()` (`TrustedAuthors`),
+  never from a new variable or flag. The trust guard test
+  (`tests/vergil_tooling/test_trust_guard.py`) stays green.
+- The orgs in scope are vergil-project, logical-minds-foundry and
+  mnemosys-project (spec §4.11). Archived repos are left alone.
+  diogenes-project, mq-rest-admin-project and vergils-nemesis are out of
+  scope, and no installation there accepts the user App's new permissions.
 - Every code task is red, green, refactor: write the failing test and see
   it fail, make it pass, then refactor with the tests green, before the
   commit. A task's "Run → PASS" step includes the refactor.
@@ -108,6 +119,7 @@ Repos: `T` vergil-tooling, `P` vergil-claude-plugin, `A` vergil-actions, `G`
 | # | Task | Repo | Kind | Blocked by |
 | --- | --- | --- | --- | --- |
 | 1 | Spec and plan (#1385) | G | docs | — |
+| 1b | Rebase onto the recent epics (#1551) | G | docs | 1 |
 | 2 | `main` ruleset restricting updates | T | task | — |
 | 2d | Release tooling; apply the `main` ruleset | T | deploy | 2 |
 | 3a | Reusable workflows read App secrets from an environment | A | task | — |
@@ -126,7 +138,8 @@ Repos: `T` vergil-tooling, `P` vergil-claude-plugin, `A` vergil-actions, `G`
 | 14 | Plugin hooks' wording | P | task | — |
 | 15a | `merge-review`: record, approvals, exemption | P | task | 7, 6a |
 | 15e | Docs, retrospective and logbook PRs run merge review | P | task | 15a |
-| 15r | Plugin release A: records | P | deploy | 7d, 14, 15a, 15e |
+| 15f | `hoshin` reads the agent audit as a security signal | P | task | — |
+| 15r | Plugin release A: records | P | deploy | 7d, 14, 15a, 15e, 15f |
 | 8 | Shared gate evaluator | T | task | 4, 6b, 7 |
 | 9 | Submit: agents allowed, gates before push | T | task | 8, 15r |
 | 10 | Provenance: own-PR rules | T | task | — |
@@ -151,8 +164,9 @@ Repos: `T` vergil-tooling, `P` vergil-claude-plugin, `A` vergil-actions, `G`
 | R1 | Documentation review (#4751) | T | docs | 19v, 16b |
 | R2 | Retrospective (#1386) | G | retro | R1 |
 
-Tasks 2, 3a, 3b, 4, 5, 6a, 10 and 14 have no blockers and can be worked
-side by side. Tasks 2, 2d, 3a–3f and 3r are the standalone hardening the spec puts
+Once 1b has merged, tasks 2, 3a, 3b, 4, 5, 6a, 10, 14 and 15f have no
+blockers and can be worked side by side. Tasks 2, 2d, 3a–3f and 3r are
+the standalone hardening the spec puts
 first (§5 step 0). They land even if the rest stalls.
 
 **At filing:**
@@ -192,9 +206,12 @@ first (§5 step 0). They land even if the rest stalls.
 makes in logical-minds-foundry and mnemosys-project repos are listed per
 org in Task 3a's inventory: the Task 3c callers, the Task 13 `ops.yml`
 callers and the Task 12d marker setup. Each is made by the fleet sync where
-it manages the file. Otherwise it is filed as a task under that org's own
-ad-hoc epic and referenced (`Ref`) from this epic's deployment task that
-needs it. Tasks 3d, 12d and 18d list them in their acceptance.
+it manages the file. Otherwise it is filed under that org's proxy of this
+epic, created with `vrg-epic-create --proxy-for vergil-project/.github#1384
+--repo <org>/<repo>` (one proxy per org), and named by its full ref
+(`<owner>/<repo>#<N>`) in this table and in every `Blocked-by:` that names
+it. It is never filed under an ad-hoc epic. Tasks 3d, 12d and 18d list them
+in their acceptance.
 
 **Ordering rule:** until Task 18d the user App has no `pull_requests:
 write`, so every PR in this epic before then is submitted by the human, as
@@ -215,7 +232,8 @@ today. A PR touching `.github/workflows/**` is pushed by the human's
 
 Both follow the existing ruleset convention (`desired_tag_protection_ruleset`,
 `desired_automation_branch_ruleset`): `app_id: int | None`, where `None`
-means the bypass list is left unmanaged (`skip_bypass`).
+means the bypass list is left unmanaged (`bypass_actors is None` on
+`DesiredRuleset`).
 
 - Produces: `desired_main_update_ruleset(app_id: int | None, *,
   app_merges_releases: bool) -> DesiredRuleset`, named `"Main updates"`,
@@ -230,8 +248,9 @@ means the bypass list is left unmanaged (`skip_bypass`).
   identity being audited cannot move the audit's markers (Task 12).
 
 - [ ] **Step 1: Confirm the facts.** Record in the PR body:
-  - which identity merges a release PR into `main` today (read
-    `lib/release/` and a recent release PR's timeline);
+  - which identity merges a release PR into `main` today (read the
+    `merge-release` stage, `lib/release/merge.py`, which `--resume` and
+    `--supersede` share, and a recent release PR's timeline);
   - that the `update` rule is available on the org's plan and refuses a PR
     merge into `main` by a non-bypass identity (GitHub docs, plus a dry run
     on a fixture).
@@ -263,8 +282,8 @@ means the bypass list is left unmanaged (`skip_bypass`).
 
   def test_new_rulesets_leave_bypass_unmanaged_without_app_id():
       assert desired_main_update_ruleset(
-          None, app_merges_releases=False).skip_bypass
-      assert desired_audit_marker_ruleset(None).skip_bypass
+          None, app_merges_releases=False).bypass_actors is None
+      assert desired_audit_marker_ruleset(None).bypass_actors is None
   ```
 
 - [ ] **Step 3: Run them:** `vrg-container-run -- pytest
@@ -280,7 +299,8 @@ means the bypass list is left unmanaged (`skip_bypass`).
 
 ## Task 2d (deployment): Release vergil-tooling; apply the `main` ruleset
 
-- **Preconditions:** Task 2 merged. The release is human-gated.
+- **Preconditions:** Task 2 released (the record check under "Releases"
+  below). The release is human-gated.
 - **Procedure:** the daily config job (`ops.yml`, `vrg-github-repo-config
   update`) converges every repo, creating the "Main updates" and "Agent
   audit markers" rulesets. Run it once by hand after the release.
@@ -300,7 +320,10 @@ means the bypass list is left unmanaged (`skip_bypass`).
 - Modify: every reusable workflow job that reads `APP_CLIENT_ID` or
   `APP_PRIVATE_KEY`. Inventory them with `grep -rn
   "APP_CLIENT_ID\|APP_PRIVATE_KEY" .github/workflows actions`; at least
-  `cd-release.yml` and the epic-sweep and rollup callers.
+  `cd-release.yml`, the epic-sweep and rollup callers, and `cd-docs.yml`,
+  `cd-docs-refresh.yml` and `publish-index.yml`, which gained optional App
+  keys for the ops reporting of epic vergil-project/.github#1494 (its
+  Task 4), and every job with an `ops-report` step that mints the App token.
 - Modify: `.github/workflows/README.md` (the environment and why).
 
 - [ ] **Step 1: Inventory.** List every job in every in-scope org that reads
@@ -312,9 +335,11 @@ means the bypass list is left unmanaged (`skip_bypass`).
   (vergil-project/.github#1391 tracks its skip). The inventory confirms
   whether there are others, and names each with its reason. Also list, by file,
   every **caller** of a reusable workflow that reads the App keys (at least
-  `cd-release.yml`, `ops-github-config.yml` and the epic sweep and rollup
-  workflows): for example `.github`'s `ops.yml`, `epic-sweep.yml` and
-  `epic-rollup.yml`, each consumer's `ops.yml`, and each generated `cd.yml`.
+  `cd-release.yml`, `ops-github-config.yml`, the epic sweep and rollup
+  workflows, and the three docs and index workflows above): for example
+  `.github`'s `ops.yml`, `epic-sweep.yml` and `epic-rollup.yml`, each
+  consumer's `ops.yml`, each generated `cd.yml`, and the callers epic #1494
+  gave explicit App-key maps (its Tasks 6a–6t). List only the in-scope orgs.
   Put the list in the PR body; it is the input for Tasks 3c, 3e and 3d.
 - [ ] **Step 2: The check (static), written first.** A test asserts that
   every job reading a write-capable secret declares `environment:
@@ -362,7 +387,9 @@ means the bypass list is left unmanaged (`skip_bypass`).
   This narrows the least-privilege rule of epic vergil-project/.github#189 on
   purpose, and only for these callers. It supersedes the explicit App-key
   maps added just before this epic: vergil-tooling 1a58cce1a2 (#4750, the
-  generated `cd.yml`), vergil-claude-plugin 5d262961 and vergil-vm 6b51ead.
+  generated `cd.yml`), vergil-claude-plugin 5d262961 and vergil-vm 6b51ead,
+  and the maps epic vergil-project/.github#1494 added to the callers of the
+  docs and index workflows.
   The over-sharing it permits is small
   once no org- or repo-level secret that can write or act remains (Task 3d),
   and the called workflows are in the protected core. Every other caller
@@ -386,8 +413,12 @@ means the bypass list is left unmanaged (`skip_bypass`).
   superseding the explicit App-key map that 1a58cce1a2 (#4750) added)
 - Create: a `vrg-validate` audit check, `secrets_inherit`, that fails when a
   workflow passes `secrets: inherit` to any `uses:` outside the allow-list
-  `INHERIT_ALLOWED = ("cd-release.yml", "ops-github-config.yml", …)` taken
-  from Task 3a's inventory
+  `INHERIT_ALLOWED = ("cd-release.yml", "ops-github-config.yml",
+  "cd-docs.yml", "cd-docs-refresh.yml", "publish-index.yml", …)` taken
+  from Task 3a's inventory. The CI already runs a semgrep `secrets-inherit`
+  rule (with a `nosemgrep` on vergil-tooling's own `cd.yml`). Read it first:
+  the new check replaces it or the rule is narrowed to the same allow-list,
+  so there are never two definitions; the PR body says which.
 - Test: `tests/vergil_tooling/test_repo_init.py`, a new
   `tests/vergil_tooling/test_check_secrets_inherit.py`
 
@@ -402,15 +433,16 @@ means the bypass list is left unmanaged (`skip_bypass`).
 
 ## Task 3r (deployment): Release vergil-actions with 3a
 
-- **Preconditions:** Task 3a merged. The release is human-gated and moves
-  `v2.1`.
+- **Preconditions:** Task 3a released (the record check under "Releases"
+  below). The release is human-gated and moves `v2.1`.
 - **Acceptance:** the released reusable workflows declare `environment:
   automation` on every job that reads a write-capable secret. Callers (Task
   3c) merge only after this release, since they pin the released ref.
 
 ## Task 3f (deployment): Release vergil-tooling; apply the environment
 
-- **Preconditions:** Tasks 3b and 3e merged. The release is human-gated.
+- **Preconditions:** Tasks 3b and 3e released (the record check under
+  "Releases" below). The release is human-gated.
 - **Procedure:** the daily config job converges every repo, creating the
   `automation` environment. Run it once by hand after the release.
 - **Acceptance:**
@@ -545,7 +577,10 @@ means the bypass list is left unmanaged (`skip_bypass`).
     the request marker, `protected-change` or `merge-review-exemption`
     (`<!-- vrg-ruling kind=request type=protected-change -->`). The existing
     `kind=request|response` discriminator is unchanged, and existing
-    requests carry no `type`;
+    requests carry no `type`. Planning item vergil-project/.github#892
+    (authenticate every ruling) extends the same channel: read its current
+    state first, and if it has a design, keep `type` from clashing with it
+    and say so in the PR body;
   - `src/vergil_tooling/bin/vrg_ruling_reply.py`: refuse to post a reply
     to either kind without exactly one line `Decision: approve` or
     `Decision: refuse`.
@@ -599,28 +634,37 @@ means the bypass list is left unmanaged (`skip_bypass`).
 
 **Interfaces:**
 
-- Consumes: `exchange`'s comment stream and `identity.human_login()`.
-- Adds to `lib/rulings/identity.py`: `expected_agent_login(human: str) ->
-  str`, mode-free, deriving `<human>-vergil-user` and checking it against
-  the configured agents. The readers here, in Tasks 8, 11 and 12, and in the
-  human's submit, use it. `agent_login(authors, mode)` keeps its USER-mode
-  check for posting.
+- Consumes: the trust layer's comment stream, through
+  `rulings.comments.read_stream` (`trust.read_comment_stream`, which pages
+  every comment, checks the account type, and raises `TrustReadError` on a
+  truncated read), and `identity.human_login(authors)`.
+- Adds to `lib/rulings/identity.py`: `expected_agent_login(authors:
+  TrustedAuthors) -> str`, mode-free, deriving `<human>-vergil-user` and
+  checking it against the configured agents. The readers here, in Tasks 8,
+  11 and 12, and in the human's submit, use it. `agent_login(authors, mode)`
+  keeps its USER-mode check for posting.
 - Produces:
   - `@dataclass(frozen=True) class Approval: kind: RequestKind;
     request_id: int; decision: str; blobs: dict[str, str]; fingerprint: str
     | None`;
-  - `verified_approvals(issue_ref: str, *, human: str) -> list[Approval]`,
-    which keeps a
+  - `verified_approvals(issue_ref: str, *, authors: TrustedAuthors) ->
+    list[Approval]`, built on that stream, which keeps a
     request only when the agent login posted it, the human login posted
     the reply, neither comment was edited or deleted, and the reply is the
     first trusted comment after the request. Comments after the reply are
-    ignored. A read failure raises; it never returns `[]`.
+    ignored. A comment the stream leaves out (the automation App's, an
+    outsider's, or one edited by either) never counts as the reply. A read
+    failure raises; it never returns `[]`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_past_approval_ignores_later_trusted_comments`;
   - `test_past_approval_rejects_edited_and_wrong_login`;
+  - `test_untrusted_comment_between_request_and_reply_is_skipped`: an
+    automation or outsider comment between them leaves the approval valid;
   - `test_refuse_decision_is_not_an_approval`;
   - `test_read_failure_raises`.
+  - The trust guard test stays green: no comment is read outside the trust
+    layer.
 - [ ] **Step 2:** Run → FAIL. Implement. Run → PASS. Then `vrg-container-run
   -- vrg-validate`.
 - [ ] **Step 3: Commit** `feat(rulings): verify past approvals`.
@@ -643,20 +687,24 @@ means the bypass list is left unmanaged (`skip_bypass`).
     giving `Merge review record: head=<sha> fingerprint=<hex>
     outcome=<eligible|not-eligible (<reason>)>`;
   - `parse_record(body: str) -> Record | None`;
-  - `records(issue_ref: str, *, human: str) -> list[Record]`, from comments
-    by the agent
-    login only;
+  - `records(issue_ref: str, *, authors: TrustedAuthors) -> list[Record]`,
+    built on `rulings.comments.read_stream` narrowed to the agent role, so
+    from comments by the agent login only;
   - CLI `vrg-merge-review-close --issue <ref> --outcome <outcome>
     --body-file <file>`, which computes the head and fingerprint itself,
     from the worktree's `HEAD` and merge base or, for a batch member, that
     member's commit. It then posts the closing comment with the eligibility
-    line first and the record line second.
+    line first, the `Branch as reviewed:` line merge review now writes
+    second, and the record line third. Read the current closing-comment
+    shape in `skills/merge-review/SKILL.md` first and keep every line it
+    has.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_record_round_trip`;
   - `test_close_computes_fingerprint_not_caller` (the CLI takes no
     fingerprint argument);
   - `test_records_ignore_non_agent_authors`;
+  - the trust guard test stays green;
   - `test_records_read_failure_raises`;
   - `test_incomplete_outcome_is_refused` (stopped, waiting, fatal and error
     are not outcomes).
@@ -679,10 +727,11 @@ means the bypass list is left unmanaged (`skip_bypass`).
   - `@dataclass(frozen=True) class GateResult: ok: bool; reasons:
     tuple[str, ...]`;
   - `evaluate(repo: Path, *, base: str, head: str, issue_refs: list[str],
-    human: str)
-    -> GateResult`. `human` is the human login, from the trusted-authors
-    configuration on the host and in VMs, or from `--human-login` in the
-    audit; every shared reader takes it the same way. It applies two rules:
+    authors: TrustedAuthors)
+    -> GateResult`. `authors` is the trusted-authors configuration from
+    `load_trusted_authors()`: the local copy on the host and in VMs, the
+    delivered `VRG_TRUSTED_AUTHORS` copy in Actions. Every shared reader
+    takes it the same way. It applies two rules:
     - **protected files:** each `ProtectedChange`'s `(path, blob)` pair
       must appear in an approved `protected-change` approval on any of
       `issue_refs`; a blob approved for one path never covers another, and
@@ -694,9 +743,10 @@ means the bypass list is left unmanaged (`skip_bypass`).
     Task 9. It is a comment by the human login on the task issue whose first
     line is `Merge review override: fingerprint=<hex> reason=<text>`. It is
     keyed by fingerprint, not by PR, since it is posted before the PR
-    exists. `overrides(issue_ref, *, human) -> list[Override]` is the one
-    reader, used
-    here and by the audit, and the human login is checked as in Task 6b.
+    exists. `overrides(issue_ref, *, authors) -> list[Override]` is the one
+    reader, used here and by the audit, built on
+    `rulings.comments.read_stream` narrowed to the human role, so the human
+    login is checked as in Task 6b.
       A batch needs, for each issue, a record matching that issue's commit
       by `commit_fingerprint`. A whole-PR record for `base..head` covers a
       fix pushed to an open batch.
@@ -720,6 +770,7 @@ means the bypass list is left unmanaged (`skip_bypass`).
   - `test_batch_approval_on_any_issue_covers`;
   - `test_edit_after_approval_voids_it`;
   - `test_overrides_read_failure_raises`;
+  - `test_override_by_non_human_role_ignored`;
   - `test_unresolvable_task_issue_refuses`.
 - [ ] **Step 2:** Run → FAIL. Implement. Run → PASS. Then `vrg-container-run
   -- vrg-validate`.
@@ -731,7 +782,7 @@ means the bypass list is left unmanaged (`skip_bypass`).
 **Files:**
 
 - Modify: `src/vergil_tooling/bin/vrg_submit_pr.py`:
-  - `main`'s identity gate at line 168: refuse AUDIT; refuse every agent
+  - `main`'s identity gate (`is_agent()`): refuse AUDIT; refuse every agent
     with `--release`, in the CLI emergency mode (`--issue/--summary/--title`)
     and on the relay path (`--branches`); allow USER in the template and
     batch modes, which report-ready drives;
@@ -739,11 +790,13 @@ means the bypass list is left unmanaged (`skip_bypass`).
     submission, single-issue included: fetch `origin/develop`, and the
     branch only when `push` is false (a pushing submit must not move the
     `--force-with-lease` ref), then `agent_gates.evaluate`, all before any
-    push or `gh pr create`;
+    push or `gh pr create`, and after submit's existing trust-layer
+    preflight;
   - the docstring and help text.
 - Modify: `src/vergil_tooling/bin/vrg_gh.py` (`_DENIED_AGENT` messages
   point at `vrg-pr-workflow report-ready` and `vrg-submit-pr`; the denials
-  stay) and `src/vergil_tooling/lib/github_config.py:158-163` (the comment).
+  stay) and `src/vergil_tooling/lib/github_config.py` (the auto-merge
+  comment above the "Branch protection" ruleset).
 - Test: `tests/vergil_tooling/test_vrg_submit_pr.py`,
   `tests/vergil_tooling/test_vrg_gh.py`
 
@@ -776,8 +829,12 @@ means the bypass list is left unmanaged (`skip_bypass`).
 
 **Files:**
 
-- Modify: `src/vergil_tooling/lib/pr_provenance.py` (`_FORBIDDEN` at
-  69-76, `evaluate`)
+- Modify: `src/vergil_tooling/lib/pr_provenance.py` (`_FORBIDDEN`,
+  `evaluate`). Since epic vergil-project/.github#1467 the table is keyed by
+  the roles `classify(identity, *, org, authors)` returns through the trust
+  layer, `UNTRUSTED` among them. "Its own PR" compares the PR's author, as
+  a `trust.Identity`, with the user agent's identity, never a bare login
+  string.
 - Test: `tests/vergil_tooling/test_pr_provenance.py`
 
 - [ ] **Step 1: Write the failing tests:**
@@ -785,7 +842,8 @@ means the bypass list is left unmanaged (`skip_bypass`).
   - `test_user_merge_of_own_pr_allowed` (the `merged_now` path);
   - `test_user_action_on_human_pr_forbidden`;
   - `test_user_approval_forbidden_even_on_own_pr`;
-  - `test_audit_rules_unchanged`.
+  - `test_audit_rules_unchanged`;
+  - `test_untrusted_rules_unchanged`.
 - [ ] **Step 2: Decide `edited`.** Read whether submit edits a PR after
   creating it, and allow `edited` on the agent's own PR only if it does.
   State the finding in the PR body.
@@ -800,14 +858,16 @@ means the bypass list is left unmanaged (`skip_bypass`).
 **Files:**
 
 - Modify: `src/vergil_tooling/lib/finalize_watch.py`:
-  `_check_provenance` at 486 becomes `_check_gates`, which runs provenance
-  and `agent_gates.evaluate` at watch start and on each new head; failures
+  `_check_provenance` becomes `_check_gates`, which runs provenance
+  and `agent_gates.evaluate` at watch start and on each new head (the watch
+  already re-checks provenance on every head change, in `_judge`); failures
   go through `_disable_auto_merge`. Before each evaluation it fetches the
   PR's head ref and the base, since a new head may have been made outside
   the clone. It refuses, without evaluating, when the clone's origin is not
   the PR's repository.
 - Modify: `src/vergil_tooling/bin/vrg_finalize_pr.py` (an early refusal of
-  `--release` for agents, before any watch).
+  `--release` for agents, at the existing `--release` gate, which runs
+  before both `--cleanup-only` and the watch).
 - Test: `tests/vergil_tooling/test_finalize_watch.py`,
   `tests/vergil_tooling/test_vrg_finalize_pr.py`
 
@@ -822,7 +882,8 @@ means the bypass list is left unmanaged (`skip_bypass`).
   - `test_recheck_read_failure_disarms`;
   - `test_recheck_fetches_unseen_head`;
   - `test_recheck_refuses_other_repo_clone`;
-  - `test_agent_release_refused_before_watch`.
+  - `test_agent_release_refused_before_watch`;
+  - `test_agent_cleanup_only_release_refused`.
 - [ ] **Step 3:** Run → FAIL. Implement. Run → PASS. Then `vrg-container-run
   -- vrg-validate`.
 - [ ] **Step 4: Commit** `feat(finalize): re-check the gates on every new
@@ -839,14 +900,15 @@ means the bypass list is left unmanaged (`skip_bypass`).
 
 **Interfaces:**
 
-- Consumes: `agent_gates.evaluate`, `pr_provenance.classify_login`.
-- Produces: `vrg-agent-audit --repo <owner/name> --human-login <login>
-  [--init]`.
-  - **The human login** comes from an org-level Actions variable,
-    `VERGIL_HUMAN_LOGIN`, set by the human. The job passes it as
-    `--human-login`, and the agent identities are derived from it as
-    `lib/rulings/identity.py` already does. The audit refuses (exit 1) when
-    the value is missing or empty, or names more than one login.
+- Consumes: `agent_gates.evaluate`, `pr_provenance.classify` and
+  `check_pr`, `load_trusted_authors()`.
+- Produces: `vrg-agent-audit --repo <owner/name> [--init]`.
+  - **The human and agent logins** come from the trusted-authors
+    configuration, loaded with `load_trusted_authors()`: in Actions, the
+    delivered `VRG_TRUSTED_AUTHORS` copy every content-reading workflow
+    already receives. There is no audit-specific variable or flag. The
+    audit refuses (exit 1) when the configuration is missing, or names no
+    human or more than one, as `rulings.identity.human_login` already does.
   - **Two markers** in the audited repo, the branches
     `vergil/agent-audit/develop`
     and `vergil/agent-audit/main` (rulesets cover only branches and tags, so
@@ -862,13 +924,19 @@ means the bypass list is left unmanaged (`skip_bypass`).
      head's change
      (agent-involved PRs only: opened by an agent login, or with any
      action attributed to one);
-  3. the merge or auto-merge actor is in the expected set: the human, the
-     user agent, or the automation App on PRs it authored;
+  3. the merge or auto-merge actor is in the expected set, judged by
+     `classify` with account types: the human, the user agent, or the
+     automation App, in its own org, on PRs it authored. An `UNTRUSTED`
+     actor is always reported;
   4. any merge into `main` by anyone but the human, or the automation App
      where Task 2 found it merges releases.
 
   A merged blob that differs from the head blob is reported as a separate
   `merge-changed-approved-file` condition.
+
+  The audit is a security-signal job (spec §4.8): it files no issue and
+  posts nothing. Its findings are its exit status and its run log, which
+  `hoshin` reads (Task 15f).
 
 - [ ] **Step 1: Confirm the pusher record.** Find which GitHub API records
   name the identity that pushed a commit to a PR branch, and use one if
@@ -881,7 +949,8 @@ means the bypass list is left unmanaged (`skip_bypass`).
   - `test_init_sets_marker_and_audits_nothing`;
   - `test_missed_run_is_caught_up_from_marker`;
   - `test_main_merges_caught_up_from_main_marker`;
-  - `test_missing_or_plural_human_login_refuses`;
+  - `test_missing_trusted_authors_configuration_refuses`;
+  - `test_untrusted_actor_reported`;
   - `test_automation_only_pr_skips_record_check`;
   - `test_unexpected_actor_reported`;
   - `test_main_merge_by_agent_reported`;
@@ -902,12 +971,14 @@ means the bypass list is left unmanaged (`skip_bypass`).
   the approval.
 - **vergil-actions, the audit workflow:** a reusable workflow,
   `ops-agent-audit.yml`, that runs `vrg-agent-audit` for its calling repo as
-  the automation App, in the `automation` environment. It reads
-  `--human-login` from the org variable `VERGIL_HUMAN_LOGIN`, and opens or
-  updates one issue on failure. It is an App-key workflow, so it goes on
+  the automation App, in the `automation` environment. It passes the org
+  variable `VRG_TRUSTED_AUTHORS` through, as `ops-github-config.yml` already
+  does. It is a security-signal job (spec §4.8): it files no issue and has
+  no `ops-report` step. It is an App-key workflow, so it goes on
   Task 3e's `secrets: inherit` allow-list. It is part of 13 (A).
-- **Every repo's `ops.yml`, in every org where the user App is installed:**
-  calls `ops-agent-audit.yml` after the config job. This includes `.github`'s
+- **Every repo's `ops.yml`, in the three in-scope orgs:**
+  calls `ops-agent-audit.yml` after the config job, as a job named
+  `agent-audit`, the name `hoshin` reads it by (Task 15f). This includes `.github`'s
   own `ops.yml`, filed as 13 (G). The other repos' changes are made by the
   same caller update as Task 3c, or by the fleet sync where it manages
   `ops.yml`. Callers merge only after Task 13r has released
@@ -965,12 +1036,15 @@ names the handoff.
 **Files:** `skills/issue-implement/SKILL.md`, `skills/pr-watch/SKILL.md`.
 
 - `issue-implement` runs, after report-ready: `vrg-submit-pr` (which
-  chains finalize), then the watch procedure until a merge or a human stop.
+  always finalizes), then the watch procedure until a merge or a human stop.
 - The watch procedure lives once, in `pr-watch`. `issue-implement` invokes
   it; `pr-watch` stays the standalone entry for an open PR.
 - **`pr-watch` changes:**
   - it reruns `vrg-finalize-pr` itself after a fix;
-  - it pushes a `not-eligible` fix once every ruling is answered;
+  - it pushes a `not-eligible` fix once every ruling is answered. It
+    already does so for a fix whose only stop was an answered ruling
+    (`Branch as reviewed: yes`); extend that rule rather than adding a
+    second one;
   - it never runs anything with `--release`.
 - **Removed:** "Only the human opens the PR" and the workflow-push special
   case. The cloud relay section stays.
@@ -986,19 +1060,44 @@ names the handoff.
 - `epic-create`'s spec-and-plan PR, `epic-retrospective`'s PR and `hoshin`'s
   logbook PR run merge review before report-ready, closing with
   `vrg-merge-review-close`. Their `docs-only` class keeps it light.
+- `pr-watch`'s skip of merge review for a fix to a `Logbook:` PR goes: a
+  logbook fix is merge-reviewed like any other, so the watch's re-check
+  (Task 11) finds a record covering it.
 - This needs no new permission, so it ships in plugin release A (Task 15r),
   before the gates. The human's submits of these PRs then pass from the
   start. Who submits them is unchanged here (Tasks 15c and 15d).
 - **Check:** plugin tests pass. Commit `feat(skills): docs and logbook PRs
   run merge review`.
 
+## Task 15f: `hoshin` reads the agent audit as a security signal
+
+**Files:** `skills/hoshin/references/daily.md`, and
+`skills/hoshin/references/security.md` if it lists the jobs.
+
+- Add the `agent-audit` job (Task 13) to the security-signal jobs the daily
+  review reads from run history, beside `github-config` and
+  `dependabot-audit`. A failed run is "a security-related failure" with its
+  security record's neutral ref, created first if it has none, exactly as
+  for those two.
+- A repo with no `agent-audit` runs yet is not a finding: the job goes live
+  only at Task 12d. From 12d on, a scheduled run missing in an in-scope repo
+  is flagged as not read.
+- No new permission is needed, so it ships in plugin release A (Task 15r),
+  before the audit goes live.
+- **Check:** plugin tests pass under `vrg-container-run -- vrg-validate`.
+  Commit `feat(hoshin): read the agent audit as a security signal`.
+
 ## Task 15c: `epic-implement`, `epic-create`, `epic-retrospective`, `fixture-run`
 
 - **`epic-implement`:** after a merge, re-read the epic and continue with
   the next runnable task. Stop for the human only on a ruling, an approval,
   a failure, or a task blocked on a release or a human-gated deployment
-  precondition (spec §4.10). Drop "Your responsibility ends here" and the
-  retrospective-PR line.
+  precondition (spec §4.10). The next runnable task may be a proxy task in
+  another org; continuing covers it, through the primary epic. Drop "Your
+  responsibility ends here" and the retrospective-PR line.
+- **`issue-deploy`:** its line that agents hand off `vrg-submit-pr`, by the
+  same policy that keeps releases human-gated, moves to the new boundary:
+  agents submit; releases stay human-gated.
 - **The other three:** the agent submits its docs or fixture PRs, after the
   merge review Task 15e added. Fixture releases stay human-gated.
 - **Check:** plugin tests pass under `vrg-container-run -- vrg-validate`.
@@ -1020,9 +1119,17 @@ names the handoff.
 ## Task 16a: Consumer CLAUDE.md template and the permission-model spec
 
 - **Files (vergil-tooling):**
-  - `src/vergil_tooling/data/claude_md_consumer.md:29-42`;
+  - `src/vergil_tooling/data/claude_md_consumer.md` (its "PR handoff"
+    section);
   - `docs/specs/2026-05-29-agent-permission-model-design.md` (the "human
-    triggers" principle and the user App table).
+    triggers" principle and the user App table);
+  - the PR-workflow text that tells the agent the human submits:
+    `lib/pr_workflow/freeze.py` (the freeze refusal message),
+    `lib/pr_workflow/engine.py`, `lib/pr_workflow/state.py` and
+    `lib/branch_sweep.py`. Grep `src/` for "human submits" and "vrg-submit-pr"
+    for any others. Each repo's own CLAUDE.md that the fleet sync does not
+    manage from this template is listed in the PR body for the documentation
+    review (R1).
 - **The new rule text:**
   - agents submit and finalize through the tools, never with `--release`;
   - releases and promotion are human actions;
@@ -1044,36 +1151,53 @@ instruction ships before its permission. Every release is human-gated.
 "Release" means the first ordinary release of that repo containing the
 tasks named.
 
+**Confirming a release carries a task** (epic vergil-project/.github#1440).
+Each deployment task's first precondition step is, for every task it is
+blocked by: `vrg-release-record check <owner>/<repo>#<N>` exits 0 (`pass`).
+Exit 3 (`fail`) is an unmet precondition. Exit 4 (no record) falls back to
+`vrg-git merge-base --is-ancestor <merge-sha> <tag-sha>` exiting 0 for the
+merge commit of the PR that closed the task. Exit 1 is a read error and a
+stop. Never a release-notes or changelog check.
+
+**The install is part of the release.** A vergil-tooling or plugin release
+runs its own install (`[publish].install`: the tooling install and
+`vrg-vm update --all`, or `vrg-host plugins` and `vrg-vm update --all`), and
+its `Released:` record states the outcome. A deployment step that needs the
+release installed checks that the record's Install line reads `ran`; it
+runs no install by hand. After a plugin release, the session still needs
+`/reload-plugins` or a new session.
+
 ## Task 7d (deployment): Release vergil-tooling with the record and request commands
 
-- **Preconditions:** Tasks 5, 6a, 6b and 7 merged.
-- **Procedure:** the next vergil-tooling release; `vrg-vm update --all`,
-  `vrg-host` refresh.
+- **Preconditions:** Tasks 5, 6a, 6b and 7 released (the record check
+  above).
+- **Procedure:** the next vergil-tooling release; its record's Install line
+  reads `ran`.
 - **Acceptance:** `vrg-merge-review-close --help` and `vrg-ruling request
   --kind protected-change --help` run in a VM.
 
 ## Task 15r (deployment): Plugin release A: records and hook wording
 
-- **Preconditions:** Task 7d done; Tasks 14, 15a and 15e merged.
-- **Procedure:** release the plugin; `vrg-vm update --all` and `vrg-host
-  plugins`.
+- **Preconditions:** Task 7d done; Tasks 14, 15a, 15e and 15f released (the
+  record check above).
+- **Procedure:** release the plugin; its record's Install line reads `ran`.
 - **Acceptance:** the next merge review on any task issue, a docs or
   logbook PR included, posts a closing comment carrying a `Merge review
   record:` line. No check reads it yet.
 
 ## Task 13r (deployment): Release vergil-actions with 13 (A)
 
-- **Preconditions:** Task 13 (A) merged. The release is human-gated and
-  moves `v2.1`.
+- **Preconditions:** Task 13 (A) released (the record check above). The
+  release is human-gated and moves `v2.1`.
 - **Acceptance:** `ops-agent-audit.yml` is callable at the released ref.
   The `ops.yml` callers (Task 13 (G) and the others) merge only after this.
 
 ## Task 17d (deployment): Release vergil-tooling with the gates
 
 - **Preconditions:** Task 15r done, so merge review already writes records;
-  Tasks 4, 8, 9, 10, 11 and 12 merged.
-- **Procedure:** the next vergil-tooling release; `vrg-vm update --all`,
-  `vrg-host` refresh.
+  Tasks 4, 8, 9, 10, 11 and 12 released (the record check above).
+- **Procedure:** the next vergil-tooling release; its record's Install line
+  reads `ran`.
 - **Acceptance:**
   - in a VM, `vrg-submit-pr --help` no longer says "human-only";
   - the human's next ordinary `vrg-submit-pr` passes the new gates, using
@@ -1083,31 +1207,36 @@ tasks named.
 
 ## Task 21d (deployment): Plugin release B and the steering
 
-- **Preconditions:** Task 18d done; Tasks 15b, 15c, 15d and 16a merged.
+- **Preconditions:** Task 18d done; Tasks 15b, 15c, 15d and 16a released
+  (the record check above).
 - **Procedure:** release the plugin and vergil-tooling (for 16a's
-  template); `vrg-vm update --all` and `vrg-host plugins`.
+  template); each record's Install line reads `ran`.
 - **Acceptance:** an `issue-implement` run on a fixture task submits its PR
   and carries it to merge without a human step.
 
 ## Task 12d (deployment): Audit live fleet-wide, marker set, green
 
 - **Preconditions:** Task 17d released; Task 13r released; every Task 13
-  caller PR merged (the docs registry excepted); the
-  human has set `VERGIL_HUMAN_LOGIN` in each org.
-- **Procedure:** run `vrg-agent-audit --init` for every repo in every org
-  where the user App is installed, then let one scheduled run pass.
+  caller PR merged (the docs registry excepted); Task 15r released, so
+  `hoshin` reads the audit's runs.
+- **Procedure:** run `vrg-agent-audit --init` for every repo of the three
+  in-scope orgs (archived repos excepted), then let one scheduled run pass.
 - **Acceptance:**
-  - a list, by org, of every repo the user App is installed on, each with
-    both markers;
+  - a list, by in-scope org, of every repo the user App is installed on,
+    each with both markers;
   - the scheduled run exits 0 in every one;
-  - a deliberate dry run against a known human-merged PR reports nothing.
+  - a deliberate dry run against a known human-merged PR reports nothing;
+  - the next `hoshin` daily review lists the `agent-audit` runs among its
+    security-signal jobs.
 
 ## Task 18d (deployment): Grant the user App `pull_requests: write`
 
 - **Preconditions:** Tasks 2d and 12d closed.
 - **Procedure (the human):** change the App's permission and accept it on
   each installation whose repos all appear in Task 12d's list with their
-  markers. An installation not on that list is not granted until it is.
+  markers. An installation not on that list is not granted until it is,
+  and no installation outside the three in-scope orgs is granted (spec
+  §4.11).
 - **Acceptance:**
   - a hand-run agent `vrg-submit-pr` on a test PR in a fixture opens it
     with auto-merge on, and it merges;
@@ -1116,7 +1245,8 @@ tasks named.
 
 ## Task 16b: `.github` CLAUDE.md on the new boundary
 
-The same rule text as Task 16a, in `.github/CLAUDE.md:34-47`. It is filed
+The same rule text as Task 16a, in the "PR handoff" section of
+`.github/CLAUDE.md`. It is filed
 after 18d so the steering never runs ahead of the permission. Commit `docs:
 the agent boundary moves to releases`.
 
@@ -1153,5 +1283,10 @@ human's.
 - **R1 (vergil-project/vergil-tooling#4751):** documentation review. It
   covers the site docs on the new boundary, the approval and exemption
   commands, the audit and the release order, and spawns per-repo doc tasks
-  as needed.
+  as needed. Known places already on the old boundary: the plugin's
+  `docs/site/docs/hooks/index.md`, `docs/site/docs/skills/index.md`,
+  `docs/development/skills-architecture.md` and `README.md`; vergil-tooling's
+  guides `git-workflow.md`, `permission-model.md`,
+  `identity-architecture.md`, `credential-management.md`, `account-setup.md`
+  and `cli-tools-overview.md`; and any repo CLAUDE.md Task 16a lists.
 - **R2 (#1386):** retrospective, with `epic-retrospective`.

@@ -8,7 +8,10 @@
   and every member repo (registry rollout)
 - **Related:** epic vergil-project/.github#889 (authenticated human rulings),
   epic vergil-project/.github#1218 (parallel PR merging: auto-merge and the
-  provenance check), planning items vergil-project/.github#1088
+  provenance check), epic vergil-project/.github#1467 (trusted content only:
+  the trust layer every comment read goes through), epic
+  vergil-project/.github#1494 (the operations queue and its security-signal
+  jobs), epic vergil-project/.github#1440 (release records), planning items vergil-project/.github#1088
   (fixture-scoped agent rights), vergil-project/vergil-actions#1185
   (environment-scoped automation credentials, absorbed by §4.2),
   vergil-project/.github#467 (release holds)
@@ -131,21 +134,28 @@ those files, and nowhere else.
 
 ### 4.1 Where the boundary is encoded today
 
-Paths are in vergil-tooling's `src/vergil_tooling/` unless stated.
+Paths are in vergil-tooling's `src/vergil_tooling/` unless stated. Each
+location is named by its symbol, since line numbers drift.
 
-- **`bin/vrg_submit_pr.py:168`.** Today `is_agent()` refuses the whole
+- **`bin/vrg_submit_pr.py`, `main`'s identity gate.** Today `is_agent()`
+  refuses the whole
   command. Change: refuse AUDIT; refuse agents on the `--release` path, in
   the CLI emergency mode and on the relay path, so agents stay on the path
   report-ready drives (the relay serves cloud sessions, a non-goal); allow
   USER otherwise.
 - **`bin/vrg_finalize_pr.py`.** No identity check today; `--release` chains
-  `vrg-release`, which refuses agents. Change: refuse `--release` for agents
-  up front, before any PR is watched.
-- **`bin/vrg_release.py:31`, `bin/vrg_promote.py:60`, `lib/promote.py:349`.**
-  Refuse agents. Unchanged.
-- **`lib/pr_provenance.py:69-76`.** USER is forbidden `created`, `merged`,
-  `auto_merge_enabled`, `edited` and more. Change: §4.3.
-- **`bin/vrg_gh.py:100-113` (`_DENIED_AGENT`).** Denies agents `pr create`,
+  `vrg-release`, which refuses agents. Its `--release` gate runs before both
+  `--cleanup-only` and the watch. Change: at that gate, refuse `--release`
+  for agents up front, before any PR is watched or cleaned up.
+- **`bin/vrg_release.py`, `bin/vrg_promote.py`, `lib/promote.py`.**
+  Refuse agents, the release's `--resume` and `--supersede` paths included.
+  Unchanged.
+- **`lib/pr_provenance.py`, `_FORBIDDEN`.** USER is forbidden `created`, `merged`,
+  `auto_merge_enabled`, `edited` and more. Roles come from `classify`, which
+  judges each identity through the trust layer of epic
+  vergil-project/.github#1467 (`lib/trust.py`), with an `UNTRUSTED` role for
+  everyone else. Change: §4.3.
+- **`bin/vrg_gh.py`, `_DENIED_AGENT`.** Denies agents `pr create`,
   `pr edit` and `pr merge`. Change: keep the denials, point the message at
   `vrg-submit-pr` (§4.9).
 - **Plugin hooks** `block-agent-merge.sh`, `block-raw-gh-pr-create.sh`,
@@ -155,15 +165,17 @@ Paths are in vergil-tooling's `src/vergil_tooling/` unless stated.
 - **Plugin skills** `issue-implement`, `pr-watch`, `merge-review`,
   `epic-implement`. Stop at report-ready and tell the human to rerun
   `vrg-finalize-pr`. Change: §4.10.
-- **`.github/CLAUDE.md:34-47` and `data/claude_md_consumer.md:29-42`.**
+- **The "PR handoff" sections of `.github/CLAUDE.md` and
+  `data/claude_md_consumer.md`.**
   "Agents never run `vrg-submit-pr`." Change: §4.10.
-- **`lib/github_config.py:158-163`.** A comment says agents cannot turn
+- **`lib/github_config.py`, above the "Branch protection" ruleset.** A
+  comment says agents cannot turn
   auto-merge on. Change: update the comment.
 - **The user GitHub App.** `pull_requests: read`, `workflows: none`. Change:
   `pull_requests: write`, `workflows: write` (§4.2).
 
 The "Branch protection" ruleset covers both `main` and `develop`, requires no
-approving reviews and has no bypass actors (`lib/github_config.py:226-250`).
+approving reviews and has no bypass actors (`lib/github_config.py`).
 For `develop` that is not changed.
 
 **`main` is closed to agents server-side.** A GitHub App's permissions apply
@@ -200,7 +212,8 @@ other branch therefore
 runs without them. A read-only token that PR-time CI needs, such as a
 third-party vulnerability database key, may stay outside the rule. Each one is
 named in the plan with its reason. This absorbs
-vergil-project/vergil-actions#1185 in full: its scope (every in-scope org,
+vergil-project/vergil-actions#1185 in full: its scope (every in-scope org
+(§4.11),
 the reusable workflows and any caller that mints the token, the repo-config
 desired state keeping the environment converged, and the human's moving of
 the secrets) and its acceptance criteria become this epic's.
@@ -214,10 +227,14 @@ reusable workflow in another repo only when the caller passes `secrets:
 inherit` (a probe recorded in vergil-actions `cd-release.yml`), and a job
 that calls a reusable workflow cannot declare an environment. So the callers
 of the reusable workflows that read these credentials (`cd-release.yml`,
-`ops-github-config.yml`, the epic sweep and rollup, the audit workflow) pass
-`secrets: inherit`. This deliberately narrows the least-privilege rule of
-epic vergil-project/.github#189, and supersedes the explicit App-key maps
-added just before this epic. The over-sharing it permits is small once no
+`ops-github-config.yml`, the epic sweep and rollup, the audit workflow, and
+`cd-docs.yml`, `cd-docs-refresh.yml` and `publish-index.yml`, which gained
+the App keys for the ops reporting of epic vergil-project/.github#1494) pass
+`secrets: inherit`. A job that mints the App token itself, such as each ops
+reporting step, declares the environment. This deliberately narrows the
+least-privilege rule of epic vergil-project/.github#189, and supersedes the
+explicit App-key maps added just before this epic and those epic #1494
+added to its callers. The over-sharing it permits is small once no
 org- or repo-level secret that can write or act remains, and the called
 workflows are protected paths. Every other caller keeps an explicit map, and
 a `vrg-validate` check refuses `secrets: inherit` on any workflow outside
@@ -320,6 +337,19 @@ request, and neither comment was edited. GitHub attributes each comment to its
 author, and an agent VM holds no human credentials, so an agent cannot post
 the reply.
 
+**Trusted means what the trust layer says.** Since epic
+vergil-project/.github#1467, every comment read goes through the trust layer
+(`lib/trust.py`), and the ruling exchange reads its comment stream
+(`trust.read_comment_stream`). A comment is trusted when its author, and
+every editor, holds a role the reader accepts: the human or the agents, with
+the account type checked. A comment by the automation App, a deleted
+account, an outsider, or one edited by anyone outside those roles is not in
+the stream. The human and agent logins come from the trusted-authors
+configuration (`load_trusted_authors()`), never from a second definition.
+Every reader this epic adds, of approvals, exemptions, overrides and
+merge-review records, is built on that stream, narrowed to the role it
+accepts.
+
 **Verifying a past approval.** The exchange verifier in `lib/rulings/` checks
 a live exchange, and treats any trusted comment after the response as fatal.
 A task issue always gains later comments (merge review's closing comment,
@@ -386,7 +416,8 @@ submits normally.
    merge-review record. It gains a machine-readable line naming the head it
    judged, the change fingerprint (below), and an outcome of `eligible`
    or `not-eligible (<reason>)`. Submit, the watch and the audit (§4.8) all
-   read it from GitHub, with one shared reader. There is no separate field
+   read it from GitHub, with one shared reader built on the trust layer's
+   comment stream (§4.5), accepting the agent role only. There is no separate field
    in the PR workflow state, and the eligibility line in report-ready's
    `--notes` stays prose for readers.
 
@@ -468,7 +499,7 @@ whatever the skill did, so a departure cannot merge unchecked.
 `vrg-finalize-pr` has no host-specific code. It needs the main clone, its
 `.worktrees/`, and `vrg-container-run`. Agent VMs already have all three,
 since they validate there. The agent runs finalize in its own VM clone, after
-`vrg-submit-pr` (which chains finalize by default). The VM's develop is then
+`vrg-submit-pr`, which always finalizes. The VM's develop is then
 synced and validated, and the VM's merged worktrees are cleaned up.
 
 The human's Mac clone is not touched. It is synced when the human next
@@ -495,13 +526,23 @@ or, for a batch PR, on any issue of the batch. A file whose blob in the
 merge commit differs from its blob at the PR's head (a squash merge onto a
 `develop` that also changed it) is reported as its own named condition for
 the human to look at, not as a not-approved change. A not-approved file, or
-any read failure, is reported loudly as a failing run and an issue for the
-human. It never passes quietly.
+any read failure, fails the run. It never passes quietly.
+
+**A security-signal job.** A finding means a merge may have bypassed the
+gates, which is a security finding. So the audit is a security-signal job
+in the sense of epic vergil-project/.github#1494: it files no public issue
+and has no ops reporting step. The `hoshin` daily review reads its runs from
+the Actions history, beside the `github-config` and `dependabot-audit` jobs,
+and records each failure as a security record through
+`vrg-security-record`, naming it in public only by that record's neutral
+ref (§4.10).
 
 It also reports every PR merged into `develop` where the merge, or turning
 auto-merge on, was done by an account outside the expected set: the human,
 the user agent through `vrg-submit-pr`, and the org automation App for its
-own fenced PRs. Any other actor is reported, whatever paths the PR changed.
+own fenced PRs, each judged by the trust layer's roles (§4.5). Any other
+actor, an `UNTRUSTED` one included, is reported, whatever paths the PR
+changed.
 It covers merges into `main` too: any merge into `main` whose merge, or
 turning auto-merge on, was done by anyone but the human (or the automation
 App, if the release flow merges as it) is reported.
@@ -535,8 +576,10 @@ merge; it makes a harmful one visible within a day.
 
 The builder decides where it runs and as which identity, most naturally beside
 the daily GitHub config job in `.github`'s `ops.yml`, as the automation App.
-That job needs the trusted-authors configuration (the human login) to verify
-the exchange, and the plan states how it gets it. The audit's workflow and its
+It needs the trusted-authors configuration to verify the exchange, and reads
+it the way every content-reading workflow already does since epic #1467:
+the org variable `VRG_TRUSTED_AUTHORS`, which the daily config audit keeps
+free of drift. The audit's workflow and its
 callers are protected paths. Its code lives in vergil-tooling and, like the
 rest of the tooling's gate logic (§4.4), is covered by merge review and the
 human-gated release, not by the core.
@@ -575,7 +618,10 @@ The soft gates now say "use the tool" instead of "ask the human":
   human to. Its rule "you never run `vrg-submit-pr` or `vrg-finalize-pr`"
   becomes "never with `--release`". Its rule for a fix whose merge review
   ends `not-eligible` ("do not push; the human decides") changes to match
-  §4.6: it pushes once every ruling on the fix is answered.
+  §4.6: it pushes once every ruling on the fix is answered. Its skip of
+  merge review for a fix to a `Logbook:` PR goes: merge review runs on
+  every fix (§4.6), or the watch's re-check would turn auto-merge off on the
+  fixed logbook PR.
 - **`merge-review`**: raise protected changes and request the approval (§4.5).
   Add the machine-readable record line to its closing comment, from both entry
   points (§4.6).
@@ -595,7 +641,14 @@ The soft gates now say "use the tool" instead of "ask the human":
   human's in-session approval of the full text is posted as an `approve` reply
   recording each logbook file's blob hash (§4.5). Submit, the watch and the
   audit then enforce it with no logbook-specific rule, and any later edit to
-  the text voids it. The logbook PR gets merge review (§4.6).
+  the text voids it. The logbook PR gets merge review (§4.6). Its daily
+  review also reads the agent audit's runs as a security-signal job (§4.8).
+  That change needs no new permission and ships before the audit goes live.
+- **Other wording on the old boundary:** `issue-deploy`'s line that agents
+  hand off `vrg-submit-pr`, and the vergil-tooling PR-workflow messages that
+  tell the agent the human submits (the freeze refusal among them), move to
+  the new boundary with the skills. The site docs and guides are the
+  documentation review's sweep.
 - **CLAUDE.md** (`.github` and the consumer template in vergil-tooling): replace
   "Agents never run `vrg-submit-pr`" with the new boundary. Agents submit and
   finalize through the tools and never with `--release`. Releases and
@@ -609,6 +662,16 @@ The soft gates now say "use the tool" instead of "ask the human":
   the agent doesn't" and the user App permission table. State the new principle:
   agents trigger the PR path, humans trigger releases, and the protected core is
   the human-held chokepoint inside the PR path.
+
+### 4.11 The orgs in scope
+
+The epic covers three orgs: vergil-project, logical-minds-foundry and
+mnemosys-project, the ones under active work. Archived repos in them are
+left alone. diogenes-project, mq-rest-admin-project and vergils-nemesis
+are out of scope: they are not maintained now, and some of their repos
+cannot merge a PR until they are renovated. The user App's new permissions
+are not accepted on any installation outside the three orgs, so the
+accepted seam (§3) never reaches a repo the audit does not watch.
 
 ## 5. Rollout
 
@@ -679,8 +742,7 @@ anything can pass it, and no instruction ships before its permission.
 - The exact form of the closing comment's record line, and whether the human
   gets an override
   (§4.6).
-- Where the daily audit runs, where it stores its marker, and how it gets the
-  trusted-authors configuration (§4.8).
+- Where the daily audit runs and where it stores its marker (§4.8).
 - Confirming no VM shares a clone with the host (§4.7).
 - Confirming that the restrict-updates rule is available on the org's GitHub
   plan and refuses a PR merge into `main` by a non-bypass identity, and which
