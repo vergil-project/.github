@@ -98,31 +98,31 @@ All other checks are unchanged from the baseline.
 
 - `no GitHub/GitLab publishing workflow detected.`
 
-**Documentation:** https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#packaging
+**Documentation:** <https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#packaging>
 
 ##### Signed-Releases (-1/10)
 
 **Reason:** no releases found
 
-**Documentation:** https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases
+**Documentation:** <https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases>
 
 ##### CII-Best-Practices (0/10)
 
 **Reason:** no effort to earn an OpenSSF best practices badge detected
 
-**Documentation:** https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices
+**Documentation:** <https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices>
 
 ##### Code-Review (0/10)
 
 **Reason:** Found 0/30 approved changesets -- score normalized to 0
 
-**Documentation:** https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review
+**Documentation:** <https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review>
 
 ##### Contributors (0/10)
 
 **Reason:** project has 0 contributing companies or organizations -- score normalized to 0
 
-**Documentation:** https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors
+**Documentation:** <https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors>
 
 ##### Fuzzing (0/10)
 
@@ -132,7 +132,7 @@ All other checks are unchanged from the baseline.
 
 - `no fuzzer integrations found`
 
-**Documentation:** https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing
+**Documentation:** <https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing>
 
 ##### Pinned-Dependencies (0/10)
 
@@ -147,15 +147,13 @@ All other checks are unchanged from the baseline.
 - `third-party GitHubAction not pinned by hash: .github/workflows/epic-sweep.yml:19`
 - `third-party GitHubAction not pinned by hash: .github/workflows/ops.yml:14`
 
-<details><summary>Info details</summary>
+**Info details:**
 
 - `0 out of 6 third-party GitHubAction dependencies pinned`
 
-Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
+Remediation helper (pin by hash): <https://app.stepsecurity.io/securerepo>
 
-</details>
-
-**Documentation:** https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies
+**Documentation:** <https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies>
 
 ##### Branch-Protection (4/10)
 
@@ -167,7 +165,7 @@ Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
 - `codeowners review is not required on branch 'develop'`
 - `'last push approval' is disabled on branch 'develop'`
 
-<details><summary>Info details (7 items)</summary>
+**Info details (7 items):**
 
 - `'allow deletion' disabled on branch 'develop'`
 - `'force pushes' disabled on branch 'develop'`
@@ -177,9 +175,7 @@ Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
 - `status check found to merge onto on branch 'develop'`
 - `PRs are required in order to make changes on branch 'develop'`
 
-</details>
-
-**Documentation:** https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection
+**Documentation:** <https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection>
 
 ##### Token-Permissions (10/10)
 
@@ -189,7 +185,7 @@ Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
 
 - `jobLevel 'security-events' permission set to 'write': .github/workflows/ci.yml:24`
 
-<details><summary>Info details (9 items)</summary>
+**Info details (9 items):**
 
 - `topLevel 'contents' permission set to 'read'` in `ci.yml`, `epic-rollup.yml`,
   `epic-sweep.yml` and `ops.yml`
@@ -197,9 +193,7 @@ Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
   `epic-sweep.yml` and `ops.yml`
 - `jobLevel 'actions' permission set to 'read': .github/workflows/ci.yml:25`
 
-</details>
-
-**Documentation:** https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#token-permissions
+**Documentation:** <https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#token-permissions>
 
 ---
 
@@ -248,31 +242,31 @@ Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
 
 - `no GitHub/GitLab publishing workflow detected.`
 
-**Documentation:** https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#packaging
+**Documentation:** <https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#packaging>
 
 ##### Signed-Releases (-1/10)
 
 **Reason:** no releases found
 
-**Documentation:** https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#signed-releases
+**Documentation:** <https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#signed-releases>
 
 ##### CII-Best-Practices (0/10)
 
 **Reason:** no effort to earn an OpenSSF best practices badge detected
 
-**Documentation:** https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#cii-best-practices
+**Documentation:** <https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#cii-best-practices>
 
 ##### Code-Review (0/10)
 
 **Reason:** Found 0/10 approved changesets -- score normalized to 0
 
-**Documentation:** https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#code-review
+**Documentation:** <https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#code-review>
 
 ##### Contributors (0/10)
 
 **Reason:** project has 0 contributing companies or organizations -- score normalized to 0
 
-**Documentation:** https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#contributors
+**Documentation:** <https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#contributors>
 
 ##### Dependency-Update-Tool (0/10)
 
@@ -282,7 +276,7 @@ Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
 
 - `no dependency update tool configurations found`
 
-**Documentation:** https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#dependency-update-tool
+**Documentation:** <https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#dependency-update-tool>
 
 ##### Fuzzing (0/10)
 
@@ -292,7 +286,7 @@ Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
 
 - `no fuzzer integrations found`
 
-**Documentation:** https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#fuzzing
+**Documentation:** <https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#fuzzing>
 
 ##### Maintained (0/10)
 
@@ -302,7 +296,7 @@ Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
 
 - `Repository was created within the last 90 days.`
 
-**Documentation:** https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#maintained
+**Documentation:** <https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#maintained>
 
 ##### Pinned-Dependencies (0/10)
 
@@ -313,13 +307,11 @@ Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
 - `third-party GitHubAction not pinned by hash: .github/workflows/ci.yml:22: update your workflow using https://app.stepsecurity.io/secureworkflow/vergil-project/.github/ci.yml/develop?enable=pin`
 - `third-party GitHubAction not pinned by hash: .github/workflows/ci.yml:15: update your workflow using https://app.stepsecurity.io/secureworkflow/vergil-project/.github/ci.yml/develop?enable=pin`
 
-<details><summary>Info details (1 items)</summary>
+**Info details (1 items):**
 
 - `0 out of   2 third-party GitHubAction dependencies pinned`
 
-</details>
-
-**Documentation:** https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#pinned-dependencies
+**Documentation:** <https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#pinned-dependencies>
 
 ##### Branch-Protection (4/10)
 
@@ -331,7 +323,7 @@ Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
 - `codeowners review is not required on branch 'develop'`
 - `'last push approval' is disabled on branch 'develop'`
 
-<details><summary>Info details (7 items)</summary>
+**Info details (7 items):**
 
 - `'allow deletion' disabled on branch 'develop'`
 - `'force pushes' disabled on branch 'develop'`
@@ -341,9 +333,7 @@ Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
 - `status check found to merge onto on branch 'develop'`
 - `PRs are required in order to make changes on branch 'develop'`
 
-</details>
-
-**Documentation:** https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#branch-protection
+**Documentation:** <https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#branch-protection>
 
 ##### SAST (6/10)
 
@@ -353,10 +343,10 @@ Remediation helper (pin by hash): https://app.stepsecurity.io/securerepo
 
 - `20 commits out of 30 are checked with a SAST tool`
 
-**Documentation:** https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#sast
+**Documentation:** <https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#sast>
 
 ##### CI-Tests (9/10)
 
 **Reason:** 9 out of 10 merged PRs checked by a CI test -- score normalized to 9
 
-**Documentation:** https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#ci-tests
+**Documentation:** <https://github.com/ossf/scorecard/blob/c395761df6afe1a69e476bc60a013a94bcbc153f/docs/checks.md#ci-tests>
