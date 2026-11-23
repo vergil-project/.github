@@ -136,6 +136,7 @@ call.
 
 ```markdown
 <!-- vrg-checkpoint:epic-create -->
+- [x] bootstrap
 - [x] brainstorm
 - [x] spec-pushback
 - [ ] spec-review
@@ -147,7 +148,10 @@ call.
 <!-- /vrg-checkpoint:epic-create -->
 ```
 
-- The tick is the only thing parsed. Annotations are cosmetic.
+- A stage line holds only the checkbox and the stage name. Any other line
+  inside the block, or any text after a name, makes the block malformed:
+  `status` and every write report it with its own exit code, distinct from
+  skew, and change nothing. Per-stage detail belongs in progress comments.
 - It is a real GitHub task list, so a human can tick a box in the web UI to
   record a stage done by hand. The next `status` treats it as done.
 - The block is public, and its stage names are neutral, so a security run
@@ -156,21 +160,50 @@ call.
 ### 4.3 The stages of epic-create
 
 The planning issue's step 0 (resolve the entry point, the security check, the
-`in-progress` label) runs on every invocation and is not a stage. On a first
-run, step 0 ends with `init`. On a resume it ends with `status`, and the run
-enters the stage `status` names, after posting a "Resuming at `<stage>`" line
-in a progress comment.
+`in-progress` label) runs on every invocation and is not a stage. It always
+ends with `status`; there is no separate first-run path. When `status`
+reports the block missing, the skill runs the evidence inference of §4.8. On
+a planning issue with no evidence of any stage, that inference ticks nothing,
+and the skill runs `init` without asking the human: that is a first run. The
+run then enters the stage `status` names, after posting a "Resuming at
+`<stage>`" line in a progress comment on a resume.
+
+A planning issue already closed is handled before the label is added. If
+`status` names `docs-pr`, the docs PR's merge has closed it: the skill adds
+no label, posts the `Planned as` comment if it is missing, and ticks
+`docs-pr`. Any other closed planning issue stops the run for the human.
 
 Each stage below lists the **evidence** its checkpoint leaves (what a later
 stage reads back) and what **re-entry** does when the stage was interrupted
 before its tick:
 
-- **`brainstorm`.** Ends when the design is approved, the epic and its
-  bookend tasks exist, and the spec draft is committed. Evidence: the
-  `Epic:` and `Docs task:` markers, the bookend tasks under the epic, and
-  the worktree branch with `spec.md` committed. Re-entry: the brainstorm
-  restarts. Creating the epic, the bookends and the worktree each check
-  their evidence first and create only what is missing.
+- **`bootstrap`.** Creates the epic's skeleton from the planning issue alone,
+  before any design work: the epic, with a placeholder body drawn from the
+  planning issue and its `Planning:` line; the two bookends that always live
+  in `.github`, the documentation task and the retrospective task; and the
+  docs worktree on the documentation task's branch. The slug is chosen here,
+  from the planning issue's title, and is not changed later. Ends when all of
+  these exist and the progress comment carrying the `Epic:` and `Docs task:`
+  markers is posted. Evidence: those markers, the bookends under the epic,
+  and the branch. Re-entry: each creation checks its evidence first and
+  creates only what is missing.
+- **`brainstorm`.** Ends when the design is approved and the spec draft is
+  committed at `epics/<N>-<slug>/spec.md` on the documentation task's
+  branch, followed by the epic body sync, which replaces the placeholder
+  body with one drawn from the spec. Evidence: the spec commit. Re-entry:
+  the brainstorm restarts. It creates no issue, so a restart is safe.
+  - **The early exits clean up the skeleton.** When the brainstorm
+    concludes the work is a single task, or not worth doing, the skill
+    closes the epic and its bookend tasks as not planned, each with a
+    comment pointing to the outcome, before it closes the planning issue.
+  - **The documentation-review task is filed once the design is known,**
+    because it belongs in the repo where most of its sweep lands, which the
+    design decides. It is filed in `file-tasks` at the latest.
+  - **A security run keeps the skeleton neutral.** `bootstrap` publishes
+    before the step 1 human gate, so the epic's title and placeholder body
+    and the bookends' titles say nothing about the design, under step 0's
+    public-wording rule. The human gate still comes before the spec is
+    written.
 - **`spec-pushback`.** Ends when the human stops the stage. Evidence: the
   round comments (§4.5) and the round commits. Re-entry: continue the stage
   at the next round number.
@@ -181,18 +214,28 @@ before its tick:
 - **`plan`.** Ends when `plan.md` is committed. Evidence: the plan commit.
   Re-entry: rerun `writing-plans`, which is automated.
 - **`plan-pushback`** and **`alignment`.** As `spec-pushback`.
-- **`file-tasks`.** Ends when every task in the plan is filed, every
+- **`file-tasks`.** Ends when every task in the plan is filed, the
+  documentation-review task exists, every
   advisory is retargeted, and `Tasks filed: yes` is posted. Evidence: the
   filed tasks, each carrying its plan task ID (§4.5). Re-entry: file only
   the tasks that are missing.
 - **`docs-pr`.** Ends when report-ready has recorded the handoff and the
   handoff comment is posted. Evidence: the report-ready record and the
-  `Planned as` comment. Re-entry: re-run report-ready, which only rewrites
-  the prose.
+  `Planned as` comment. Re-entry: if the docs PR has merged, finish as for a
+  closed planning issue (above); otherwise re-run report-ready, which only
+  rewrites the prose.
 
 The epic body sync, the Documents section, the security-run retargets and the
 planning-issue close keep their current rules. They move into the stage whose
 work triggers them; the stages do not change what they do.
+
+**A dirty worktree on resume** belongs to the stage `status` names. Before
+the stage continues, the skill shows the human the diff, and the human
+either commits it as that stage's commit or discards it. In a review stage
+this is the doctrine's rule for an interrupted round
+([§2.4](https://github.com/vergil-project/vergil-claude-plugin/blob/develop/docs/paad-review-doctrine.md#24-output-checks-and-broken-rounds)):
+the diff is that round's commit, with its round comment. In `spec-review`
+it is the human's spec edits; in `plan`, a partial `plan.md`.
 
 **The order at a checkpoint:** make the stage's work durable (commit, file,
 comment), post the stage's progress comment, then `tick`. A tick is the last
@@ -245,7 +288,10 @@ must be safe. Each filed task carries a stable key, its plan task ID (for
 example `Plan task: 13a`, the builder's call on the exact form). On re-entry the
 skill lists the tasks already under the epic and under its proxy epics, reads
 their keys through the trust layer, and files only the plan's tasks that are
-missing. Security retargets keep their own idempotency (re-run the identical
+missing. A task that `vrg-issue-create` created but failed to link is
+resolved before any checkpoint pause: the skill stops, and the task is linked
+under its epic or recorded in a progress comment, so a re-entry never files
+it a second time. Security retargets keep their own idempotency (re-run the identical
 command). The skill pauses for the checkpoint summary only at the end of the
 stage, not after every task.
 
@@ -281,7 +327,8 @@ stops.
 ### 4.8 Runs already in flight
 
 A planning issue whose run started before this ships has no block. On the
-first resume after the upgrade, `status` reports it missing. The skill then
+first resume after the upgrade, `status` reports it missing, as for every
+first run (§4.3). The skill then
 works out which stages are complete from the existing evidence (markers, round
 comments, commits, filed tasks), shows the human its proposal, and runs `init`
 with `--tick` for each stage the human confirms. From then on the run is
