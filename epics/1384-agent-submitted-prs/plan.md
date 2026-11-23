@@ -120,6 +120,7 @@ Repos: `T` vergil-tooling, `P` vergil-claude-plugin, `A` vergil-actions, `G`
 | --- | --- | --- | --- | --- |
 | 1 | Spec and plan (#1385) | G | docs | — |
 | 1b | Rebase onto the recent epics (#1551) | G | docs | 1 |
+| 1c | Audit markers created by repo init (#1556) | G | docs | 1b |
 | 2 | `main` ruleset restricting updates | T | task | — |
 | 2d | Release tooling; apply the `main` ruleset | T | deploy | 2 |
 | 3a | Reusable workflows read App secrets from an environment | A | task | — |
@@ -145,10 +146,11 @@ Repos: `T` vergil-tooling, `P` vergil-claude-plugin, `A` vergil-actions, `G`
 | 10 | Provenance: own-PR rules | T | task | — |
 | 11 | Watch re-check; finalize `--release` refusal | T | task | 8, 15r |
 | 12 | Daily audit: `vrg-agent-audit` | T | task | 8, 15r |
+| 12b | Repo init creates the audit markers | T | task | 12 |
 | 13 | Registries and the audit job (A) | A | task | 4, 12 |
 | 13r | Release vergil-actions with 13 (A) | A | deploy | 13 (A) |
 | 13 | The audit job's callers (G and others) | G, each | task | 13r |
-| 17d | Release tooling: the gates | T | deploy | 15r, 4, 8–12 |
+| 17d | Release tooling: the gates | T | deploy | 15r, 4, 8–12, 12b |
 | 12d | Audit live fleet-wide, marker set, green | G | deploy | 17d, 13r, 13 |
 | 18d | Grant the user App `pull_requests: write` | — | deploy | 2d, 12d |
 | 15b | The implementer owns the PR to merge | P | task | 15a, 18d |
@@ -915,7 +917,12 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
     and `vergil/agent-audit/main` (rulesets cover only branches and tags, so
     they are branches, protected by Task 2), each holding the last audited merge
     commit on its branch. `--init` sets both to the current tips and audits
-    nothing. Each branch's merges are caught up from its own marker.
+    nothing; it is used only by repo init (Task 12b) and the one-time
+    go-live loop (Task 12d). Each branch's merges are caught up from its own
+    marker. A scheduled run that finds a marker missing reports it as a
+    `missing-marker` finding (exit 1) and never re-creates it. The marker
+    names and the create helper live here, as the one definition Task 12b
+    reuses.
   - It exits 0 when clean, 1 on any finding or read failure, and 2 on a
     usage error.
 - Checks, per merge since each branch's marker:
@@ -948,6 +955,8 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
   registry ref (Task 4).
 - [ ] **Step 2: Write the failing tests:**
   - `test_init_sets_marker_and_audits_nothing`;
+  - `test_missing_marker_is_a_finding`: a scheduled run with no marker
+    exits 1, names the repo and branch, and creates nothing;
   - `test_missed_run_is_caught_up_from_marker`;
   - `test_main_merges_caught_up_from_main_marker`;
   - `test_missing_trusted_authors_configuration_refuses`;
@@ -962,6 +971,33 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
 - [ ] **Step 3:** Run → FAIL. Implement. Run → PASS. Then `vrg-container-run
   -- vrg-validate`.
 - [ ] **Step 4: Commit** `feat(audit): a daily audit of agent merges`.
+
+## Task 12b: Repo init creates the audit markers
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/repo_init.py`: a new resumable step,
+  `step_audit_markers`, after `step_github_config`. It creates
+  `vergil/agent-audit/develop` and `vergil/agent-audit/main` at the current
+  tips of `develop` and `main`, with Task 12's marker names and create
+  helper (one definition). It creates only a missing marker and leaves an
+  existing one untouched. The `--adopt` path runs it too.
+- Test: `tests/vergil_tooling/test_repo_init.py`
+
+`vrg-github-repo-init` stays human-only. It runs as the admin role, which
+the "Agent audit markers" ruleset (Task 2) allows to create these branches,
+so a repo made or adopted after the gates release (Task 17d) needs no
+further step.
+
+- [ ] **Step 1: Write the failing tests:**
+  - `test_init_creates_both_audit_markers_at_branch_tips`;
+  - `test_adopt_creates_missing_markers_only`;
+  - `test_existing_marker_left_untouched`;
+  - `test_marker_creation_failure_stops_init`: a failed create stops init
+    with the error; it is never skipped.
+- [ ] **Step 2:** Run → FAIL. Implement. Run → PASS. Then `vrg-container-run
+  -- vrg-validate`.
+- [ ] **Step 3: Commit** `feat(repo-init): create the agent audit markers`.
 
 ## Task 13: Registries and the audit job
 
@@ -1196,7 +1232,7 @@ runs no install by hand. After a plugin release, the session still needs
 ## Task 17d (deployment): Release vergil-tooling with the gates
 
 - **Preconditions:** Task 15r done, so merge review already writes records;
-  Tasks 4, 8, 9, 10, 11 and 12 released (the record check above).
+  Tasks 4, 8, 9, 10, 11, 12 and 12b released (the record check above).
 - **Procedure:** the next vergil-tooling release; its record's Install line
   reads `ran`.
 - **Acceptance:**
@@ -1222,9 +1258,13 @@ runs no install by hand. After a plugin release, the session still needs
   `hoshin` reads the audit's runs.
 - **Procedure:** run `vrg-agent-audit --init` for every repo of the three
   in-scope orgs (archived repos excepted), then let one scheduled run pass.
-  `--init` is a human-run step: the "Agent audit markers" ruleset (Task 2)
+  This `--init` loop is a one-time human-run step of the rollout, for the
+  repos that predate Task 12b: the "Agent audit markers" ruleset (Task 2)
   lets only the admin role and the automation App create the
-  `vergil/agent-audit/*` branches, so the user agent cannot set them.
+  `vergil/agent-audit/*` branches, so the user agent cannot set them. It
+  skips a repo that already has both markers, such as one made by repo init
+  after Task 17d. It never recurs: later repos get their markers from repo
+  init.
 - **Acceptance:**
   - a list, by in-scope org, of every repo the user App is installed on,
     each with both markers;
