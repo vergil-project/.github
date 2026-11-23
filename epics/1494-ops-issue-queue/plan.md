@@ -1053,3 +1053,46 @@ Blocked by 17, 19, 19b.
 - The four operations epics were created by the user agent in Task 11, so
   an automation-only read of an epic's body is refused. `vrg-ops-report`
   finds the epic by its title and labels, not by reading its body.
+
+### 2026-11-23: Six caller tasks leave the epic, Task 12 stops waiting for them, Task 6d grows
+
+**What changed:**
+
+- **Six caller tasks left the epic for their repos' ad-hoc epics.** In
+  each, the caller change is committed on its branch. By the human's
+  ruling, the tasks no longer block the epic; each one's issue and branch
+  stay in place, queued as ad-hoc work.
+  - 6p mq-rest-admin-project/mq-rest-admin-common#236,
+    6q mq-rest-admin-project/mq-rest-admin-dev-environment#180 and
+    6r mq-rest-admin-project/mq-rest-admin-python#536.
+  - 6s mq-rest-admin-project/mq-rest-admin-go#332 and
+    6t mq-rest-admin-project/mq-rest-admin-rust#131.
+  - 6m logical-minds-foundry/mq-resiliency-observability#84, whose branch
+    had reached report-ready.
+- **Task 12 (vergil-project/.github#1514) no longer waits for those
+  six.** The human posted two scope changes on #1514. Task 12 still waits
+  for Task 7 and the other 14 caller tasks.
+- **Task 6d also changed the `vrg-repo-init` generator.**
+  vergil-project/vergil-tooling#4965 changed `render_cd_workflow`, so new
+  repos pass the App secrets to `cd-docs.yml`. This was the human's `fix`
+  ruling, posted as a scope change on #4965.
+- **Follow-ups filed during execution, outside the plan,** after those in
+  the first entry, all ad hoc: vergil-project/vergil-containers#1010,
+  vergil-project/vergil-actions#1381 and
+  vergil-project/vergil-actions#1382.
+
+**Why:**
+
+- None of the six repos could be taken through validation, or, for 6m,
+  the repo's CI does not work:
+  - 6p, 6q and 6r each fail validation on problems already on develop: an
+    unmerged `.gitignore` sync, a semgrep `secrets: inherit` finding on
+    the `release` job and other pre-existing failures.
+  - In 6s and 6t, the `[ci].versions` pins sit outside the published
+    container window, so `vrg-container-run` will not start.
+  - 6m's repo has no working CI, and the repo may be retired.
+- Until each of the six lands, its repo's docs runs have a red reporting
+  job, because no App secrets reach it. The human accepted that as a
+  visible failure.
+- vergil-tooling's parity test requires its own `cd.yml` to match the
+  generated one.
