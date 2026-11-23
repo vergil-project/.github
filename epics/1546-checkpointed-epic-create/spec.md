@@ -232,7 +232,10 @@ before its tick:
     skeleton**: the skill closes the epic as not planned first, then the
     documentation task as not planned, each with a comment pointing to the
     outcome, removes the docs worktree and its branch, and last runs
-    `reset` on the planning issue. The epic goes
+    `reset` on the planning issue. It never removes a branch that has
+    commits beyond its base: before closing anything, it checks the
+    branch, and on commits beyond the base, or when it cannot tell, it
+    closes nothing and stops for the human. The epic goes
     first because the epic rollup closes an epic as completed once all its
     children are closed. Only then does it
     finish the exit: file the single task and close the planning issue,
@@ -404,12 +407,15 @@ comments, commits, filed tasks), shows the human its proposal, and runs `init`
 with `--tick` for each stage the human confirms. From then on the run is
 ordinary.
 
-A run caught partway through `file-tasks` has tasks filed with no key. Before
-it files anything, the skill matches each task already under the epic and
-its proxy epics to a plan task ID (or to `doc-review` or `retrospective`),
-shows the human the
-matches, and adds the key to each task the human confirms. Only then does
-re-entry file what is missing.
+Such a run can reach `file-tasks` with tasks already filed and no key: the
+documentation-review, retrospective and operational tasks the earlier skill
+seeded when it created the epic, and any tasks filed before a run was caught
+partway through `file-tasks`. So whenever `file-tasks` is entered, first
+entry or re-entry, and the epic or its proxy epics have any child other than
+the documentation task that carries no key, the skill first matches each
+such task to a plan task ID (or to `doc-review` or `retrospective`), shows
+the human the matches, and adds the key to each task the human confirms.
+Only then does it file what is missing.
 
 ## 5. Delivery outline
 

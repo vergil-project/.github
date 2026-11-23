@@ -223,7 +223,8 @@ def test_annotation_is_malformed():
     with pytest.raises(checkpoint.Malformed):
         checkpoint.parse(body, EC)
 
-def test_stray_line_is_malformed(): ...  # prose, or a blank between two stages
+def test_stray_line_is_malformed(): ...  # prose, or any blank line inside
+#   the markers: between two stages or next to a marker
 def test_duplicate_block_is_malformed(): ...  # the block twice in one body
 def test_unclosed_block_is_malformed(): ...   # begin marker with no end marker
 def test_missing_block_raises_missing(): ...  # body with no block at all
@@ -261,11 +262,11 @@ Expected: FAIL, `ModuleNotFoundError: vergil_tooling.lib.checkpoint`.
 
 - [ ] **Step 3: Implement `lib/checkpoint.py`** to the Interfaces above.
   The item pattern is `^- \[([ xX])\] ([a-z][a-z0-9-]*)$`, matched against
-  every line between the markers; leading and trailing blank lines directly
-  inside the markers are the only lines it skips, as `render` writes none.
-  One `\r` before a `\n` is part of the line ending, as in
-  `lib/epic_docs.py` (GitHub's web editor saves CRLF), and a write uses the
-  line ending the body already uses.
+  every line between the markers, and it skips none: a blank line inside
+  the markers makes the block malformed, as `render` writes none. One
+  `\r` before a `\n` is part of the line ending, as in `lib/epic_docs.py`
+  (GitHub's web editor saves CRLF), and a write uses the line ending the
+  body already uses.
 
 - [ ] **Step 4: Run to verify they pass** (the Step 2 command): PASS.
 
@@ -442,6 +443,21 @@ of Task 5.
   and follow-on tasks are plan tasks. Remove "Seed operational tasks the
   epic will need" from epic creation; "Operational tasks" says that the
   plan lists them.
+- [ ] **Step 4a: Align the sections that describe resuming and the step
+  order** with `## Stages`, so the skill states one resume model:
+  - "Resuming": the stage comes from `status` and the stage list, not from
+    the latest round comment; keep its trust, security-run and kept
+    scratch-copy rules, and point its dirty-worktree rule at the one in
+    `## Stages`;
+  - the Entry points table's planning row: resume at the stage `status`
+    names, not "the recorded resume point";
+  - "Progress comments and markers": the stage-boundary list in the new
+    order, with the epic created at `bootstrap`, before the brainstorm;
+  - "Epic body sync": its opening says the placeholder body is written at
+    `bootstrap` and replaced by the one-time write at the end of
+    `brainstorm`;
+  - step 0's security check: a marked run resumes at the stage `status`
+    names.
 - [ ] **Step 5: Review-stage re-entry and the pause.** In "Design review
   rounds", re-entry after a round comment starts at step 7 and dispatches
   nothing unasked. Add the checkpoint pause (spec §4.6), with the two
@@ -486,9 +502,13 @@ Spec §4.4, §4.5 (task filing), §4.8. Blocked by 3a; in the plugin batch.
   at `bootstrap`. `bootstrap` re-entry ignores any `Epic:` or `Docs task:`
   marker naming an issue closed as not planned, so the revived run creates
   a new epic and a new documentation task and posts both markers, which
-  are then the latest. A run partway through `file-tasks` first matches each existing
-  task to a plan ID (or `doc-review`, `retrospective`), shows the matches,
-  and adds the key line to each one confirmed, before filing anything.
+  are then the latest. On every entry to `file-tasks`, first or re-entry,
+  if Step 1's listing shows any child other than the documentation task
+  with an empty key (bookends or operational tasks seeded at epic creation
+  by the earlier skill, or tasks filed before an interruption), the skill
+  first matches each one to a plan ID (or `doc-review`, `retrospective`),
+  shows the matches, and adds the key line to each one confirmed, before
+  filing anything.
 - [ ] **Step 4: Validate and commit**: `vrg-container-run -- vrg-validate`
   passes; `vrg-commit --type feat --scope epic-create --message "key filed
   tasks, reconcile skew and adopt in-flight runs in epic-create"`.
@@ -561,11 +581,17 @@ Spec §2 (goals), §5. Blocked by 4b.
   1. right after `bootstrap`;
   2. inside `spec-pushback`, after a round comment: re-entry asks the
      round's step 7 question before dispatching anything;
-  3. inside `file-tasks`, after some but not all tasks are filed;
-  4. **adoption:** later in `file-tasks`, after more tasks are filed, run
-     `vrg-checkpoint reset` on the planning issue and resume: the skill
-     proposes the stages and the task keys from the evidence, the human
-     confirms, and only the missing tasks are filed;
+  3. inside `file-tasks`, after some but not all tasks are filed. Before
+     the first entry to `file-tasks`, file a documentation-review task and
+     a retrospective task under the epic by hand with no `Plan task:` line,
+     as the earlier skill seeded them: on entry the skill proposes keying
+     them as `doc-review` and `retrospective`, and files neither again;
+  4. **adoption:** later in `file-tasks`, after more tasks are filed,
+     remove the `Plan task:` line from one or two filed plan tasks, then
+     run `vrg-checkpoint reset` on the planning issue and resume: the skill
+     proposes the stages and the missing task keys from the evidence, the
+     human confirms, the keys are added, and only the missing tasks are
+     filed, none twice;
   5. **skew:** before one resume, delete the `docs-pr` line from the block
      by hand: `status` exits 5, the skill shows the difference, and
      `reconcile` restores the line, with its comment posted.
