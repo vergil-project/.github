@@ -732,3 +732,109 @@ release.
   review. File a same-repo task in each repo that needs a change.
 - **Retrospective** (vergil-project/.github#1478), with
   `epic-retrospective`.
+
+## Evolution during execution
+
+These entries were written at the retrospective, from the task and epic
+comments. They were not added as each change happened. The task list above
+is left as planned.
+
+- **2026-11-22 — Task 2 accepted with one open issue left in the archived
+  repo (logical-minds-foundry/.github#415).**
+  - **What changed:** closing mq-protocol-gateway's intake epic (#35) made
+    the org automation open an "Archive (intake)" issue (#48) 51 seconds
+    later, after step 1's re-list. The repo was archived with #48 open. The
+    human ruled to accept it rather than unarchive.
+  - **Why:** unarchiving to close one generated issue changes the repo for
+    no gain. The race itself was filed as vergil-project/vergil-tooling#5005.
+- **2026-11-22 — Task 1's deferred items moved by a route the plan did not
+  have (logical-minds-foundry/.github#416).**
+  - **What changed:** `vrg-epic-move` refuses a deferred target, and
+    `vrg-intake-route defer` on an already-deferred item only refreshes its
+    record in place. By human ruling, each of the three deferred items was
+    routed to intake (it landed straight in the org intake epic, the repo
+    being public), then re-deferred with its original reason, revisit
+    condition and date.
+  - **Why:** the tooling has no path to move a deferred item between
+    deferred epics in different repos.
+- **2026-11-22 — Task 4 widened, then a fix task added
+  (logical-minds-foundry/mq-resiliency-lab-for-linux#1748, #1751).**
+  - **What changed:** validation's audit stage failed on a pre-existing
+    vulnerable locked dev dependency (1 security item). The human ruled to
+    fix it in Task 4's branch, as a scope change. Task 4's PR (#1750) then
+    failed the `docs / docs` CI job, which had been red on every branch for
+    days: the job installs under the newest Python (3.15), and three locked
+    packages had no wheel for it and need a compiler the CI container lacks.
+    #1751 was added to upgrade them, then widened to carry the same security
+    update so it could merge alone. It merged first, and #1750 was rebased
+    with its lock commit dropped.
+  - **Why:** neither PR could pass CI without the other's lock change.
+- **2026-11-22 — Tasks 9 and 10 widened to remove generality left with no
+  use (vergil-project/vergil-tooling#4902, #4903).**
+  - **What changed:** Task 9 also removed the `home` arguments of
+    `stray_dotgithub_issue`, `close_drift` and `render`, and their
+    repo-scoped banner text. Task 10 also removed the planning and deferred
+    branches of `StandingEpicFull` and `_QueueCapacity.reserve`, which only
+    intake now reaches.
+  - **Why:** the human's ruling that removing complexity nothing needs is
+    always worth doing, folded into the task that next edits the same file.
+- **2026-11-22 — Task 5's merge review item kept for the documentation
+  review (vergil-project/vergil-actions#1349).**
+  - **What changed:** `ops-epic-sweep.md` was left unchanged in Task 5 and
+    recorded on the documentation-review bookend.
+  - **Why:** the page described what the deployed sweep still did until the
+    vergil-tooling release carrying Task 9.
+- **2026-11-22 — Interfaces narrower than planned (Tasks 11, 12, 14).**
+  - **What changed:** Task 11 made `desired_repo_settings` take no
+    arguments; the plan gave it `is_org`, which only fed a setting the task
+    removed. Task 12 kept its two `repo_exists` calls, which check that a
+    repo exists rather than its visibility. Task 14's leftover search also
+    covered `tests/`.
+  - **Why:** no parameter or text is kept that nothing uses, and an
+    existence check is not a visibility branch.
+- **2026-11-22 — Fixture trios started with other epics' trios open, and
+  each fixture's Task 7 row batched with its change task.**
+  - **What changed:** the human granted this epic ownership of the six
+    fixture repos and ruled the open, unstarted fixture-run trios of epic
+    vergil-project/.github#1384 not blocking. Each fixture's Task 7 row and
+    its fixture-run change task went in one PR. For the app fixtures that
+    breaks the batching guideline that a batch adds no command; the human
+    approved it for fixture dummy changes.
+  - **Why:** the dummy change and the one-line grant removal are both
+    trivial, and one PR per fixture halves the human pushes.
+- **2026-11-22 — A fix task added for vergil-containers
+  (vergil-project/vergil-containers#991).**
+  - **What changed:** the Task 7 row's PR (#985) failed on a new HIGH
+    image-scan finding in a base-image Python dependency (1 security item),
+    which that day blocked every vergil-containers PR. #991 pinned a fixed
+    version through a uv override; #985 was rebased onto it.
+  - **Why:** the human ruled the item fixed, in its own PR.
+- **2026-11-22 to 2026-11-23 — Eight Task 7 rows set aside, then moved out
+  of the epic.**
+  - **What changed:** the six mq-rest-admin-project rows stopped because
+    their job-level grant had no private-repo comment, so the task could not
+    tell it was the grant to remove. mnemosys-project/melete#276 stopped
+    because the repo's dev container cannot be built (its build command
+    needs `npm`, which the base image does not have).
+    logical-minds-foundry/mq-resiliency-observability#82's PR (#83) is red on
+    the same missing-wheel problem as #1751, and the human ruled the row done
+    for this epic. On 2026-11-23 the human ruled all eight moved into their
+    repos' ad-hoc epics.
+  - **Why:** each blocker predates the epic and is unrelated to its
+    one-line change. The repos are not being worked on, and whoever picks
+    them up next takes on the fixes.
+- **2026-11-23 — Task 15's release cut later, and its install attested
+  (vergil-project/vergil-tooling#4908).**
+  - **What changed:** the release waited on another epic's release block
+    (vergil-project/.github#1467), then was cut as v2.1.336. The human
+    attested the install on the host and every identity VM, and ruled out
+    gathering further per-host evidence.
+  - **Why:** the agent had already verified the tag contents and one VM;
+    more evidence would be overvalidation.
+- **2026-11-23 — Documentation review spawned three same-repo tasks.**
+  - **What changed:** vergil-project/vergil-tooling#4893 fixed
+    vergil-tooling's own docs and added vergil-project/docs#166,
+    vergil-project/vergil-actions#1370 and
+    vergil-project/vergil-containers#1003. All merged.
+  - **Why:** the plan's bookend files a same-repo task in each repo that
+    needs a change.
