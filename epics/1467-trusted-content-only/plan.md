@@ -1511,3 +1511,60 @@ tasks it blocks.
   `Ref` line and by cross-repo refs. Task 12's page was left to the sweep on
   the human's ruling.
 - The agent identity cannot call `gh api`, so the human ran the live checks.
+
+### 2026-11-23: Task 15's uncovered reads and the first release
+
+**What changed:**
+
+- **Task 15's guard test found 13 behaviour-driving reads outside the
+  plan's sites.** Four were fixed in Task 15
+  (vergil-project/vergil-tooling#4931) itself, which adds a `base` field to
+  `trust.PRRef`. The other nine are split into five tasks under
+  vergil-project/.github#1467, each with its own private advisory and each
+  `Blocked-by: vergil-project/vergil-tooling#4931`:
+  - vergil-project/vergil-tooling#4986: release notes and rebuild
+    (GHSA-97c7-wmr4-gm37).
+  - vergil-project/vergil-tooling#4987: closing references in finalize and
+    intake routing (GHSA-g68j-q2mw-jqf9).
+  - vergil-project/vergil-tooling#4988: the batch check and in-flight marks
+    (GHSA-r5vh-x4f2-2fqc).
+  - vergil-project/vergil-tooling#4989: epic docs and the planning view
+    (GHSA-v999-f6mp-cqmm).
+  - vergil-project/vergil-tooling#4990: security records
+    (GHSA-78v6-hmgg-3fr2).
+- **The guard test lands with a `[[pending]]` table** listing those nine
+  sites, each with the task that fixes it; each task removes its own
+  entries. Beyond the spec's display-only list, the test file also has a
+  `[[judged]]` table (content acted on only through the layer's answer)
+  and a `[[registered]]` table (queries built at runtime, with their fields
+  declared).
+- **Task 15's advisories stay open until the five tasks land.**
+  GHSA-q488-wcfh-87rg, GHSA-m299-r8x7-m947 and GHSA-p5wm-892c-jw6j now also
+  track vergil-project/vergil-tooling#4986 to
+  vergil-project/vergil-tooling#4990.
+- **The five tasks block the documentation-review bookend, not Task 18.**
+  The first release ships whichever of them have merged by the cut; the
+  rest ship in a later release.
+- **mq-rest-admin-project has no `Ops` workflow**, so its daily config
+  audit and trusted-authors check never ran. The gap is filed as
+  mq-rest-admin-project/.github#55 in that repository's ad-hoc epic
+  (mq-rest-admin-project/.github#36), outside this epic. The proxy
+  mq-rest-admin-project/.github#54, created when it was first filed, has no
+  tasks.
+- **The configuration lists four Vergil orgs:** vergil-project,
+  logical-minds-foundry, mnemosys-project and mq-rest-admin-project.
+
+**Why:**
+
+- The human ruled the four fixes and the split; the counts are on
+  vergil-project/vergil-tooling#4931.
+- The `[[pending]]` table lets the test pass while every open gap stays
+  visible. The human accepted the test file's design, ruling `wont-fix` on
+  Task 15's merge-review item, which is recorded as accepted risk 1.
+- These reads already exist in the released tooling, so the first release
+  does not make them worse. The human ruled that the release goes ahead
+  without waiting for all five.
+- Task 18 found the missing workflow. The human ruled it out of this
+  epic's scope, as ad-hoc work for if and when the project is revived.
+- The human left two other orgs unconfigured, so they are not
+  Vergil-managed.
