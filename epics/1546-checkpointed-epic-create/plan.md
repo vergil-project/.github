@@ -82,8 +82,8 @@ Each line gives the task, its repo and kind, what it delivers, and what it
 is blocked by.
 
 - **1** (.github, task #1547): spec and plan, this PR.
-- **2a** (vergil-tooling): `vrg-checkpoint` with `init`, `status` and
-  `tick`, the `epic-create` stage list, skew and malformed detection, and
+- **2a** (vergil-tooling): `vrg-checkpoint` with `init`, `status`, `tick` and
+  `reset`, the `epic-create` stage list, skew and malformed detection, and
   its docs.
 - **2b** (vergil-tooling): `vrg-checkpoint reconcile`. Blocked by 2a.
 - **3a** (vergil-claude-plugin): `epic-create` restructured into the stages,
@@ -122,7 +122,7 @@ Notes:
 
 ---
 
-### Task 2a: `vrg-checkpoint` init, status and tick (vergil-tooling)
+### Task 2a: `vrg-checkpoint` init, status, tick and reset (vergil-tooling)
 
 Spec §4.1, §4.2, §4.3 (stage list), §4.4 (detection), §4.7.
 
@@ -133,7 +133,10 @@ Spec §4.1, §4.2, §4.3 (stage list), §4.4 (detection), §4.7.
 - Modify: `pyproject.toml` (`vrg-checkpoint =
   "vergil_tooling.bin.vrg_checkpoint:main"`, beside `vrg-epic-docs`)
 - Modify: `docs/site/docs/reference/cli-tools-overview.md` (a
-  `### vrg-checkpoint` section beside `### vrg-epic-docs`)
+  `### vrg-checkpoint` section beside `### vrg-epic-docs`),
+  `docs/site/docs/reference/index.md` (a row beside `vrg-epic-docs`'s) and
+  `docs/site/docs/guides/permission-model.md` (its list of tools that
+  bypass the wrapper)
 - Test: `tests/vergil_tooling/test_checkpoint.py`,
   `tests/vergil_tooling/test_vrg_checkpoint.py`
 
@@ -168,8 +171,14 @@ strict parse must not change what `vrg-release --resume` accepts. Follow
     unticked; returns *body* unchanged when already ticked.
 - Produces, the CLI: `vrg-checkpoint init <ref> --workflow <name> [--tick
   <stage>]…`, `status <ref> --workflow <name> [--json]`, `tick <ref>
-  --workflow <name> <stage>`. `--workflow` is required on every subcommand,
-  so a body can carry blocks for several workflows.
+  --workflow <name> <stage>`, `reset <ref> --workflow <name>`. `--workflow`
+  is required on every subcommand, so a body can carry blocks for several
+  workflows. `reset` removes the workflow's block, and the blank line before
+  it, leaving the rest of the body as it was; with no block it succeeds and
+  writes nothing. A malformed block is still removed, since `reset` reads
+  only the markers.
+- Produces, in `lib/checkpoint.py`: `remove(body: str, workflow: str) ->
+  str`, used by `reset`.
 - Exit codes: 0 success; 1 failure or refusal (a read or write error, an
   existing block on `init`, a refused tick); 2 bad arguments; 3 untrusted
   body; 4 block missing; 5 skew; 6 malformed.
@@ -207,6 +216,7 @@ def test_stray_line_is_malformed(): ...  # prose, or a blank between two stages
 def test_duplicate_block_is_malformed(): ...  # the block twice in one body
 def test_unclosed_block_is_malformed(): ...   # begin marker with no end marker
 def test_missing_block_raises_missing(): ...  # body with no block at all
+def test_crlf_body_parses_and_ticks(): ...  # CRLF body: parses, ticks, stays CRLF
 
 def test_skew_reports_added_removed_reordered():
     pairs = [("brainstorm", True), ("bootstrap", True), ("old-stage", False)]
@@ -242,6 +252,9 @@ Expected: FAIL, `ModuleNotFoundError: vergil_tooling.lib.checkpoint`.
   The item pattern is `^- \[([ xX])\] ([a-z][a-z0-9-]*)$`, matched against
   every line between the markers; leading and trailing blank lines directly
   inside the markers are the only lines it skips, as `render` writes none.
+  One `\r` before a `\n` is part of the line ending, as in
+  `lib/epic_docs.py` (GitHub's web editor saves CRLF), and a write uses the
+  line ending the body already uses.
 
 - [ ] **Step 4: Run to verify they pass** (the Step 2 command): PASS.
 
@@ -258,6 +271,10 @@ Expected: FAIL, `ModuleNotFoundError: vergil_tooling.lib.checkpoint`.
     `test_status_all_ticked_next_null` (exit 0, `"next": null`);
   - `test_tick_writes_once`; `test_tick_already_ticked_writes_nothing`
     (exit 0, write not called); `test_tick_refused_exits_1`;
+  - `test_reset_removes_block_keeps_rest_of_body`;
+    `test_reset_without_block_writes_nothing` (exit 0);
+    `test_reset_removes_malformed_block`;
+    `test_reset_then_status_exits_4`;
   - `test_untrusted_body_exits_3_and_writes_nothing`, for each subcommand;
   - `test_unknown_workflow_exits_2`; `test_runs_under_owner_org` (the read
     and the write under `github.target_org("<owner>")`).
@@ -276,7 +293,8 @@ Expected: FAIL, `ModuleNotFoundError: vergil_tooling.bin.vrg_checkpoint`.
 
 - [ ] **Step 9: Document it** in `cli-tools-overview.md`: the subcommands,
   `--workflow`, the exit codes, the JSON shape, the strict line rule and the
-  trust rule.
+  trust rule; and add `vrg-checkpoint` to the reference index and the
+  permission model's list.
 
 - [ ] **Step 10: Validate and commit**
 
@@ -355,15 +373,23 @@ of Task 5.
   5 and 6 are left to Task 3b: until then, the skill stops and asks the
   human. Add the closed-issue rule (finish `docs-pr` only when the
   documentation task is closed as completed; otherwise stop) and the
-  all-ticked rule (report "handed off, awaiting merge" and exit).
+  all-ticked rule: run `vrg-queue planning` (exit 2 is a complete listing);
+  if it shows the item `ready-to-close`, close it as step 10 says;
+  otherwise report its note ("handed off, awaiting merge", or the `held:`
+  note) and exit, changing nothing.
 - [ ] **Step 3: Replace steps 1–3** with the `bootstrap` and `brainstorm`
   stages. `bootstrap` creates the epic (placeholder body and `Planning:`
   line), the documentation task, the `vrg-epic-docs set` section and the
   docs worktree, and nothing else. `brainstorm` ends on the spec commit and
   the one-time **write the epic body** step. Include the shared **abandon
   the skeleton** step (epic closed as not planned first, then the
-  documentation task, then the worktree and branch removed) and the three
-  early exits that use it, and the security-run rules (a neutral skeleton;
+  documentation task, then the worktree and branch removed, and last
+  `vrg-checkpoint reset`, so a revived item starts afresh) and the three
+  early exits that use it. The step never removes a branch with commits
+  beyond its base: it checks with `vrg-git rev-list --count
+  origin/develop..<branch>` before anything else, and on a non-zero count
+  closes nothing and stops for the human. Add the security-run rules (a
+  neutral skeleton;
   a "No" at the gate keeps it and publishes nothing further).
 - [ ] **Step 4: Move the bookends and the operational seeding.** In "The
   epic architecture — bookend tasks" and step 2's text, the
@@ -393,10 +419,15 @@ Spec §4.4, §4.5 (task filing), §4.8. Blocked by 2b, 3a.
 
 - [ ] **Step 1: Keyed filing.** Step 8 writes a `Plan task: <id>` line in
   every filed task's body. On re-entry it lists the tasks under the epic
-  and its proxy epics, reads each one's key with `vrg-issue-read`, and
-  files only the plan's IDs that are missing. A task created but not linked
-  stops the stage before any pause, to be linked or recorded in a progress
-  comment.
+  and its proxy epics with `vrg-epic-audit --epic <epic ref>` (its
+  `children`), reads only each one's key with `vrg-issue-read <ref> --json
+  | jq -r '.issue.body | split("\n") | map(sub("\r$"; "")) |
+  map(select(startswith("Plan task: "))) | first // ""'`, so one line per
+  task reaches context, and files only the plan's IDs that are missing. The
+  pipeline runs under `set -o pipefail`, so exit 3 or 1 from either command
+  stops for the human; an empty line means the task has no key. A task
+  created but not linked stops the stage before any pause, to be linked or
+  recorded in a progress comment.
 - [ ] **Step 2: Skew.** On `status` exit 5 the skill shows the human the
   `skew` object, asks how to proceed (for a new stage before the cursor:
   run it or tick it), and runs `vrg-checkpoint reconcile` with the human's
@@ -404,7 +435,10 @@ Spec §4.4, §4.5 (task filing), §4.8. Blocked by 2b, 3a.
 - [ ] **Step 3: In-flight adoption.** On exit 4, the skill infers the
   completed stages from the markers, round comments, commits and filed
   tasks, shows the human its proposal, and runs `init --tick` for each one
-  confirmed. A run partway through `file-tasks` first matches each existing
+  confirmed. An epic closed as not planned, and its documentation task, are
+  not evidence: they are an abandoned skeleton, and the revived run starts
+  at `bootstrap`, creating a new epic whose `Epic:` marker is then the
+  latest. A run partway through `file-tasks` first matches each existing
   task to a plan ID (or `doc-review`, `retrospective`), shows the matches,
   and adds the key line to each one confirmed, before filing anything.
 - [ ] **Step 4: Validate and commit**: `vrg-container-run -- vrg-validate`
@@ -420,12 +454,15 @@ Spec §4.3 (the early exits). Blocked by 3a.
 - Modify: `skills/epic-review/SKILL.md` ("Planning mode", "Drop in every
   mode")
 
-- [ ] **Step 1:** Before deferring or dropping a planning item whose
-  trusted comments carry an `Epic:` marker, planning mode runs
-  `epic-create`'s **abandon the skeleton** step (linked by section) and
-  only then `vrg-intake-route … defer|drop`. An epic already holding tasks
-  other than the documentation task is not a skeleton: stop and ask the
-  human.
+- [ ] **Step 1: Amend the rule "`in-progress` items belong to
+  `epic-create`".** An `in-progress` item is still offered only **leave**,
+  with one exception: a **skeleton**, an item for which `vrg-checkpoint
+  status <ref> --workflow epic-create --json` exits 0 with `"next":
+  "brainstorm"` (bootstrap done, no spec committed). For a skeleton,
+  planning mode also offers defer and drop. Once the batch is confirmed, it
+  runs `epic-create`'s **abandon the skeleton** step (linked by section),
+  and only then `vrg-intake-route … defer|drop`. Any other `status`
+  result, or any other stage, is not a skeleton: offer only leave.
 - [ ] **Step 2: Validate and commit**: `vrg-container-run -- vrg-validate`
   passes; `vrg-commit --type feat --scope epic-review --message "abandon a
   bootstrapped skeleton before deferring or dropping a planning item"`.
@@ -443,7 +480,8 @@ Spec §5. Blocked by 2a, 2b, 3a, 3b, 3c.
      --is-ancestor <merge-sha> <tag-sha>` in its repo exits 0 instead.
   2. **Human-run steps (need a human identity):** `vrg-host upgrade` and
      `vrg-host plugins` on the host; `vrg-vm update --all` for the VMs.
-  3. `vrg-checkpoint --help` lists `init`, `status`, `tick` and `reconcile`
+  3. `vrg-checkpoint --help` lists `init`, `status`, `tick`, `reset` and
+     `reconcile`
      on the host.
   4. The installed `epic-create` skill contains the `## Stages` section.
 - **SUCCESS:** every check passes, recorded with both versions and tags.
