@@ -89,16 +89,18 @@ is blocked by.
 - **3a** (vergil-claude-plugin): `epic-create` restructured into the stages,
   with `status`, `tick`, the checkpoint pause, the dirty-worktree and
   closed-issue rules, `bootstrap`, the early exits and the epic body write.
-  Blocked by 2a.
+  Blocked by 4a.
 - **3b** (vergil-claude-plugin): `epic-create`'s `file-tasks` keys, skew
-  handling and in-flight adoption. Blocked by 2b, 3a.
+  handling and in-flight adoption. Blocked by 3a.
 - **3c** (vergil-claude-plugin): `epic-review` abandons a bootstrapped
   skeleton before deferring or dropping a planning item. Blocked by 3a.
-- **4** (.github, deployment): the vergil-tooling release carrying 2a and
-  2b, and the vergil-claude-plugin release carrying 3a, 3b and 3c,
-  installed on the host and every VM. Blocked by 2a, 2b, 3a, 3b, 3c.
+- **4a** (.github, deployment): the vergil-tooling release carrying 2a and
+  2b, installed on the host and every VM. Blocked by 2a, 2b.
+- **4b** (.github, deployment): the vergil-claude-plugin release carrying
+  the 3a–3c batch, installed on the host and every VM. Blocked by 3a, 3b,
+  3c.
 - **5** (.github, validation): a live planning run cleared and resumed at
-  several checkpoints. Blocked by 4.
+  several checkpoints. Blocked by 4b.
 
 ### Bookends
 
@@ -106,7 +108,7 @@ This epic was created before its own change, so its closing bookends were
 filed at creation, not in `file-tasks`.
 
 - **Documentation review** (vergil-claude-plugin, bookend
-  vergil-project/vergil-claude-plugin#1293). Blocked by 4. Its sweep covers
+  vergil-project/vergil-claude-plugin#1293). Blocked by 4b. Its sweep covers
   vergil-tooling's `docs/site/docs/reference/cli-tools-overview.md` and
   the docs repo's description of the planning workflow.
 - **Retrospective** (.github, bookend #1548). Blocked by everything else.
@@ -115,8 +117,12 @@ Notes:
 
 - **No fixture runs** and no `dev-` image validation: the change touches no
   language support, container image, shared workflow or release tooling.
-- **Merged before released.** 3a calls `vrg-checkpoint`, so the plugin
-  release in Task 4 must follow the tooling release, never precede it.
+- **One plugin batch, after the tool is released.** 3a, 3b and 3c are
+  three issues landed as one batch PR in vergil-claude-plugin
+  (`.worktrees/issue-<3a>-batch-checkpointed-stages/`), so no plugin release
+  carries part of the change. The batch starts only once 4a is done: the
+  skill calls `vrg-checkpoint`, so a plugin release must never reach a host
+  before the command does.
 - **Filing.** Every task above is filed at epic-create's filing step, in
   its repo, under #1546, with its `Blocked-by:` refs.
 
@@ -175,8 +181,11 @@ strict parse must not change what `vrg-release --resume` accepts. Follow
   is required on every subcommand, so a body can carry blocks for several
   workflows. `reset` removes the workflow's block, and the blank line before
   it, leaving the rest of the body as it was; with no block it succeeds and
-  writes nothing. A malformed block is still removed, since `reset` reads
-  only the markers.
+  writes nothing. `reset` removes only closed blocks, each from its begin
+  marker to its end marker: a block with bad lines inside, or two closed
+  blocks, are all removed. A begin marker with no end marker is refused
+  with exit 6 and nothing is written, since where such a block ends is
+  unknown.
 - Produces, in `lib/checkpoint.py`: `remove(body: str, workflow: str) ->
   str`, used by `reset`.
 - Exit codes: 0 success; 1 failure or refusal (a read or write error, an
@@ -274,6 +283,8 @@ Expected: FAIL, `ModuleNotFoundError: vergil_tooling.lib.checkpoint`.
   - `test_reset_removes_block_keeps_rest_of_body`;
     `test_reset_without_block_writes_nothing` (exit 0);
     `test_reset_removes_malformed_block`;
+    `test_reset_removes_duplicate_blocks`;
+    `test_reset_unclosed_block_exits_6_and_writes_nothing`;
     `test_reset_then_status_exits_4`;
   - `test_untrusted_body_exits_3_and_writes_nothing`, for each subcommand;
   - `test_unknown_workflow_exits_2`; `test_runs_under_owner_org` (the read
@@ -325,7 +336,10 @@ Spec §4.4. Blocked by 2a.
   [--tick <stage>]…`. It refuses a body with no skew (exit 1, nothing
   written). After the write it posts one comment on the issue whose first
   line is `vrg-checkpoint: reconciled <workflow>` followed by the change
-  lines, so the log shows it.
+  lines, so the log shows it. The change lines are always printed to
+  stdout. If the comment fails after the write, it exits 1 with a message
+  saying the block was written, followed by the comment text to post by
+  hand.
 
 - [ ] **Step 1: Write the failing tests**
   - `test_reconcile_keeps_matching_ticks`; `test_reconcile_drops_removed_stage`
@@ -334,7 +348,8 @@ Spec §4.4. Blocked by 2a.
     `test_reconcile_tick_of_existing_stage_refused`;
     `test_reconcile_preserves_rest_of_body`;
   - CLI: `test_reconcile_writes_then_comments` (the comment posted after the
-    body write, never before); `test_reconcile_without_skew_exits_1`;
+    body write, never before); `test_reconcile_comment_failure_exits_1_with_text`;
+    `test_reconcile_without_skew_exits_1`;
     `test_reconcile_untrusted_body_exits_3`; `test_reconcile_malformed_exits_6`.
 - [ ] **Step 2: Run to verify they fail**
 
@@ -351,7 +366,8 @@ Expected: FAIL on the missing `reconcile`.
 
 ### Task 3a: `epic-create` in stages (vergil-claude-plugin)
 
-Spec §4.3, §4.5 (review rounds), §4.6, §4.7. Blocked by 2a.
+Spec §4.3, §4.5 (review rounds), §4.6, §4.7. Blocked by 4a; the first issue
+of the plugin batch.
 
 **Files:**
 
@@ -377,6 +393,13 @@ of Task 5.
   if it shows the item `ready-to-close`, close it as step 10 says;
   otherwise report its note ("handed off, awaiting merge", or the `held:`
   note) and exit, changing nothing.
+  Add the abandoned-epic check: after a `status` of 0 (or, once Task 3b
+  lands, 5), read the state of the epic the latest trusted `Epic:` marker
+  names (`vrg-gh issue view <E> --repo <home> --json state,stateReason`).
+  If it is closed as not planned, show the human; once confirmed, finish
+  the **abandon the skeleton** step (each part skips what is already done,
+  so it is safe to re-enter), which ends with `reset`, then start at
+  `bootstrap`.
 - [ ] **Step 3: Replace steps 1–3** with the `bootstrap` and `brainstorm`
   stages. `bootstrap` creates the epic (placeholder body and `Planning:`
   line), the documentation task, the `vrg-epic-docs set` section and the
@@ -388,7 +411,13 @@ of Task 5.
   early exits that use it. The step never removes a branch with commits
   beyond its base: it checks with `vrg-git rev-list --count
   origin/develop..<branch>` before anything else, and on a non-zero count
-  closes nothing and stops for the human. Add the security-run rules (a
+  closes nothing and stops for the human. The check runs in the `.github`
+  main clone (`dirname "$(vrg-git rev-parse --path-format=absolute
+  --git-common-dir)"`), and has three outcomes: the branch exists
+  locally, so its commits are counted as above; it is absent locally and
+  on `origin` (`vrg-git ls-remote --exit-code --heads origin <branch>`
+  exits 2), so nothing can be lost and removing the worktree and branch is
+  skipped; any other failure stops for the human. Add the security-run rules (a
   neutral skeleton;
   a "No" at the gate keeps it and publishes nothing further).
 - [ ] **Step 4: Move the bookends and the operational seeding.** In "The
@@ -411,7 +440,7 @@ of Task 5.
 
 ### Task 3b: `epic-create` keyed filing, skew and in-flight runs (vergil-claude-plugin)
 
-Spec §4.4, §4.5 (task filing), §4.8. Blocked by 2b, 3a.
+Spec §4.4, §4.5 (task filing), §4.8. Blocked by 3a; in the plugin batch.
 
 **Files:**
 
@@ -447,7 +476,7 @@ Spec §4.4, §4.5 (task filing), §4.8. Blocked by 2b, 3a.
 
 ### Task 3c: `epic-review` abandons a bootstrapped skeleton (vergil-claude-plugin)
 
-Spec §4.3 (the early exits). Blocked by 3a.
+Spec §4.3 (the early exits). Blocked by 3a; in the plugin batch.
 
 **Files:**
 
@@ -467,28 +496,39 @@ Spec §4.3 (the early exits). Blocked by 3a.
   passes; `vrg-commit --type feat --scope epic-review --message "abandon a
   bootstrapped skeleton before deferring or dropping a planning item"`.
 
-### Task 4: the releases, installed (deployment, .github)
+### Task 4a: the vergil-tooling release, installed (deployment, .github)
 
-Spec §5. Blocked by 2a, 2b, 3a, 3b, 3c.
+Spec §5. Blocked by 2a, 2b.
 
 - **Precondition (human-attested):** a vergil-tooling release carrying 2a
-  and 2b is published, and after it a vergil-claude-plugin release carrying
-  3a, 3b and 3c; each version and tag named.
+  and 2b is published, its version and tag named.
 - **Procedure:**
-  1. `vrg-release-record check <ref>` exits 0 for each of 2a, 2b, 3a, 3b
-     and 3c. For a task with no record (exit 4), `vrg-git merge-base
-     --is-ancestor <merge-sha> <tag-sha>` in its repo exits 0 instead.
-  2. **Human-run steps (need a human identity):** `vrg-host upgrade` and
-     `vrg-host plugins` on the host; `vrg-vm update --all` for the VMs.
+  1. `vrg-release-record check <ref>` exits 0 for each of 2a and 2b. For a
+     task with no record (exit 4), `vrg-git merge-base --is-ancestor
+     <merge-sha> <tag-sha>` in vergil-tooling exits 0 instead.
+  2. **Human-run steps (need a human identity):** `vrg-host upgrade` on the
+     host; `vrg-vm update --all` for the VMs.
   3. `vrg-checkpoint --help` lists `init`, `status`, `tick`, `reset` and
-     `reconcile`
-     on the host.
-  4. The installed `epic-create` skill contains the `## Stages` section.
-- **SUCCESS:** every check passes, recorded with both versions and tags.
+     `reconcile` on the host.
+- **SUCCESS:** every check passes, recorded with the version and tag.
+
+### Task 4b: the vergil-claude-plugin release, installed (deployment, .github)
+
+Spec §5. Blocked by 3a, 3b, 3c.
+
+- **Precondition (human-attested):** a vergil-claude-plugin release carrying
+  the 3a–3c batch is published, its version and tag named.
+- **Procedure:**
+  1. `vrg-release-record check <ref>` exits 0 for each of 3a, 3b and 3c,
+     with the same fallback as 4a, in vergil-claude-plugin.
+  2. **Human-run steps (need a human identity):** `vrg-host plugins` on the
+     host; `vrg-vm update --all` for the VMs.
+  3. The installed `epic-create` skill contains the `## Stages` section.
+- **SUCCESS:** every check passes, recorded with the version and tag.
 
 ### Task 5: a checkpointed planning run (validation, .github)
 
-Spec §2 (goals), §5. Blocked by 4.
+Spec §2 (goals), §5. Blocked by 4b.
 
 - **Precondition (machine probe):** `vrg-checkpoint --help` succeeds, and
   the installed `epic-create` has the `## Stages` section.
@@ -498,11 +538,24 @@ Spec §2 (goals), §5. Blocked by 4.
   1. right after `bootstrap`;
   2. inside `spec-pushback`, after a round comment: re-entry asks the
      round's step 7 question before dispatching anything;
-  3. inside `file-tasks`, after some but not all tasks are filed.
+  3. inside `file-tasks`, after some but not all tasks are filed;
+  4. **adoption:** later in `file-tasks`, after more tasks are filed, run
+     `vrg-checkpoint reset` on the planning issue and resume: the skill
+     proposes the stages and the task keys from the evidence, the human
+     confirms, and only the missing tasks are filed;
+  5. **skew:** before one resume, delete the `docs-pr` line from the block
+     by hand: `status` exits 5, the skill shows the difference, and
+     `reconcile` restores the line, with its comment posted.
+- **The skeleton abandon:** create a throwaway planning item, take it
+  through `bootstrap` only, then defer it with `epic-review planning`: the
+  epic and its documentation task are closed as not planned (epic first),
+  the worktree and branch are gone, the block is removed, and the item is
+  in the deferred queue.
 - **Checks:** after the run, the epic has exactly one of each task in the
   plan, plus the documentation-review and retrospective tasks, each with
   its `Plan task:` line; the planning issue has one block, with every stage
   ticked; no stage's work was done twice (one epic, one documentation task,
   one spec commit per stage change); every decision recorded before a
   clear is present after it.
-- **SUCCESS:** all three resumes observed and linked, and every check holds.
+- **SUCCESS:** all five resumes and the skeleton abandon observed and
+  linked, and every check holds.
