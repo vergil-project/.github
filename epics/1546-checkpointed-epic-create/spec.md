@@ -111,14 +111,25 @@ Its operations:
   workflow's current stage list into the issue body, all stages unticked, or
   with the stages named by `--tick` already ticked (§4.8). It refuses if a
   block is already present.
-- **`status <ref>`:** print the stages with their ticks and the **next stage**,
-  the first unticked one. `--json` gives the same data for the skill. This is
-  how a fresh session finds where it is.
-- **`tick <ref> <stage>`:** tick one stage. It refuses a stage that is not in
-  the block, and refuses to tick a stage while an earlier one is unticked,
-  because stages are linear.
-- **`reconcile <ref> [--tick <stage>]…`:** rewrite the block to the current
-  stage list after skew (§4.4).
+- **`status <ref> --workflow <name>`:** print the stages with their ticks
+  and the **next stage**, the first unticked one. `--json` gives the same
+  data for the skill. This is how a fresh session finds where it is.
+- **`tick <ref> --workflow <name> <stage>`:** tick one stage. It refuses a
+  stage that is not in the block, and refuses to tick a stage while an
+  earlier one is unticked, because stages are linear.
+- **`reconcile <ref> --workflow <name> [--tick <stage>]…`:** rewrite the
+  block to the current stage list after skew (§4.4).
+- **`reset <ref> --workflow <name>`:** remove the workflow's block, so the
+  next `status` reports it missing. It removes every closed block of the
+  workflow, each from its begin marker to its end marker, malformed or
+  duplicate ones
+  included, and succeeds, writing nothing, when there is none. A begin
+  marker with no end marker is refused as malformed, with nothing written,
+  since where that block ends is unknown. Abandoning a skeleton ends with
+  it (§4.3).
+
+`--workflow` is required on every operation, so one issue body can carry
+the blocks of several workflows, each rewritten only by its own operations.
 
 Each write rewrites only the delimited block. Every other part of the body is
 left as it is, including the `Planning:` lines, the security lines, and the
@@ -152,7 +163,8 @@ call.
 - A stage line holds only the checkbox and the stage name. Any other line
   inside the block, or any text after a name, makes the block malformed:
   `status` and every write report it with its own exit code, distinct from
-  skew, and change nothing. Per-stage detail belongs in progress comments.
+  skew, and change nothing. The one exception is `reset`, which removes
+  a malformed closed block (§4.1). Per-stage detail belongs in progress comments.
   This strict parse is a `vrg-checkpoint` requirement. The release
   checklist's parser skips lines it does not match, and `vrg-release` keeps
   that behaviour unless the builder decides otherwise, so sharing the module
@@ -179,9 +191,11 @@ the docs PR's merge has closed it: the skill adds no label, posts the
 `Planned as` comment if it is missing, and ticks `docs-pr`. Any other closed
 planning issue stops the run for the human.
 
-An open planning issue with every stage ticked has been handed off and
-awaits the docs PR's merge. The skill reports that and exits, changing
-nothing.
+An open planning issue with every stage ticked has been handed off. The
+skill runs `vrg-queue planning`. If it shows the item `ready-to-close` (the
+docs PR merged but did not close it), the skill closes it as step 10 says.
+Otherwise it reports the item's note (handed off and awaiting the merge, or
+the `held:` note) and exits, changing nothing.
 
 Each stage below lists the **evidence** its checkpoint leaves (what a later
 stage reads back) and what **re-entry** does when the stage was interrupted
@@ -190,13 +204,17 @@ before its tick:
 - **`bootstrap`.** Creates the epic's skeleton from the planning issue alone,
   before any design work: the epic, with a placeholder body drawn from the
   planning issue and its `Planning:` line; the documentation task, which the
-  docs PR closes; and the docs worktree on the documentation task's branch.
-  Nothing else: `bootstrap` is kept minimal, and every other task is filed in
-  `file-tasks`. The slug is chosen here, from the planning issue's title, and
-  is not changed later. Ends when all of these exist and the progress comment
-  carrying the `Epic:` and `Docs task:` markers is posted. Evidence: those
-  markers, the documentation task under the epic, and the branch. Re-entry:
-  each creation checks its evidence first and creates only what is missing.
+  docs PR closes; the epic's Documents section, seeded with
+  `vrg-epic-docs set`, all three entries pending; and the docs worktree on
+  the documentation task's branch. Nothing else: `bootstrap` is kept
+  minimal, and every other task is filed in `file-tasks`. The slug is chosen
+  here, from the planning issue's title, and is not changed later. Ends when
+  all of these exist and the progress comment carrying the `Epic:` and
+  `Docs task:` markers is posted. Evidence: those markers, the documentation
+  task under the epic, the Documents section in the epic body, and the
+  branch. A marker naming an issue closed as not planned is an abandoned
+  skeleton's, and is not evidence. Re-entry: each creation checks its
+  evidence first and creates only what is missing.
 - **`brainstorm`.** Ends when the design is approved and the spec draft is
   committed at `epics/<N>-<slug>/spec.md` on the documentation task's
   branch, and the epic body is written from it. **Writing the epic body** is
@@ -213,7 +231,8 @@ before its tick:
     deferred or dropped. Each first runs one shared step, **abandoning the
     skeleton**: the skill closes the epic as not planned first, then the
     documentation task as not planned, each with a comment pointing to the
-    outcome, and removes the docs worktree and its branch. The epic goes
+    outcome, removes the docs worktree and its branch, and last runs
+    `reset` on the planning issue. The epic goes
     first because the epic rollup closes an epic as completed once all its
     children are closed. Only then does it
     finish the exit: file the single task and close the planning issue,
@@ -222,6 +241,16 @@ before its tick:
     `epic-review planning`, deferring or dropping a planning item that has
     a skeleton, abandons the skeleton the same way before it routes the
     item.
+  - **A revived item starts afresh.** A planning item revived after its
+    skeleton was abandoned has no block, so it starts at `bootstrap` and
+    creates a new epic and a new documentation task, posting both markers,
+    which are then the latest. The old `Epic:` and `Docs task:` markers name
+    issues closed as not planned, so `bootstrap` ignores them. If step 0
+    finds that the epic the latest trusted `Epic:` marker names is closed as
+    not planned while the block still exists (an abandon interrupted before
+    its `reset`, or an item deferred by another route), the skill shows the
+    human and, once confirmed, finishes the abandon step, each part
+    skipping what is already done, then starts at `bootstrap`.
   - **The closing bookends are filed in `file-tasks`.** The
     documentation-review task belongs in the repo where most of its sweep
     lands, which the design decides, and the retrospective task has no
@@ -315,7 +344,9 @@ comment are durable, and the doctrine rebuilds the stage and the round count
 from the latest trusted `Design review: <stage> round <n>` comment
 ([paad review doctrine §2.6](https://github.com/vergil-project/vergil-claude-plugin/blob/develop/docs/paad-review-doctrine.md#26-the-round-comment)).
 So the skill pauses with the checkpoint summary (§4.6) after every round's
-comment, not only at the end of the stage. A round interrupted before its
+comment, not only at the end of the stage. The doctrine's step 7 question
+(another round, or stop the stage) comes after the pause, on continuing or
+on re-entry. A round interrupted before its
 comment is re-run, after the doctrine's dirty-worktree handling
 ([§2.4](https://github.com/vergil-project/vergil-claude-plugin/blob/develop/docs/paad-review-doctrine.md#24-output-checks-and-broken-rounds)).
 No change to the doctrine is needed. The round's findings walk is in the main

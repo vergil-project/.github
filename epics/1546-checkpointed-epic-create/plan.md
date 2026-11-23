@@ -189,8 +189,10 @@ strict parse must not change what `vrg-release --resume` accepts. Follow
 - Produces, in `lib/checkpoint.py`: `remove(body: str, workflow: str) ->
   str`, used by `reset`.
 - Exit codes: 0 success; 1 failure or refusal (a read or write error, an
-  existing block on `init`, a refused tick); 2 bad arguments; 3 untrusted
-  body; 4 block missing; 5 skew; 6 malformed.
+  existing well-formed block on `init`, a refused tick); 2 bad arguments;
+  3 untrusted body; 4 block missing; 5 skew; 6 malformed, from `status` and
+  every write (`init` on a malformed existing block included), with nothing
+  written.
 - `status --json`: `{"issue": "<owner>/<repo>#<N>", "workflow": str,
   "state": "ok" | "missing" | "skew" | "malformed", "stages": [{"name": str,
   "done": bool}], "next": str | null, "skew": {"recorded": [str],
@@ -272,6 +274,7 @@ Expected: FAIL, `ModuleNotFoundError: vergil_tooling.lib.checkpoint`.
   `test_vrg_epic_docs.py`:
   - `test_init_writes_block_unticked` and `test_init_with_tick_prefix`;
     `test_init_refuses_existing_block` (exit 1, no write);
+    `test_init_malformed_existing_block_exits_6` (no write);
     `test_init_tick_not_a_prefix_refused` (`--tick brainstorm` alone, exit
     1);
   - `test_status_json_ok` (the JSON shape above, `next` the first unticked);
@@ -280,6 +283,7 @@ Expected: FAIL, `ModuleNotFoundError: vergil_tooling.lib.checkpoint`.
     `test_status_all_ticked_next_null` (exit 0, `"next": null`);
   - `test_tick_writes_once`; `test_tick_already_ticked_writes_nothing`
     (exit 0, write not called); `test_tick_refused_exits_1`;
+    `test_tick_malformed_exits_6_and_writes_nothing`;
   - `test_reset_removes_block_keeps_rest_of_body`;
     `test_reset_without_block_writes_nothing` (exit 0);
     `test_reset_removes_malformed_block`;
@@ -301,6 +305,11 @@ Expected: FAIL, `ModuleNotFoundError: vergil_tooling.bin.vrg_checkpoint`.
   the old one.
 
 - [ ] **Step 8: Run to verify they pass** (the Step 6 command): PASS.
+
+- [ ] **Step 8a: Refactor** with the tests green: consolidate the CRLF
+  handling with `lib/epic_docs.py`, and the trust read and body write path
+  with `bin/vrg_epic_docs.py`, where they duplicate it. Rerun the Step 2 and
+  Step 6 commands: PASS.
 
 - [ ] **Step 9: Document it** in `cli-tools-overview.md`: the subcommands,
   `--workflow`, the exit codes, the JSON shape, the strict line rule and the
@@ -359,6 +368,9 @@ Expected: FAIL on the missing `reconcile`.
 
 - [ ] **Step 3: Implement** `reconcile` and the subcommand.
 - [ ] **Step 4: Run to verify they pass** (the Step 2 command): PASS.
+- [ ] **Step 4a: Refactor** with the tests green: share the change-line
+  rendering between the stdout output and the comment body. Rerun the
+  Step 2 command: PASS.
 - [ ] **Step 5: Document** `reconcile` in `cli-tools-overview.md`.
 - [ ] **Step 6: Validate and commit**: `vrg-container-run -- vrg-validate`
   passes; `vrg-commit --type feat --scope checkpoint --message "add
@@ -383,7 +395,10 @@ of Task 5.
   rule.
 - [ ] **Step 2: Rewrite step 0** so it always ends with `vrg-checkpoint
   status <M ref> --workflow epic-create --json`, enters the stage `next`
-  names, and posts the "Resuming at `<stage>`" line on a resume. Exit 3
+  names, and posts the "Resuming at `<stage>`" line on a resume. The
+  closed-state check of the planning issue, and the `status` it needs, run
+  before `vrg-gh issue edit … --add-label in-progress`, so a closed
+  planning issue is never labelled. Exit 3
   stops for the human, as an untrusted body does today. Exit 4 with no
   evidence of any stage runs `init` without asking. Exits 4 with evidence,
   5 and 6 are left to Task 3b: until then, the skill stops and asks the
@@ -430,8 +445,10 @@ of Task 5.
 - [ ] **Step 5: Review-stage re-entry and the pause.** In "Design review
   rounds", re-entry after a round comment starts at step 7 and dispatches
   nothing unasked. Add the checkpoint pause (spec §4.6), with the two
-  commands ready to paste, after each round's step 7 and at each stage end.
-  Continuing in the same session re-enters through `status`.
+  commands ready to paste, after each round's comment (step 6) and at each
+  stage end. Step 7's question is asked after the pause, whether the human
+  continues in the same session or resumes after a clear. Continuing in the
+  same session re-enters through `status`.
 - [ ] **Step 6: Tick each stage** as the last write of its existing step 4–9
   procedure, unchanged otherwise.
 - [ ] **Step 7: Validate and commit**: `vrg-container-run -- vrg-validate`
@@ -466,8 +483,10 @@ Spec §4.4, §4.5 (task filing), §4.8. Blocked by 3a; in the plugin batch.
   tasks, shows the human its proposal, and runs `init --tick` for each one
   confirmed. An epic closed as not planned, and its documentation task, are
   not evidence: they are an abandoned skeleton, and the revived run starts
-  at `bootstrap`, creating a new epic whose `Epic:` marker is then the
-  latest. A run partway through `file-tasks` first matches each existing
+  at `bootstrap`. `bootstrap` re-entry ignores any `Epic:` or `Docs task:`
+  marker naming an issue closed as not planned, so the revived run creates
+  a new epic and a new documentation task and posts both markers, which
+  are then the latest. A run partway through `file-tasks` first matches each existing
   task to a plan ID (or `doc-review`, `retrospective`), shows the matches,
   and adds the key line to each one confirmed, before filing anything.
 - [ ] **Step 4: Validate and commit**: `vrg-container-run -- vrg-validate`
@@ -506,8 +525,12 @@ Spec §5. Blocked by 2a, 2b.
   1. `vrg-release-record check <ref>` exits 0 for each of 2a and 2b. For a
      task with no record (exit 4), `vrg-git merge-base --is-ancestor
      <merge-sha> <tag-sha>` in vergil-tooling exits 0 instead.
-  2. **Human-run steps (need a human identity):** `vrg-host upgrade` on the
-     host; `vrg-vm update --all` for the VMs.
+  2. Confirm the release's `install` stage ran: it installs the release on
+     the Mac that ran it and runs `vrg-vm update --all` on every VM.
+     **Human-run steps (need a human identity):** on any other host,
+     `vrg-tooling-install <version>`; `vrg-vm update --all` only if a VM
+     was not reached by the install stage. (`vrg-host` never upgrades
+     vergil-tooling.)
   3. `vrg-checkpoint --help` lists `init`, `status`, `tick`, `reset` and
      `reconcile` on the host.
 - **SUCCESS:** every check passes, recorded with the version and tag.
