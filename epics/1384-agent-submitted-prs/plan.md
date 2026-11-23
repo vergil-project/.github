@@ -482,7 +482,8 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
 
 - **Preconditions:** Task 3d and Task 17d closed.
 - **Procedure (the human):** grant the permission and accept it on every
-  installation.
+  installation in the three in-scope orgs, and on none outside them (spec
+  §4.11).
 - **Acceptance:** an agent push of a workflow-touching branch is accepted,
   and the PR still needs the protected-change approval at submit.
 
@@ -1221,6 +1222,9 @@ runs no install by hand. After a plugin release, the session still needs
   `hoshin` reads the audit's runs.
 - **Procedure:** run `vrg-agent-audit --init` for every repo of the three
   in-scope orgs (archived repos excepted), then let one scheduled run pass.
+  `--init` is a human-run step: the "Agent audit markers" ruleset (Task 2)
+  lets only the admin role and the automation App create the
+  `vergil/agent-audit/*` branches, so the user agent cannot set them.
 - **Acceptance:**
   - a list, by in-scope org, of every repo the user App is installed on,
     each with both markers;
