@@ -97,11 +97,11 @@ accepted the validation and had the fix filed instead of a re-run.
 
 **The epic stayed open to absorb live use.** Rather than closing after
 validation, the human kept the epic open while `epic-create` planned
-other epics, and folded the fixes in (#1341–#1345). The last entry draws
-the boundary: later findings go to the ad-hoc epics. One of these
-fixes, #1343, narrows a rule the spec states (§4.8: the human confirms
-every match of an unkeyed task). The spec text was left as written, and the
-change is recorded in the Evolution log.
+other epics, and folded the fixes in (#1341–#1345). The entry recording
+that also draws the boundary: later findings go to the ad-hoc epics. One
+of these fixes, #1343, narrows a rule the spec states (§4.8: the human
+confirms every match of an unkeyed task). The spec text was left as
+written, and the change is recorded in the Evolution log.
 
 ## 2. Lessons learned
 
@@ -117,8 +117,8 @@ change is recorded in the Evolution log.
   stage tick and round comment, but not answers given in passing. Next
   time, list every question the skill asks the human, and give each
   answer, a "no" included, a durable record.
-- **Every defect merge review caught was a re-entry defect.** Four
-  defects were found and fixed before merge:
+- **Three of the four defects merge review caught were re-entry
+  defects.** Four defects were found and fixed before merge:
   - `docs-pr` re-entry skipped the writes after report-ready (#1307).
   - A multi-fixture plan entry shared one key (#1308).
   - A deferred `Blocked-by:` ref lived only in session memory (#1342).
@@ -247,7 +247,7 @@ Untracked problems found: 3, each ruled on by the human.
 - The three deferred resume scenarios are handled when they first occur.
   A failure there is a fix task on the ad-hoc epic.
 - Later findings in `epic-create` go to vergil-claude-plugin's ad-hoc
-  epic, as the plan's last Evolution entry says.
+  epic, as the plan's Evolution entry on the live-use fixes says.
 - No follow-on epic: the `epic-implement` follow-on (#1544, then #1596)
   was settled as not needed.
 
