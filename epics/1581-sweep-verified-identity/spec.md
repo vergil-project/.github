@@ -214,8 +214,10 @@ the trusted-authors configuration lists (`vergil-project`,
 time of writing). An org that is not configured is not in scope; a configured
 org is never excluded. Each one's `.github` calls `ops-epic-sweep.yml` on a
 schedule, and that workflow is enabled. Where an org has no caller, this epic
-adds one, in the same form as `vergil-project/.github`'s `epic-sweep.yml`.
-Where the caller is disabled, it is re-enabled. Re-enabling a workflow, and
+adds one. A caller in an org other than vergil-project takes the cross-org
+form of `logical-minds-foundry/.github`'s `epic-sweep.yml`, which passes the
+App keys by name in an explicit `secrets:` map: `secrets: inherit` passes
+nothing to a reusable workflow in another org. Where the caller is disabled, it is re-enabled. Re-enabling a workflow, and
 setting an org's `automation` environment secrets and its `VRG_AUTOMATION_APP`
 and `VRG_TRUSTED_AUTHORS` variables, are human steps.
 
