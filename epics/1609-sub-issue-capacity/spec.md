@@ -167,7 +167,10 @@ are the builder's to refine):
 - `chain_of(head) -> list[IssueRef]`: the head then each continuation.
 - `head_of(container) -> IssueRef`: the head of any container (itself, for a
   head). It walks native parents while the container is a continuation, and
-  checks the `Continues:` line agrees.
+  checks the `Continues:` line agrees. An **orphaned continuation** (§4.3),
+  which has no native parent, resolves through its trusted `Continues:` line
+  instead, and the call reports it as drift. `parent_of` and the rollup adopt
+  such an orphan (find-or-create, §4.3) before they answer or judge.
 - `chain_child_states(head)`: the flattened children across the chain, in
   container order, continuations excluded.
 - `link_into(head, task)`: link *task* into the first container with a free
@@ -177,11 +180,13 @@ are the builder's to refine):
   first container with a free item slot (`replaceParent`, as `reparent_child`
   does today), with the same rollover. Like `link_into`, it refuses a closed
   head, naming it, and never reopens one.
-- `close_chain(head)`: close every continuation, tail first, then the head
-  (§4.6).
-- With no shrink, a continuation closes only with its head (§4.6), so an open
-  head never has a closed continuation; a chain walk that finds one reports
-  it as chain drift.
+- `close_chain(head)`: close the head first, then every continuation (§4.6).
+- **A closed continuation in an open chain** (closed by hand, say) is not
+  drift and never blocks the chain. Readers still walk it and flatten its
+  items; writers skip it for first fit and never link into it; and when its
+  successor is missing, rollover links the next continuation into the last
+  open container instead. The audit reports it as a note, naming it, and
+  nothing reopens it (closed is closed, below).
 - `unlink_from(head, task)`: unlink *task* from whichever container of the
   chain it is linked in.
 - `chain_contains(head, task)`: whether *task* is linked anywhere in the chain.
@@ -214,9 +219,16 @@ therefore an error, never a state to repair by reopening:
   re-parents.
 - The reopen-on-late-child rule in `add_child` and `intake_route`'s explicit
   reopen before a re-parent are removed.
+- `proxies.create_proxy` (`vrg-epic-create --proxy-for`) no longer reopens a
+  closed proxy: it refuses, naming the proxy and saying it is closed. A
+  person may reopen it by hand, and a re-run then reuses it.
 - A **missing** standing epic is still created on demand
   (`ensure_standing_epic`, for example in a new repository); a **closed** one
-  is refused, never reopened or replaced.
+  is refused, never reopened or replaced. The lookup reads closed issues as
+  well as open ones: an open epic with the canonical title is reused whatever
+  closed ones share it, and only when no open one exists and a closed one
+  does is the call refused, naming it and saying a person may reopen it by
+  hand.
 - The audit's `closed_epic_open_child` check stays, but its reopen fix
   (`reopen_epics_with_open_children`) is removed: a closed epic with an open
   child is reported as drift for the human, and the sweep never reopens it.
@@ -241,6 +253,13 @@ to the chain-aware form, are:
   lookup (`_find_resumed_issue`, which reads the intake epic's sub-issues
   with a raw REST call today);
 - the rollup and the standing drain (§4.6).
+
+**No raw parent or child queries outside the chain layer.** Every GraphQL or
+REST selection of an issue's `parent` or `subIssues` outside `epics` and
+`epic_chain` moves behind the chain layer too, not only the callers of the
+public readers above. That includes `epic_audit`'s `_OPEN_ISSUES_QUERY`,
+whose `parent` field `misplaced_adhoc` keys on (it maps a native parent
+through `head_of`), and `merge_review/request`'s own queries.
 
 Whether a given caller wants a reader that also exposes containers (the audit,
 for drift) is the builder's call; the default is the flattened, head-level
@@ -304,8 +323,9 @@ locking:
   3. link the continuation into the freed slot.
 - **Two continuations under one container** (two writers both created one):
   the writer that finds it after its own link keeps the lower-numbered issue,
-  moves any items from the other into it, and closes the other as not planned
-  with a comment naming the kept one. The audit reports any it finds (§4.7).
+  moves any items from the other into it, unlinks the other, and only then
+  closes it as not planned with a comment naming the kept one, so no closed
+  duplicate stays in the chain or holds a slot. The audit reports any it finds (§4.7).
 - The exact retry bound, and how each heal is reported, are the builder's
   call; every heal prints one line saying what it did.
 
@@ -342,12 +362,13 @@ so a refused move leaves the task where it was.
   reported as drift for the human and never adopted (closed is closed, §4.2). A continuation closing never rolls anything up on its own: a close
   event whose issue is a continuation is a no-op for the rollup.
 - **Every close closes the chain.** The chain layer's `close_chain(head)`
-  closes every continuation, tail first, and the head last. Every tooling path
+  closes the head first, then every continuation. Every tooling path
   that closes an epic goes through it: the rollup, the audit's `close_drift`
-  and `close_proxies`. An epic closed any other way (by hand, say) leaves a
-  **closed head with an open continuation**: the audit reports it as drift and
-  the epic sweep heals it by closing those continuations, tail first. Closing
-  them is not a reopen, so closed is closed (§4.2) still holds.
+  and `close_proxies`. A close interrupted partway, or an epic closed any
+  other way (by hand, say), leaves a **closed head with an open
+  continuation**: the audit reports it as drift and the epic sweep heals it
+  by closing those continuations. Closing them is not a reopen, so closed is
+  closed (§4.2) still holds.
 - **Standing drain.** `drain_standing_child` judges the **head**'s title and
   kind, not the continuation's, so a closed item drains to its archive from
   any container. The batch drain (`apply_standing_drain`) reads the whole
@@ -379,8 +400,10 @@ so a refused move leaves the task where it was.
 - **Orphans are found.** The audit and the sweep list every open issue
   labelled `continuation` in the home repo and check that each can be reached
   from the head its `Continues:` line names. The sweep adopts each orphan that
-  passes the trust rules (§4.3) and reports it; the audit reports it; one that
-  fails them is reported as chain drift.
+  passes the trust rules (§4.3), reports it, and then runs the rollup again
+  for that head, since an item that closed inside the orphan fired no rollup
+  the head could see; the audit reports it; one that fails them is reported
+  as chain drift.
 
 ### 4.8 Re-homing #1384's tasks
 
