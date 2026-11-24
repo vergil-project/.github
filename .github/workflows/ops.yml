@@ -19,3 +19,18 @@ jobs:
     # reusable workflow only through `secrets: inherit` (epic
     # vergil-project/.github#1384).
     secrets: inherit
+
+  # The daily audit of agent merges (epic vergil-project/.github#1384, spec
+  # §4.8), as the job named agent-audit that hoshin reads. It runs after the
+  # config job whatever that job's result: a config finding must not skip
+  # the audit.
+  agent-audit:
+    needs: github-config
+    if: ${{ !cancelled() }}
+    uses: vergil-project/vergil-actions/.github/workflows/ops-agent-audit.yml@v2.1
+    permissions:
+      contents: read
+    # The App keys live in the `automation` environment, which reaches a
+    # reusable workflow only through `secrets: inherit` (epic
+    # vergil-project/.github#1384).
+    secrets: inherit
