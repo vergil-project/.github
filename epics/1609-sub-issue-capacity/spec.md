@@ -54,6 +54,8 @@ not a case to design for.
    needs.
 7. The 14 tasks of vergil-project/.github#1384 filed under ad-hoc epics are
    re-homed under #1384's chain, if #1384 is still open (§4.8).
+8. Closed is closed: no tooling path reopens a closed epic, and linking or
+   moving an item into one is refused by name (§4.2).
 
 ### Non-goals
 
@@ -126,7 +128,9 @@ Three ways of building the chain were weighed:
   ```
 
   and a sentence saying it holds the overflow of the head and is managed by the
-  tooling.
+  tooling. The `Container:` line and the title's number are **for display
+  only**: a container's position is the native chain's, and no reader checks
+  the number, so a stale one is never drift.
 - A continuation carries **none** of the head's kind labels (`intake`,
   `planning`, `deferred`, `ad-hoc`, `proxy`, `hoshin`, `operations`,
   `epic-development`, …). Every lookup that finds a canonical epic by label or
@@ -134,6 +138,15 @@ Three ways of building the chain were weighed:
   `standing_kind_of`, `roadmap.gather`, the planning queue view) must
   therefore never find a continuation, and a continuation's kind is always its
   head's.
+- **Every consumer of `epic`-labelled listings skips continuations.** One
+  predicate, `is_continuation(labels)`, recognises one, and every check that
+  skips standing or proxy epics today (by `is_standing` or `is_proxy`) skips
+  continuations too. These include the consumers of `list_home_epics`:
+  `epic_docs.is_skipped` and the audit's `epic_documents`,
+  `closed_epic_open_child`, `proxy_link_drift` and
+  `misplaced_adhoc`. A continuation is never reported as a development epic
+  missing its Documents section, a closed epic with an open child, or a
+  primary epic.
 - **A continuation's ref means its head.** GitHub's UI shows a continuation as
   a task's parent, so its ref will be copied into commands. Every command that
   accepts an epic ref (`--epic`, `--parent` and the like) resolves it through
@@ -142,8 +155,7 @@ Three ways of building the chain were weighed:
   Every kind check then runs against the head.
 - **Trust.** A container is accepted as a continuation only when it carries
   the label, its body passes the trust layer, its `Continues:` line names the
-  head being walked, its `Container:` number is the next in sequence, and it is
-  a native child of the container before it. Any mismatch is **chain drift**: a
+  head being walked, and it is a native child of the container before it. Any mismatch is **chain drift**: a
   reader raises it, naming the container and the rule it broke, and the audit
   reports it (§4.7). A reader never guesses past a broken link.
 
@@ -159,19 +171,29 @@ are the builder's to refine):
 - `chain_child_states(head)`: the flattened children across the chain, in
   container order, continuations excluded.
 - `link_into(head, task)`: link *task* into the first container with a free
-  item slot, rolling over first when none has one (§4.3, §4.4). It keeps
-  `add_child`'s existing reopen-on-late-child rule for a closed head.
+  item slot, rolling over first when none has one (§4.3, §4.4). It refuses a
+  closed head, naming it, and never reopens one (closed is closed, below).
 - `move_into(head, task)`: atomically move *task* from wherever it is into the
   first container with a free item slot (`replaceParent`, as `reparent_child`
-  does today), with the same rollover. Closed is closed: it refuses a closed
-  head, naming it, and never reopens one. Moves are between live epics (from
-  one standing queue to another, or into an open development epic).
+  does today), with the same rollover. Like `link_into`, it refuses a closed
+  head, naming it, and never reopens one.
+- `close_chain(head)`: close every continuation, tail first, then the head
+  (§4.6).
 - With no shrink, a continuation closes only with its head (§4.6), so an open
   head never has a closed continuation; a chain walk that finds one reports
   it as chain drift.
 - `unlink_from(head, task)`: unlink *task* from whichever container of the
   chain it is linked in.
 - `chain_contains(head, task)`: whether *task* is linked anywhere in the chain.
+- **Settling after a transfer.** GitHub's parent field and its sub-issue
+  lists can disagree for a while after an issue is transferred (the cases
+  `intake_route` recovers from today: vergil-project/vergil-tooling#3839,
+  #4004 and #4291). The chain layer owns that recovery as container-aware
+  operations: observe a task's parent field against the listings of the
+  chain's containers, wait for them to settle, and clear a stale listing of
+  the task from the container that holds it. `intake_route`'s
+  `_observe`, `_settle_parent` and `_clear_duplicate` call these, and do no
+  raw read or write of their own.
 
 **The chain layer owns writes as well as reads.** The raw writers
 (`add_child`, `remove_child`, `reparent_child`) become private to `epics` and
@@ -179,6 +201,25 @@ are the builder's to refine):
 `link_into`, `move_into` and `unlink_from`. A raw writer paired with a
 chain-aware reader would act on the head for an item that sits in a
 continuation, so no public raw writer remains.
+
+**Closed is closed.** No tooling path reopens a closed epic. A development
+epic closes when its work is finished and is never written to again; a
+standing epic stays open for the life of its repository. A closed target is
+therefore an error, never a state to repair by reopening:
+
+- `link_into` and `move_into` refuse a closed head with a message naming the
+  epic and saying it is closed. Every flow built on them refuses the same way:
+  `vrg-issue-create`, `vrg-intake-create`, `vrg-epic-link`,
+  `vrg-security-record`, `vrg-epic-move` and `intake_route`'s links and
+  re-parents.
+- The reopen-on-late-child rule in `add_child` and `intake_route`'s explicit
+  reopen before a re-parent are removed.
+- A **missing** standing epic is still created on demand
+  (`ensure_standing_epic`, for example in a new repository); a **closed** one
+  is refused, never reopened or replaced.
+- The audit's `closed_epic_open_child` check stays, but its reopen fix
+  (`reopen_epics_with_open_children`) is removed: a closed epic with an open
+  child is reported as drift for the human, and the sweep never reopens it.
 
 **The existing public readers become chain-aware.** `child_states`,
 `child_states_with_blockers`, `native_children`, `all_children_closed`,
@@ -196,7 +237,9 @@ to the chain-aware form, are:
   (`epic_audit`);
 - reading: `epic_audit` (including `epic_children` with its proxies),
   `queue_view`, `roadmap`, `planning_close`, `security_records`,
-  `merge_review/request`, `vrg-submit-pr`;
+  `merge_review/request`, `vrg-submit-pr`, and `vrg-security-record`'s resume
+  lookup (`_find_resumed_issue`, which reads the intake epic's sub-issues
+  with a raw REST call today);
 - the rollup and the standing drain (§4.6).
 
 Whether a given caller wants a reader that also exposes containers (the audit,
@@ -232,8 +275,8 @@ view.
   tail's last slot, and the epic sweep does the same for any it finds (§4.7).
   An orphan is adopted only when it passes the §4.1 trust rules other than
   the native link: the label, a trusted body and a `Continues:` line naming
-  this head. Its `Container:` line is rewritten to its place in the chain as
-  it is linked. One that fails a rule is reported as chain drift and never
+  this head. Once it is linked, its `Container:` line and title are updated
+  to its place in the chain, for display (§4.1). One that fails a rule is reported as chain drift and never
   adopted.
 
 ### 4.4 Races
@@ -291,9 +334,20 @@ so a refused move leaves the task where it was.
 
 - **Rollup.** `rollup(task)` resolves the task's head (`head_of(parent)`). A
   finite epic closes only when every item across its chain is closed and
-  trusted-closed, as today; it then closes every continuation, tail first, and
-  the head last. A continuation closing never rolls anything up on its own: a
-  close event whose issue is a continuation is a no-op for the rollup.
+  trusted-closed, as today; it then closes the chain with `close_chain`
+  (below). **Before judging, it looks for orphans** of the head (§4.3, the
+  search §4.7 defines): it adopts each that passes the trust rules and judges
+  the whole chain with it, and it refuses to close while an orphan it cannot
+  adopt exists, reporting it. An orphan of a head that is already closed is
+  reported as drift for the human and never adopted (closed is closed, §4.2). A continuation closing never rolls anything up on its own: a close
+  event whose issue is a continuation is a no-op for the rollup.
+- **Every close closes the chain.** The chain layer's `close_chain(head)`
+  closes every continuation, tail first, and the head last. Every tooling path
+  that closes an epic goes through it: the rollup, the audit's `close_drift`
+  and `close_proxies`. An epic closed any other way (by hand, say) leaves a
+  **closed head with an open continuation**: the audit reports it as drift and
+  the epic sweep heals it by closing those continuations, tail first. Closing
+  them is not a reopen, so closed is closed (§4.2) still holds.
 - **Standing drain.** `drain_standing_child` judges the **head**'s title and
   kind, not the continuation's, so a closed item drains to its archive from
   any container. The batch drain (`apply_standing_drain`) reads the whole
@@ -319,7 +373,8 @@ so a refused move leaves the task where it was.
   as the "run intake review" signal, but no longer refuses at it: it links
   through the chain and reports the nudge instead.
 - **Drift is reported.** The audit and the sweep report chain drift (§4.1),
-  a full tail with no continuation, and duplicate continuations, each
+  a full tail with no continuation, duplicate continuations, and a closed head
+  with an open continuation (§4.6), each
   naming the containers, as link drift is reported today.
 - **Orphans are found.** The audit and the sweep list every open issue
   labelled `continuation` in the home repo and check that each can be reached
