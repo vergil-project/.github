@@ -133,9 +133,9 @@ release.
   in this seam, since an agent cannot post as the human. The seam also
   includes a deliberate weakening of the gate logic itself, in a workflow
   file, `vergil.toml`, vergil-tooling or the plugin, since no path is held
-  back for the human (§4.4). An honest agent's weakening of a check (§1.1)
-  is not part of the seam: it is a change like any other, worked out in
-  the spec and plan, judged by merge review on every PR and held back from
+  back for the human (§4.4). An honest agent's change to the gate logic,
+  including a weakening made by mistake under pressure (§1.1), is not part
+  of the seam: it is judged by merge review on every PR and held back from
   the fleet by the human-gated release, with no approval on it.
 - **Bringing human review back by another route.** If the design makes the
   human approve ordinary PRs, it has failed even if it works. No class of
