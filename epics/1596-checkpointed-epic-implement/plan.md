@@ -38,9 +38,10 @@ No tool changes: `vrg-checkpoint` gains no workflow.
 - **A security detail is never written anywhere public,** and is shown in
   the terminal only (spec §2, anti-goals; doctrine §1.7).
 - **A kept file's hash has one source:** the `Kept: <file> sha256:<hash>`
-  line of the trusted `Awaiting a ruling` comment that carries the item's
-  count, read through `vrg-issue-read`. Never the final report, never a file
-  beside the details file (spec §4.2).
+  line of a trusted comment, read through `vrg-issue-read`: the
+  `Awaiting a ruling` comment that carries the item's count, or a held
+  item's own `Kept:` comment (Task 2, step 1). Never the final report, never
+  a file beside the details file (spec §4.2).
 - **A kept file is deleted only once its item's ruling is recorded;** a
   failed record keeps it, with its `Kept:` line (spec §4.2).
 - **The kept-file name** is `security-<ID>.md`, `<ID>` the item's
@@ -52,7 +53,10 @@ No tool changes: `vrg-checkpoint` gains no workflow.
 - **The new state-directory kind:** `epic-implement`, at
   `build/.vergil-state/epic-implement/<N>/` in the main clone of the epic's
   home repo, `<N>` the epic's number, following doctrine §1.5's
-  `upstream-report` and `operational` rules (spec §4.2).
+  `upstream-report` and `operational` rules (spec §4.2). The skill creates
+  and checks it by those rules as written; vergil-tooling's shared
+  state-directory checker does not know the kind, and adding it is an
+  intake follow-up outside this epic.
 - **The gate's clear recommendation** ends the gate's summary with exactly:
 
   ```text
@@ -102,7 +106,8 @@ is blocked by.
 - **2** (vergil-claude-plugin): `issue-implement` keeps a dispatched run's
   security details in the task's state directory with a `Kept:` line, and
   the doctrine's §1.5 and §1.7 are revised to match, with the new
-  `epic-implement` kind.
+  `epic-implement` kind. Blocked by
+  vergil-project/vergil-claude-plugin#1206.
 - **3** (vergil-claude-plugin): `epic-implement`'s guidelines, the gate's
   reading of the kept files, and the orchestrator's own security follow-ups
   in the `epic-implement` state directory. Blocked by 2 and by
@@ -118,10 +123,12 @@ Notes:
 - **One plugin release carries 2 and 3 together.** With Task 2 alone, a
   dispatched run names its kept file in its final report, but the released
   `epic-implement` still expects the details there, so the gate would have
-  no way to present the item. The plugin release that carries Task 2 waits
-  until Task 3 has merged. Task 2's issue says so, and the human holds the
-  release; no deployment task is needed for it, since the change is skill
-  text the pipeline's checks cover (spec §5).
+  no way to present the item. So Task 2 is blocked by #1206 too, and
+  starts only once Task 3 can follow it at once: the two land close
+  together, and the release that carries Task 2 waits only until Task 3
+  has merged, not open-endedly. Task 2's issue says so; no deployment task
+  is needed, since the change is skill text the pipeline's checks cover
+  (spec §5).
 - **Implementation waits for epic vergil-project/.github#1384,** through
   #1206, which Task 3 is blocked by.
 - **No fixture runs, no `dev-` image validation, no deployment or
@@ -134,7 +141,8 @@ Notes:
 
 ### Task 2: dispatched runs keep security details durable (vergil-claude-plugin)
 
-Spec §4.1, §4.2. Not blocked.
+Spec §4.1, §4.2. Blocked by vergil-project/vergil-claude-plugin#1206
+(delivery table notes).
 
 **Files:**
 
@@ -208,7 +216,13 @@ The skill has no test harness. Its check is the review and
     `N0.S<i>` in a trusted `Awaiting a ruling` comment and every kept
     `security-N0.S<i>.md`, as well as past the existing sources, so no ID
     is reused;
-  - §1.7: the held item's own `Kept:` comment (Step 1);
+  - §1.7's rule that non-review comments are never posted while a ruling
+    exchange is open: add its one exception, the held item's own `Kept:`
+    comment (Step 1);
+  - §1.7's "Under `epic-implement`" paragraph and its "One channel per kind
+    of item" non-review bullet: a dispatched run's final message names its
+    kept files and carries no security details, and the rulings run takes
+    them from the kept file, not from its prompt (spec §4.2);
   - §1.7's private-store paragraph ("Anywhere else there is no private
     store"): name both new stores, and keep "the details stay in the
     conversation" for a run with the human present only;
@@ -242,10 +256,13 @@ The skill has no test harness. Its check is the review and
   and the kept files of Task 2 and step 5).
 - [ ] **Step 2: Re-derivation** (spec §4.3). In step 2 ("Reconstruct
   state"), add the pending non-review items: for every task of the epic (or
-  of the ad-hoc queue) that carries a trusted `Awaiting a ruling` comment,
-  closed tasks included, as §1.7 lets a rulings run act on a closed task,
-  read its trusted comments with `vrg-issue-read` and collect every
-  `Awaiting a ruling` ID that is not ruled (Review Focus 4). An ID is ruled
+  of the ad-hoc queue) that carries a trusted `Awaiting a ruling` comment
+  or a held item's `Kept:` comment, closed tasks included, as §1.7 lets a
+  rulings run act on a closed task, and for the epic issue itself (in the
+  `adhoc` mode, every ad-hoc epic the run writes records to), which holds
+  the orchestrator's own follow-ups (step 5), read the trusted comments
+  with `vrg-issue-read` and collect every such ID that is not ruled
+  (Review Focus 4). An ID is ruled
   when a trusted `Human ruling: <ID>` or `Recorded: <ID>` line names it, or,
   for a security item, when a trusted security counts line covers it, the
   test merge-review's non-review gate already uses. State when the full
@@ -270,7 +287,15 @@ The skill has no test harness. Its check is the review and
   Find every item that reaches the gate only through a final report and
   make it regenerable; the known one is a deployment stopped at `waiting:
   human-run steps`, re-dispatched to produce its precondition results again.
-  Record any other in the PR's notes.
+  Make any other such item regenerable in the same way, and name each in
+  the PR's notes.
+- [ ] **Step 3a: Confirm every security-detail path** (spec §4.1, §6).
+  Check each place a security detail can arise in a run that
+  `epic-implement` drives (merge review's `merge-review/security-<ID>.md`,
+  `operational/<N>/`, Task 2's kept files, and step 5's) and confirm each
+  keeps its details in a state directory and none lives only in the
+  session. Fix any gap found in this task; one that cannot be fixed here
+  is a follow-up filed with the human's approval, named in the PR's notes.
 - [ ] **Step 4: A thin orchestrator** (spec §4.4). In step 3, each dispatch
   prompt asks for a short final report: the outcome, the refs, and pointers
   to durable records, not the run's working detail. The orchestrator reads
@@ -281,9 +306,14 @@ The skill has no test harness. Its check is the review and
   `security-<ID>.md` in `build/.vergil-state/epic-implement/<N>/` of the
   epic's home repo's main clone, after a `test ! -e` check; the hash goes in
   a `Kept:` line of the epic's `Awaiting a ruling` comment that carries the
-  count; the gate reads it as step 3 says; the file is deleted once the
-  ruling is recorded. In the `adhoc` mode, `<N>` is the epic its records go
-  to.
+  count; the gate reads it as step 3 says. The main session carries out the
+  ruling itself: for a `record` ruling it runs `vrg-security-record` with
+  the kept file as the details file and posts `Recorded: <ID>` on the epic;
+  any other ruling is recorded by the counts line, as today. The file is
+  deleted once the ruling is recorded; a failed record keeps the file and
+  its `Kept:` line, and the item stays pending, so a later gate checks for
+  a trusted `Recorded: <ID>` before recording again. In the `adhoc` mode,
+  `<N>` is the epic its records go to.
 - [ ] **Step 6: The clear recommendation** (spec §4.5, §4.6). At the end of
   step 4, once every item at the gate is on GitHub or in a state directory,
   the summary ends with the two commands of Global Constraints, and says

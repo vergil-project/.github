@@ -137,8 +137,17 @@ A run dispatched by `epic-implement` that raises a security non-review item:
   `operational` kind already does;
 - names the file in its final report, never the details.
 
-The hash's only source is that `Kept:` line. Neither the final report nor a
-file beside the details file is a source for it.
+While a merge-review ruling exchange is open, the item itself is held, as
+today, and posted under `Awaiting a ruling` after the response. Its file is
+still written at once, and its `Kept:` line is posted at once in a trusted
+comment of its own that carries only the item's ID and that line, so the
+item is durable across the stop; the later `Awaiting a ruling` comment names
+the same ID.
+
+The hash's only source is that `Kept:` line, in either of the two trusted
+comments: the `Awaiting a ruling` comment, or a held item's own comment.
+Neither the final report nor a file beside the details file is a source for
+it.
 
 At the gate, `epic-implement` shows the human the directory's listing. Once
 the human confirms it, the run reads each file's `Kept:` line through
@@ -155,9 +164,17 @@ A security follow-up the orchestrator raises itself is kept the same way, in
 a new state-directory kind keyed by the epic:
 `build/.vergil-state/epic-implement/<N>/` in the main clone of the epic's
 home repo, `<N>` the epic's number. It follows the `upstream-report` and
-`operational` rules of doctrine §1.5. Its hash is posted as a `Kept:` line
-in the epic's `Awaiting a ruling` comment that carries the count, and the
-file is deleted once the ruling is recorded.
+`operational` rules of doctrine §1.5, which the skill applies as written
+(creating each level and checking it by hand); the shared state-directory
+checker in vergil-tooling does not know the kind, and adding it there is a
+follow-up outside this epic. Its hash is posted as a `Kept:` line in the
+epic's `Awaiting a ruling` comment that carries the count. The orchestrator
+carries out the human's ruling itself: for a `record` ruling it runs
+`vrg-security-record` with the kept file as the details file and posts
+`Recorded: <ID>` on the epic, and any other ruling is recorded by the
+counts line, as today. The file is deleted once the ruling is recorded; a
+failed record keeps the file and its `Kept:` line, and the item stays
+pending.
 
 A run with the human present (not dispatched by `epic-implement`) keeps
 today's behaviour: the details stay in the conversation and are ruled on
@@ -173,7 +190,14 @@ same change that makes `issue-implement` keep the file revises the doctrine:
   details file is kept until its ruling is recorded, with its `Kept:` line;
 - §1.5's table gains the `epic-implement` kind;
 - §1.7's private-store text names both stores;
-- §1.7's recording-failure rule keeps the file instead of deleting it.
+- §1.7's recording-failure rule keeps the file instead of deleting it;
+- §1.7's "Under `epic-implement`" paragraph and its "One channel per kind
+  of item" non-review bullet: a dispatched run's final message names its
+  kept files and carries no security details, and the rulings run takes
+  them from the kept file, not from its prompt;
+- §1.7's rule that non-review comments are never posted while a ruling
+  exchange is open gains its one exception, the held item's own `Kept:`
+  comment.
 
 ### 4.3 Compaction-safe
 
@@ -183,11 +207,17 @@ re-derives its position from the durable record:
 - step 2: the epic, `vrg-epic-audit` and the plan;
 - the step 3 re-entry checks: batch markers, merge-review directories,
   ruling replies and the state directories;
-- the pending non-review items: for each open or reported-ready task of the
-  epic, or of the ad-hoc queue, the run reads the task's trusted comments
-  with `vrg-issue-read` and collects every `Awaiting a ruling` ID that has
-  no trusted `Human ruling:` or `Recorded:` line. The gate presents these
-  from that list, not from runs' final reports.
+- the pending non-review items: for every task of the epic, or of the
+  ad-hoc queue, that carries a trusted `Awaiting a ruling` comment or a
+  held item's `Kept:` comment, closed tasks included (doctrine §1.7 lets a
+  rulings run act on a closed task), and for the epic issue itself (in the
+  `adhoc` mode, every ad-hoc epic the run writes records to), which holds
+  the orchestrator's own follow-ups, the run reads the trusted comments
+  with `vrg-issue-read` and collects every such ID that is not ruled. An ID
+  is ruled when a trusted `Human ruling: <ID>` or `Recorded: <ID>` line
+  names it, or, for a security item, when a trusted security counts line
+  covers it. The gate presents these from that list, not from runs' final
+  reports.
 
 **When it re-derives.** The full re-derivation runs:
 
@@ -259,7 +289,8 @@ The plan sets the tasks. The expected shape, all in
 1. `issue-implement` and the doctrine: security details of a dispatched
    run's non-review items go to the state directory with a `Kept:` line, and
    the doctrine is revised to match, including the new `epic-implement` kind
-   (§4.2). Not blocked by #1206.
+   (§4.2). Blocked by #1206, so that it lands with task 2 rather than
+   holding every plugin release until task 2 merges.
 2. `epic-implement`: the guidelines of §4.1 and §4.3–§4.5, the gate's
    reading of the security files, and the orchestrator's own security
    follow-ups in the `epic-implement` state directory (§4.2). Blocked by
