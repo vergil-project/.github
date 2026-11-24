@@ -71,9 +71,8 @@ No tool, hook or format changes (spec §4.3).
    in flight.** No reset until that run reports and its report is recorded.
    Pinned in Task 2b, step 3.
 3. **A plan written before this epic**, with no Reset points section.
-   `epic-implement` falls back to the judgment rule alone, and
-   `epic-create`'s check does not demand the section of a plan it is not
-   reviewing. Pinned in Task 2b, step 2.
+   `epic-implement` falls back to the judgment rule alone. Pinned in Task
+   2b, steps 1 and 2.
 4. **An adhoc run reaching the shared gate text.** The reset rule must not
    reach it, while the batching rationale does. Pinned in Task 2b, step 4.
 5. **A batch stop after a reset**, when the human asks why the issues were
@@ -96,12 +95,13 @@ is blocked by.
 - **1** (.github, task #1625): spec and plan, this PR.
 - **2a** (vergil-claude-plugin): `epic-create`'s Reset points section in
   plan writing (step 6) and its check in plan pushback and alignment
-  (step 7), with the site docs' `epic-create` section. Blocked by
-  vergil-project/.github#1384.
+  (step 7), with the site docs' `epic-create` section. No `Blocked-by`;
+  its body states the epic vergil-project/.github#1384 precondition.
 - **2b** (vergil-claude-plugin): `epic-implement`'s reading of the section,
   the Evolution-entry reset points, the whole-gate reset rule, the
   batching rationale at dispatch and the `adhoc` exclusion, with the site
-  docs' `epic-implement` section. Blocked by vergil-project/.github#1384.
+  docs' `epic-implement` section. No `Blocked-by`; its body states the
+  epic vergil-project/.github#1384 precondition.
 
 ### Bookends
 
@@ -115,10 +115,13 @@ is blocked by.
 
 Notes:
 
-- **Blocked by epic #1384, not by one of its tasks.** The gates this design
-  resets at are the ones a #1384 run still stops at (spec §5), so 2a and 2b
-  carry `Blocked-by: vergil-project/.github#1384`, the epic issue, which
-  closes when its last task does.
+- **The epic #1384 precondition is stated in prose, not as `Blocked-by`.**
+  The gates this design resets at are the ones a #1384 run still stops at
+  (spec §5). `vrg-issue-create` refuses an epic as a `--blocked-by` ref, so
+  2a and 2b carry no `Blocked-by`. Each task body instead states, in prose,
+  that it starts once epic vergil-project/.github#1384 is finished. This is
+  accepted because #1384 is close to done and its changes are already in
+  use, so the tasks may appear on the runnable frontier before it closes.
 - **2a and 2b are independent.** Either alone is harmless: a plan with the
   section is read by an `epic-implement` that ignores it, and an
   `epic-implement` that reads the section falls back to judgment when a plan
@@ -239,7 +242,9 @@ Spec §4.2, §4.3, §2 (non-goals), §6.
     the human decides either way;
   - the session-only list: unrecorded pasted evidence and a non-review or
     follow-up security item's details block it; a merge-review security
-    item's `merge-review/security-<ID>.md` does not;
+    item's `merge-review/security-<ID>.md` does not, and nor do the details
+    of a batching rationale posted only as "security-related" (step 4):
+    they are not needed after a reset;
   - `/clear`, never `/compact`, with the reason (a compacted summary can
     carry stale state into the run);
   - the rule applies to the development path only, not to the `adhoc`
@@ -258,7 +263,8 @@ Spec §4.2, §4.3, §2 (non-goals), §6.
   "Where an adhoc run writes its records" section): the comment
   that already carries the run's items, or a new one. In step 4's batch-stop
   item, change "answer from what you knew when you batched them" to answer
-  from that recorded line (Review Focus 5). In "The `adhoc` mode", step 6
+  from that recorded line (Review Focus 5); after a reset, a line posted as
+  "security-related" is answered as that alone. In "The `adhoc` mode", step 6
   ("Gate and stop"), add that the gate runs without step 4's reset rule;
   in "What the mode does not do", add the reset rule (Review Focus 4).
 - [ ] **Step 5: Update the site docs.** In the `## epic-implement` section
