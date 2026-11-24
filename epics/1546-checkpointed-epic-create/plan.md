@@ -608,3 +608,14 @@ Spec §2 (goals), §5. Blocked by 4b.
   clear is present after it.
 - **SUCCESS:** all five resumes and the skeleton abandon observed and
   linked, and every check holds.
+
+## Evolution during execution
+
+- **2026-11-24: Tasks 3a, 3b and 3c land as three PRs, not one batch.**
+  Task 3a (vergil-project/vergil-claude-plugin#1307) carries the `security`
+  label, and a security-labelled issue is never batched. By the human's
+  ruling, 3a lands alone first, and Tasks 3b and 3c
+  (vergil-project/vergil-claude-plugin#1308 and #1309) follow as their own
+  PRs once it has merged. The batch's goal, that no plugin release carries
+  part of the change, is kept by holding the plugin release (Task 4b,
+  vergil-project/.github#1572) until all three have merged.
