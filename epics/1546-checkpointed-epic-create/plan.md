@@ -619,3 +619,34 @@ Spec §2 (goals), §5. Blocked by 4b.
   PRs once it has merged. The batch's goal, that no plugin release carries
   part of the change, is kept by holding the plugin release (Task 4b,
   vergil-project/.github#1572) until all three have merged.
+- **2026-11-24: The documentation sweep spawned per-repo tasks.** The
+  documentation review (vergil-project/vergil-claude-plugin#1293) filed
+  vergil-project/vergil-tooling#5115 and vergil-project/docs#175. By the
+  human's ruling, a further docs task, vergil-project/docs#177, was filed
+  for two passages the #175 run found outside its scope.
+- **2026-11-24: The validation was narrowed.** By the human's scope change
+  on vergil-project/.github#1573, resumes 3 to 5 (partial filing, adoption
+  after a reset, and skew) were dropped, deferred until they occur in real
+  use. The live run on planning issue vergil-project/.github#1544 exercised
+  every stage with seven resumes, and the throwaway item
+  vergil-project/.github#1587 exercised the skeleton abandon. The epic that
+  run produced, vergil-project/.github#1596, was an experiment and was
+  closed without being built.
+- **2026-11-24: The validation was accepted with one gap.** A "not a
+  security run" answer was lost at a `/clear`. The human accepted the
+  validation, with the fix filed as a follow-up.
+- **2026-11-24: Fixes from live use were folded into the epic.** By the
+  human's ruling, the epic stayed open while `epic-create` was used on
+  further planning runs, and the fixes found were added to it as tasks:
+  vergil-project/vergil-claude-plugin#1341 (record the security-run answer,
+  a "no" included), #1342 (add the plan's `Blocked-by:` refs when keying an
+  existing task), #1343 (key a convention-titled bookend without asking),
+  #1344 (say which parts of the brainstorming skill's ending apply) and
+  #1345 (state the documentation-review bookend's title). #1341 to #1343
+  were first filed on the plugin's ad-hoc epic and moved here. Later
+  findings go to the ad-hoc epics.
+- **2026-11-24: #1343 narrows the spec's keying rule.** Spec §4.8 (about
+  line 417) and Task 3b (about line 510) say the human confirms every match
+  of an unkeyed task. Since vergil-project/vergil-claude-plugin#1343, a
+  bookend whose title matches the convention exactly is keyed without
+  asking and reported; every other match still asks.
