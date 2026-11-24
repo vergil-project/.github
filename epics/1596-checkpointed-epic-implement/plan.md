@@ -83,9 +83,10 @@ states it in the skill; the reviewer checks the text against it.
    the next run checks for a trusted `Recorded: <ID>` line before recording
    again, and records once. Pinned in Task 2, step 3.
 4. **A compacted or resumed run meets a ruling it already carried out.**
-   The re-derivation skips every `Awaiting a ruling` ID with a trusted
-   `Human ruling:` or `Recorded:` line, so no ruling is applied twice and no
-   task dispatched twice. Pinned in Task 3, step 2.
+   The re-derivation skips every `Awaiting a ruling` ID that is ruled (a
+   trusted `Human ruling:` or `Recorded:` line, or for a security item a
+   trusted security counts line covering it), so no ruling is applied twice
+   and no task dispatched twice. Pinned in Task 3, step 2.
 5. **A kept file in a batch member's directory.** `vrg-pr-workflow
    batch-extract` refuses while a `security-*.md` sits in
    `issue-implement/<N>/`; the refusal is loud and says to record first.
@@ -157,6 +158,13 @@ The skill has no test harness. Its check is the review and
     count;
   - names the file in its final report, never the details.
 
+  While a merge-review ruling exchange is open, the item itself is held, as
+  today, and posted under `Awaiting a ruling` after the response. Its file
+  is still written at once, and its `Kept:` line is posted at once in a
+  trusted comment of its own that carries only the item's ID and that line,
+  so the item is durable across the stop; the later `Awaiting a ruling`
+  comment names the same ID.
+
   With the human present, the rule is unchanged. Name the
   `batch-extract` interaction (Review Focus 5): a kept file blocks
   extraction until the item is recorded.
@@ -187,6 +195,20 @@ The skill has no test harness. Its check is the review and
     ruling is recorded, then deleted; `<N>/` deleted once it holds no file
     and no `merge-review/`);
   - §1.5: add an `epic-implement` bullet following the `operational` one;
+  - §1.5's **Only your own files**: a dispatched run accepts a kept file in
+    `issue-implement/<N>/` only when its prompt relays the human's
+    confirmation of that directory's listing (as for `operational/<N>/`)
+    and the file matches a trusted `Kept:` line; otherwise it stops;
+  - §1.5, for the `issue-implement` and `epic-implement` kinds: a run that
+    holds no hash of the directory in its own context (a new session, or
+    after a compaction) validates it as a new session does: it checks each
+    file against its trusted `Kept:` line, stops on any entry with no
+    trusted `Kept:` line, and only then takes a fresh directory hash;
+  - §1.7's numbering: a security ID's `N0.S<i>` continues past every
+    `N0.S<i>` in a trusted `Awaiting a ruling` comment and every kept
+    `security-N0.S<i>.md`, as well as past the existing sources, so no ID
+    is reused;
+  - §1.7: the held item's own `Kept:` comment (Step 1);
   - §1.7's private-store paragraph ("Anywhere else there is no private
     store"): name both new stores, and keep "the details stay in the
     conversation" for a run with the human present only;
@@ -219,10 +241,14 @@ The skill has no test harness. Its check is the review and
   the documentation-review bookend's items, the epic's follow-up comments,
   and the kept files of Task 2 and step 5).
 - [ ] **Step 2: Re-derivation** (spec §4.3). In step 2 ("Reconstruct
-  state"), add the pending non-review items: for each open or reported-ready
-  task of the epic (or of the ad-hoc queue), read its trusted comments with
-  `vrg-issue-read` and collect every `Awaiting a ruling` ID with no trusted
-  `Human ruling:` or `Recorded:` line (Review Focus 4). State when the full
+  state"), add the pending non-review items: for every task of the epic (or
+  of the ad-hoc queue) that carries a trusted `Awaiting a ruling` comment,
+  closed tasks included, as §1.7 lets a rulings run act on a closed task,
+  read its trusted comments with `vrg-issue-read` and collect every
+  `Awaiting a ruling` ID that is not ruled (Review Focus 4). An ID is ruled
+  when a trusted `Human ruling: <ID>` or `Recorded: <ID>` line names it, or,
+  for a security item, when a trusted security counts line covers it, the
+  test merge-review's non-review gate already uses. State when the full
   re-derivation runs: before the first dispatch of each frontier pass, on a
   re-invocation, before presenting a gate, and whenever the run is unsure.
   In step 3, before each dispatch within a pass, keep only the per-task
@@ -235,8 +261,12 @@ The skill has no test harness. Its check is the review and
   listing of the task's `issue-implement/<N>/` (pruning `merge-review/` as
   doctrine §1.5 says); once confirmed, check each file against its trusted
   `Kept:` line and read it to walk the item, in the terminal only (Review
-  Focus 1, 2). The rulings run's prompt names the kept file and carries no
-  security detail. Each item the gate presents names its durable source.
+  Focus 1, 2). Every prompt that dispatches a run of a task with a kept
+  file (the rulings run, a continuation after `waiting: non-review items`,
+  a resume after a merge-review reply) relays the human's confirmation of
+  that listing, as the gate already does for `operational/<N>/`. The
+  rulings run's prompt names the kept file and carries no security
+  detail. Each item the gate presents names its durable source.
   Find every item that reaches the gate only through a final report and
   make it regenerable; the known one is a deployment stopped at `waiting:
   human-run steps`, re-dispatched to produce its precondition results again.
