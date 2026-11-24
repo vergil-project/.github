@@ -76,9 +76,11 @@ present to run one.
 - **A. Guidelines in the skill, plus durable security details** (chosen). The
   `epic-implement` skill states how the run keeps its state durable, behaves
   after a compaction, keeps its context thin and recommends a clear at the
-  gate. The one piece of state that today reaches the orchestrator only in a
-  run's final message (a security item's details) moves to the task's local
-  state directory. The cost is skill text in two skills; no tool changes.
+  gate. The security details that today live only in the orchestrating
+  session (those a run reports in its final message, and those the
+  orchestrator raises itself) move to local state directories. The cost is
+  skill text in two skills and a revision of the paad review doctrine that
+  those skills cite; no tool changes.
 - **B. A `vrg-checkpoint` block for `epic-implement`.** Rejected: the block
   records a fixed, ordered stage list, and the run's frontier is neither fixed
   nor ordered.
@@ -105,12 +107,20 @@ directory
 Most of it already is: task states, the plan, batch markers, merge-review
 directories and ruling requests, non-review items under `Awaiting a ruling`,
 ruling lines, documentation items on the documentation-review bookend, and
-the session's own follow-ups in comments on the epic.
+the session's own non-security follow-ups in comments on the epic. Being on
+GitHub is not enough on its own: the run must also read each record back
+when it re-derives its state (§4.3).
 
-The exception today is a **security item raised by an `issue-implement`
-run** as a non-review item: only its count is posted, and its details reach
-the orchestrator only in the run's final message. §4.2 moves them to the
-state directory. Security items from merge review
+Two exceptions exist today, and both are security items whose details live
+only in the orchestrating session:
+
+- a **security item raised by an `issue-implement` run** as a non-review
+  item: only its count is posted, and its details reach the orchestrator
+  only in the run's final message;
+- a **security follow-up the orchestrator raises itself**: only its count
+  is posted, and its details stay in the conversation.
+
+§4.2 moves both to state directories. Security items from merge review
 (`merge-review/security-<ID>.md`) and from `issue-validate` and
 `issue-deploy` (`operational/<N>/`) already live in state directories; the
 builder confirms this and closes any other gap of the same kind it finds.
@@ -121,33 +131,87 @@ A run dispatched by `epic-implement` that raises a security non-review item:
 
 - writes its details to `security-<i>.md` in the task's state directory,
   `build/.vergil-state/issue-implement/<N>/` in the task repo's main clone,
-  under §1.5's rules for creating and checking it, and records the file's
-  hash;
-- names the file and its hash in its final report, never the details.
+  under §1.5's rules for creating and checking it;
+- posts the file's hash as a `Kept: <file> sha256:<hash>` line in the
+  trusted `Awaiting a ruling` comment that carries the item's count, as the
+  `operational` kind already does;
+- names the file in its final report, never the details.
 
-At the gate, `epic-implement` shows the human the directory's listing, and
-once the human confirms it, checks each file against its hash and reads it to
-walk the item, in the terminal only. The ruling is relayed as today. The file
-is deleted once the item's ruling is recorded; the builder fixes the exact
-point and the naming of `<i>` so that it does not collide with the `record`
-ruling's existing `security-<i>.md` files in the same directory.
+The hash's only source is that `Kept:` line. Neither the final report nor a
+file beside the details file is a source for it.
+
+At the gate, `epic-implement` shows the human the directory's listing. Once
+the human confirms it, the run reads each file's `Kept:` line through
+`vrg-issue-read`, checks the file against it, and reads the file to walk the
+item, in the terminal only. This works the same in the session that
+dispatched the run and in a later one. The ruling is relayed as today. The
+file is deleted once the item's ruling is recorded. If the record fails, the
+file is kept with its `Kept:` line, rather than deleted and handed back in a
+final message. The builder fixes the exact point of deletion and the naming
+of `<i>` so that it does not collide with the `record` ruling's existing
+`security-<i>.md` files in the same directory.
+
+A security follow-up the orchestrator raises itself is kept the same way, in
+a new state-directory kind keyed by the epic:
+`build/.vergil-state/epic-implement/<N>/` in the main clone of the epic's
+home repo, `<N>` the epic's number. It follows the `upstream-report` and
+`operational` rules of doctrine §1.5. Its hash is posted as a `Kept:` line
+in the epic's `Awaiting a ruling` comment that carries the count, and the
+file is deleted once the ruling is recorded.
 
 A run with the human present (not dispatched by `epic-implement`) keeps
 today's behaviour: the details stay in the conversation and are ruled on
 there.
 
+**The doctrine changes with the skills.** The skills take these rules from
+the [paad review doctrine](https://github.com/vergil-project/vergil-claude-plugin/blob/develop/docs/paad-review-doctrine.md),
+which today says that nothing is kept at the `issue-implement/<N>/` level
+and that a failed record's details go back in the run's final message. The
+same change that makes `issue-implement` keep the file revises the doctrine:
+
+- §1.5's `issue-implement` row and bullet: a dispatched run's security
+  details file is kept until its ruling is recorded, with its `Kept:` line;
+- §1.5's table gains the `epic-implement` kind;
+- §1.7's private-store text names both stores;
+- §1.7's recording-failure rule keeps the file instead of deleting it.
+
 ### 4.3 Compaction-safe
 
 After an auto-compaction, the summary is not a source of state. The run
-re-derives its position from step 2 (the epic, `vrg-epic-audit`, the plan)
-and the step 3 re-entry checks (batch markers, merge-review directories,
-ruling replies, the state directories) before it dispatches anything. The
-same holds for a re-invocation after a clear, which the skill already
-supports.
+re-derives its position from the durable record:
 
-The skill does not detect a compaction. The rule is that at every task
-boundary, before a dispatch, the run works from the re-derived state, so it
-is right whether or not a compaction happened.
+- step 2: the epic, `vrg-epic-audit` and the plan;
+- the step 3 re-entry checks: batch markers, merge-review directories,
+  ruling replies and the state directories;
+- the pending non-review items: for each open or reported-ready task of the
+  epic, or of the ad-hoc queue, the run reads the task's trusted comments
+  with `vrg-issue-read` and collects every `Awaiting a ruling` ID that has
+  no trusted `Human ruling:` or `Recorded:` line. The gate presents these
+  from that list, not from runs' final reports.
+
+**When it re-derives.** The full re-derivation runs:
+
+- before the first dispatch of each frontier pass;
+- on a re-invocation, such as after a clear, which the skill already
+  supports;
+- before it presents a gate;
+- whenever the run is unsure of its state.
+
+Before each dispatch within a pass, the run keeps only the cheap per-task
+checks: the task is still open and ready, plus the existing batch, trust and
+merge-review checks. That keeps the cost of re-reading the epic and the plan
+to once per pass (§4.4).
+
+**The gate is built from the record.** Each item the gate presents names its
+durable source. An item that today reaches the gate only through a run's
+final report is regenerated rather than relayed from memory. A deployment
+stopped at `waiting: human-run steps`, for example, is re-dispatched to
+produce its precondition results again. The builder finds every such item
+(§6).
+
+The skill does not detect a compaction. The rule is that the run works from
+the re-derived state at each of these points, so it is right whether or not
+a compaction happened.
 
 ### 4.4 A thin orchestrator
 
@@ -192,10 +256,14 @@ record). It does not share the stage checklist.
 The plan sets the tasks. The expected shape, all in
 `vergil-project/vergil-claude-plugin`:
 
-1. `issue-implement`: security details of a dispatched run's non-review items
-   go to the state directory (§4.2). Not blocked by #1206.
-2. `epic-implement`: the guidelines of §4.1 and §4.3–§4.5, and the gate's
-   reading of the security files (§4.2). Blocked by task 1 and by
+1. `issue-implement` and the doctrine: security details of a dispatched
+   run's non-review items go to the state directory with a `Kept:` line, and
+   the doctrine is revised to match, including the new `epic-implement` kind
+   (§4.2). Not blocked by #1206.
+2. `epic-implement`: the guidelines of §4.1 and §4.3–§4.5, the gate's
+   reading of the security files, and the orchestrator's own security
+   follow-ups in the `epic-implement` state directory (§4.2). Blocked by
+   task 1 and by
    vergil-project/vergil-claude-plugin#1206, since both edit the skill's gate
    and stop sections and the guidelines describe the run as #1206 leaves it.
 3. The bookends: the documentation review, in the plugin repo, and the
@@ -209,4 +277,5 @@ pipeline's checks cover.
 - The exact wording of each guideline and where it sits in the skill.
 - The naming of the security files and when each is deleted (§4.2).
 - Whether any other state reaches the orchestrator only in a run's final
-  message, and its fix (§4.1).
+  message, or lives only in the orchestrating session, and its fix (§4.1,
+  §4.3).
