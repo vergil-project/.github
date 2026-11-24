@@ -75,7 +75,8 @@ Zensical/Markdown docs (vergil-actions).
 | 1 | `.github` | task | Spec and plan (vergil-project/.github#1582) | — |
 | 2 | `vergil-actions` | task | Sweep step passes `VRG_AUTOMATION_APP`; workflow page lists it | — |
 | 2b | `mnemosys-project/.github` (proxy task) | task | Add the org's epic-sweep caller | — |
-| 3 | `vergil-actions` | deployment | Every configured org's sweep enabled and set up; vergil-actions release carries Task 2; a green sweep in every configured org | 2, 2b |
+| 3a | `vergil-actions` | deployment | Every configured org's sweep enabled and its variables and App keys confirmed, before the release | 2, 2b |
+| 3 | `vergil-actions` | deployment | vergil-actions release carries Task 2; a green sweep in every configured org | 3a |
 | 4 | `vergil-tooling` | task | Shared check, `--close` gate, flag retired, `--details` re-anchored, docs, tests | 3 |
 | 5 | `vergil-tooling` | validation | Released tooling's sweep closes as automation in every configured org | 4 |
 | 6 | `vergil-actions` | task | Drop `VRG_EPIC_SWEEP`; rewrite the workflow page's authorization text | 5 |
@@ -83,8 +84,11 @@ Zensical/Markdown docs (vergil-actions).
 | 8 | `vergil-tooling` | task | Documentation review (vergil-project/vergil-tooling#5100) | 7 |
 | 9 | `.github` | retrospective | Retrospective (vergil-project/.github#1583) | all others |
 
-Task 3 is a deployment task: its closure is the signal that the workflow change
-is live in `v2.1`, which Task 4 needs before it merges (spec §5 step 3). No
+Task 3a is a deployment task whose closure is the signal that every configured
+org is ready for the workflow change, so the vergil-actions release waits on it
+(spec §5 step 2). Task 3 is a deployment task: its closure is the signal that
+the workflow change is live in `v2.1`, which Task 4 needs before it merges
+(spec §5 step 3). No
 deployment task is needed for vergil-tooling: the sweep installs the newest
 `v2.1.Z` tag at run time, so the release itself is the deploy, a human
 precondition of Task 5. Task 7 is the deployment task that confirms the epic's
@@ -145,35 +149,30 @@ fixes them.
 
 - Produces: a scheduled and `workflow_dispatch` caller of
   `vergil-project/vergil-actions/.github/workflows/ops-epic-sweep.yml@v2.1`,
-  identical in form to `vergil-project/.github`'s `epic-sweep.yml`: top-level
-  and job `permissions: contents: read`, and `secrets: inherit`, so the
-  reusable workflow's `automation` environment supplies the App keys.
+  in the cross-org form of `logical-minds-foundry/.github`'s `epic-sweep.yml`:
+  top-level and job `permissions: contents: read`, and an explicit `secrets:`
+  map, `APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}` and
+  `APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}`. `secrets: inherit` passes
+  nothing to a reusable workflow in another org, and `ops-epic-sweep.yml`
+  requires both keys.
 
-- [ ] **Step 1: Add the caller,** copied from `vergil-project/.github`'s
-  `.github/workflows/epic-sweep.yml`, with its header comment naming this org.
-  Keep the daily schedule.
+- [ ] **Step 1: Add the caller,** copied from `logical-minds-foundry/.github`'s
+  `.github/workflows/epic-sweep.yml`, keeping its "Passed by name, not
+  inherit: the reusable workflow is in another org" comment. Keep a daily
+  schedule, at a time of its own.
 - [ ] **Step 2: Validate.** Run `vrg-container-run -- vrg-validate` in
   `mnemosys-project/.github`. Expected: pass.
 - [ ] **Step 3: Commit** with `vrg-commit --type ci --scope epic-sweep`. The
   push touches `.github/workflows/**`, so the human's `vrg-submit-pr` pushes
   it, as in Task 2.
 
-The org's existing Epic Rollup caller passes the App keys explicitly rather
-than through the `automation` environment. It is left as it is here. Task 3
-confirms that the environment holds the keys the new caller needs.
-
-### Task 3: Set up every configured org, release vergil-actions and confirm (deployment)
+### Task 3a: Set up every configured org's sweep (deployment)
 
 Filed with `vrg-issue-create --kind deployment --blocked-by <Task 2>
---blocked-by <Task 2b full ref>`.
+--blocked-by <Task 2b full ref>`. The vergil-actions release must wait for it.
 
-- **Preconditions:**
-  - `vrg-release-record check vergil-project/vergil-actions#<Task 2>` exits 0.
-    For exit 4, the cross-check is the whole check:
-    `vrg-git merge-base --is-ancestor <Task 2 merge sha> <v2.1 tag sha>` exits 0.
-  - Human-attested: the `v2.1` tag of vergil-actions includes Task 2. A
-    release is a human step.
-- **Human-run steps (need a human identity), all before the release:**
+- **Preconditions:** Task 2 and Task 2b are merged.
+- **Human-run steps (need a human identity):**
   - Re-enable any configured org's Epic Sweep workflow that is disabled. At
     planning time `mq-rest-admin-project/.github`'s was `disabled_inactivity`
     (no run since 2026-09-01).
@@ -182,16 +181,31 @@ Filed with `vrg-issue-create --kind deployment --blocked-by <Task 2>
     `.github` `automation` environment holds `APP_CLIENT_ID` and
     `APP_PRIVATE_KEY`. Set up whatever is missing. `mnemosys-project` is new
     to the sweep, so check it in full.
-  - The vergil-actions release that moves `v2.1`.
-- **Procedure:**
-  1. List the configured orgs from the trusted-authors configuration
-     (`vrg-trusted-authors`). For each, `vrg-gh workflow list --repo
-     <org>/.github --all` shows Epic Sweep in the `active` state.
-  2. For each configured org, take the first `epic-sweep` run after the
-     release (scheduled, or `workflow_dispatch` by the human). Confirm that
-     its `epic-sweep` and `report` jobs both succeeded.
-- **Acceptance:** every configured org has an active Epic Sweep and a green
-  `epic-sweep` run on the released `v2.1`.
+- **Procedure:** list the configured orgs from the trusted-authors
+  configuration (`vrg-trusted-authors`). For each, `vrg-gh workflow list
+  --repo <org>/.github --all` shows Epic Sweep in the `active` state. The
+  human attests the variables and keys for each org.
+- **Acceptance:** every configured org has an active Epic Sweep, and its
+  variables and keys are attested.
+
+### Task 3: Release vergil-actions and confirm every configured org (deployment)
+
+Filed with `vrg-issue-create --kind deployment --blocked-by <Task 3a>`.
+
+- **Preconditions:**
+  - Task 3a is closed.
+  - `vrg-release-record check vergil-project/vergil-actions#<Task 2>` exits 0.
+    For exit 4, the cross-check is the whole check:
+    `vrg-git merge-base --is-ancestor <Task 2 merge sha> <v2.1 tag sha>` exits 0.
+  - Human-attested: the `v2.1` tag of vergil-actions includes Task 2. A
+    release is a human step, cut only once Task 3a is closed.
+- **Human-run steps (need a human identity):** the vergil-actions release that
+  moves `v2.1`.
+- **Procedure:** for each configured org, take the first `epic-sweep` run
+  after the release (scheduled, or `workflow_dispatch` by the human). Confirm
+  that its `epic-sweep` and `report` jobs both succeeded.
+- **Acceptance:** every configured org has a green `epic-sweep` run on the
+  released `v2.1`.
 
 ### Task 4: The shared agent check and the verified-identity `--close` gate (vergil-tooling)
 
@@ -268,21 +282,29 @@ Filed with `vrg-issue-create --kind deployment --blocked-by <Task 2>
     both logins
   - `test_report_without_close_unaffected_under_actions`:
     `GITHUB_ACTIONS=true` and no `--close`, so rc is 0 as before
-  - `test_close_sweep_setup_refused_without_automation`: the Step 6 sweep
-    setup (`is_human` `False`, `GITHUB_ACTIONS=true`) with `is_automation`
-    patched `False`, so rc is 1 and `close_drift` is not called
+  - `test_close_sweep_setup_refused_without_automation`: `is_human` patched
+    `False` and `GITHUB_ACTIONS=true`, as in the real sweep, with
+    `is_automation` patched `False`, so rc is 1 and `close_drift` is not
+    called
 - [ ] **Step 6: Rewrite the sweep-path tests (spec §4.3).** Every test that sets
   `VRG_EPIC_SWEEP=1` to pass the gate (on develop at planning time:
   `test_close_allowed_for_scheduled_sweep`, `test_close_sweep_also_drains_adhoc`,
   `test_close_runs_trusted_checks` and the tests near lines 1262, 1301, 1324,
-  1403, 1426 and 1497) instead runs as the real sweep does:
-  `patch(f"{_MOD}.identity_mode.is_automation", return_value=True)`,
-  `patch(f"{_MOD}.identity_mode.is_human", return_value=False)` and
-  `GITHUB_ACTIONS=true`. The flag goes. The `is_human=False` patch and
-  `GITHUB_ACTIONS` together leave the automation half as the only way in.
+  1403 and 1426, and the shared helper `_run_close_with_an_outsider_close`
+  near line 1497) instead runs with
+  `patch(f"{_MOD}.identity_mode.is_automation", return_value=True)` and
+  `patch(f"{_MOD}.identity_mode.is_human", return_value=False)`. The flag
+  goes. The `is_human=False` patch shuts the human half, so the automation
+  half is the only way in. Each test keeps its own `GITHUB_ACTIONS` setting:
+  the helper's two callers, `test_close_stop_under_actions_is_counted_only`
+  (which sets it) and `test_close_stop_is_per_item_and_exits_nonzero` (which
+  removes it, to assert the named off-Actions stop line), keep theirs. The
+  full real-sweep combination, `GITHUB_ACTIONS=true` included, lives in
+  `test_close_allowed_for_verified_automation` and
+  `test_close_sweep_setup_refused_without_automation`.
   `test_close_sweep_also_drains_adhoc`, which relies on the fixture's human
-  default today, gains both. None is deleted, and none can pass through the
-  human half. `test_close_refused_for_agent` is not one of them: it stays
+  default today, gains both patches. None is deleted, and none can pass
+  through the human half. `test_close_refused_for_agent` is not one of them: it stays
   a refusal test, keeping `is_human` patched `False`. Only its
   `VRG_EPIC_SWEEP=""` pin goes, and its stderr assertion matches the new
   refusal text (Step 8).
