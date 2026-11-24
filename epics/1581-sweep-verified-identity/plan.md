@@ -73,14 +73,14 @@ Zensical/Markdown docs (vergil-actions).
 | Task | Repo | Kind | What | Blocked by |
 |---|---|---|---|---|
 | 1 | `.github` | task | Spec and plan (vergil-project/.github#1582) | — |
-| 2 | `vergil-actions` | task | Sweep step passes `VRG_AUTOMATION_APP`; workflow page lists it | — |
-| 2b | `mnemosys-project/.github` (proxy task) | task | Add the org's epic-sweep caller | — |
-| 3a | `vergil-actions` | deployment | Every configured org's sweep enabled and its variables and App keys confirmed, before the release | 2, 2b |
-| 3 | `vergil-actions` | deployment | vergil-actions release carries Task 2; a green sweep in every configured org | 3a |
-| 4 | `vergil-tooling` | task | Shared check, `--close` gate, flag retired, `--details` re-anchored, docs, tests | 3 |
-| 5 | `vergil-tooling` | validation | Released tooling's sweep closes as automation in every configured org | 4 |
-| 6 | `vergil-actions` | task | Drop `VRG_EPIC_SWEEP`; rewrite the workflow page's authorization text | 5 |
-| 7 | `vergil-actions` | deployment | vergil-actions release carries Task 6 | 6 |
+| 2 | `vergil-actions` | task | Sweep step passes `VRG_AUTOMATION_APP`; workflow page lists it (vergil-project/vergil-actions#1422) | — |
+| 2b | `mnemosys-project/.github` (proxy task) | task | Add the org's epic-sweep caller (mnemosys-project/.github#131, under proxy mnemosys-project/.github#130) | — |
+| 3a | `vergil-actions` | deployment | Every configured org's sweep enabled and its variables and App keys confirmed, before the release (vergil-project/vergil-actions#1423) | 2, mnemosys-project/.github#131 |
+| 3 | `vergil-actions` | deployment | vergil-actions release carries Task 2; a green sweep in every configured org (vergil-project/vergil-actions#1424) | 3a |
+| 4 | `vergil-tooling` | task | Shared check, `--close` gate, flag retired, `--details` re-anchored, docs, tests (vergil-project/vergil-tooling#5133) | 3 |
+| 5 | `vergil-tooling` | validation | Released tooling's sweep closes as automation in every configured org (vergil-project/vergil-tooling#5134) | 4 |
+| 6 | `vergil-actions` | task | Drop `VRG_EPIC_SWEEP`; rewrite the workflow page's authorization text (vergil-project/vergil-actions#1425) | 5 |
+| 7 | `vergil-actions` | deployment | vergil-actions release carries Task 6 (vergil-project/vergil-actions#1426) | 6 |
 | 8 | `vergil-tooling` | task | Documentation review (vergil-project/vergil-tooling#5100) | 7 |
 | 9 | `.github` | retrospective | Retrospective (vergil-project/.github#1583) | all others |
 
