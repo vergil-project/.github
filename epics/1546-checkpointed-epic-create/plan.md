@@ -645,7 +645,7 @@ Spec §2 (goals), §5. Blocked by 4b.
   #1345 (state the documentation-review bookend's title). #1341 to #1343
   were first filed on the plugin's ad-hoc epic and moved here. Later
   findings go to the ad-hoc epics.
-- **2026-11-24: #1343 narrows the spec's keying rule.** Spec §4.4 (about
+- **2026-11-24: #1343 narrows the spec's keying rule.** Spec §4.8 (about
   line 417) and Task 3b (about line 510) say the human confirms every match
   of an unkeyed task. Since vergil-project/vergil-claude-plugin#1343, a
   bookend whose title matches the convention exactly is keyed without
