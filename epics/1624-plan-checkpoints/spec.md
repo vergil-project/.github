@@ -179,7 +179,11 @@ Approach 1 leaves out the plan; approach 3 is premature.
   as a sweep item is: a security-class reason is posted only as
   "security-related", and its details are kept as a non-review security
   item's details are. A fresh run after a reset answers from that record
-  rather than reconstructing a reason.
+  rather than reconstructing a reason. Those details are the one exception
+  to the session-only rule above: they do not block a reset, and after a
+  reset a line posted as "security-related" is answered as that alone. The
+  human at a batch stop needs the kind of reason, not its details, so losing
+  them in a reset is accepted.
 - **`/clear`, never `/compact`.** A clear gives a clean rebuild from the
   durable record. A compacted summary can carry stale or wrong state into the
   run.
