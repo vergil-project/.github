@@ -42,24 +42,20 @@ Copied from the spec; every task's requirements include them.
 - The user agent may create, turn auto-merge on for, and merge **its own**
   PR (author is its login). On any other PR every action forbidden today
   stays forbidden. It never approves any PR.
-- Protected paths: `.github/workflows/**` and `vergil.toml` in every repo,
-  the registry file itself, plus each repo's registry entries
-  (vergil-actions `actions/**`, vergil-project/docs
-  `docs/site/docs/logbook/**`). Nothing else
-  starts in the core.
-- A protected-change approval or merge-review exemption is a `vrg-ruling`
+- There is no protected core and no protected-change approval (amended
+  2026-11-24, see Evolution during execution). Every path gets merge review
+  like any other.
+- A merge-review exemption is a `vrg-ruling`
   exchange: the request by the agent login, the reply by the human login,
   neither edited or deleted, and the reply the first trusted comment after
   the request. The reply carries exactly one decision line, `approve` or
   `refuse`. Anything else is not approved.
-- An approval covers a protected file by its git blob hash; a deleted file
-  is recorded as `deleted`.
 - The change fingerprint is the SHA-256 of the normalised zero-context diff
   defined in Task 5 (whitespace kept; `@@` and `index` lines dropped;
   binaries by head blob), never `git patch-id`. For one commit of a batch,
   the commit's diff against its parent is used.
-- Every check fails closed: an unreadable registry, sign-off, record or API
-  response refuses. Nothing passes silently.
+- Every check fails closed: an unreadable exemption, override, record or
+  API response refuses. Nothing passes silently.
 - Every comment read goes through the trust layer of epic
   vergil-project/.github#1467 (`lib/trust.py`): the readers are built on
   `trust.read_comment_stream`, through `rulings.comments.read_stream`, with
@@ -84,26 +80,18 @@ Copied from the spec; every task's requirements include them.
 Inputs the spec implies that no single happy-path test covers. Each line's
 test is added to the task named.
 
-1. **A registry file that is malformed, or unreadable at the base or the
-   head** → submit refuses, naming the file and the ref, and never treats it
-   as an empty registry (Task 4:
-   `test_malformed_registry_refuses_not_empty`).
-2. **A protected file renamed or deleted by the PR** → both the old and the
-   new path count as changed; a deletion is covered only by an approval that
-   records `deleted` (Task 4:
-   `test_rename_counts_both_paths_and_delete_needs_deleted_blob`).
-3. **A reply that is edited after posting, posted by the wrong login, or
-   followed by a second human reply** → the edited or wrong-login reply is
-   not approved; the second reply is ignored (Task 6b:
+1. **An exemption reply that is edited after posting, posted by the wrong
+   login, or followed by a second human reply** → the edited or wrong-login
+   reply is not approved; the second reply is ignored (Task 6b:
    `test_past_approval_rejects_edited_and_wrong_login`).
-4. **A rebase over a `develop` edit next to the branch's hunks** → the
+2. **A rebase over a `develop` edit next to the branch's hunks** → the
    fingerprint is unchanged; a conflict resolution that changes the branch's
    own lines changes it (Task 5:
    `test_fingerprint_survives_nearby_develop_edit`).
-5. **A GitHub read failure during the watch's re-check** → auto-merge is
+3. **A GitHub read failure during the watch's re-check** → auto-merge is
    turned off and the PR is reported failed with the read error, never left
    armed (Task 11: `test_recheck_read_failure_disarms`).
-6. **A PR whose task issue cannot be resolved from its body or ready-state**
+4. **A PR whose task issue cannot be resolved from its body or ready-state**
    → the gates refuse, naming the PR, and never pass for lack of an issue
    (Task 8: `test_unresolvable_task_issue_refuses`).
 
@@ -130,9 +118,9 @@ Repos: `T` vergil-tooling, `P` vergil-claude-plugin, `A` vergil-actions, `G`
 | 3e | `repo_init` and the `secrets: inherit` check | T | task | 3a |
 | 3f | Release tooling; apply the environment | T | deploy | 3b, 3e |
 | 3d | Move the secrets | — | deploy | 3f, 3r, 3c |
-| 4 | Protected-path set and match | T | task | — |
+| 4 | Protected-path set and match (removed, #5117) | T | task | — |
 | 5 | Change fingerprint | T | task | — |
-| 6a | Two request kinds and the structured reply | T | task | 4, 5 |
+| 6a | Exemption request kind and the structured reply | T | task | 4, 5 |
 | 6b | Past-exchange verifier and lookup | T | task | 6a |
 | 7 | Merge-review record | T | task | 5 |
 | 7d | Release tooling: record commands | T | deploy | 5, 6a, 6b, 7 |
@@ -147,22 +135,22 @@ Repos: `T` vergil-tooling, `P` vergil-claude-plugin, `A` vergil-actions, `G`
 | 11 | Watch re-check; finalize `--release` refusal | T | task | 8, 15r |
 | 12 | Daily audit: `vrg-agent-audit` | T | task | 8, 15r |
 | 12b | Repo init creates the audit markers | T | task | 12 |
-| 13 | Registries and the audit job (A) | A | task | 4, 12 |
+| 13 | The audit job (A) | A | task | 4, 12 |
 | 13r | Release vergil-actions with 13 (A) | A | deploy | 13 (A) |
 | 13 | The audit job's callers (G and others) | G, each | task | 13r |
-| 17d | Release tooling: the gates | T | deploy | 15r, 4, 8–12, 12b |
+| 17d | Release tooling: the gates | T | deploy | 15r, 8–12, 12b, vergil-project/vergil-tooling#5117 |
 | 12d | Audit live fleet-wide, marker set, green | G | deploy | 17d, 13r, 13 |
 | 18d | Grant the user App `pull_requests: write` | — | deploy | 2d, 12d |
 | 15b | The implementer owns the PR to merge | P | task | 15a, 18d |
 | 15c | Epic and fixture skills submit | P | task | 15b, 15e |
-| 15d | `hoshin` on the protected-change approval | P | task | 15e, 18d |
+| 15d | `hoshin` on the protected-change approval (dropped) | P | task | 15e, 18d |
 | 16a | Consumer CLAUDE.md and permission spec | T | task | 9, 18d |
 | 16b | `.github` CLAUDE.md on the new boundary | G | task | 18d |
-| 21d | Plugin release B and the steering | T, P | deploy | 15b–d, 16a |
-| 13 | Logbook registry (docs) | docs | task | 21d |
+| 21d | Plugin release B and the steering | T, P | deploy | 15b, 15c, 16a, vergil-project/vergil-claude-plugin#1326 |
+| 13 | Logbook registry (docs) (dropped) | docs | task | 21d |
 | 3g | Grant `workflows: write` | — | deploy | 3d, 17d |
 | 19 | Fixture runs (first live agent cycle) | F | fixture | 21d, 3g |
-| 19v | Protected path, exemption and audit on one fixture | F | valid | 19 |
+| 19v | Exemption and audit on one fixture | F | valid | 19 |
 | R1 | Documentation review (#4751) | T | docs | 19v, 16b |
 | R2 | Retrospective (#1386) | G | retro | R1 |
 
@@ -493,46 +481,11 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
 
 ## Task 4: Protected-path set and match
 
-**Files:**
-
-- Create: `src/vergil_tooling/lib/protected_paths.py`
-- Test: `tests/vergil_tooling/test_protected_paths.py`
-
-**Interfaces:**
-
-- Produces:
-  - `FLEET_DEFAULT: tuple[str, ...] = (".github/workflows/**",
-    "vergil.toml", "protected-paths.toml")`;
-  - `load_registry(repo: Path, ref: str) -> tuple[str, ...]`, which reads
-    `protected-paths.toml` (`paths = [<glob>, …]`) at that ref; an absent
-    file is `()`, and a malformed or unreadable one raises
-    `ProtectedPathsError`;
-  - `protected_set(repo: Path, ref: str) -> tuple[str, ...]`;
-  - `@dataclass(frozen=True) class ProtectedChange: path: str; blob: str`
-    (`"deleted"` for a deletion);
-  - `changed_protected(repo: Path, base: str, head: str, registry_ref: str)
-    -> list[ProtectedChange]`, which matches the files `git diff
-    --name-status -M <base>...<head>` reports against `protected_set` at
-    `registry_ref`: the freshly fetched `origin/develop` at submit and in the
-    watch, and the merge commit's first parent in the audit. The PR's own
-    registry is never read.
-
-- [ ] **Step 1: Write the failing tests:**
-  - `test_workflow_and_vergil_toml_are_protected_by_default`;
-  - `test_registry_is_read_from_develop_not_the_pr`: the head's registry
-    drops a path, the change to that path is still protected, and so is the
-    registry;
-  - `test_entry_added_on_develop_after_fork_applies`;
-  - `test_rename_counts_both_paths_and_delete_needs_deleted_blob`;
-  - `test_malformed_registry_refuses_not_empty`;
-  - `test_ordinary_file_is_not_protected`.
-- [ ] **Step 2:** `vrg-container-run -- pytest
-  tests/vergil_tooling/test_protected_paths.py` → FAIL.
-- [ ] **Step 3: Implement** with `fnmatch`-style globs where `**` crosses
-  directories. Blobs come from `git ls-tree <head> -- <path>`.
-- [ ] **Step 4:** Run → PASS. Then `vrg-container-run -- vrg-validate`.
-- [ ] **Step 5: Commit** `feat(protected-paths): the protected core and its
-  match`.
+Removed. vergil-project/vergil-tooling#4775 shipped `lib/protected_paths.py`
+(the fleet default, the per-repo registry and `changed_protected`).
+By the human's ruling of 2026-11-24 there is no protected core, and
+vergil-project/vergil-tooling#5117 removes the module and its tests (see
+Evolution during execution).
 
 ## Task 5: Change fingerprint
 
@@ -572,60 +525,58 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
 - [ ] **Step 3: Commit** `feat(fingerprint): a rebase-stable change
   fingerprint`.
 
-## Task 6a: Two request kinds and the structured reply
+## Task 6a: Exemption request kind and the structured reply
+
+> **Amended 2026-11-24.** Shipped by vergil-project/vergil-tooling#4777
+> with a second kind, `protected-change`, which
+> vergil-project/vergil-tooling#5117 removes by the human's ruling (see
+> Evolution during execution). The text below keeps only the exemption.
 
 **Files:**
 
 - Create: `src/vergil_tooling/lib/rulings/approvals.py`
 - Modify:
   - `src/vergil_tooling/lib/rulings/marker.py`: a new `type` attribute on
-    the request marker, `protected-change` or `merge-review-exemption`
-    (`<!-- vrg-ruling kind=request type=protected-change -->`). The existing
-    `kind=request|response` discriminator is unchanged, and existing
+    the request marker, `merge-review-exemption`
+    (`<!-- vrg-ruling kind=request type=merge-review-exemption -->`). The
+    existing `kind=request|response` discriminator is unchanged, and existing
     requests carry no `type`. Planning item vergil-project/.github#892
     (authenticate every ruling) extends the same channel: read its current
     state first, and if it has a design, keep `type` from clashing with it
     and say so in the PR body;
   - `src/vergil_tooling/bin/vrg_ruling_reply.py`: refuse to post a reply
-    to either kind without exactly one line `Decision: approve` or
+    to the exemption kind without exactly one line `Decision: approve` or
     `Decision: refuse`.
 - Test: `tests/vergil_tooling/test_rulings_approvals.py`,
   `tests/vergil_tooling/test_vrg_ruling_reply.py`
 
 **Interfaces:**
 
-- Consumes: `changed_protected` and `ProtectedChange` (Task 4), and
-  `change_fingerprint` (Task 5).
+- Consumes: `change_fingerprint` (Task 5).
 - Produces:
-  - `RequestKind = Literal["protected-change", "merge-review-exemption"]`;
-  - `render_protected_change_request(changes: list[ProtectedChange],
-    diff_url: str) -> str`;
+  - `RequestKind = Literal["merge-review-exemption"]`;
   - `render_exemption_request(reason: str, fingerprint: str) -> str`;
   - `parse_decision(body: str) -> Literal["approve", "refuse"]`, which raises
     `RulingError` on zero or several decision lines or on any other word;
-  - CLI `vrg-ruling request --kind protected-change --issue <ref>` and
-    `vrg-ruling request --kind merge-review-exemption --issue <ref> --reason
-    <text>`. Each computes its own inputs from the worktree's `HEAD` and
-    merge base: the first gets the changed protected files, their blobs and
-    the diff link from `changed_protected`, and the second gets the change
-    fingerprint. Neither accepts a blob or fingerprint argument. Each posts
-    the request as the agent and prints the exact `vrg-ruling-reply` command
-    for the human;
+  - CLI `vrg-ruling request --kind merge-review-exemption --issue <ref>
+    --reason <text>`. It computes the change fingerprint itself from the
+    worktree's `HEAD` and merge base and accepts no fingerprint argument.
+    It posts the request as the agent and prints the exact
+    `vrg-ruling-reply` command for the human;
   - **the turn is closed as for every ruling:** once the human's reply is
     verified, the agent runs `vrg-ruling respond` before any other comment,
-    so the issue is free for its next ruling. The skills that raise these
-    requests (Tasks 15a, 15d) say so.
+    so the issue is free for its next ruling. The skill that raises the
+    request (Task 15a) says so.
 
 - [ ] **Step 1: Write the failing tests:**
-  - `test_protected_change_request_lists_each_path_and_blob`;
   - `test_parse_decision_accepts_only_one_exact_line`, covering `approve`,
     `refuse`, `Approve`, two lines, and none;
   - `test_ruling_reply_refuses_missing_decision_for_new_kinds`;
-  - `test_request_cli_computes_changes_and_fingerprint`: neither kind takes
-    a blob or fingerprint argument;
+  - `test_request_cli_computes_changes_and_fingerprint`: the kind takes no
+    fingerprint argument;
   - `test_existing_requests_unchanged`: old-form markers still parse as
     requests;
-  - `test_second_request_accepted_after_response`: an approval exchange
+  - `test_second_request_accepted_after_response`: an exemption exchange
     closed by `respond` leaves the issue open for a later ruling.
 - [ ] **Step 2:** Run → FAIL. Implement. Run → PASS. Then `vrg-container-run
   -- vrg-validate`.
@@ -722,6 +673,11 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
 
 ## Task 8: Shared gate evaluator
 
+> **Amended 2026-11-24.** The protected-files rule that
+> vergil-project/vergil-tooling#4780 shipped is removed by
+> vergil-project/vergil-tooling#5117 (see Evolution during execution);
+> `evaluate` checks merge-review coverage only.
+
 **Files:**
 
 - Create: `src/vergil_tooling/lib/agent_gates.py`
@@ -729,7 +685,7 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
 
 **Interfaces:**
 
-- Consumes: Tasks 4, 5, 6b and 7.
+- Consumes: Tasks 5, 6b and 7.
 - Produces:
   - `@dataclass(frozen=True) class GateResult: ok: bool; reasons:
     tuple[str, ...]`;
@@ -738,11 +694,7 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
     -> GateResult`. `authors` is the trusted-authors configuration from
     `load_trusted_authors()`: the local copy on the host and in VMs, the
     delivered `VRG_TRUSTED_AUTHORS` copy in Actions. Every shared reader
-    takes it the same way. It applies two rules:
-    - **protected files:** each `ProtectedChange`'s `(path, blob)` pair
-      must appear in an approved `protected-change` approval on any of
-      `issue_refs`; a blob approved for one path never covers another, and
-      `deleted` is per path;
+    takes it the same way. It applies one rule:
     - **merge review:** a single-issue PR needs a record, an approved
       exemption, or a human override, whose fingerprint equals
       `change_fingerprint(base, head)`.
@@ -758,24 +710,20 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
       by `commit_fingerprint`. A whole-PR record for `base..head` covers a
       fix pushed to an open batch.
   - Any lookup failure gives `ok=False` with the error as the reason.
-  - `agent_involved(...) -> bool`, the one shared test of whether the two
-    rules apply. At submit, where no PR exists yet, it is true when the
+  - `agent_involved(...) -> bool`, the one shared test of whether the
+    rule applies. At submit, where no PR exists yet, it is true when the
     ready-state was recorded by an agent identity; nothing else is consulted
     there. For an
     open or merged PR (watch and audit), it is true when an agent login
     opened it or GitHub attributes any action on it to one. A PR that is
-    not agent-involved passes both rules; the actor check (Task 12) still
+    not agent-involved passes the rule; the actor check (Task 12) still
     applies to it.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_not_eligible_record_passes`;
   - `test_missing_or_stale_record_fails`;
   - `test_batch_needs_each_issues_own_commit_record`;
-  - `test_exemption_stands_in_for_record_but_not_for_approval`;
-  - `test_approval_for_other_path_does_not_cover`;
-  - `test_deleted_approval_is_per_path`;
-  - `test_batch_approval_on_any_issue_covers`;
-  - `test_edit_after_approval_voids_it`;
+  - `test_exemption_stands_in_for_record`;
   - `test_overrides_read_failure_raises`;
   - `test_override_by_non_human_role_ignored`;
   - `test_unresolvable_task_issue_refuses`.
@@ -785,6 +733,11 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
   merge-review coverage`.
 
 ## Task 9: Submit: agents allowed, gates before push
+
+> **Amended 2026-11-24.** Submit's approval gate, shipped by
+> vergil-project/vergil-tooling#4785, is removed by
+> vergil-project/vergil-tooling#5117 (see Evolution during execution); the
+> merge-review gate stays.
 
 **Files:**
 
@@ -817,15 +770,13 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
   - `test_relay_mode_gates_fetch_branch`, run as the human;
   - `test_gate_failure_leaves_no_pr_and_pushes_nothing`: the stubbed `gh
     pr create` and push are never called;
-  - `test_rerun_after_approval_submits`;
   - `test_human_submit_of_agent_pr_runs_gates`;
   - `test_human_only_pr_skips_both_gates`: a PR with no agent identity in
-    its ready-state or its history needs neither an approval nor a record;
+    its ready-state or its history needs no record;
   - `test_human_override_posts_comment_and_submits`: the human-only flag
     `--override-merge-review "<reason>"` posts, from the human login, the
     Task 8 override line for the change's fingerprint on the task issue. It
-    then submits; the override covers only the merge-review check, never the
-    protected-change check;
+    then submits;
   - `test_agent_cannot_use_override`;
   - `test_vrg_gh_agent_denial_names_submit`.
 - [ ] **Step 2:** Run → FAIL. Implement. Run → PASS. Then `vrg-container-run
@@ -862,6 +813,11 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
 
 ## Task 11: Watch re-check; finalize refuses `--release` for agents
 
+> **Amended 2026-11-24.** The watch's approval re-check, shipped by
+> vergil-project/vergil-tooling#4786, is removed by
+> vergil-project/vergil-tooling#5117 (see Evolution during execution); the
+> watch re-checks provenance and merge-review coverage.
+
 **Files:**
 
 - Modify: `src/vergil_tooling/lib/finalize_watch.py`:
@@ -884,7 +840,6 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
   agent VM shares a clone with the host over a mount, since the checkout
   lock is per clone. If one does, stop and ask the human.
 - [ ] **Step 2: Write the failing tests:**
-  - `test_new_head_touching_workflow_without_approval_disarms`;
   - `test_clean_rebase_keeps_auto_merge`;
   - `test_recheck_read_failure_disarms`;
   - `test_recheck_fetches_unseen_head`;
@@ -897,6 +852,12 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
   head`.
 
 ## Task 12: Daily audit: `vrg-agent-audit`
+
+> **Amended 2026-11-24.** The approval check and the
+> `merge-changed-approved-file` condition, shipped by
+> vergil-project/vergil-tooling#4787, are removed by
+> vergil-project/vergil-tooling#5117 (see Evolution during execution); the
+> merge-review, actor and `main` checks stay.
 
 **Files:**
 
@@ -930,21 +891,17 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
   - It exits 0 when clean, 1 on any finding or read failure, and 2 on a
     usage error.
 - Checks, per merge since each branch's marker:
-  1. protected files covered by approval (agent-involved PRs only; the
-     human's own and the automation App's own PRs are exempt);
-  2. a merge-review record, exemption or human override covering the merged
+  1. a merge-review record, exemption or human override covering the merged
      head's change
      (agent-involved PRs only: opened by an agent login, or with any
-     action attributed to one);
-  3. the merge or auto-merge actor is in the expected set, judged by
+     action attributed to one; the human's own and the automation App's
+     own PRs are exempt);
+  2. the merge or auto-merge actor is in the expected set, judged by
      `classify` with account types: the human, the user agent, or the
      automation App, in its own org, on PRs it authored. An `UNTRUSTED`
      actor is always reported;
-  4. any merge into `main` by anyone but the human, or the automation App
+  3. any merge into `main` by anyone but the human, or the automation App
      where Task 2 found it merges releases.
-
-  A merged blob that differs from the head blob is reported as a separate
-  `merge-changed-approved-file` condition.
 
   The audit is a security-signal job (spec §4.8): it files no issue and
   posts nothing. Its findings are its exit status and its run log, which
@@ -955,8 +912,7 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
   any is reliable. State the answer in the PR body.
 - **Reading a merged PR.** Merged branches are deleted
   (`delete_branch_on_merge`), so the audit fetches `refs/pull/<n>/head` for
-  the head and uses the merge commit's first parent as `base`, and as the
-  registry ref (Task 4).
+  the head and uses the merge commit's first parent as `base`.
 - [ ] **Step 2: Write the failing tests:**
   - `test_init_sets_marker_and_audits_nothing`;
   - `test_missing_marker_is_a_finding`: a scheduled run with no marker
@@ -968,7 +924,6 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
   - `test_automation_only_pr_skips_record_check`;
   - `test_unexpected_actor_reported`;
   - `test_main_merge_by_agent_reported`;
-  - `test_squash_changed_approved_file_is_its_own_condition`;
   - `test_read_failure_exits_1`;
   - `test_merged_squash_pr_read_from_pull_ref`;
   - `test_merged_rebase_batch_read_from_pull_ref`.
@@ -1003,13 +958,13 @@ further step.
   -- vrg-validate`.
 - [ ] **Step 3: Commit** `feat(repo-init): create the agent audit markers`.
 
-## Task 13: Registries and the audit job
+## Task 13: The audit job
 
-- **vergil-actions:** `protected-paths.toml` with `paths = ["actions/**"]`.
-- **vergil-project/docs:** `protected-paths.toml` with `paths =
-  ["docs/site/docs/logbook/**"]`, filed as 13 (docs). It merges only after
-  Task 21d, so the logbook becomes protected only once `hoshin` can request
-  the approval.
+> **Amended 2026-11-24.** The protected-path registries are dropped by the
+> human's ruling (see Evolution during execution):
+> vergil-project/vergil-actions#1341 is narrowed to the audit workflow, and
+> 13 (docs), vergil-project/docs#145, is closed.
+
 - **vergil-actions, the audit workflow:** a reusable workflow,
   `ops-agent-audit.yml`, that runs `vrg-agent-audit` for its calling repo as
   the automation App, in the `automation` environment. It passes the org
@@ -1024,10 +979,9 @@ further step.
   same caller update as Task 3c, or by the fleet sync where it manages
   `ops.yml`. Callers merge only after Task 13r has released
   `ops-agent-audit.yml`, since they pin the released ref.
-- Each is a separate PR in its own repo: 13 (A), 13 (docs) and 13 (G), plus
-  one per further caller. Each runs `vrg-container-run -- vrg-validate` and
-  commits `feat: protected-path registry` / `feat(ops): the daily agent
-  audit`.
+- Each is a separate PR in its own repo: 13 (A) and 13 (G), plus one per
+  further caller. Each runs `vrg-container-run -- vrg-validate` and commits
+  `feat(ops): the daily agent audit`.
 - **The released-version check (spec §4.4)**, done in 13 (G) and recorded in
   its PR body:
   - confirm that consumer repos, the agent VMs and the audit job run
@@ -1146,16 +1100,11 @@ names the handoff.
 
 ## Task 15d: `hoshin` on the protected-change approval
 
-- The logbook PR already gets merge review (Task 15e).
-- After the human approves the full text in the session, hoshin runs
-  `vrg-ruling request --kind protected-change` for the
-  `docs/site/docs/logbook/**` files in vergil-project/docs that Task 13
-  (docs) protects. It hands the human the printed `vrg-ruling-reply`
-  command, since only the human's own shell can post the reply, and waits
-  for the reply. It then runs `vrg-ruling respond` and submits.
-- Drop "the human submitting the PR is the review's sign-off".
-- **Check:** plugin tests pass. Commit `feat(hoshin): the logbook sign-off is
-  a protected-change approval`.
+Dropped by the human's ruling of 2026-11-24: with no protected core there
+is no approval for the logbook sign-off to become, and
+vergil-project/vergil-claude-plugin#1205 is closed (see Evolution during
+execution). vergil-project/vergil-claude-plugin#1326 removes the approval
+wording from `hoshin` and the other skills.
 
 ## Task 16a: Consumer CLAUDE.md template and the permission-model spec
 
@@ -1236,7 +1185,9 @@ runs no install by hand. After a plugin release, the session still needs
 ## Task 17d (deployment): Release vergil-tooling with the gates
 
 - **Preconditions:** Task 15r done, so merge review already writes records;
-  Tasks 4, 8, 9, 10, 11, 12 and 12b released (the record check above).
+  Tasks 8, 9, 10, 11, 12 and 12b, and the approval removal
+  vergil-project/vergil-tooling#5117, released (the record check above).
+  Task 4 is removed (see Evolution during execution).
 - **Procedure:** the next vergil-tooling release; its record's Install line
   reads `ran`.
 - **Acceptance:**
@@ -1248,8 +1199,10 @@ runs no install by hand. After a plugin release, the session still needs
 
 ## Task 21d (deployment): Plugin release B and the steering
 
-- **Preconditions:** Task 18d done; Tasks 15b, 15c, 15d and 16a released
-  (the record check above).
+- **Preconditions:** Task 18d done; Tasks 15b, 15c and 16a, and the
+  approval removal vergil-project/vergil-claude-plugin#1326, released (the
+  record check above). Task 15d is dropped (see Evolution during
+  execution).
 - **Procedure:** release the plugin and vergil-tooling (for 16a's
   template); each record's Install line reads `ran`.
 - **Acceptance:** an `issue-implement` run on a fixture task submits its PR
@@ -1313,16 +1266,15 @@ These are the first live agent cycles (spec §5 step 5). The agent submits
 each run's change PR and carries it to merge. The release stays the
 human's.
 
-## Task 19v (validation): Protected path, exemption and audit on one fixture
+## Task 19v (validation): Exemption and audit on one fixture
 
 - **Preconditions:** Task 19's runs closed on `vergil-fixture-python-lib`.
 - **Procedure:**
-  1. An agent PR editing a workflow is refused, then approved, then merges.
-  2. An agent PR with the human's merge-review exemption merges.
-  3. An **agent-opened** PR that edits a workflow file is merged by the
-     human through the API with no approval, deliberately bypassing submit.
+  1. An agent PR with the human's merge-review exemption merges.
+  2. An **agent-opened** PR with no merge-review record or exemption is
+     merged by the human through the API, deliberately bypassing submit.
      (A human-only PR would be exempt, so it would prove nothing.)
-- **Acceptance:** cases 1 and 2 merge; the next audit run reports case 3 by
+- **Acceptance:** case 1 merges; the next audit run reports case 2 by
   name, and nothing else.
 
 ## Bookends
@@ -1433,3 +1385,54 @@ human's.
   itself, so 15d's own `vrg-ruling request --kind protected-change` step
   must not ask the human a second time. The Task 15e run
   (vergil-project/vergil-claude-plugin#1202) found this.
+- **2026-11-24: the protected core's approval is removed.** By the human's
+  ruling N0.12 on the epic, there is no protected-path set, no
+  protected-change approval and no registry. The epic moves the trust bar
+  to the agents: workflow and `vergil.toml` changes are worked out in specs
+  and plans, and merge review judges each one, so a human approval on every
+  such change would be a rubber stamp, the very approval without looking
+  that the spec (§1.1) argues protects nothing. Merge review on every PR,
+  the human-approved merge-review exemption and the human's
+  `--override-merge-review` stay. The spec is amended in place
+  (vergil-project/.github#1588).
+  - **Removal tasks.** vergil-project/vergil-tooling#5117 removes the
+    approval from the gates, the audit and the rulings; no vergil-tooling
+    release ships until it merges. vergil-project/vergil-claude-plugin#1326
+    removes it from `merge-review` and the skills Tasks 15a and 15e touched,
+    for the next plugin release.
+  - **Tasks that change.** Task 4 is removed. Tasks 6a (its
+    `protected-change` kind), 8, 9, 11 and 12 lose their approval parts,
+    each pointing to vergil-project/vergil-tooling#5117. Task 13 keeps the
+    audit workflow and its callers and drops the registries:
+    vergil-project/vergil-actions#1341 is narrowed, and 13 (docs),
+    vergil-project/docs#145, is closed. Task 15d,
+    vergil-project/vergil-claude-plugin#1205, is dropped, so Task 21d no
+    longer waits for it. Task 19v, vergil-project/vergil-fixture-python-lib#39,
+    validates the exemption and the audit only. The global constraints and
+    the review focus list drop the approval; those sections and the task
+    text above were edited for it. Task 17d's preconditions now wait for
+    vergil-project/vergil-tooling#5117 in place of Task 4, and Task 21d's
+    for vergil-project/vergil-claude-plugin#1326 in place of Task 15d, in
+    their sections and in the delivery table.
+  - **Text left as written, superseded by this entry.** The Goal and
+    Architecture paragraphs, Task 3g's acceptance, Task 6b's `blobs` field,
+    Task 7d's `--kind protected-change` acceptance, Task 15a's protected
+    change step, Task 15c's stop on an approval, and the protected-path
+    line of the rule text in Task 16a (and so Task 16b) all still name the
+    approval. None of it applies any more.
+  - **`secrets: inherit` across orgs.** The spec's §4.2 is also corrected:
+    `inherit` carries the App keys, environment secrets included, only
+    within one org, and the callers in logical-minds-foundry and
+    mnemosys-project pass them by name (rulings N0.6 to N0.8). Whether a
+    by-name map delivers a secret that exists only in the environment
+    waits on the probe recorded on vergil-project/vergil-tooling#5108
+    (rulings N0.9 and N0.10). Task 3c's rationale above states the old
+    premise and is superseded the same way.
+  - **Two earlier findings under the hostile-agent anti-goal.** Task 9's
+    merge-review finding R1 (vergil-project/vergil-tooling#4785) was fixed
+    by running the gates on every submit. That fix goes beyond the spec's
+    anti-goal of defending against a deliberately hostile agent, and the
+    human kept it. vergil-project/vergil-vm#453 (ruling N0.11) was closed
+    as not planned under the same anti-goal; its record, tracked by
+    vergil-project/.github#1586, stays as an accepted property of the VM
+    design.
