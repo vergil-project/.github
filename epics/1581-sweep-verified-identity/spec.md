@@ -15,10 +15,9 @@
 
 `vrg-epic-audit --close` writes across a whole org: it closes drifted tasks
 and epics, drains archives and links orphans. Its gate allows two callers: a
-human, and the scheduled reconciliation sweep (`ops-epic-sweep`). Today both
-are recognised from environment signals. The sweep is recognised by a
-dedicated flag that the workflow sets by hand, `VRG_EPIC_SWEEP=1`, and the
-human by the first-signal resolver, `identity_mode.is_human()`.
+human, and the scheduled reconciliation sweep (`ops-epic-sweep`). Today its
+inputs are the first-signal resolver, `identity_mode.is_human()`, and a
+dedicated flag that the sweep workflow sets by hand, `VRG_EPIC_SWEEP=1`.
 
 The sweep already runs with the org automation App's installation token, and
 vergil-tooling can already prove that: `identity_mode.resolve()` returns
@@ -36,8 +35,10 @@ unattended lifecycle work.
 ## 2. Goals
 
 1. The sweep's `--close` is authorized by the verified automation identity,
-   not by a flag.
-2. The gate's human half refuses whenever any agent signal is present.
+   not by a flag, and that identity is the only way any GitHub Actions job
+   passes the gate.
+2. The gate's human half refuses whenever any agent signal is present, and
+   whenever it runs under GitHub Actions.
 3. `VRG_EPIC_SWEEP` is retired: no code reads it and no workflow sets it.
 4. The one other reader of the flag, the `vrg-security-record list --details`
    refusal, keeps refusing in CI after the flag is gone.
@@ -80,31 +81,52 @@ def agent_indicated() -> bool:
 It is the fail-closed check the release and promote commands already write
 out inline (`bin/vrg_release.py`, `bin/vrg_promote.py`, `bin/vrg_vm.py`,
 `bin/vrg_host.py`, `lib/promote.py`), named once. A human-only command refuses
-when it is true. Its answer is false for `automation` and for `human` with no
-agent signal; true for `user` or `audit`, and for any mode while the mode file,
-`app.pem` or `VRG_APP_ID` indicates an agent.
+when it is true.
 
-The predicate stays correct under any later change to `resolve()`: if #593
-makes `resolve()` itself refuse to let a mode signal outrank a provisioned
-agent signal, the `any_agent_signal()` half becomes redundant, never wrong.
+- **With `VRG_AUTOMATION_APP` unset,** it makes no network call. It is false
+  for `human` with no agent signal, and true for `user` or `audit` and
+  whenever the mode file, `app.pem` or `VRG_APP_ID` indicates an agent.
+- **With `VRG_AUTOMATION_APP` set,** `is_agent()` runs `resolve()`, which
+  verifies the token. A verified token with no agent signal gives false. A
+  failed verification, or a verified token alongside an agent signal, raises
+  `AutomationIdentityError` (`ContradictoryIdentityError` for the latter)
+  rather than returning true. That raise is part of its contract: a caller
+  exits 1 with the error, never treating it as a refusal or a pass.
+
+`any_agent_signal()` carries the decision. The `is_agent()` half is redundant
+today (it is true only when an agent signal is present) and is kept so the
+predicate matches the inline copies #593 replaces. It stays correct under any
+later change to `resolve()`.
 
 This epic uses it in one place (§4.2). The five inline copies stay as they are;
 moving them is #593's.
 
 Tests: one per signal combination that matters, at least each agent signal
 alone, each agent signal alongside a `human` mode signal, `automation`
-verified with no agent signal, and no signal at all.
+verified with no agent signal, `VRG_AUTOMATION_APP` set with a failed
+verification and with an agent signal present (each raising), and no signal
+at all.
 
 ### 4.2 The `--close` gate
 
 `--close` is allowed when either holds:
 
 - **the verified automation identity:** `identity_mode.is_automation()`; or
-- **a human with no agent indicated:** `identity_mode.is_human()` and not
-  `identity_mode.agent_indicated()`.
+- **a human, outside GitHub Actions, with no agent indicated:**
+  `identity_mode.is_human()`, not `identity_mode.agent_indicated()`, and
+  `GITHUB_ACTIONS` is not `true`.
 
 Anything else is refused, before any network work beyond the identity check,
 with a message that names both allowed callers.
+
+The human half refuses under GitHub Actions so that the verified automation
+identity is the only way a workflow job passes the gate. Like §4.4, this rests
+on an ambient signal only to add a refusal, never to grant anything. The only
+workflow that runs `--close` is the sweep (`ops-epic-sweep.yml`).
+
+Tests cover each allowed caller and each refusal, including a job under GitHub
+Actions with no identity signal, which is refused unless verified as
+`automation`.
 
 `is_automation()` makes a network call only when `VRG_AUTOMATION_APP` is set.
 With it set, a failed verification (the token is not that App's, or its
@@ -121,10 +143,13 @@ The read-only report and the `--epic` and `--untrusted` modes are unchanged.
 - `.github/workflows/ops-epic-sweep.yml` (vergil-actions): the reconcile step
   sets `VRG_AUTOMATION_APP: ${{ vars.VRG_AUTOMATION_APP }}`, as the report job
   already does, and later drops `VRG_EPIC_SWEEP` (§5).
-- The docs that name the flag: `docs/site/docs/reference/cli-tools-overview.md`,
+- The docs that name the flag: in vergil-tooling,
+  `docs/site/docs/reference/cli-tools-overview.md`,
   `docs/site/docs/reference/dev/security-record.md` and
-  `docs/site/docs/standards/github-issues.md`. Past release notes stay as
-  written.
+  `docs/site/docs/standards/github-issues.md`; in vergil-actions,
+  `docs/site/docs/workflows/ops-epic-sweep.md`, whose step environment and
+  authorization paragraph name it (§5 says when each changes). Past release
+  notes stay as written.
 
 ### 4.4 The `--details` refusal
 
@@ -172,20 +197,24 @@ The sweep installs vergil-tooling from its caller's `v2.1` line pin at run
 time, and runs `ops-epic-sweep.yml` from the `v2.1` tag of vergil-actions. So
 each change reaches the sweep through a release, and releases are human steps.
 
-1. **vergil-actions:** the reconcile step also sets `VRG_AUTOMATION_APP`. With
-   the released tooling this is harmless: it resolves `automation`, and the
-   flag still authorizes `--close`.
+1. **vergil-actions:** the reconcile step also sets `VRG_AUTOMATION_APP`, and
+   `docs/site/docs/workflows/ops-epic-sweep.md` lists it in the step's
+   environment. With the released tooling this is harmless: it resolves
+   `automation`, and the flag still authorizes `--close`.
 2. **vergil-actions release** moves `v2.1`; a sweep run after it succeeds
    with `VRG_AUTOMATION_APP` set.
 3. **vergil-tooling:** §4.1 to §4.4, merged only after step 2.
 4. **vergil-tooling release** on the `v2.1` line.
 5. **Validation:** a sweep run on the released tooling completes `--close` as
    the verified automation identity.
-6. **vergil-actions:** drop `VRG_EPIC_SWEEP` from the reconcile step; the next
-   vergil-actions release carries it.
+6. **vergil-actions:** drop `VRG_EPIC_SWEEP` from the reconcile step, and in
+   the same change rewrite `ops-epic-sweep.md`'s step environment and its
+   authorization paragraph to describe the verified automation identity; the
+   next vergil-actions release carries it.
 
-The reverse order breaks the sweep: a tooling release without the flag, run by
-a workflow that does not yet set `VRG_AUTOMATION_APP`, refuses `--close`.
+The reverse order breaks the sweep: a tooling release that reaches a workflow
+which does not yet set `VRG_AUTOMATION_APP` refuses `--close`, because the
+gate's human half refuses under GitHub Actions (§4.2).
 
 ## 6. Verification
 
