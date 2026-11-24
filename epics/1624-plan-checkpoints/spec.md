@@ -52,7 +52,8 @@ it is the natural place to reset.
   already cleared and re-invoked by hand as a matter of routine, so the reset
   rule applies only to the development path. Where the adhoc mode reuses the
   development path's gate step, the rule is stated so that it does not reach
-  adhoc runs.
+  adhoc runs. The one exception is the batching rationale (§4.2), a dispatch
+  rule that applies in both modes.
 
 ### Anti-goals
 
@@ -136,6 +137,12 @@ Approach 1 leaves out the plan; approach 3 is premature.
   /vergil:epic-implement <epic-ref>
   ```
 
+  An item the human declines or defers (a deployment step not run, a
+  ruling put off) is not completed: it blocks the reset at that gate and at
+  every later gate until it is ruled or run. A named reset point is then
+  skipped, and the agent says at the gate that the reset is skipped and
+  which item holds it, so the human knows resets have lapsed.
+
   Where every item at the gate leaves its own durable record and needs
   nothing pasted back (a release recorded by `vrg-release`, say), nothing
   at the gate is held only in the session, and no run the session dispatched
@@ -165,10 +172,14 @@ Approach 1 leaves out the plan; approach 3 is premature.
 - **The batching rationale is recorded at dispatch.** At a batch stop the
   human may ask why the issues were batched, and the answer must come from
   what was known when they were batched. So when the agent dispatches a
-  batch, it records in one line why the issues were batched together,
-  durably (for example in the epic comment that already carries items). A
-  fresh run after a reset answers from that record rather than
-  reconstructing a reason.
+  batch, it records in one line why the issues were batched together, in a
+  comment on the epic issue (in the `adhoc` mode, on the epic its records go
+  to): the comment that already carries the run's items if there is one, or
+  a new comment if not. The line is screened against doctrine §1.6 first,
+  as a sweep item is: a security-class reason is posted only as
+  "security-related", and its details are kept as a non-review security
+  item's details are. A fresh run after a reset answers from that record
+  rather than reconstructing a reason.
 - **`/clear`, never `/compact`.** A clear gives a clean rebuild from the
   durable record. A compacted summary can carry stale or wrong state into the
   run.
