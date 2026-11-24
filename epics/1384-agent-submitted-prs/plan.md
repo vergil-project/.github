@@ -54,8 +54,8 @@ Copied from the spec; every task's requirements include them.
   defined in Task 5 (whitespace kept; `@@` and `index` lines dropped;
   binaries by head blob), never `git patch-id`. For one commit of a batch,
   the commit's diff against its parent is used.
-- Every check fails closed: an unreadable exemption, override, record or
-  API response refuses. Nothing passes silently.
+- Every check fails closed: an unreadable exemption, record or API
+  response refuses. Nothing passes silently.
 - Every comment read goes through the trust layer of epic
   vergil-project/.github#1467 (`lib/trust.py`): the readers are built on
   `trust.read_comment_stream`, through `rulings.comments.read_stream`, with
@@ -369,6 +369,12 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
 
 ## Task 3c (one per repo): Callers that mint the token declare the environment
 
+> **Amended 2026-11-24.** The rationale below, that environment secrets
+> reach a reusable workflow only through `secrets: inherit`, is superseded:
+> `inherit` works within one org, and the App keys passed by name reach a
+> called workflow's environment-declaring jobs across orgs and within a
+> repo (spec §4.2; see Evolution during execution).
+
 - **The repos:** every repo in Task 3a's inventory, both those that mint an
   automation token in their own workflows and those that call a reusable
   workflow that reads the App keys.
@@ -676,7 +682,9 @@ Evolution during execution).
 > **Amended 2026-11-24.** The protected-files rule that
 > vergil-project/vergil-tooling#4780 shipped is removed by
 > vergil-project/vergil-tooling#5117 (see Evolution during execution);
-> `evaluate` checks merge-review coverage only.
+> `evaluate` checks merge-review coverage only. The same task removes the
+> human override below (`Override`, its comment format and `overrides`):
+> coverage is a record or an approved exemption only.
 
 **Files:**
 
@@ -737,7 +745,9 @@ Evolution during execution).
 > **Amended 2026-11-24.** Submit's approval gate, shipped by
 > vergil-project/vergil-tooling#4785, is removed by
 > vergil-project/vergil-tooling#5117 (see Evolution during execution); the
-> merge-review gate stays.
+> merge-review gate stays, run on every submission. The same task removes
+> `--human-only` and `--override-merge-review`, so the human-only and
+> override tests below no longer apply.
 
 **Files:**
 
@@ -816,7 +826,8 @@ Evolution during execution).
 > **Amended 2026-11-24.** The watch's approval re-check, shipped by
 > vergil-project/vergil-tooling#4786, is removed by
 > vergil-project/vergil-tooling#5117 (see Evolution during execution); the
-> watch re-checks provenance and merge-review coverage.
+> watch re-checks provenance and merge-review coverage, and accepts no
+> human override.
 
 **Files:**
 
@@ -857,7 +868,8 @@ Evolution during execution).
 > `merge-changed-approved-file` condition, shipped by
 > vergil-project/vergil-tooling#4787, are removed by
 > vergil-project/vergil-tooling#5117 (see Evolution during execution); the
-> merge-review, actor and `main` checks stay.
+> merge-review, actor and `main` checks stay. The audit accepts no human
+> override: check 1 below is met by a record or an exemption only.
 
 **Files:**
 
@@ -963,7 +975,11 @@ further step.
 > **Amended 2026-11-24.** The protected-path registries are dropped by the
 > human's ruling (see Evolution during execution):
 > vergil-project/vergil-actions#1341 is narrowed to the audit workflow, and
-> 13 (docs), vergil-project/docs#145, is closed.
+> 13 (docs), vergil-project/docs#145, is closed. By ruling N0.14, the
+> `agent-audit` job runs after the config job with
+> `if: ${{ !cancelled() }}`, so a failing config job does not skip it. By
+> ruling N0.15, the 14 vergil-project callers are filed under each repo's
+> ad-hoc epic (see Evolution during execution).
 
 - **vergil-actions, the audit workflow:** a reusable workflow,
   `ops-agent-audit.yml`, that runs `vrg-agent-audit` for its calling repo as
@@ -1183,6 +1199,10 @@ runs no install by hand. After a plugin release, the session still needs
   The `ops.yml` callers (Task 13 (G) and the others) merge only after this.
 
 ## Task 17d (deployment): Release vergil-tooling with the gates
+
+> **Amended 2026-11-24.** The human waived the acceptance check that an
+> agent submit still fails at GitHub, as covered by Task 18d (see
+> Evolution during execution).
 
 - **Preconditions:** Task 15r done, so merge review already writes records;
   Tasks 8, 9, 10, 11, 12 and 12b, and the approval removal
@@ -1436,3 +1456,83 @@ human's.
     as not planned under the same anti-goal; its record, tracked by
     vergil-project/.github#1586, stays as an accepted property of the VM
     design.
+- **2026-11-24: Tasks 9, 11 and 12 start before Task 15r closes.** The plan
+  held them until Task 15r (vergil-project/vergil-claude-plugin#1203)
+  closed, but 15r's acceptance needs the first merge review after plugin
+  release 2.1.88, and those tasks are what would run one. By the human's
+  ruling N0.5, they started at once; 15r closes on the first `Merge review
+  record:` line their reviews post, and no PR of theirs is submitted
+  before 15r closes.
+- **2026-11-24: the human's submit-time skips are removed too.** By the
+  human's addition to ruling N0.12, vergil-project/vergil-tooling#5117 also
+  removes `vrg-submit-pr`'s `--human-only` and the human merge-review
+  override (`--override-merge-review`, its comment format and its
+  acceptance in the watch and the audit), since agents write every PR.
+  Merge-review coverage is now a merge-review record or an approved
+  exemption only, and submit runs the gate on every submission. The
+  earlier entry's statement that `--override-merge-review` stays is wrong
+  and superseded by this one. The spec's §3, §4.5, §4.6 and §8, the global
+  constraints, and the amendment notes of Tasks 8, 9, 11 and 12 are
+  corrected in place; the override and human-only text in those tasks'
+  bodies is left as written, superseded.
+- **2026-11-24: the spec's §3 now agrees with §1.1 on the gate logic.**
+  §1.1 treats an honest agent's weakening of a check as an ordinary change
+  that merge review judges, while §3 put any weakening of the gate logic in
+  the hostile-agent seam, caught "if at all". The spec is corrected to the
+  design as built, which is §1.1's: an honest agent may change the gate
+  logic, with no approval on it, and the change is judged by merge review
+  on every PR and held back by the human-gated release. Only a deliberate
+  weakening is in the seam. §3 is amended in place.
+- **2026-11-24: `secrets: inherit` and by-name keys, settled.** The
+  earlier entry's open question on a by-name map is answered: keys passed
+  by name reach a called workflow's environment-declaring jobs, across
+  orgs and within a repo (logical-minds-foundry/mq-gateway-replay-lab run
+  45390389192, green with the org keys hidden), and `inherit` works within
+  one org (vergil-project/vergil-fixture-python-lib run 45306218449). The
+  vergil-project/packages#6 premise, that environment secrets reach
+  another repo's reusable workflow only through `inherit`, is superseded.
+  Spec §4.2 is corrected in place to the routes as built: `inherit` within
+  vergil-project to the allow-listed vergil-actions workflows, and the App
+  keys by name across orgs and to a repo's own local workflow. Task 3c's
+  rationale carries an amendment note.
+- **2026-11-24: the user App's `workflows: write` outside the epic's
+  orgs.** Task 3g's grant was accepted on six installations, not only the
+  three in-scope orgs. The other three (diogenes-project,
+  mq-rest-admin-project and vergils-nemesis) still keep App-key secrets at
+  org level, readable from any branch. By the human's ruling N0.13, those
+  orgs are inactive or work in progress, and the risk is accepted until
+  they are renovated.
+- **2026-11-24: the audit job does not wait on a green config job.** By
+  the human's ruling N0.14, Task 13's `agent-audit` job runs after the
+  config job with `if: ${{ !cancelled() }}`, so a failing config job does
+  not skip the audit. Task 13 carries an amendment note.
+- **2026-11-24: Task 13's vergil-project callers are filed ad hoc.** The
+  epic reached GitHub's 100-sub-issue limit, so by the human's ruling
+  N0.15 the 14 vergil-project Task 13 callers were filed under each repo's
+  ad-hoc epic, each naming Task 13: vergil-project/docs#182,
+  vergil-project/packages#67, vergil-project/vergil-actions#1414,
+  vergil-project/vergil-claude-plugin#1333,
+  vergil-project/vergil-containers#1025,
+  vergil-project/vergil-fixture-python-app#77,
+  vergil-project/vergil-fixture-python-lib#84,
+  vergil-project/vergil-fixture-rust-app#92,
+  vergil-project/vergil-fixture-rust-lib#98,
+  vergil-project/vergil-fixture-ts-app#94,
+  vergil-project/vergil-fixture-ts-lib#93, vergil-project/vergil-python#102,
+  vergil-project/vergil-tooling#5126 and vergil-project/vergil-vm#454. The
+  audit, the rollup and the retrospective do not see them as this epic's
+  tasks; vergil-project/vergil-tooling#3840 tracks the limit. The
+  cross-org callers are filed under the proxies as usual.
+- **2026-11-24: a call job passes the App keys by name to its own repo's
+  workflow.** Answering epic vergil-project/.github#1494's question, by the
+  human's ruling N0.16 a call job passes `APP_CLIENT_ID` and
+  `APP_PRIVATE_KEY` by name to its repo's own local reusable workflow,
+  whose receiving jobs declare `environment: automation`.
+  `INHERIT_ALLOWED` is not widened. vergil-project/vergil-containers#1030
+  corrects vergil-containers' test to allow exactly that map.
+- **2026-11-24: Task 17d's "agent submit fails at GitHub" check is
+  waived.** By the human's ruling N0.17, that acceptance check of Task 17d
+  (vergil-project/vergil-tooling#4788) is waived, as covered by Task 18d
+  (vergil-project/.github#1413), which grants the agent `pull_requests:
+  write` and proves its own submit end to end. Task 17d carries an
+  amendment note.
