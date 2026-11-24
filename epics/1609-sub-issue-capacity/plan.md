@@ -26,7 +26,7 @@ and no item lands outside its epic.
   queue cap becomes a nudge instead of a refusal.
 
 **Tech Stack:** Python 3 and pytest, GitHub GraphQL sub-issue API
-(vergil-tooling); Markdown (site docs).
+(vergil-tooling); Markdown (site docs, and the vergil-claude-plugin skills).
 
 **Spec:** [`spec.md`](spec.md) in this directory. Executors read both.
 
@@ -88,18 +88,20 @@ and no item lands outside its epic.
 ## Delivery table
 
 Each line gives the task, its repo and kind, what it delivers, and what it
-is blocked by. All implementation tasks are in vergil-tooling.
+is blocked by. Every implementation task but 14 is in vergil-tooling.
 
 - **1** (.github, task #1610): spec and plan, this PR.
 - **2** (vergil-tooling): closed is closed: no reopen in `add_child`,
   `intake_route` or `proxies.create_proxy`; `ensure_standing_epic` refuses a
-  closed one; the audit's reopen fix removed.
+  closed one; the audit's reopen fix removed, and the sweep's link passes
+  report a closed epic per item instead of aborting.
 - **3** (vergil-tooling): `vrg-epic-move` moves atomically with
-  `reparent_child`.
-- **4** (.github, validation): a live probe of GitHub's nesting limit and its
-  error texts, fixing the depth constant.
+  `reparent_child`, refusing a closed target. Blocked by 2.
+- **4** (.github, validation): a live probe of GitHub's nesting limit and of
+  linking under a closed parent, fixing the depth constant.
 - **5a** (vergil-tooling): `epic_chain` read side, the `continuation` label,
-  the chain-drift error and the in-memory sub-issue fake.
+  the chain-drift error, the raw per-container reads and the in-memory
+  sub-issue fake.
 - **5b** (vergil-tooling): `epic_chain` write side: first-fit `link_into`,
   `move_into`, `unlink_from`, rollover, find-or-create with orphan adoption,
   the depth refusal, the capacity pre-check and the rollover messages.
@@ -112,24 +114,32 @@ is blocked by. All implementation tasks are in vergil-tooling.
 - **7** (vergil-tooling): the CLI writers (`vrg-epic-link`,
   `vrg-issue-create`, `vrg-intake-create`, `vrg-security-record`,
   `vrg-epic-move`) and `ops_report` through the chain layer, with the
-  capacity pre-check. Blocked by 3, 6.
+  capacity pre-check, their tests ported to the fake. Blocked by 3, 6, 9a,
+  10.
 - **8** (vergil-tooling): `intake_route` through the chain layer, with
-  transfer settling moved into it. Blocked by 6.
+  transfer settling and the forced re-link moved into it, its tests ported
+  to the fake. Blocked by 6, 9a, 10.
 - **9a** (vergil-tooling): audit read side: continuation skips, chain-aware
   children and `misplaced_adhoc`, drift and orphan reporting, container
   count. Blocked by 6.
 - **9b** (vergil-tooling): sweep writes: the orphan pass through the chain
   with the nudge, the heals, orphan adoption with a rollup re-run, and
-  `close_drift`/`close_proxies` through `close_chain`. Blocked by 9a.
+  `close_drift`/`close_proxies` through `close_chain`, its tests ported to
+  the fake. Blocked by 9a, 10.
 - **10** (vergil-tooling): the remaining readers (`queue_view`, `roadmap`,
   `planning_close`, `security_records`, `merge_review/request`,
   `vrg-submit-pr`, `epic_docs`). Blocked by 6.
+- **10b** (vergil-tooling): `vrg-epic-parent`, a chain-aware command that
+  prints a task's epic and its kind, for the plugin skills. Blocked by 6.
 - **11** (vergil-tooling): the raw layer made private, with a source-scan
-  test that keeps it so. Blocked by 7, 8, 9b, 10.
+  test that keeps it so. Blocked by 7, 8, 9b, 10, 10b.
 - **12** (.github, deployment): the vergil-tooling release carrying 2–11,
   installed on the host and every VM. Blocked by 11.
+- **14** (vergil-claude-plugin): the skills that read a task's raw native
+  parent (`issue-implement`, `merge-review`, `epic-create`,
+  `epic-retrospective`) use `vrg-epic-parent` instead. Blocked by 12.
 - **13** (.github, validation): #1384's 14 tasks re-homed into its chain, the
-  first live rollover of a development epic. Blocked by 12.
+  first live rollover of a development epic. Blocked by 12, 14.
 
 ### Bookends
 
@@ -140,7 +150,8 @@ is blocked by. All implementation tasks are in vergil-tooling.
   `docs/site/docs/reference/` CLI pages for the changed commands; the docs
   repo's summary of the epic model; and any vergil-claude-plugin skill that
   tells an agent what to do at the cap (`epic-implement`,
-  `issue-implement`), each a spawned per-repo doc task.
+  `issue-implement`), each a spawned per-repo doc task. The skills' parent
+  reads are Task 14's, not the sweep's.
 - **retrospective** (.github, `Plan task: retrospective`): blocked by
   everything else.
 
@@ -151,27 +162,33 @@ Notes:
 - **No follow-on brainstorm task:** no enabling chain is known. Collecting
   empty continuations (spec §2, non-goals) is accrued as an intake item only
   if a real chain ever needs it.
-- **Develop stays correct between tasks.** Until Task 11, the raw writers
-  remain public and keep working; no chain exists before the release, so a
-  reader made chain-aware before its writer is harmless. Each task must
-  still pass the full suite on its own.
-- **One release.** Task 12 installs a release carrying every implementation
-  task. Tasks 2 and 3 may reach an earlier release by the normal cadence;
-  that is fine, as each stands alone.
-- **Open question Q1 (for the human): a closed continuation with no
-  successor.** Spec §4.2 says writers never link into a closed
-  continuation, and that when its successor is missing, "rollover links the
-  next continuation into the last open container instead". But a closed
-  continuation fills the 100th slot of the container before it, so when
-  every open container already holds 99 items there is no open container
-  with a free slot to link the next continuation into. The spec does not
-  settle this. Options: (a) the writer refuses, naming the closed
-  continuation and saying a person may reopen it or unlink it (closed is
-  closed holds; the epic is stuck until a human acts); (b) the writer
-  unlinks the closed, empty continuation to free the slot, refusing as in
-  (a) if it still holds items; (c) linking into a closed container is
-  allowed for the continuation link alone. Task 5b's test is written once
-  the human rules, and the spec is corrected to match.
+- **Readers before writers.** vergil-tooling releases from develop often,
+  and each release is installed on the host and every VM, so any task may
+  reach the fleet before Task 12. A chain can exist only once a writer that
+  rolls over is released, and the only callers of `link_into` and
+  `move_into` are Tasks 7, 8 and 9b. Each is therefore blocked by every
+  reader task (6, 9a and 10) as well as by its own dependencies, so every
+  reader, the audit included, knows about chains before any released writer
+  can create one. Until Task 11, the raw writers remain public and keep
+  working. Each task must still pass the full suite on its own.
+- **One release.** Task 12 installs a release carrying every vergil-tooling
+  implementation task. Tasks 2 and 3 may reach an earlier release by the
+  normal cadence; that is fine, as each stands alone.
+- **A closed continuation with no successor.** A closed continuation fills
+  the 100th slot of the container before it, so when it has no successor
+  and every open container holds 99 items, no open container has a free
+  slot. The next continuation is then linked into the closed continuation
+  itself: the one link a closed container takes, which leaves its state
+  unchanged (spec §4.2). Task 4 probes that GitHub accepts a link under a
+  closed parent; if it refuses, Task 5b instead refuses by name, naming the
+  closed continuation and saying a person may reopen or unlink it, with
+  `check_capacity` detecting the case so a create-then-link command refuses
+  before creating, and the spec is corrected to match.
+- **Tests move to the fake with their code.** Every task that switches a
+  caller to the chain layer ports that caller's existing tests from
+  `patch(...epics.add_child)`-style mocks to `FakeSubIssueGraph`, asserting
+  on the graph's end state instead of on raw calls, in the same PR. The
+  port is named in each task's Files and steps.
 - **Docs travel with behaviour.** Each task that changes documented
   behaviour updates `docs/site/docs/standards/github-issues.md` in the same
   PR (named in its Files); the doc-review bookend checks the whole.
@@ -187,7 +204,7 @@ Spec §4.2 (closed is closed), goal 8.
 - Modify: `src/vergil_tooling/lib/epics.py` (`add_child`, `ensure_standing_epic`, `_find_epic_by_title`)
 - Modify: `src/vergil_tooling/lib/intake_route.py:1545-1560` (the reopen before a re-parent)
 - Modify: `src/vergil_tooling/lib/proxies.py:330-375` (`create_proxy`), `src/vergil_tooling/bin/vrg_epic_create.py:189` (the reopened report)
-- Modify: `src/vergil_tooling/lib/epic_audit.py` (remove `reopen_epics_with_open_children`), `src/vergil_tooling/bin/vrg_epic_audit.py:300-330`
+- Modify: `src/vergil_tooling/lib/epic_audit.py` (remove `reopen_epics_with_open_children`; `nativize_parents` and `attach_orphans` catch `ClosedEpicError` per item), `src/vergil_tooling/bin/vrg_epic_audit.py:300-372` (`_apply_orphan_pass` included)
 - Modify: `src/vergil_tooling/bin/vrg_epic_link.py` (docstring: the reopen-on-late-child rule)
 - Modify: `docs/site/docs/standards/github-issues.md` (every mention of reopen-on-late-child and the audit's reopen fix)
 - Test: `tests/vergil_tooling/test_epics.py`, `test_intake_route.py`, `test_proxies.py`, `test_epic_audit.py`, `test_vrg_epic_audit.py`
@@ -221,10 +238,18 @@ Spec §4.2 (closed is closed), goal 8.
   - `test_audit_reports_closed_epic_open_child_without_reopen`
     (vrg-epic-audit `--close`): the violation is printed for the human and
     no `issue reopen` call is made.
+  - `test_nativize_skips_closed_epic_and_continues` (epic_audit): two open
+    tasks whose `Parent:` lines name a closed epic and an open one; the
+    first is reported in a line naming the task and the closed epic, the
+    second is linked, `attach_orphans` still runs, and the pass exits
+    non-zero at the end.
+  - `test_attach_orphans_reports_closed_intake_epic`: with only a closed
+    intake epic, each orphan is reported naming it, nothing is linked or
+    reopened, and the pass exits non-zero at the end.
 
 - [ ] **Step 2: Run them to verify they fail**
 
-  Run: `vrg-container-run -- pytest tests/vergil_tooling/test_epics.py tests/vergil_tooling/test_intake_route.py tests/vergil_tooling/test_proxies.py tests/vergil_tooling/test_vrg_epic_audit.py -k "closed or reopen" -v`
+  Run: `vrg-container-run -- pytest tests/vergil_tooling/test_epics.py tests/vergil_tooling/test_intake_route.py tests/vergil_tooling/test_proxies.py tests/vergil_tooling/test_epic_audit.py tests/vergil_tooling/test_vrg_epic_audit.py -k "closed or reopen" -v`
   Expected: the new tests FAIL (reopen still happens).
 
 - [ ] **Step 3: Implement**
@@ -233,6 +258,8 @@ Spec §4.2 (closed is closed), goal 8.
   `states` parameter (`"open"` default, `"all"` for `ensure_standing_epic`);
   remove `reopen_epics_with_open_children` and its CLI wiring, keeping
   `closed_epic_open_child` as a report. `ProxyResult.reopened` is removed.
+  One task naming a closed epic never stops the orphan pass: it is
+  reported, the pass goes on, and the exit is non-zero.
 
 - [ ] **Step 4: Run the tests and the full gate**
 
@@ -243,7 +270,8 @@ Spec §4.2 (closed is closed), goal 8.
 
 ### Task 3: atomic `vrg-epic-move` (vergil-tooling)
 
-Spec §4.5 (`vrg-epic-move` stops orphaning).
+Spec §4.5 (`vrg-epic-move` stops orphaning), §4.2 (closed is closed).
+Blocked by 2.
 
 **Files:**
 
@@ -253,7 +281,7 @@ Spec §4.5 (`vrg-epic-move` stops orphaning).
 **Interfaces:**
 
 - Consumes: `epics.reparent_child(new_parent, task)`; `epics.add_child` for a
-  task with no current parent.
+  task with no current parent; `epics.ClosedEpicError` (Task 2).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -262,14 +290,19 @@ Spec §4.5 (`vrg-epic-move` stops orphaning).
   - `test_failed_move_leaves_task_in_place`: the reparent raises; the command
     exits 1 with the error, and no `removeSubIssue` was called.
   - `test_move_unparented_task_links_it`: no current parent → `add_child`.
+  - `test_move_into_closed_epic_refused`: target B is closed → exit 1 with
+    `ClosedEpicError`'s message naming B; no `addSubIssue` or
+    `removeSubIssue` call, and the task stays under A.
 
 - [ ] **Step 2: Run them to verify they fail**
 
   Run: `vrg-container-run -- pytest tests/vergil_tooling/test_vrg_epic_move.py -v`
-  Expected: the first two FAIL.
+  Expected: the first two and the closed-target test FAIL.
 
-- [ ] **Step 3: Implement**: replace the remove-then-add with `reparent_child`
-  when `current is not None`.
+- [ ] **Step 3: Implement**: check the target's state first and raise
+  `ClosedEpicError` when it is closed; then replace the remove-then-add
+  with `reparent_child` when `current is not None`. `reparent_child`
+  itself stays unchecked, for the archive drain.
 
 - [ ] **Step 4: Validate**: `vrg-container-run -- vrg-validate` passes.
 
@@ -277,25 +310,39 @@ Spec §4.5 (`vrg-epic-move` stops orphaning).
 
 ### Task 4: probe GitHub's nesting limit (validation, .github)
 
-Spec §4.5 (the depth headroom), §4.4 (GitHub's limit error). No blockers.
+Spec §4.5 (the depth headroom), §4.4 (GitHub's limit error), §4.2 (a closed
+continuation with no successor). No blockers.
 
 - **Precondition (machine probe):** `vrg-whoami --mode` prints `user`.
-- **Procedure:**
+- **Procedure:** run it in one sitting, away from the daily epic sweep's
+  scheduled time, since the sweep links unparented, unlabelled issues under
+  the intake epic.
   1. In vergil-project/.github, create ten issues titled `Probe: sub-issue
      depth <n>` (n = 1…10), each body saying it is a throwaway for epic
      vergil-project/.github#1609 Task 4.
   2. Link each `n+1` under `n` with `vrg-epic-link`, in order, until a link
      fails. Record the last depth that succeeded, counting the top issue as
-     depth 1, and GitHub's error text verbatim.
+     depth 1, and GitHub's error text verbatim. Before recording `Max
+     depth`, re-check that probe 1 still has no parent
+     (`vrg-gh issue view <N> --json parent`).
   3. Capture the 100-child error text: if any open issue in the org then has
      100 sub-issues (`vrg-gh issue view <N> --json subIssuesSummary`), try
      linking probe issue 10 under it and record the error; a failed link
      writes nothing. If none has 100, record that the text is unobserved.
-  4. Unlink every probe issue and close each as not planned.
+  4. Link under a closed parent: create `Probe: closed parent` and `Probe:
+     closed child`, close the parent as not planned, then link the child
+     under it with the `addSubIssue` mutation directly (`vrg-gh api
+     graphql`), not `vrg-epic-link`, which today reopens a closed parent
+     first. Record whether GitHub accepts the link (and its error text if
+     not), and confirm the parent is still closed.
+  5. Unlink every probe issue and close each as not planned in the same
+     step, one probe at a time.
 - **SUCCESS:** a result comment carrying the lines `Max depth: <d>` (levels
-  including the top issue), `Depth error: <text>` and `Limit error: <text>`
-  (or `Limit error: unobserved`). Task 5b reads them; `unobserved` means 5b
-  matches GitHub's documented wording and Task 13 confirms it live.
+  including the top issue), `Depth error: <text>`, `Limit error: <text>`
+  (or `Limit error: unobserved`) and `Link under closed parent: accepted`
+  (or `refused: <text>`). Task 5b reads them. The limit text is only a hint:
+  5b recognises a full container by its sub-issue total, so `unobserved`
+  needs no live confirmation.
 
 ### Task 5a: chain read side and the sub-issue fake (vergil-tooling)
 
@@ -307,13 +354,20 @@ Spec §4.1, §4.2 (`chain_of`, `head_of`, `chain_child_states`,
 - Create: `src/vergil_tooling/lib/epic_chain.py`
 - Create: `tests/vergil_tooling/subissue_fake.py`
 - Modify: `src/vergil_tooling/data/labels.json` (the `continuation` label)
-- Modify: `src/vergil_tooling/lib/epics.py` (`CONTINUATION_LABEL`, `is_continuation`)
+- Modify: `src/vergil_tooling/lib/epics.py` (`CONTINUATION_LABEL`, `is_continuation`, `_container_parent`, `_container_child_states`)
 - Test: `tests/vergil_tooling/test_epic_chain.py`
 
 **Interfaces:**
 
 - Produces in `epics`: `CONTINUATION_LABEL = "continuation"`;
-  `is_continuation(labels: Collection[str]) -> bool`.
+  `is_continuation(labels: Collection[str]) -> bool`; and the raw
+  per-container reads `_container_parent(task: IssueRef) -> IssueRef | None`
+  and `_container_child_states(container: IssueRef) -> list[ChildState]`,
+  the same reads `native_parent_of` and `child_states` make today, used only
+  by `epics` and `epic_chain`. Every walk in `epic_chain` (`head_of`, the
+  depth walk, the container listing) uses only these, never the public
+  readers, so Task 6 making the public readers chain-aware changes nothing
+  in the chain layer.
 - Produces in `epic_chain`:
   - `ITEM_CAP = 99`
   - `class ChainDriftError(RuntimeError)` with `container: IssueRef` and
@@ -414,8 +468,11 @@ Spec §4.2 (`link_into`, `move_into`, `unlink_from`), §4.3, §4.5, §4.7
     (5 items) + C3 open (10 items) → the item goes into C3; C2 is not
     written to and stays closed.
   - `test_link_into_closed_continuation_without_successor`: head 99 items +
-    C2 closed with no successor. The expected behaviour is **open question
-    Q1** (below the delivery table); the test is written once it is ruled.
+    C2 closed (99 items) with no successor → C3 is created and linked as
+    C2's 100th child, C2 stays closed, and the item goes into C3. If Task 4
+    recorded `Link under closed parent: refused`, the test instead expects
+    a refusal naming C2 and saying a person may reopen or unlink it, with
+    nothing created, and `check_capacity` raises the same refusal.
   - `test_link_into_refuses_closed_head`: `ClosedEpicError`, nothing written.
   - `test_find_or_create_reuses_existing_child_continuation` and
     `test_find_or_create_adopts_orphan`: an orphan naming the head is linked
@@ -429,12 +486,20 @@ Spec §4.2 (`link_into`, `move_into`, `unlink_from`), §4.3, §4.5, §4.7
     created, nothing linked.
   - `test_github_depth_error_is_reworded`: the fake's `DEPTH_ERROR` comes
     first → `ChainDepthError`.
+  - `test_depth_counts_head_nested_under_chained_parent`: the head is itself
+    an item in another epic's C2 → the head's depth counts that chain's
+    containers (through `_container_parent`), and a chain one container
+    short of `MAX_DEPTH` by that count is refused before any write.
   - `test_development_rollover_is_loud`: stdout has `epic <head> rolled over
     into continuation <C2> at 99 children; consider splitting it`, and the
     same text is commented on the head.
   - `test_queue_rollover_prints_review_nudge`: an intake head → stdout has
     `queue <head> rolled over into continuation <C2>; run epic-review
     intake`; no comment on the head.
+  - `test_other_standing_rollover_is_plain`: an ad-hoc head (and any
+    standing kind not in `QUEUE_KINDS`) → stdout has one plain line,
+    `epic <head> rolled over into continuation <C2>`, with no comment on
+    the head and no advice to split or review.
   - `test_move_into_is_one_reparent` and `test_unlink_from_finds_container`.
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -443,8 +508,8 @@ Spec §4.2 (`link_into`, `move_into`, `unlink_from`), §4.3, §4.5, §4.7
   Expected: the new tests FAIL.
 
 - [ ] **Step 3: Implement** the writers. Depth is the head's own depth
-  (`native_parent_of` walk) plus the container count; the check runs before
-  find-or-create.
+  (a `_container_parent` walk) plus the container count; the check runs
+  before find-or-create.
 
 - [ ] **Step 4: Validate**: `vrg-container-run -- vrg-validate` passes.
 
@@ -484,6 +549,12 @@ Spec §4.4, §4.6 (`close_chain`). Blocked by 5b.
     and succeeds.
   - `test_limit_error_retries_exhausted_names_limit`: `ChainLimitError` after
     `LIMIT_ERROR` three times, naming 100, the container and the item.
+  - `test_unrecognised_link_error_at_100_is_full`: the link fails with an
+    error text other than `LIMIT_ERROR`, and the re-read total of the target
+    is 100 → handled as full (re-read, roll over, succeed).
+  - `test_link_error_below_100_surfaces`: the link fails and the re-read
+    total is below 100 → the error is raised with GitHub's text, and no
+    retry or heal runs.
   - `test_duplicate_continuations_keep_lower`: C2a (#201) and C2b (#205)
     under the head; items of #205 moved to #201, #205 unlinked, then closed
     as not planned with a comment naming #201 — assert that order.
@@ -496,8 +567,11 @@ Spec §4.4, §4.6 (`close_chain`). Blocked by 5b.
   Expected: FAIL.
 
 - [ ] **Step 3: Implement**: `link_into` reads the tail back after each link
-  and calls `heal_full_tail` and `heal_duplicate_continuations`; a
-  `LIMIT_ERROR` triggers the re-read and retry, never a raw surface.
+  and calls `heal_full_tail` and `heal_duplicate_continuations`. On any
+  `addSubIssue` failure it re-reads the target's sub-issue total: a total of
+  100 means full, whatever the error text says (`LIMIT_ERROR` is a hint
+  only), and triggers the re-read and retry, never a raw surface. Any other
+  failure is raised with GitHub's error.
 
 - [ ] **Step 4: Validate**: `vrg-container-run -- vrg-validate` passes.
 
@@ -524,9 +598,9 @@ Spec §4.1 (lookups, ref resolution), §4.2 (public readers), §4.6. Blocked by
 
 - Consumes: `epic_chain.chain_child_states`, `head_of`, `find_orphans`,
   `find_or_create_continuation`, `close_chain`.
-- Produces: the readers keep their signatures and answer for the chain. The
-  per-container raw reads are renamed `_container_child_states(container)`
-  and `_container_parent(task)` and used only by `epic_chain`.
+- Produces: the readers keep their signatures and answer for the chain,
+  built on `epic_chain` and on the raw per-container reads 5a introduced
+  (`_container_child_states`, `_container_parent`), which are unchanged.
   `resolve_epic_ref` prints `<continuation> is a continuation of <head>;
   using <head>` to stderr when it maps one.
 
@@ -566,7 +640,7 @@ Spec §4.1 (lookups, ref resolution), §4.2 (public readers), §4.6. Blocked by
 ### Task 7: the CLI writers through the chain (vergil-tooling)
 
 Spec §4.2 (writer callers), §4.5 (create-then-link checks first,
-`vrg-epic-move`). Blocked by 3 and 6.
+`vrg-epic-move`). Blocked by 3, 6, 9a and 10 (readers before writers).
 
 **Files:**
 
@@ -575,7 +649,10 @@ Spec §4.2 (writer callers), §4.5 (create-then-link checks first,
   `vrg_security_record.py:237,343,389` (`_find_resumed_issue` included),
   `vrg_epic_move.py`
 - Modify: `src/vergil_tooling/lib/ops_report.py:300-302`
-- Test: the matching `tests/vergil_tooling/test_vrg_*.py`, `test_ops_report.py`
+- Test (new tests, and the existing raw-writer mocks ported to
+  `FakeSubIssueGraph`): `tests/vergil_tooling/test_vrg_issue_create.py`,
+  `test_vrg_epic_move.py`, `test_vrg_security_record.py`,
+  `test_vrg_epic_link.py`, `test_vrg_intake_create.py`, `test_ops_report.py`
 
 **Interfaces:**
 
@@ -606,21 +683,33 @@ Spec §4.2 (writer callers), §4.5 (create-then-link checks first,
   link-failure hint that suggested `vrg-epic-move` names the chain error
   instead.
 
-- [ ] **Step 4: Validate**: `vrg-container-run -- vrg-validate` passes.
+- [ ] **Step 4: Port the existing tests.** In each test file above, replace
+  every `patch(...epics.add_child)`, `remove_child` and `reparent_child`
+  mock and its `assert_called_*` with a `FakeSubIssueGraph` fixture and an
+  assertion on the graph's end state (which container holds the task, and
+  that it has one parent). Each ported test keeps the behaviour it pinned;
+  none is deleted or weakened. After this step these files name no raw
+  writer.
 
-- [ ] **Step 5: Commit**: `vrg-commit --type feat --scope epics --message "link, move and create through the chain layer, checking capacity before creating"`.
+- [ ] **Step 5: Validate**: `vrg-container-run -- vrg-validate` passes.
+
+- [ ] **Step 6: Commit**: `vrg-commit --type feat --scope epics --message "link, move and create through the chain layer, checking capacity before creating"`.
 
 ### Task 8: `intake_route` through the chain (vergil-tooling)
 
-Spec §4.2 (settling after a transfer, writer callers). Blocked by 6.
+Spec §4.2 (settling after a transfer, writer callers). Blocked by 6, 9a and
+10 (readers before writers).
 
 **Files:**
 
 - Modify: `src/vergil_tooling/lib/intake_route.py` (lines 924, 947, 1218,
-  1549-1556, 1613-1615; `_observe`, `_settle_parent`, `_clear_duplicate`,
-  `_relink_after_failed_transfer`)
-- Modify: `src/vergil_tooling/lib/epic_chain.py` (settling operations)
-- Test: `tests/vergil_tooling/test_intake_route.py`, `test_epic_chain.py`
+  1530-1561 (`_link` and its `force` mode), 1613-1615; `_observe`,
+  `_settle_parent`, `_clear_duplicate`, `_relink_after_failed_transfer`)
+- Modify: `src/vergil_tooling/lib/epic_chain.py` (settling operations,
+  `relink`)
+- Test (new tests, and the existing raw-writer and raw-reader mocks ported
+  to `FakeSubIssueGraph`): `tests/vergil_tooling/test_intake_route.py`,
+  `test_epic_chain.py`
 
 **Interfaces:**
 
@@ -629,6 +718,14 @@ Spec §4.2 (settling after a transfer, writer callers). Blocked by 6.
     (the task's parent field, and the containers of *head*'s chain whose
     listing holds it)
   - `clear_stale_listing(head: IssueRef, task: IssueRef, keep: IssueRef) -> None`
+  - `relink(head: IssueRef, task: IssueRef) -> IssueRef`: re-links *task*
+    with `replaceParent` into the container of *head*'s chain that its
+    parent field names (the #4291 case: the parent field names it, its
+    listing lacks it), and returns that container. Raises `ValueError`
+    naming both when the parent field names no container of the chain.
+- `move_into(head, task)` for a task already linked in the chain (its parent
+  field names a container whose listing holds it) changes nothing and
+  returns that container; forcing a re-link is `relink`'s job.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -638,18 +735,33 @@ Spec §4.2 (settling after a transfer, writer callers). Blocked by 6.
   - `test_settle_after_transfer_finds_listing_in_continuation`: the stale
     listing (the #4004 case) is in C2 and is cleared there.
   - `test_relink_after_failed_transfer_uses_chain`.
-  - The existing #3839/#4004/#4291 regression tests pass unchanged.
+  - `test_relink_forces_listing_in_continuation` (epic_chain): the task's
+    parent field names C2, C2's listing lacks it → one `addSubIssue` with
+    `replaceParent: true` into C2, and the listing then holds it.
+  - `test_move_into_task_already_in_chain_is_noop` (epic_chain).
+  - The existing #3839/#4004/#4291 regression tests are ported (Step 4),
+    with the same end-state assertions; the #4291 test's forced re-link
+    goes through `relink`.
 
 - [ ] **Step 2: Run them to verify they fail**
 
   Run: `vrg-container-run -- pytest tests/vergil_tooling/test_intake_route.py -v`
   Expected: the new tests FAIL.
 
-- [ ] **Step 3: Implement**: `intake_route` makes no raw read or write.
+- [ ] **Step 3: Implement**: `intake_route` makes no raw read or write;
+  `_link`'s `force` mode calls `epic_chain.relink`.
 
-- [ ] **Step 4: Validate**: `vrg-container-run -- vrg-validate` passes.
+- [ ] **Step 4: Port the existing tests.** In `test_intake_route.py`,
+  replace every mock of `epics.add_child`, `reparent_child`, `remove_child`,
+  `native_parent_of` and `native_children` with a `FakeSubIssueGraph`
+  fixture that models the same parent-field and listing states, and assert
+  on the graph's end state instead of on the raw calls. Each ported test
+  keeps the behaviour it pinned; none is deleted or weakened. After this
+  step the file names no raw writer.
 
-- [ ] **Step 5: Commit**: `vrg-commit --type feat --scope intake-route --message "route and settle intake items across chained queues"`.
+- [ ] **Step 5: Validate**: `vrg-container-run -- vrg-validate` passes.
+
+- [ ] **Step 6: Commit**: `vrg-commit --type feat --scope intake-route --message "route and settle intake items across chained queues"`.
 
 ### Task 9a: the audit's read side (vergil-tooling)
 
@@ -706,7 +818,7 @@ Spec §4.1 (consumers skip continuations), §4.2 (no raw queries), §4.7
 ### Task 9b: the sweep's writes (vergil-tooling)
 
 Spec §4.6 (every close closes the chain), §4.7 (nudge, heals, orphans).
-Blocked by 9a.
+Blocked by 9a and 10 (readers before writers).
 
 **Files:**
 
@@ -716,7 +828,9 @@ Blocked by 9a.
 - Modify: `src/vergil_tooling/bin/vrg_epic_audit.py`
 - Modify: `docs/site/docs/standards/github-issues.md` (the orphan pass: the
   nudge replaces the stop; the chain heals)
-- Test: `tests/vergil_tooling/test_epic_audit.py`, `test_vrg_epic_audit.py`
+- Test (new tests, and the existing raw-writer mocks ported to
+  `FakeSubIssueGraph`): `tests/vergil_tooling/test_epic_audit.py`,
+  `test_vrg_epic_audit.py`
 
 **Interfaces:**
 
@@ -749,9 +863,15 @@ Blocked by 9a.
 - [ ] **Step 3: Implement**: `StandingEpicFull` is removed; `_QueueCapacity`
   only counts, for the nudge.
 
-- [ ] **Step 4: Validate**: `vrg-container-run -- vrg-validate` passes.
+- [ ] **Step 4: Port the existing tests.** In both test files, replace every
+  `epics.add_child` and `reparent_child` mock and its `assert_called_*` with
+  a `FakeSubIssueGraph` fixture and an assertion on the graph's end state.
+  Each ported test keeps the behaviour it pinned; none is deleted or
+  weakened. After this step these files name no raw writer.
 
-- [ ] **Step 5: Commit**: `vrg-commit --type feat --scope epic-audit --message "sweep through chained epics: nudge past the queue cap, heal chains and close them whole"`.
+- [ ] **Step 5: Validate**: `vrg-container-run -- vrg-validate` passes.
+
+- [ ] **Step 6: Commit**: `vrg-commit --type feat --scope epic-audit --message "sweep through chained epics: nudge past the queue cap, heal chains and close them whole"`.
 
 ### Task 10: the remaining readers (vergil-tooling)
 
@@ -794,10 +914,61 @@ Spec §4.2 (readers), §4.1 (lookups). Blocked by 6.
 
 - [ ] **Step 5: Commit**: `vrg-commit --type feat --scope epics --message "read queues, roadmaps, planning closes, advisories and merge-review scopes across the chain"`.
 
+### Task 10b: `vrg-epic-parent` (vergil-tooling)
+
+Spec §4.2 (every raw parent read moves behind the chain layer). Blocked
+by 6.
+
+The plugin skills find a task's epic with `vrg-gh issue view <N> --json
+parent` and the parent's labels, which names a continuation, not its epic,
+for a task in a chain. This command gives them the chain-aware answer.
+
+**Files:**
+
+- Create: `src/vergil_tooling/bin/vrg_epic_parent.py`
+- Modify: `pyproject.toml` (the console script)
+- Create: `docs/site/docs/reference/` page for the command, beside the other
+  CLI pages
+- Test: `tests/vergil_tooling/test_vrg_epic_parent.py`
+
+**Interfaces:**
+
+- Consumes: `epics.parent_of` (chain-aware since Task 6), the head's labels,
+  `epics.standing_kind_of`, `epics.is_proxy`.
+- Produces: `vrg-epic-parent <owner>/<repo>#<N> [--json]`. Plain output is
+  one line, `<head ref> <kind>`, `kind` one of `development`, `proxy`,
+  `ad-hoc`, `intake`, `planning`, `deferred` or another standing kind's
+  name; `--json` prints `{"task", "epic", "kind", "container"}`, with
+  `container` the native parent (the head itself, or the continuation that
+  holds the task). A task with no parent prints `none` (`--json`: `epic`
+  null) and exits 0; a read failure or chain drift exits 1 with its error.
+
+- [ ] **Step 1: Write the failing tests** (on `FakeSubIssueGraph`)
+
+  - `test_task_in_head`: prints the head and its kind; `container` is the
+    head.
+  - `test_task_in_continuation_reports_head`: a task in an intake chain's C2
+    prints the intake head and `intake`; `container` is C2.
+  - `test_proxy_task_kind`: a task under a proxy epic prints `proxy`.
+  - `test_unparented_task`: `none`, exit 0.
+  - `test_chain_drift_exits_1`: an untrusted continuation body → exit 1
+    naming the drift rule.
+
+- [ ] **Step 2: Run them to verify they fail**
+
+  Run: `vrg-container-run -- pytest tests/vergil_tooling/test_vrg_epic_parent.py -v`
+  Expected: FAIL (command does not exist).
+
+- [ ] **Step 3: Implement** the command; it makes no raw read.
+
+- [ ] **Step 4: Validate**: `vrg-container-run -- vrg-validate` passes.
+
+- [ ] **Step 5: Commit**: `vrg-commit --type feat --scope epics --message "add vrg-epic-parent, which names a task's epic and kind across a chain"`.
+
 ### Task 11: lock the raw layer (vergil-tooling)
 
 Spec §4.2 (raw writers private; no raw queries outside the chain layer).
-Blocked by 7, 8, 9b, 10.
+Blocked by 7, 8, 9b, 10, 10b.
 
 **Files:**
 
@@ -805,21 +976,32 @@ Blocked by 7, 8, 9b, 10.
   `remove_child` → `_remove_child`, `reparent_child` → `_reparent_child`;
   their uses in the archive drain stay, as `epics`-internal)
 - Modify: `src/vergil_tooling/lib/epic_chain.py`
+- Modify: every test file that still names a raw writer after Tasks 7, 8
+  and 9b ported theirs: at least `tests/vergil_tooling/test_epics.py` (the
+  raw writers' own tests, moved to the private names) and
+  `test_vrg_epic_create.py`; the implementer greps `tests/` for the public
+  names first and lists every hit in the PR.
 - Create: `tests/vergil_tooling/test_chain_layer_boundary.py`
 
 - [ ] **Step 1: Write the failing test**
 
-  `test_no_raw_subissue_access_outside_chain_layer`: tokenizes every `.py`
+  `test_no_raw_subissue_access_outside_chain_layer`: parses every `.py`
   under `src/vergil_tooling` except `lib/epics.py` and `lib/epic_chain.py`
-  (`tokenize`, so comments are skipped) and asserts that no `NAME` token is
-  `add_child`, `remove_child` or `reparent_child` (or their private forms),
-  and that no `STRING` token matches the GraphQL selections
-  `\bsubIssues\s*[({]`, `\bparent\s*\{\s*number`, `\baddSubIssue\s*\(`,
-  `\bremoveSubIssue\s*\(` or the REST path `/sub_issues`. Docstrings and
-  messages that merely name these (today `intake_route.py:1565-1580`,
-  `epic_audit.py:1599`, `planning_close.py:158`) do not match the
-  selection patterns; the test asserts that too, with those three lines as
-  negative fixtures. A failure lists each file and line.
+  with `ast` (so comments are skipped, and every string form is seen alike:
+  plain, f-string and t-string) and asserts that no `Name` or `Attribute`
+  is `add_child`, `remove_child` or `reparent_child` (or their private
+  forms), and that no string constant, including each literal part of a
+  `JoinedStr` (f-string) or template string, matches the GraphQL
+  selections `\bsubIssues\s*[({]`, `\bparent\s*\{\s*number`,
+  `\baddSubIssue\s*\(`, `\bremoveSubIssue\s*\(` or the REST path
+  `/sub_issues`. Docstrings and messages that merely name these (today
+  `intake_route.py:1565-1580`, `epic_audit.py:1599`,
+  `planning_close.py:158`) do not match the selection patterns; the test
+  asserts that too, with those three lines as negative fixtures. A
+  positive fixture copied from today's `vrg_security_record.py:237`
+  (`f"repos/{intake.owner}/{intake.repo}/issues/{intake.number}/sub_issues"`)
+  must be flagged, as must an f-string GraphQL query with a `subIssues(`
+  selection. A failure lists each file and line.
 
 - [ ] **Step 2: Run it to verify it fails** (on the public names), then
   rename.
@@ -836,7 +1018,7 @@ Blocked by 7, 8, 9b, 10.
 Spec §4.8 (once released and installed). Blocked by 11.
 
 - **Precondition (human-attested):** a vergil-tooling release carrying
-  Tasks 2, 3, 5a, 5b, 5c, 6, 7, 8, 9a, 9b, 10 and 11 is published, its
+  Tasks 2, 3, 5a, 5b, 5c, 6, 7, 8, 9a, 9b, 10, 10b and 11 is published, its
   version and tag named.
 - **Procedure:**
   1. `vrg-release-record check <ref>` exits 0 for each of those tasks. For a
@@ -847,13 +1029,16 @@ Spec §4.8 (once released and installed). Blocked by 11.
      **Human-run steps (need a human identity):** on any other host,
      `vrg-tooling-install <version>`; `vrg-vm update --all` only if a VM
      was not reached by the install stage.
-  3. `python -c "import vergil_tooling.lib.epic_chain"` succeeds in the
-     installed environment, and `vrg-epic-audit --help` runs.
+  3. Check the installed tool itself, not the host's Python (the install is
+     an isolated `uv tool` environment): `vrg-epic-parent --help` runs (the
+     command is new in this release and imports `epic_chain`), and the
+     installed version reported by the tooling matches the release tag.
 - **SUCCESS:** every check passes, recorded with the version and tag.
 
 ### Task 13: re-home #1384's tasks, the live rollover (validation, .github)
 
-Spec §4.8, goals 1, 3, 5 and 7. Blocked by 12.
+Spec §4.8, goals 1, 3, 5 and 7. Blocked by 12 and 14 (the skills must read
+a task's epic through the chain before tasks move into a continuation).
 
 - **Precondition (machine probe):** vergil-project/.github#1384 is open
   (`vrg-gh issue view 1384 --repo vergil-project/.github --json state`). Its
@@ -867,8 +1052,9 @@ Spec §4.8, goals 1, 3, 5 and 7. Blocked by 12.
      comment.
   3. `vrg-epic-audit --epic vergil-project/.github#1384` lists all 14, shows
      `containers: 2`, and reports no chain drift.
-  4. The epic sweep's next run (`ops.yml`, or `vrg-epic-audit` in its sweep
-     mode) reports #1384 as a chained development epic, not a failure.
+  4. The epic sweep's next run (`epic-sweep.yml`, by `workflow_dispatch` or
+     its next scheduled run) reports #1384 as a chained development epic,
+     not a failure.
   5. Tell the #1384 driver the hand tracking can be dropped; note it on
      #1384.
 - **Fallback (if #1384 has closed):** the 14 tasks stay where they are
@@ -880,5 +1066,40 @@ Spec §4.8, goals 1, 3, 5 and 7. Blocked by 12.
   rollup close the chain, confirming head-first.
 - **SUCCESS:** the rollover line, the head comment and the audit output are
   recorded in the result comment, with no item left outside the chain.
+
+### Task 14: the plugin skills read a task's epic through the chain (vergil-claude-plugin)
+
+Spec §4.2 (every raw parent read moves behind the chain layer). Blocked by
+12: the skills run the installed tooling, so `vrg-epic-parent` must be
+released and installed first.
+
+**Files:**
+
+- Modify: `skills/issue-implement/SKILL.md` (the planning, intake and
+  deferred gate, today `vrg-gh issue view <N> --json parent` and the
+  parent's labels)
+- Modify: `skills/merge-review/SKILL.md` (finding the task's epic and its
+  design sources)
+- Modify: `skills/epic-create/SKILL.md` (finding where an issue stands, in
+  Entry points)
+- Modify: `skills/epic-retrospective/SKILL.md` (labelling a task as a proxy
+  task)
+
+- [ ] **Step 1: Find every raw parent read.** Grep `skills/` and `agents/`
+  for `--json parent` and for prose that tells the agent to read a task's
+  native parent and then its labels. Every hit is either changed in Step 2
+  or named in the PR with why it can stay (a read of an issue that is never
+  in a chain).
+
+- [ ] **Step 2: Replace each read** with `vrg-epic-parent <ref>` (or
+  `--json` where the skill needs the container), and each check of the
+  parent's labels with the `kind` it prints. merge-review takes the epic's
+  Documents section from the head that `epic` names, never from the
+  container. epic-retrospective labels a task as a proxy task only when
+  `kind` is `proxy`.
+
+- [ ] **Step 3: Validate**: `vrg-container-run -- vrg-validate` passes.
+
+- [ ] **Step 4: Commit**: `vrg-commit --type feat --scope skills --message "read a task's epic and kind with vrg-epic-parent, so a task in a chained epic is judged by its epic"`.
 
 ## Evolution during execution

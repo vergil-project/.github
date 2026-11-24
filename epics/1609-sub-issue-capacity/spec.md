@@ -183,10 +183,14 @@ are the builder's to refine):
 - `close_chain(head)`: close the head first, then every continuation (§4.6).
 - **A closed continuation in an open chain** (closed by hand, say) is not
   drift and never blocks the chain. Readers still walk it and flatten its
-  items; writers skip it for first fit and never link into it; and when its
-  successor is missing, rollover links the next continuation into the last
-  open container instead. The audit reports it as a note, naming it, and
-  nothing reopens it (closed is closed, below).
+  items, and writers skip it for first fit and never link an item into it.
+  When it has no successor and every open container is full, rollover links
+  the next continuation into the closed continuation itself: the one link a
+  closed container takes, which leaves it closed. If GitHub refuses a link
+  under a closed parent, the writer instead refuses by name, naming the
+  closed continuation and saying a person may reopen or unlink it, and
+  create-then-link commands refuse before creating. The audit reports it as
+  a note, naming it, and nothing reopens it (closed is closed, below).
 - `unlink_from(head, task)`: unlink *task* from whichever container of the
   chain it is linked in.
 - `chain_contains(head, task)`: whether *task* is linked anywhere in the chain.
