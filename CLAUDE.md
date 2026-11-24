@@ -80,8 +80,8 @@ It is also the fleet's planning home:
   public repos, are issues here. Drive an epic with the `epic-create`,
   `epic-implement` and `epic-retrospective` skills.
 - Its workflows run the pull-request quality and security checks
-  (`ci.yml`), the daily GitHub config audit (`ops.yml`), the event-driven
-  epic rollup (`epic-rollup.yml`) and the daily epic sweep
+  (`ci.yml`), the daily GitHub config and agent merge audits (`ops.yml`),
+  the event-driven epic rollup (`epic-rollup.yml`) and the daily epic sweep
   (`epic-sweep.yml`).
 
 Commit with `vrg-commit`.

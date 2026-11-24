@@ -25,7 +25,7 @@ organization.
 | `epics/<N>-<slug>/` | Each epic's spec, plan and retrospective (`epics/archive/` is a record of abandoned attempts) |
 | `docs/` | Older specs and plans (`docs/specs/`, `docs/plans/`) and security snapshots (`docs/security/`) |
 | `.github/workflows/ci.yml` | CI for this repo |
-| `.github/workflows/ops.yml` | Daily GitHub config audit |
+| `.github/workflows/ops.yml` | Daily GitHub config audit and agent merge audit |
 | `.github/workflows/epic-rollup.yml` | Closes an epic when its last task closes |
 | `.github/workflows/epic-sweep.yml` | Daily sweep that closes epics and tasks a rollup missed |
 | `.github/dependabot.yml` | Report-only Dependabot config for GitHub Actions, managed by vergil-tooling (alerts only, never opens PRs) |
