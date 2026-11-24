@@ -138,7 +138,7 @@ Repos: `T` vergil-tooling, `P` vergil-claude-plugin, `A` vergil-actions, `G`
 | 13 | The audit job (A) | A | task | 4, 12 |
 | 13r | Release vergil-actions with 13 (A) | A | deploy | 13 (A) |
 | 13 | The audit job's callers (G and others) | G, each | task | 13r |
-| 17d | Release tooling: the gates | T | deploy | 15r, 4, 8–12, 12b |
+| 17d | Release tooling: the gates | T | deploy | 15r, 8–12, 12b, vergil-project/vergil-tooling#5117 |
 | 12d | Audit live fleet-wide, marker set, green | G | deploy | 17d, 13r, 13 |
 | 18d | Grant the user App `pull_requests: write` | — | deploy | 2d, 12d |
 | 15b | The implementer owns the PR to merge | P | task | 15a, 18d |
@@ -146,7 +146,7 @@ Repos: `T` vergil-tooling, `P` vergil-claude-plugin, `A` vergil-actions, `G`
 | 15d | `hoshin` on the protected-change approval (dropped) | P | task | 15e, 18d |
 | 16a | Consumer CLAUDE.md and permission spec | T | task | 9, 18d |
 | 16b | `.github` CLAUDE.md on the new boundary | G | task | 18d |
-| 21d | Plugin release B and the steering | T, P | deploy | 15b–d, 16a |
+| 21d | Plugin release B and the steering | T, P | deploy | 15b, 15c, 16a, vergil-project/vergil-claude-plugin#1326 |
 | 13 | Logbook registry (docs) (dropped) | docs | task | 21d |
 | 3g | Grant `workflows: write` | — | deploy | 3d, 17d |
 | 19 | Fixture runs (first live agent cycle) | F | fixture | 21d, 3g |
@@ -1185,7 +1185,9 @@ runs no install by hand. After a plugin release, the session still needs
 ## Task 17d (deployment): Release vergil-tooling with the gates
 
 - **Preconditions:** Task 15r done, so merge review already writes records;
-  Tasks 4, 8, 9, 10, 11, 12 and 12b released (the record check above).
+  Tasks 8, 9, 10, 11, 12 and 12b, and the approval removal
+  vergil-project/vergil-tooling#5117, released (the record check above).
+  Task 4 is removed (see Evolution during execution).
 - **Procedure:** the next vergil-tooling release; its record's Install line
   reads `ran`.
 - **Acceptance:**
@@ -1197,8 +1199,10 @@ runs no install by hand. After a plugin release, the session still needs
 
 ## Task 21d (deployment): Plugin release B and the steering
 
-- **Preconditions:** Task 18d done; Tasks 15b, 15c, 15d and 16a released
-  (the record check above).
+- **Preconditions:** Task 18d done; Tasks 15b, 15c and 16a, and the
+  approval removal vergil-project/vergil-claude-plugin#1326, released (the
+  record check above). Task 15d is dropped (see Evolution during
+  execution).
 - **Procedure:** release the plugin and vergil-tooling (for 16a's
   template); each record's Install line reads `ran`.
 - **Acceptance:** an `issue-implement` run on a fixture task submits its PR
@@ -1406,7 +1410,10 @@ human's.
     longer waits for it. Task 19v, vergil-project/vergil-fixture-python-lib#39,
     validates the exemption and the audit only. The global constraints and
     the review focus list drop the approval; those sections and the task
-    text above were edited for it.
+    text above were edited for it. Task 17d's preconditions now wait for
+    vergil-project/vergil-tooling#5117 in place of Task 4, and Task 21d's
+    for vergil-project/vergil-claude-plugin#1326 in place of Task 15d, in
+    their sections and in the delivery table.
   - **Text left as written, superseded by this entry.** The Goal and
     Architecture paragraphs, Task 3g's acceptance, Task 6b's `blobs` field,
     Task 7d's `--kind protected-change` acceptance, Task 15a's protected
