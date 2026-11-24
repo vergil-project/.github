@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1581
 - **Planning issue:** vergil-project/vergil-tooling#3796 (review history is in
   its comments)
-- **Status:** draft
+- **Status:** draft, in design review
 - **Repos:** vergil-tooling, vergil-actions
 - **Related:** planning item vergil-project/.github#593 (the identity-mode
   review for the identity-gated tools, which builds on §4.1); epic
