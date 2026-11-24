@@ -96,11 +96,13 @@ Approach 1 leaves out the plan; approach 3 is premature.
   action anyway, and after which everything the run needs is durable. It is
   not a phase boundary chosen for its own sake: a reset point with no human
   action at it would interrupt an unattended run for nothing.
-- **Plan pushback (step 7).** While walking the human through each plan
-  pushback round, the session checks that the plan has the section and that
-  each named reset point sits at a real human stop in the delivery table,
-  and raises any planned release or human-run step the section leaves out.
-  This mirrors how the walk already holds the plan to "Task sizing".
+- **Plan pushback and alignment (step 7).** While walking the human through
+  each plan pushback round and each alignment round, the session checks that
+  the plan has the section and that each named reset point sits at a real
+  human stop in the delivery table, and raises any planned release or
+  human-run step the section leaves out. Alignment rounds can still change
+  the plan, so the check runs there too. This mirrors how the walk already
+  holds the plan to "Task sizing".
 - The section is prose. Its exact layout is the builder's call (§6), within
   the plan's existing structure.
 - **The name.** The section is called Reset points, not Checkpoints, because
@@ -113,14 +115,21 @@ Approach 1 leaves out the plan; approach 3 is premature.
 - **Reading the reset points.** When step 2 rebuilds state, it reads the
   plan's Reset points section with the rest of the plan. A plan written before
   this epic has none; the run then relies on the judgment rule alone.
+- **Reset points added during execution.** The plan changes during execution
+  only through its `## Evolution during execution` entries. A release or
+  human-run deployment task that an Evolution entry adds is a named reset
+  point, as if the Reset points section listed it, and the entry that adds
+  it says so.
 - **The reset rule.** At a gate where the human must act (run releases, run
   human-run deployment steps, rule on items, or any other "human, do X"
   request), the gate asks for the actions as it does today. The rule applies
   to the **whole gate**: every item the run is blocked on there, not one
-  action alone. Once the human has completed every item **and** the agent
-  has recorded everything that came from them (pasted output, a deployment
-  outcome, a ruling relayed), the agent recommends a reset instead of
-  continuing in the same session:
+  action alone. Once the human has completed every item, the agent has
+  recorded everything that came from them (pasted output, a deployment
+  outcome, a ruling relayed), **and** no run the session dispatched is still
+  in flight, with every finished run's final report taken in and recorded
+  (sweep items posted on the bookend, non-review items relayed or listed),
+  the agent recommends a reset instead of continuing in the same session:
 
   ```text
   /clear
@@ -128,8 +137,9 @@ Approach 1 leaves out the plan; approach 3 is premature.
   ```
 
   Where every item at the gate leaves its own durable record and needs
-  nothing pasted back (a release recorded by `vrg-release`, say), and nothing
-  at the gate is held only in the session, the gate can say so up front:
+  nothing pasted back (a release recorded by `vrg-release`, say), nothing
+  at the gate is held only in the session, and no run the session dispatched
+  is in flight, the gate can say so up front:
   complete these items, then clear and re-invoke rather than saying
   continue. If any item at the gate fails either condition, the reset is
   recommended only after the human reports back and everything is recorded.
@@ -147,9 +157,18 @@ Approach 1 leaves out the plan; approach 3 is premature.
   session: the details of a non-review or follow-up security item, which
   exist only in the conversation. A merge-review security item's details are
   kept on disk in the task's `merge-review/security-<ID>.md`, so they count
-  as recorded and do not block a reset. The agent finishes recording first,
-  or, where an item may only live in the session, does not recommend the
-  reset at that stop.
+  as recorded and do not block a reset. A run still in flight also blocks a
+  reset: its final report, with its non-review items, their security
+  details and its sweep items, comes back only to the session that
+  dispatched it. The agent finishes recording first, or, where an item may
+  only live in the session, does not recommend the reset at that stop.
+- **The batching rationale is recorded at dispatch.** At a batch stop the
+  human may ask why the issues were batched, and the answer must come from
+  what was known when they were batched. So when the agent dispatches a
+  batch, it records in one line why the issues were batched together,
+  durably (for example in the epic comment that already carries items). A
+  fresh run after a reset answers from that record rather than
+  reconstructing a reason.
 - **`/clear`, never `/compact`.** A clear gives a clean rebuild from the
   durable record. A compacted summary can carry stale or wrong state into the
   run.
@@ -157,7 +176,8 @@ Approach 1 leaves out the plan; approach 3 is premature.
 ### 4.3 What does not change
 
 - How `epic-implement` rebuilds its position, its gate contents, its batching
-  and its dispatch rules.
+  and its dispatch rules, except that a batch's rationale is now recorded
+  when it is dispatched (§4.2).
 - The `epic-create` stage model and its own checkpoint pauses.
 - No tool, hook or format changes.
 
