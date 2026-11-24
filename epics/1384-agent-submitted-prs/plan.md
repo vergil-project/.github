@@ -1531,6 +1531,8 @@ human's.
   `INHERIT_ALLOWED` is not widened. vergil-project/vergil-containers#1030
   corrects vergil-containers' test to allow exactly that map.
 - **2026-11-24: Task 17d's "agent submit fails at GitHub" check is
-  waived.** The human waived that acceptance check of Task 17d
-  (vergil-project/vergil-tooling#4788), as covered by Task 18d. Task 17d
-  carries an amendment note.
+  waived.** By the human's ruling N0.17, that acceptance check of Task 17d
+  (vergil-project/vergil-tooling#4788) is waived, as covered by Task 18d
+  (vergil-project/.github#1413), which grants the agent `pull_requests:
+  write` and proves its own submit end to end. Task 17d carries an
+  amendment note.
