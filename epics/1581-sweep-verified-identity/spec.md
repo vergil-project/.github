@@ -99,8 +99,9 @@ today (it is true only when an agent signal is present) and is kept so the
 predicate matches the inline copies #593 replaces. It stays correct under any
 later change to `resolve()`.
 
-This epic uses it in one place (§4.2). The five inline copies stay as they are;
-moving them is #593's.
+This epic uses it in one place (§4.2). The inline copies of the check
+elsewhere in vergil-tooling stay as they are; listing and moving them are
+left to #593.
 
 Tests: one per signal combination that matters, at least each agent signal
 alone, each agent signal alongside a `human` mode signal, `automation`
@@ -196,8 +197,10 @@ tooling's identity check.
 
 When the tasks are filed, a public comment on #593 records that the shared
 agent check (§4.1) ships in this epic and that #593 adopts it. The comment
-names the mechanism only. #593's advisories stay with #593: this epic fixes
-none of them.
+names the mechanism, and the inline copies of the check that
+`origin/develop` holds when it is posted, found by searching the source
+rather than from a fixed list, as a starting point for #593's own inventory.
+The advisories of #593 stay with it: this epic fixes none of them.
 
 ## 5. Rollout
 
@@ -225,8 +228,10 @@ and `VRG_TRUSTED_AUTHORS` variables, are human steps.
    rejects with an error before the flag is checked, so that org's sweep stops
    closing.
 2. **vergil-actions release** moves `v2.1`. Before it, every configured org
-   has an enabled sweep caller and a non-empty `VRG_AUTOMATION_APP` org
-   variable. After it, a sweep run with `VRG_AUTOMATION_APP` set succeeds in
+   has an enabled sweep caller, and its variables and App keys pass the
+   tooling's own checks: `vrg-trusted-authors check --org <org>` and
+   `vrg-trusted-authors app-secrets --org <org>` both exit 0, run by the human
+   (reading org variables needs a human identity). After it, a sweep run with `VRG_AUTOMATION_APP` set succeeds in
    every configured org.
 3. **vergil-tooling:** §4.1 to §4.4, merged only after step 2.
 4. **vergil-tooling release** on the `v2.1` line.

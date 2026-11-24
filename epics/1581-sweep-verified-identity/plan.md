@@ -103,8 +103,12 @@ mnemosys-project/.github`) and named by its full ref here and in every
 `Blocked-by:` once filed.
 
 When the tasks are filed, post the hand-off comment on vergil-project/.github#593
-(spec §4.6) and hand the planning issue's advisories to Task 4, the task that
-fixes them.
+(spec §4.6), naming the inline copies of the fail-closed check that a search
+of vergil-tooling's `src` on `origin/develop` finds then (at planning time
+they included `bin/vrg_finalize_pr.py` and a variant in
+`lib/release/merge.py`). Hand each of the planning issue's advisories to the
+task that fixes it: Task 4 for the gate, Task 3a for the per-org setup
+checks.
 
 ---
 
@@ -181,12 +185,17 @@ Filed with `vrg-issue-create --kind deployment --blocked-by <Task 2>
     `.github` `automation` environment holds `APP_CLIENT_ID` and
     `APP_PRIVATE_KEY`. Set up whatever is missing. `mnemosys-project` is new
     to the sweep, so check it in full.
+  - For each configured org, run `vrg-trusted-authors check --org <org>` and
+    `vrg-trusted-authors app-secrets --org <org>`, and record each exit code
+    in the result comment. Both must exit 0; on any other exit, set up what
+    they report missing and run them again.
 - **Procedure:** list the configured orgs from the trusted-authors
   configuration (`vrg-trusted-authors`). For each, `vrg-gh workflow list
-  --repo <org>/.github --all` shows Epic Sweep in the `active` state. The
-  human attests the variables and keys for each org.
-- **Acceptance:** every configured org has an active Epic Sweep, and its
-  variables and keys are attested.
+  --repo <org>/.github --all` shows Epic Sweep in the `active` state, and the
+  human's recorded exit codes for both checks are 0.
+- **Acceptance:** every configured org has an active Epic Sweep, and
+  `vrg-trusted-authors check` and `vrg-trusted-authors app-secrets` exit 0
+  for it.
 
 ### Task 3: Release vergil-actions and confirm every configured org (deployment)
 
@@ -203,9 +212,12 @@ Filed with `vrg-issue-create --kind deployment --blocked-by <Task 3a>`.
   moves `v2.1`.
 - **Procedure:** for each configured org, take the first `epic-sweep` run
   after the release (scheduled, or `workflow_dispatch` by the human). Confirm
-  that its `epic-sweep` and `report` jobs both succeeded.
+  that its `epic-sweep` and `report` jobs both succeeded. Any difference in
+  how `--close` behaves under the `automation` mode (spec §7) is filed as a
+  vergil-tooling task under this epic, and Task 4 is made blocked by it, so
+  the fix lands before Task 4 merges.
 - **Acceptance:** every configured org has a green `epic-sweep` run on the
-  released `v2.1`.
+  released `v2.1`, and any difference found is filed as a blocker of Task 4.
 
 ### Task 4: The shared agent check and the verified-identity `--close` gate (vergil-tooling)
 
@@ -242,9 +254,9 @@ Filed with `vrg-issue-create --kind deployment --blocked-by <Task 3a>`.
   existing helpers and `_GRAPHQL` / `_viewer`:
   - `test_no_signal_is_false`: `agent_indicated() is False`
   - `test_agent_env_mode_is_true` (parametrized `user`, `audit`)
-  - `test_human_env_with_mode_file_agent_is_true`
-  - `test_human_env_with_app_pem_is_true`
-  - `test_human_env_with_app_id_is_true`
+  - `test_mode_file_agent_is_true`, `test_app_pem_is_true` and
+    `test_app_id_is_true`, each parametrized over the signal alone and the
+    signal alongside `VRG_IDENTITY_MODE=human`
   - `test_verified_automation_without_agent_signal_is_false`: the token is
     `<slug>[bot]`, so the result is `False`
   - `test_automation_failed_verification_raises`: a different login raises
@@ -328,11 +340,14 @@ Filed with `vrg-issue-create --kind deployment --blocked-by <Task 3a>`.
   `test_list_details_refused_under_epic_sweep` in `test_vrg_security_record.py` (it
   sets `VRG_EPIC_SWEEP=1` today): set `GITHUB_ACTIONS=true` instead, assert
   that stderr has `--details is refused under GitHub Actions`, and keep its
-  "plain `list` still works" assertion. In `_list`, the condition becomes
+  "plain `list` still works" assertion. Run `vrg-container-run -- pytest
+  tests/vergil_tooling/test_vrg_security_record.py -q`. Expected: that test
+  fails, since `_list` does not yet refuse under GitHub Actions.
+- [ ] **Step 9b: Change `_list`.** The condition becomes
   `os.environ.get("GITHUB_ACTIONS") == "true"` and the message reads
   `--details is refused under GitHub Actions (GITHUB_ACTIONS is true):
-  advisory text must never reach a log`. Run `vrg-container-run -- pytest
-  tests/vergil_tooling/test_vrg_security_record.py -q`. Expected: pass. Then
+  advisory text must never reach a log`. Run Step 9's command again.
+  Expected: pass. Then
   `vrg-git grep -n VRG_EPIC_SWEEP -- src` prints nothing, and in `tests` the
   only remaining mention is `test_close_ignores_retired_sweep_flag`.
 - [ ] **Step 10: Docs.** Rewrite each mention of `VRG_EPIC_SWEEP` in the three
