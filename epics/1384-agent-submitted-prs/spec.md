@@ -22,9 +22,12 @@
 > **Amended 2026-11-24.** By the human's ruling N0.12 on the epic, the
 > protected core and its protected-change approval are removed: there is
 > no protected-path set, no approval and no registry. Merge review on every
-> PR and the human-approved merge-review exemption stay. §4.2's account of
-> `secrets: inherit` is also corrected (N0.6, N0.7). The sections below are
-> amended in place; the plan's
+> PR and the human-approved merge-review exemption stay. By the same
+> ruling's addition, the human's two submit-time skips, `--human-only` and
+> the merge-review override (`--override-merge-review`), are removed too:
+> merge-review coverage is a record or an approved exemption only. §4.2's
+> account of `secrets: inherit` is also corrected (N0.6, N0.7, N0.16). The
+> sections below are amended in place; the plan's
 > [Evolution during execution](plan.md#evolution-during-execution) records
 > the ruling and the tasks it changes.
 
@@ -126,12 +129,14 @@ release.
   of honest mistakes, backed by layered auditing (§4.8), not for adversarial
   resistance. That seam is named, not hidden. It includes records the agent
   login itself posts: a deliberately falsified merge-review closing comment
-  would pass the checks in §4.6 and §4.8. The human's exemptions and
-  overrides are not in this seam, since an agent cannot post as the human.
-  The seam also includes the gate logic itself, with no path held back for
-  the human (§4.4): a change that weakens a check, in a workflow file,
-  `vergil.toml`, vergil-tooling or the plugin, is caught, if at all, by
-  merge review and by the human-gated release, not by an approval.
+  would pass the checks in §4.6 and §4.8. The human's exemptions are not
+  in this seam, since an agent cannot post as the human. The seam also
+  includes a deliberate weakening of the gate logic itself, in a workflow
+  file, `vergil.toml`, vergil-tooling or the plugin, since no path is held
+  back for the human (§4.4). An honest agent's weakening of a check (§1.1)
+  is not part of the seam: it is a change like any other, worked out in
+  the spec and plan, judged by merge review on every PR and held back from
+  the fleet by the human-gated release, with no approval on it.
 - **Bringing human review back by another route.** If the design makes the
   human approve ordinary PRs, it has failed even if it works. No class of
   change needs the human's approval to merge; only rulings, exemptions and
@@ -140,8 +145,8 @@ release.
   a commit would be voided by every rebase and CI fix, and the same change
   would be reviewed or exempted repeatedly. It is tied to the change
   fingerprint instead (§4.6).
-- **A silent pass.** A failure to read the merge-review record, the
-  exemption or the override refuses the submit. It never lets the PR
+- **A silent pass.** A failure to read the merge-review record or the
+  exemption refuses the submit. It never lets the PR
   through.
 
 ## 4. Design
@@ -238,15 +243,24 @@ of the epic does not wait on it.
 
 **`secrets: inherit`, on purpose and only here.** A job that calls a
 reusable workflow cannot declare an environment, so the caller must still
-pass the secrets the called workflow reads. Within one org, `secrets:
-inherit` carries them, environment secrets included (a probe recorded in
-vergil-actions `cd-release.yml`). Across orgs `inherit` passes nothing, so
-a caller in logical-minds-foundry or mnemosys-project passes the App keys
-to the vergil-actions workflows by name instead. Whether a by-name map
-delivers a secret that exists only in the caller's environment is still to
-be settled by the probe recorded on vergil-project/vergil-tooling#5108. So
-the in-org callers
-of the reusable workflows that read these credentials (`cd-release.yml`,
+pass the secrets the called workflow reads. Two routes carry the App
+keys, environment secrets included, to the called workflow's jobs that
+declare the environment:
+
+- **`secrets: inherit`, within one org.** It works within vergil-project
+  (vergil-project/vergil-fixture-python-lib run 45306218449), and is used
+  only to the allow-listed vergil-actions workflows. Across orgs `inherit`
+  passes nothing.
+- **The two App keys by name**, `APP_CLIENT_ID` and `APP_PRIVATE_KEY`.
+  Keys passed by name reach a called workflow's environment-declaring jobs
+  across orgs and within a repo
+  (logical-minds-foundry/mq-gateway-replay-lab run 45390389192, green with
+  the org keys hidden). A caller in logical-minds-foundry or
+  mnemosys-project passes them by name to the vergil-actions workflows, and
+  a call job passes them by name to its repo's own local reusable workflow,
+  whose receiving jobs declare `environment: automation` (ruling N0.16).
+
+So the vergil-project callers of the reusable workflows that read these credentials (`cd-release.yml`,
 `ops-github-config.yml`, the epic sweep and rollup, the audit workflow, and
 `cd-docs.yml`, `cd-docs-refresh.yml` and `publish-index.yml`, which gained
 the App keys for the ops reporting of epic vergil-project/.github#1494) pass
@@ -339,8 +353,7 @@ the account type checked. A comment by the automation App, a deleted
 account, an outsider, or one edited by anyone outside those roles is not in
 the stream. The human and agent logins come from the trusted-authors
 configuration (`load_trusted_authors()`), never from a second definition.
-Every reader this epic adds, of exemptions, overrides and merge-review
-records, is built on that stream, narrowed to the role it accepts.
+Every reader this epic adds, of exemptions and merge-review records, is built on that stream, narrowed to the role it accepts.
 
 **Verifying a past exemption.** The exchange verifier in `lib/rulings/`
 checks a live exchange, and treats any trusted comment after the response
@@ -410,14 +423,13 @@ submits normally.
    stopped for a ruling the human has answered, and the human's ruling is the
    decision. Submit refuses only a missing record, a record that does not
    cover the head (see "What a merge-review record covers" below), or a run
-   that did not complete (stopped, waiting, fatal or in error). When the
-   human submits an agent-involved PR, the same check applies. The human
-   has an explicit, logged override for that case, for use when no agent
-   session is available to post an exemption.
+   that did not complete (stopped, waiting, fatal or in error). There is no
+   other skip: the human has no override, and no flag marks a PR as the
+   human's own. Coverage is a merge-review record or an approved exemption.
 
-The check applies to every agent-involved PR (§4.8), whoever submits it,
-the human included. A PR that is entirely the human's own carries the
-human's own decision and does not need it.
+Submit runs the check on every submission, whoever submits it and whoever
+recorded the ready state, the human included, since agents write every PR.
+The watch and the audit (§4.8) apply it to every agent-involved PR.
 
 **Re-checked while the PR is open.** Auto-merge stays on when a new commit is
 pushed, so a check made only at submit could be outrun by a later push (a
@@ -695,9 +707,8 @@ anything can pass it, and no instruction ships before its permission.
 
 - The exemption request kind's exact shape (§4.5).
 - Whether `edited` is allowed on the agent's own PR (§4.3).
-- The exact form of the closing comment's record line, and whether the human
-  gets an override
-  (§4.6).
+- The exact form of the closing comment's record line (§4.6). The human
+  gets no override (ruling N0.12).
 - Where the daily audit runs and where it stores its marker (§4.8).
 - Confirming no VM shares a clone with the host (§4.7).
 - Confirming that the restrict-updates rule is available on the org's GitHub
