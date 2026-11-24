@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1581
 - **Planning issue:** vergil-project/vergil-tooling#3796 (review history is in
   its comments)
-- **Status:** draft, in design review
+- **Status:** approved
 
 > **For agentic workers:** each implementation task is one PR, run with
 > `issue-implement`; operational tasks are run with `issue-deploy` or

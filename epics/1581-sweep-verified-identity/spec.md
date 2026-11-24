@@ -3,7 +3,7 @@
 - **Epic:** vergil-project/.github#1581
 - **Planning issue:** vergil-project/vergil-tooling#3796 (review history is in
   its comments)
-- **Status:** draft, in design review
+- **Status:** approved
 - **Repos:** vergil-tooling, vergil-actions, and the `.github` of every
   configured org (§5)
 - **Related:** planning item vergil-project/.github#593 (the identity-mode
