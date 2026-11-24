@@ -151,9 +151,10 @@ Three ways of building the chain were weighed:
 - **A continuation's ref means its head.** GitHub's UI shows a continuation as
   a task's parent, so its ref will be copied into commands. Every command that
   accepts an epic ref (`--epic`, `--parent` and the like) resolves it through
-  the shared ref resolution (`resolve_epic_ref`, `qualify_epic_ref`), which
-  maps a continuation to its head with `head_of` and prints a line saying so.
-  Every kind check then runs against the head.
+  the shared ref resolution, `resolve_epic_ref`, which maps a continuation to
+  its head with `head_of` and prints a line saying so. Every kind check then
+  runs against the head. `qualify_epic_ref` stays a pure string function with
+  no network call; no command takes an epic ref through it alone.
 - **Trust.** A container is accepted as a continuation only when it carries
   the label, its body passes the trust layer, its `Continues:` line names the
   head being walked, and it is a native child of the container before it. Any mismatch is **chain drift**: a
@@ -413,6 +414,10 @@ so a refused move leaves the task where it was.
   review. The sweep's orphan pass keeps its existing cap of 95 open children
   as the "run intake review" signal, but no longer refuses at it: it links
   through the chain and reports the nudge instead.
+- **The sweep reports what it cannot link.** When one item of the sweep's
+  link passes names an epic it cannot link into (a closed epic, or a full
+  one while rollover is off), the sweep reports that item by name, goes on
+  with the rest, and exits non-zero at the end.
 - **Drift is reported.** The audit and the sweep report chain drift (§4.1),
   a full tail with no continuation, duplicate continuations, and a closed head
   with an open continuation (§4.6), each

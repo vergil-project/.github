@@ -111,7 +111,8 @@ vergil-tooling.
   `intake_route` or `proxies.create_proxy`; `ensure_standing_epic` refuses a
   closed one; `vrg-issue-create` refuses a closed epic before creating; the
   audit's reopen fix removed, and the sweep's link passes report a closed
-  epic per item instead of aborting.
+  epic per item instead of aborting; `EpicRefusalError`, the base of every
+  refusal this epic adds, which `cli_main` turns into a one-line exit.
 - **2b** (vergil-claude-plugin): the `epic-create` and `epic-implement`
   skills say a closed proxy is refused, not reopened, and the agent stops
   for the human. Blocked by 2.
@@ -121,7 +122,7 @@ vergil-tooling.
   linking under a closed parent, fixing the depth constant.
 - **5a** (vergil-tooling): `epic_chain` read side, the `continuation` label,
   the chain-drift error, the raw per-container reads and the in-memory
-  sub-issue fake.
+  sub-issue fake. Blocked by 2.
 - **5b** (vergil-tooling): `epic_chain` write side: first-fit `link_into`,
   `move_into`, `unlink_from`, rollover, find-or-create with orphan adoption,
   the depth refusal, the capacity pre-check, the rollover messages and the
@@ -141,14 +142,15 @@ vergil-tooling.
   to the fake. Blocked by 6, 9a, 10.
 - **9a** (vergil-tooling): audit read side: continuation skips, chain-aware
   children and `misplaced_adhoc`, the batched open-issue listing moved into
-  `epics`, drift and orphan reporting, container count. Blocked by 6.
+  `epics`, drift and orphan reporting, container count, and `epic_docs`'s
+  continuation skip. Blocked by 6.
 - **9b** (vergil-tooling): sweep writes: the orphan pass through the chain
   with the nudge, the heals, orphan adoption with a rollup re-run, and
   `close_drift`/`close_proxies` through `close_chain`, its tests ported to
   the fake. Blocked by 9a, 10.
 - **10** (vergil-tooling): the remaining readers (`queue_view`, `roadmap`,
   `planning_close`, `security_records`, `merge_review/request`,
-  `vrg-submit-pr`, `epic_docs`). Blocked by 6.
+  `vrg-submit-pr` and `pr_workflow/batch_rules`). Blocked by 6.
 - **10b** (vergil-tooling): `vrg-epic-parent`, a chain-aware command that
   prints a task's epic and its kind, for the plugin skills. Blocked by 6.
 - **11** (vergil-tooling): the raw layer made private, with a source-scan
@@ -243,14 +245,22 @@ Spec §4.2 (closed is closed), goal 8.
 - Modify: `src/vergil_tooling/lib/epic_audit.py` (remove `reopen_epics_with_open_children`; `nativize_parents` and `attach_orphans` catch `ClosedEpicError` per item), `src/vergil_tooling/bin/vrg_epic_audit.py:300-372` (`_apply_orphan_pass` included)
 - Modify: `src/vergil_tooling/bin/vrg_epic_link.py` (docstring: the reopen-on-late-child rule)
 - Modify: `src/vergil_tooling/bin/vrg_issue_create.py:177` (a state check before `github.create_issue`)
+- Modify: `src/vergil_tooling/lib/cli.py` (`cli_main` maps `EpicRefusalError` to a clean exit 1)
 - Modify: `docs/site/docs/standards/github-issues.md` and `docs/site/docs/reference/cli-tools-overview.md` (every mention of a tooling reopen: the proxy reopen, `vrg-epic-link` reopening a closed epic, and the audit reopening epics closed with an open child; today lines 911, 1137 and 2085-2086 of the reference page), and any other `docs/site/docs/` page a grep for `reopen` finds describing them
-- Test: `tests/vergil_tooling/test_epics.py`, `test_intake_route.py`, `test_proxies.py`, `test_epic_audit.py`, `test_vrg_epic_audit.py`, `test_vrg_issue_create.py`
+- Test: `tests/vergil_tooling/test_epics.py`, `test_intake_route.py`, `test_proxies.py`, `test_epic_audit.py`, `test_vrg_epic_audit.py`, `test_vrg_issue_create.py`, `test_cli.py`, `test_vrg_epic_create.py`
 
 **Interfaces:**
 
-- Produces: `epics.ClosedEpicError(ValueError)` with attribute `epic: IssueRef`
-  and message `epic <slug> is closed; closed epics are not reopened by the
-  tooling`. Later tasks raise it from `link_into` and `move_into`.
+- Produces: `epics.EpicRefusalError(Exception)`, the base of every refusal
+  this epic adds, which `lib/cli.py`'s `cli_main` maps to one
+  `<prog>: <message>` line on stderr and exit 1, with no traceback, as it
+  maps `EpicHomeError` today. Every later error this plan introduces
+  (`ChainDriftError`, `RolloverDisabledError`, `ChainDepthError`,
+  `ChainLimitError`) subclasses it.
+- Produces: `epics.ClosedEpicError(EpicRefusalError, ValueError)` with
+  attribute `epic: IssueRef` and message `epic <slug> is closed; closed
+  epics are not reopened by the tooling`. Later tasks raise it from
+  `link_into` and `move_into`.
 - Produces: `epics.ClosedStandingEpicError(ClosedEpicError)`, raised by
   `ensure_standing_epic` when no open epic has the canonical title and a
   closed one does; its message adds `a person may reopen it by hand`.
@@ -286,10 +296,16 @@ Spec §4.2 (closed is closed), goal 8.
   - `test_issue_create_closed_epic_refused_before_create`
     (vrg-issue-create): `--epic` names a closed epic → exit 1 with
     `ClosedEpicError`'s message, and `github.create_issue` is never called.
+  - `test_cli_main_maps_epic_refusal_to_one_line` (cli): a command raising
+    any `EpicRefusalError` subclass exits 1 with exactly one stderr line,
+    `<prog>: <message>`, and no `Traceback`.
+  - `test_proxy_for_closed_proxy_is_clean_refusal` (vrg-epic-create):
+    `--proxy-for` whose org's proxy is closed → exit 1, one stderr line
+    naming the proxy, no traceback, no reopen.
 
 - [ ] **Step 2: Run them to verify they fail**
 
-  Run: `vrg-container-run -- pytest tests/vergil_tooling/test_epics.py tests/vergil_tooling/test_intake_route.py tests/vergil_tooling/test_proxies.py tests/vergil_tooling/test_epic_audit.py tests/vergil_tooling/test_vrg_epic_audit.py tests/vergil_tooling/test_vrg_issue_create.py -k "closed or reopen" -v`
+  Run: `vrg-container-run -- pytest tests/vergil_tooling/test_epics.py tests/vergil_tooling/test_intake_route.py tests/vergil_tooling/test_proxies.py tests/vergil_tooling/test_epic_audit.py tests/vergil_tooling/test_vrg_epic_audit.py tests/vergil_tooling/test_vrg_issue_create.py tests/vergil_tooling/test_cli.py tests/vergil_tooling/test_vrg_epic_create.py -k "closed or reopen or refusal" -v`
   Expected: the new tests FAIL (reopen still happens).
 
 - [ ] **Step 3: Implement**
@@ -454,7 +470,7 @@ agent only checks and records it.
 ### Task 5a: chain read side and the sub-issue fake (vergil-tooling)
 
 Spec §4.1, §4.2 (`chain_of`, `head_of`, `chain_child_states`,
-`chain_contains`).
+`chain_contains`). Blocked by 2 (`EpicRefusalError`, the base of `ChainDriftError`).
 
 **Files:**
 
@@ -477,7 +493,7 @@ Spec §4.1, §4.2 (`chain_of`, `head_of`, `chain_child_states`,
   in the chain layer.
 - Produces in `epic_chain`:
   - `ITEM_CAP = 99`
-  - `class ChainDriftError(RuntimeError)` with `container: IssueRef` and
+  - `class ChainDriftError(EpicRefusalError, RuntimeError)` with `container: IssueRef` and
     `rule: str` (one of `label`, `untrusted-body`, `continues-mismatch`,
     `not-native-child`, `two-continuations`), message naming both.
   - `@dataclass(frozen=True) class Container: ref: IssueRef; state: str;
@@ -509,6 +525,11 @@ Spec §4.1, §4.2 (`chain_of`, `head_of`, `chain_child_states`,
   - `test_continuation_with_wrong_continues_is_drift`: C2's `Continues:`
     names another head → `ChainDriftError(rule="continues-mismatch")`.
   - `test_continuation_untrusted_body_is_drift`: rule `untrusted-body`.
+  - `test_continuation_missing_label_is_drift`: rule `label`.
+  - `test_continuation_not_native_child_is_drift`: rule `not-native-child`,
+    including a `head_of` case whose `Continues:` line names a head the
+    native walk does not reach. With these, each of the four acceptance
+    rules of spec §4.1 has its own test.
   - `test_two_continuations_under_one_container_is_drift`: rule
     `two-continuations` (5c heals it; readers raise).
   - `test_closed_continuation_is_walked`: C2 closed under an open head; its
@@ -560,11 +581,11 @@ Spec §4.2 (`link_into`, `move_into`, `unlink_from`), §4.3, §4.5, §4.7
     and the head takes up to 100 items (today's limit). Task 11b removes
     it. Every chain test in this and later tasks turns it on with
     `monkeypatch`, except the tests named `*_rollover_disabled_*`.
-  - `class RolloverDisabledError(RuntimeError)`: message `epic <slug> is at
+  - `class RolloverDisabledError(EpicRefusalError, RuntimeError)`: message `epic <slug> is at
     GitHub's limit of 100 sub-issues, and rollover into a continuation is
     not enabled yet`.
   - `MAX_DEPTH: int` (Task 4's `Max depth`)
-  - `class ChainDepthError(RuntimeError)`: message `epic <slug> cannot grow:
+  - `class ChainDepthError(EpicRefusalError, RuntimeError)`: message `epic <slug> cannot grow:
     <items> items in <containers> containers, at GitHub's nesting limit of
     <MAX_DEPTH>; split the epic`. When it rewords GitHub's depth error
     during a `move_into`, the message adds `, or <task>'s own sub-issues
@@ -579,6 +600,11 @@ Spec §4.2 (`link_into`, `move_into`, `unlink_from`), §4.3, §4.5, §4.7
   - `unlink_from(head: IssueRef, task: IssueRef) -> None` (raises
     `ValueError` naming both when the task is not in the chain)
   - `find_or_create_continuation(head: IssueRef, tail: IssueRef) -> IssueRef`
+    (raises `ClosedEpicError` naming the head, before any read of orphans
+    and any write, when the head is closed: an orphan of a closed head is
+    never adopted, and every adoption path goes through this function; a
+    closed *tail* under an open head is the closed-continuation case below,
+    not a refusal)
   - `find_orphans(head: IssueRef) -> list[IssueRef]` (open
     `continuation`-labelled issues in the head's repo whose trusted
     `Continues:` names *head* and that `chain_of(head)` does not reach)
@@ -608,6 +634,9 @@ Spec §4.2 (`link_into`, `move_into`, `unlink_from`), §4.3, §4.5, §4.7
     `_add_child_unchecked` called only in
     `epic_chain.find_or_create_continuation`.
   - `test_link_into_refuses_closed_head`: `ClosedEpicError`, nothing written.
+  - `test_find_or_create_refuses_closed_head`: a closed head with an orphan
+    naming it → `ClosedEpicError`, the orphan is not linked and its body is
+    not rewritten, nothing created.
   - `test_find_or_create_reuses_existing_child_continuation` and
     `test_find_or_create_adopts_orphan`: an orphan naming the head is linked
     into the tail's last slot and its `Container:` line and title rewritten;
@@ -631,9 +660,10 @@ Spec §4.2 (`link_into`, `move_into`, `unlink_from`), §4.3, §4.5, §4.7
     an item in another epic's C2 → the head's depth counts that chain's
     containers (through `_container_parent`), and a chain one container
     short of `MAX_DEPTH` by that count is refused before any write.
-  - `test_development_rollover_is_loud`: stdout has `epic <head> rolled over
-    into continuation <C2> at 99 children; consider splitting it`, and the
-    same text is commented on the head.
+  - `test_development_rollover_is_loud`, parametrised over a development
+    head and a proxy head: stdout has `epic <head> rolled over into
+    continuation <C2> at 99 children; consider splitting it`, and the same
+    text is commented on the head.
   - `test_queue_rollover_prints_review_nudge`: an intake head → stdout has
     `queue <head> rolled over into continuation <C2>; run epic-review
     intake`; no comment on the head.
@@ -642,6 +672,8 @@ Spec §4.2 (`link_into`, `move_into`, `unlink_from`), §4.3, §4.5, §4.7
     `epic <head> rolled over into continuation <C2>`, with no comment on
     the head and no advice to split or review.
   - `test_move_into_is_one_reparent` and `test_unlink_from_finds_container`.
+  - `test_move_into_refuses_closed_head`: `ClosedEpicError`, the task stays
+    where it was, nothing written.
 
 - [ ] **Step 2: Run them to verify they fail**
 
@@ -673,7 +705,7 @@ Spec §4.4, §4.6 (`close_chain`). Blocked by 5b.
   - `heal_full_tail(head: IssueRef, *, own_item: IssueRef | None = None) -> bool`
   - `heal_duplicate_continuations(head: IssueRef) -> bool`
   - `close_chain(head: IssueRef) -> list[IssueRef]` (closed, head first)
-  - `class ChainLimitError(RuntimeError)`: message naming GitHub's limit of
+  - `class ChainLimitError(EpicRefusalError, RuntimeError)`: message naming GitHub's limit of
     100, the container and the item, raised when retries run out.
 
 - [ ] **Step 1: Write the failing tests**
@@ -734,13 +766,18 @@ Spec §4.1 (lookups, ref resolution), §4.2 (public readers), §4.6. Blocked by
 
 - Modify: `src/vergil_tooling/lib/epics.py` (`child_states`,
   `child_states_with_blockers`, `native_children`, `all_children_closed`,
-  `parent_of`, `native_parent_of`, `qualify_epic_ref`, `resolve_epic_ref`,
+  `parent_of`, `native_parent_of`, `resolve_epic_ref`,
   `rollup`, `drain_standing_child`, `plan_standing_drain`,
   `apply_standing_drain`, `_find_epic_by_title`, `standing_kind_of`,
   `queue_kind`, `epic_category`, `unbuildable_parent_kind`)
 - Modify: `src/vergil_tooling/bin/vrg_epic_create.py:166` (`--proxy-for`)
   and `src/vergil_tooling/bin/vrg_epic_docs.py:65` (`set --epic`): parse
   the ref through `resolve_epic_ref`, not raw `parse_issue_ref`
+- Modify: `src/vergil_tooling/bin/vrg_epic_link.py:52`,
+  `src/vergil_tooling/bin/vrg_epic_audit.py:66` and
+  `src/vergil_tooling/lib/intake_route.py:1135`: take the epic ref through
+  `resolve_epic_ref` instead of `qualify_epic_ref`, which stays a pure
+  string function with no network call
 - Modify: `src/vergil_tooling/lib/proxies.py:236-252`
   (`_require_open_development_epic` resolves a continuation to its head
   before its kind checks)
@@ -748,7 +785,8 @@ Spec §4.1 (lookups, ref resolution), §4.2 (public readers), §4.6. Blocked by
   section: the chain, the label and lines, first fit, the messages, the
   depth refusal)
 - Test: `tests/vergil_tooling/test_epics.py`, `test_proxies.py`,
-  `test_vrg_epic_create.py`, `test_vrg_epic_docs.py`
+  `test_vrg_epic_create.py`, `test_vrg_epic_docs.py`, `test_vrg_epic_link.py`,
+  `test_vrg_epic_audit.py`, `test_intake_route.py`
 
 **Interfaces:**
 
@@ -769,6 +807,9 @@ Spec §4.1 (lookups, ref resolution), §4.2 (public readers), §4.6. Blocked by
     naming C2 → the stderr line, and the proxy's `Primary:` line names the
     head; `_require_open_development_epic` called directly with C2 checks
     the head's kind.
+  - `test_epic_link_and_audit_continuation_use_head`: `vrg-epic-link --epic`
+    and `vrg-epic-audit --epic` naming C2 → the stderr line, and each acts
+    on the head; `intake_route` given C2 as its target routes to the head.
   - `test_epic_docs_continuation_uses_head`: `vrg-epic-docs set --epic`
     naming C2 → the stderr line, and the Documents section is written to the
     head's body, never C2's.
@@ -776,7 +817,11 @@ Spec §4.1 (lookups, ref resolution), §4.2 (public readers), §4.6. Blocked by
   - `test_parent_of_item_in_orphan_resolves_without_writing`: an item in an
     orphaned C2 → `parent_of` returns the head named by C2's trusted
     `Continues:` line and reports the drift; the fake records no write.
-  - `test_child_states_spans_chain`.
+  - `test_child_states_spans_chain`,
+    `test_child_states_with_blockers_spans_chain`,
+    `test_native_children_spans_chain` and
+    `test_all_children_closed_spans_chain`: each answers for head and C2
+    together, continuations excluded.
   - `test_rollup_waits_for_open_item_in_continuation`: all head items closed,
     one C2 item open → closing a head item does not close the epic; closing
     the C2 item closes head then C2.
@@ -802,7 +847,7 @@ Spec §4.1 (lookups, ref resolution), §4.2 (public readers), §4.6. Blocked by
 
 - [ ] **Step 2: Run them to verify they fail**
 
-  Run: `vrg-container-run -- pytest tests/vergil_tooling/test_epics.py tests/vergil_tooling/test_proxies.py tests/vergil_tooling/test_vrg_epic_create.py tests/vergil_tooling/test_vrg_epic_docs.py -v`
+  Run: `vrg-container-run -- pytest tests/vergil_tooling/test_epics.py tests/vergil_tooling/test_proxies.py tests/vergil_tooling/test_vrg_epic_create.py tests/vergil_tooling/test_vrg_epic_docs.py tests/vergil_tooling/test_vrg_epic_link.py tests/vergil_tooling/test_vrg_epic_audit.py tests/vergil_tooling/test_intake_route.py -v`
   Expected: the new tests FAIL; the existing ones still pass.
 
 - [ ] **Step 3: Implement.** The reflink fallback in `child_states` and
@@ -1073,6 +1118,10 @@ Blocked by 9a and 10 (readers before writers).
     `test_sweep_closes_open_continuations_of_closed_head`.
   - `test_sweep_adopts_orphan_and_reruns_rollup`: the orphan held the last
     open item, now closed → after adoption the rollup closes the chain.
+  - `test_sweep_reports_orphan_of_closed_head_without_adopting`: an orphan
+    whose `Continues:` head is closed → reported as orphan drift naming the
+    orphan and the closed head, nothing linked, the pass goes on and exits
+    non-zero at the end.
   - `test_sweep_reports_chained_development_epics`: each open development or
     proxy epic with a continuation is a report line, not a failure.
   - `test_close_drift_closes_whole_chain` and
@@ -1368,9 +1417,12 @@ any task can move into a continuation.
   3. `vrg-epic-audit --epic vergil-project/.github#1384` exits 0 (an exit
      of 1 is chain drift, named on stderr), its JSON `children` lists all
      14, and its `containers` is at least 2.
-  4. The epic sweep's next run (`epic-sweep.yml`, by `workflow_dispatch` or
-     its next scheduled run) reports #1384 as a chained development epic,
-     not a failure.
+  4. The epic sweep's next scheduled run (`epic-sweep.yml`) reports #1384
+     as a chained development epic, not a failure. The agent waits for it
+     and reads its log with `vrg-gh run view`. **Human-run step (needs a
+     human identity), optional:** to avoid the wait, the human runs `gh
+     workflow run epic-sweep.yml --repo vergil-project/.github` and names
+     the run; `vrg-gh` refuses `workflow run` for the agent.
   5. Tell the #1384 driver the hand tracking can be dropped; note it on
      #1384.
 - **Fallback (if #1384 has closed):** the 14 tasks stay where they are
