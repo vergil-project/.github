@@ -47,7 +47,12 @@ it is the natural place to reset.
 - An outer driver that starts a fresh session per phase.
 - Any change to how `epic-implement` recovers its position: that already
   works.
-- New tooling or a machine-readable checkpoint format.
+- New tooling or a machine-readable reset point format.
+- The `adhoc` mode of `epic-implement`. Its runs are human-driven and
+  already cleared and re-invoked by hand as a matter of routine, so the reset
+  rule applies only to the development path. Where the adhoc mode reuses the
+  development path's gate step, the rule is stated so that it does not reach
+  adhoc runs.
 
 ### Anti-goals
 
@@ -64,12 +69,12 @@ it is the natural place to reset.
    but `epic-create` takes no part and nothing records where resets are
    expected.
 2. **The plan names the expected resets; `epic-implement` adds judgment.**
-   `epic-create` writes a Checkpoints section into every plan and its plan
+   `epic-create` writes a Reset points section into every plan and its plan
    review checks it; `epic-implement` reads it, recommends a reset at each
-   named checkpoint, and may recommend one at other human stops under the
+   named reset point, and may recommend one at other human stops under the
    same rule. Skill guidance and prose only.
-3. **Machine-readable checkpoints.** A fixed format in the plan, read by a
-   tool (for example `vrg-epic-audit` reporting the next checkpoint). Precise,
+3. **Machine-readable reset points.** A fixed format in the plan, read by a
+   tool (for example `vrg-epic-audit` reporting the next reset point). Precise,
    but it builds machinery before the guidance has been learned.
 
 **Chosen: approach 2.** It makes the plan and the orchestrator work together,
@@ -78,51 +83,60 @@ Approach 1 leaves out the plan; approach 3 is premature.
 
 ## 4. Design
 
-### 4.1 The plan's Checkpoints section (`epic-create`)
+### 4.1 The plan's Reset points section (`epic-create`)
 
 - **Plan writing (step 6).** Every plan `epic-create` writes carries a
-  **Checkpoints** section. It names each planned human stop at which a run is
+  **Reset points** section. It names each planned human stop at which a run is
   expected to reset, each with the plan tasks it follows and what the human
-  does there. The typical checkpoint is a release: the human runs the
+  does there. The typical reset point is a release: the human runs the
   `vrg-release` commands that a deployment task (or a later task) needs as a
   human-gated precondition. Human-run deployment steps are the other common
   kind. A plan with no such stop says so in the section, in one line.
-- **What a checkpoint is.** A point where the run has to stop for a human
+- **What a reset point is.** A point where the run has to stop for a human
   action anyway, and after which everything the run needs is durable. It is
-  not a phase boundary chosen for its own sake: a checkpoint with no human
+  not a phase boundary chosen for its own sake: a reset point with no human
   action at it would interrupt an unattended run for nothing.
 - **Plan pushback (step 7).** While walking the human through each plan
   pushback round, the session checks that the plan has the section and that
-  each named checkpoint sits at a real human stop in the delivery table,
+  each named reset point sits at a real human stop in the delivery table,
   and raises any planned release or human-run step the section leaves out.
   This mirrors how the walk already holds the plan to "Task sizing".
 - The section is prose. Its exact layout is the builder's call (§6), within
   the plan's existing structure.
+- **The name.** The section is called Reset points, not Checkpoints, because
+  `epic-create` already uses "checkpoint" for the end of one of its own
+  stages (`vrg-checkpoint` and its checkpoint pauses). The two are unrelated,
+  and the skills keep the words apart.
 
 ### 4.2 Recommending a reset (`epic-implement`)
 
-- **Reading the checkpoints.** When step 2 rebuilds state, it reads the
-  plan's Checkpoints section with the rest of the plan. A plan written before
+- **Reading the reset points.** When step 2 rebuilds state, it reads the
+  plan's Reset points section with the rest of the plan. A plan written before
   this epic has none; the run then relies on the judgment rule alone.
 - **The reset rule.** At a gate where the human must act (run releases, run
-  human-run deployment steps, or any other "human, do X" request), the gate
-  asks for the action as it does today. Once the human has acted **and** the
-  agent has recorded everything that came from the action (pasted output, a
-  deployment outcome, a ruling relayed), the agent recommends a reset instead
-  of continuing in the same session:
+  human-run deployment steps, rule on items, or any other "human, do X"
+  request), the gate asks for the actions as it does today. The rule applies
+  to the **whole gate**: every item the run is blocked on there, not one
+  action alone. Once the human has completed every item **and** the agent
+  has recorded everything that came from them (pasted output, a deployment
+  outcome, a ruling relayed), the agent recommends a reset instead of
+  continuing in the same session:
 
   ```text
   /clear
   /vergil:epic-implement <epic-ref>
   ```
 
-  Where the human's action leaves its own durable record and needs nothing
-  pasted back (a release recorded by `vrg-release`), the gate can say so up
-  front: run these commands, then clear and re-invoke rather than saying
-  continue. The fresh run checks the human's work as part of rebuilding its
-  state (the tasks closed, the releases recorded), so the reset doubles as
-  that check.
-- **Named checkpoints and judgment.** At a checkpoint the plan names, the
+  Where every item at the gate leaves its own durable record and needs
+  nothing pasted back (a release recorded by `vrg-release`, say), and nothing
+  at the gate is held only in the session, the gate can say so up front:
+  complete these items, then clear and re-invoke rather than saying
+  continue. If any item at the gate fails either condition, the reset is
+  recommended only after the human reports back and everything is recorded.
+  The reset verifies nothing itself: the fresh run rebuilds task state as it
+  does today, and a release that was missed or failed surfaces when the task
+  that depends on it checks its own precondition.
+- **Named reset points and judgment.** At a reset point the plan names, the
   agent always recommends the reset, once the rule's conditions hold. At any
   other human stop it may recommend one under the same rule, on its own
   judgment. In both cases it is a recommendation: the human decides, and may
@@ -130,9 +144,12 @@ Approach 1 leaves out the plan; approach 3 is premature.
 - **Never with session-only state.** The agent never recommends a reset while
   the session holds something not recorded elsewhere: evidence the human
   pasted and the agent has not yet recorded, or details shown only in the
-  session, such as a security item's details at the gate. It finishes
-  recording first, or, where the item may only live in the session, does not
-  recommend the reset at that stop.
+  session: the details of a non-review or follow-up security item, which
+  exist only in the conversation. A merge-review security item's details are
+  kept on disk in the task's `merge-review/security-<ID>.md`, so they count
+  as recorded and do not block a reset. The agent finishes recording first,
+  or, where an item may only live in the session, does not recommend the
+  reset at that stop.
 - **`/clear`, never `/compact`.** A clear gives a clean rebuild from the
   durable record. A compacted summary can carry stale or wrong state into the
   run.
@@ -159,7 +176,7 @@ Approach 1 leaves out the plan; approach 3 is premature.
 
 ## 6. Left to the builder
 
-- The Checkpoints section's exact layout and position in the plan, and the
+- The Reset points section's exact layout and position in the plan, and the
   wording `epic-create` uses to ask for it.
 - The wording of the reset recommendation at each kind of gate, and where in
   `epic-implement`'s step 4 the rule is stated.
