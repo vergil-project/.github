@@ -1390,3 +1390,46 @@ human's.
   `package-cleanup.yml` cleanup and reap-aliases jobs, which the plan did not
   name. The human added it to Task 3d (vergil-project/.github#1410) by a
   scope change on that issue.
+- **2026-11-23: Task 2d drops the live refusal test.** By the human's
+  ruling, a scope change on vergil-project/vergil-tooling#4782 drops the
+  test of GitHub's own enforcement of the `main` update rule as overkill.
+  2d's acceptance is now the fleet-wide converge plus the next human
+  tooling release merging into `main` normally, and the task stays open
+  until that release.
+- **2026-11-23: one converge covered Tasks 2d and 3f.** Both shipped in
+  the same release (v2.1.339), so one `vrg-github-repo-config update` per
+  repo converged both. The issue bodies of
+  vergil-project/vergil-tooling#4782 and #4783 labelled human steps as
+  agent-safe, such as "run the daily config job by hand", which an agent
+  cannot do since `vrg-gh` refuses `workflow run`. #4783's body also
+  lacked the Actions-read precondition from
+  vergil-project/vergil-actions#1387.
+- **2026-11-23: two repos needed unblocking before their Task 3c callers
+  could land.**
+  - mnemosys-project/melete#265: the dev image had no `npm`. Its first fix
+    hung on an interactive `tzdata` prompt, a problem captured fleet-wide
+    as vergil-project/.github#1577.
+  - logical-minds-foundry/mq-resiliency-observability#72: `librt` 0.13.0
+    had no CPython 3.15 wheel for the docs job.
+- **2026-11-23: Task 3d's rulings.** By the human's rulings on
+  vergil-project/.github#1410, the signing keys count as write-capable,
+  and `PROJECT_TOKEN` is deleted everywhere and its PAT revoked. Two tasks
+  were filed:
+  - logical-minds-foundry/mq-resiliency-observability#91, under
+    logical-minds-foundry/.github#422, fixes the `docs` caller in that repo
+    that Task 3c missed.
+  - vergil-project/vergil-actions#1403, under this epic, meets the docs
+    criterion of vergil-project/vergil-actions#1185. Task 3d's SUCCESS
+    waits for it.
+- **2026-11-23: Task 9 gains `recorded_by`.** The Task 8 run
+  (vergil-project/vergil-tooling#4780) found that the ready state records
+  no identity, so submit could not tell an agent-prepared branch from a
+  human one. By the human's ruling, a scope change on
+  vergil-project/vergil-tooling#4785 makes `report-ready` record that
+  identity as `recorded_by`, and a missing or unknown value counts as
+  agent-involved.
+- **2026-11-23: a note for Task 15d.** Once the docs logbook paths are
+  protected, merge review (Task 15a) asks for the protected-change approval
+  itself, so 15d's own `vrg-ruling request --kind protected-change` step
+  must not ask the human a second time. The Task 15e run
+  (vergil-project/vergil-claude-plugin#1202) found this.
