@@ -1096,3 +1096,78 @@ Blocked by 17, 19, 19b.
   visible failure.
 - vergil-tooling's parity test requires its own `cd.yml` to match the
   generated one.
+
+### 2026-11-24: Task 13 closes on live evidence, Task 15 splits, the secret model follows epic 1384
+
+**What changed:**
+
+- **Task 13 (vergil-project/.github#1515) changed scope twice and closed
+  SUCCESS.**
+  - Step 6 counts a red unattended job as expected, so long as it has an
+    ops issue, and leaves out the six repos that left the epic.
+  - The task closes on the live evidence of steps 2 and 6. Steps 1, 3, 4
+    and 5 rest on Task 2b's unit tests and the reporter's fail-red rule,
+    not on failures caused on purpose.
+  - vergil-project/vergil-containers#1013, a real ops issue that was
+    opened, recovered and then closed at the morning review, was recorded
+    as live evidence for steps 1 and 4 and part of step 5.
+- **A dependency on epic vergil-project/.github#1384 was raised, then
+  withdrawn.** The red `docs / report` runs in logical-minds-foundry and
+  mnemosys-project had run on epic 1384's interim `secrets: inherit`
+  callers. Epic 1384's by-name caller fix (logical-minds-foundry/docs#44)
+  made them pass.
+- **Task 15 was split.**
+  - vergil-project/vergil-containers#989 kept the `package-cleanup.yml`
+    App-token dry run.
+  - The `nightly-rebuild-dev` GHCR login moved to
+    vergil-project/vergil-containers#1029. It waited for epic 1384's
+    ruling N0.16, which was B: pass the App keys by name to the repo's own
+    local workflow, whose receiving jobs declare `environment: automation`.
+    `INHERIT_ALLOWED` is unchanged. vergil-project/vergil-containers#1030
+    corrected the test.
+  - Tasks 16 and 16b wait for #1029. Task 17 uses the same by-name route.
+- **Tasks 7, 8, 15 and 18 follow epic 1384's secret model.** The App keys
+  live only in each repo's `automation` environment, and every job that
+  reads them declares it. Same-org callers of vergil-actions workflows
+  pass `secrets: inherit`; cross-org and local callers pass the keys by
+  name.
+- **Task 18 (vergil-project/vergil-actions#1363): N0.1 accepted.** The
+  App-token docs deploy has no `GITHUB_TOKEN` fallback. From Task 19's
+  release (vergil-actions v2.1.95), the six repos that left the epic stop
+  deploying docs until each one's caller task lands. `publish-index`'s
+  deploy keeps `GITHUB_TOKEN`, as a recorded exception for Task 19b.
+- **The documentation-review sweep (vergil-project/vergil-tooling#4938)
+  spawned four per-repo doc tasks** under the epic:
+  vergil-project/docs#183, vergil-project/vergil-actions#1415,
+  vergil-project/vergil-containers#1026 and
+  vergil-project/vergil-claude-plugin#1334. Scope changes widened #1415
+  and the ad-hoc follow-up vergil-project/vergil-actions#1418.
+- **The follow-on brainstorm (vergil-project/.github#1497) filed four
+  planning issues,** in order: vergil-project/.github#1603 (an org-level
+  watcher), vergil-project/.github#1604 (missing jobs),
+  vergil-project/.github#1605 (automated security records) and
+  vergil-project/.github#1606 (splitting `ops.yml`).
+- **Follow-ups filed during execution, outside the plan,** after those in
+  the second entry, all ad hoc: vergil-project/vergil-claude-plugin#1302,
+  vergil-project/vergil-claude-plugin#1303,
+  vergil-project/vergil-claude-plugin#1304,
+  vergil-project/vergil-claude-plugin#1340 and
+  vergil-project/vergil-actions#1418. The `app-id` deprecation the fixture
+  runs saw was triaged to the existing vergil-project/vergil-actions#1243.
+
+**Why:**
+
+- Task 13's second scope change said no red job had happened since the
+  rollout. That was wrong: the search behind it covered only the four
+  orgs' `.github` repos. A search of each whole org by label found #1013.
+- `secrets: inherit` does not cross organizations, so the interim callers
+  passed no App keys to the vergil-actions workflows. The first
+  diagnosis at the epic's gate, that a by-name map cannot reach environment secrets,
+  was wrong: keys passed by name reach a called workflow's jobs that
+  declare the environment.
+- The GHCR login could not land until epic 1384 ruled on how a repo
+  reaches the App keys from its own local reusable workflow. The
+  `package-cleanup.yml` dry run did not need that ruling.
+- The plan's no-fallback rule holds for the docs deploy. The human
+  accepted the six repos' stopped docs deploys as the cost of the caller
+  tasks that left the epic.
