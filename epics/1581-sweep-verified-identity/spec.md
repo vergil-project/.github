@@ -4,7 +4,8 @@
 - **Planning issue:** vergil-project/vergil-tooling#3796 (review history is in
   its comments)
 - **Status:** draft, in design review
-- **Repos:** vergil-tooling, vergil-actions
+- **Repos:** vergil-tooling, vergil-actions, and the `.github` of every
+  configured org (§5)
 - **Related:** planning item vergil-project/.github#593 (the identity-mode
   review for the identity-gated tools, which builds on §4.1); epic
   vergil-project/.github#1064 (the automation identity and its credential
@@ -204,6 +205,17 @@ The sweep installs vergil-tooling from its caller's `v2.1` line pin at run
 time, and runs `ops-epic-sweep.yml` from the `v2.1` tag of vergil-actions. So
 each change reaches the sweep through a release, and releases are human steps.
 
+**Every configured org runs a working sweep.** The orgs in scope are the ones
+the trusted-authors configuration lists (`vergil-project`,
+`logical-minds-foundry`, `mnemosys-project` and `mq-rest-admin-project` at the
+time of writing). An org that is not configured is not in scope; a configured
+org is never excluded. Each one's `.github` calls `ops-epic-sweep.yml` on a
+schedule, and that workflow is enabled. Where an org has no caller, this epic
+adds one, in the same form as `vergil-project/.github`'s `epic-sweep.yml`.
+Where the caller is disabled, it is re-enabled. Re-enabling a workflow, and
+setting an org's `automation` environment secrets and its `VRG_AUTOMATION_APP`
+and `VRG_TRUSTED_AUTHORS` variables, are human steps.
+
 1. **vergil-actions:** the reconcile step also sets `VRG_AUTOMATION_APP`, and
    `docs/site/docs/workflows/ops-epic-sweep.md` lists it in the step's
    environment. With the released tooling this is harmless only in an org
@@ -212,11 +224,10 @@ each change reaches the sweep through a release, and releases are human steps.
    variable reaches the step as an empty string, which the released tooling
    rejects with an error before the flag is checked, so that org's sweep stops
    closing.
-2. **vergil-actions release** moves `v2.1`. Before it, every org whose
-   `.github` calls `ops-epic-sweep.yml` is confirmed to have a non-empty
-   `VRG_AUTOMATION_APP` org variable, or is set up first, or is named as
-   excluded with its reason. After it, a sweep run with `VRG_AUTOMATION_APP`
-   set succeeds in every calling org that is not excluded.
+2. **vergil-actions release** moves `v2.1`. Before it, every configured org
+   has an enabled sweep caller and a non-empty `VRG_AUTOMATION_APP` org
+   variable. After it, a sweep run with `VRG_AUTOMATION_APP` set succeeds in
+   every configured org.
 3. **vergil-tooling:** §4.1 to §4.4, merged only after step 2.
 4. **vergil-tooling release** on the `v2.1` line.
 5. **Validation:** a sweep run on the released tooling completes `--close` as
@@ -235,11 +246,11 @@ gate's human half refuses under GitHub Actions (§4.2).
 - Unit tests for §4.1, §4.2 and §4.4, including each mixed-signal case and the
   failed-verification exit.
 - Step 2's sweep runs prove the workflow change against the released tooling,
-  in every calling org that is not excluded.
+  in every configured org.
 - The sweep-path tests of `--close` run as the verified automation identity
   (§4.3).
-- Step 5's validation proves the new gate in the real sweep, in every org whose
-  `.github` calls `ops-epic-sweep.yml`.
+- Step 5's validation proves the new gate in the real sweep, in every
+  configured org.
 
 ## 7. Left to the builder
 
