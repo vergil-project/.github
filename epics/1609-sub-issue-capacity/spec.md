@@ -49,9 +49,11 @@ not a case to design for.
 4. Concurrent writers cannot break a chain: a lost race heals itself.
 5. A development epic's rollover is loud and stays visible until the epic
    closes. A queue's is reported as the existing nudge to review the queue.
-6. A drained queue's chain shrinks again.
+6. A slot freed anywhere in a chain is reused before the chain grows, so an
+   epic has only as many containers as its peak number of items held at once
+   needs.
 7. The 14 tasks of vergil-project/.github#1384 filed under ad-hoc epics are
-   re-homed under #1384's chain.
+   re-homed under #1384's chain, if #1384 is still open (§4.8).
 
 ### Non-goals
 
@@ -62,6 +64,9 @@ not a case to design for.
 - **Unbounded size.** The chain is linear, so the depth limit bounds it at
   roughly seven or eight containers (about 700 items). Past that the tooling
   refuses (§4.5); nothing lifts the bound.
+- **Shrinking a chain.** A continuation that drains empty stays linked and is
+  reused by later links (§4.3). Empty continuations are harmless; collecting
+  them is left for later, if it is ever needed.
 - **Cross-org overflow.** Proxy epics stay the only cross-org mechanism. A
   proxy can itself have a chain, like any other epic.
 - **Changing the queue-health signal.** How full a queue is allowed to get
@@ -129,6 +134,12 @@ Three ways of building the chain were weighed:
   `standing_kind_of`, `roadmap.gather`, the planning queue view) must
   therefore never find a continuation, and a continuation's kind is always its
   head's.
+- **A continuation's ref means its head.** GitHub's UI shows a continuation as
+  a task's parent, so its ref will be copied into commands. Every command that
+  accepts an epic ref (`--epic`, `--parent` and the like) resolves it through
+  the shared ref resolution (`resolve_epic_ref`, `qualify_epic_ref`), which
+  maps a continuation to its head with `head_of` and prints a line saying so.
+  Every kind check then runs against the head.
 - **Trust.** A container is accepted as a continuation only when it carries
   the label, its body passes the trust layer, its `Continues:` line names the
   head being walked, its `Container:` number is the next in sequence, and it is
@@ -147,27 +158,42 @@ are the builder's to refine):
   checks the `Continues:` line agrees.
 - `chain_child_states(head)`: the flattened children across the chain, in
   container order, continuations excluded.
-- `link_into(head, task)`: link *task* into the chain's tail, rolling over
-  first when the tail is full (§4.3, §4.4). It keeps `add_child`'s
-  reopen-on-late-child rule: a closed head is reopened, and so is a closed
-  continuation it writes into.
+- `link_into(head, task)`: link *task* into the first container with a free
+  item slot, rolling over first when none has one (§4.3, §4.4). It keeps
+  `add_child`'s existing reopen-on-late-child rule for a closed head.
 - `move_into(head, task)`: atomically move *task* from wherever it is into the
-  chain's tail (`replaceParent`, as `reparent_child` does today), with the same
-  rollover.
+  first container with a free item slot (`replaceParent`, as `reparent_child`
+  does today), with the same rollover. Closed is closed: it refuses a closed
+  head, naming it, and never reopens one. Moves are between live epics (from
+  one standing queue to another, or into an open development epic).
+- With no shrink, a continuation closes only with its head (§4.6), so an open
+  head never has a closed continuation; a chain walk that finds one reports
+  it as chain drift.
+- `unlink_from(head, task)`: unlink *task* from whichever container of the
+  chain it is linked in.
 - `chain_contains(head, task)`: whether *task* is linked anywhere in the chain.
+
+**The chain layer owns writes as well as reads.** The raw writers
+(`add_child`, `remove_child`, `reparent_child`) become private to `epics` and
+`epic_chain`; every caller outside them links, moves and unlinks only through
+`link_into`, `move_into` and `unlink_from`. A raw writer paired with a
+chain-aware reader would act on the head for an item that sits in a
+continuation, so no public raw writer remains.
 
 **The existing public readers become chain-aware.** `child_states`,
 `child_states_with_blockers`, `native_children`, `all_children_closed`,
 `parent_of` and `native_parent_of` (as seen by callers outside the chain
 layer) answer for the chain: children of a head are the chain's, and a task's
 parent is its head. The raw, per-container reads stay private to `epics` and
-`epic_chain`. So every existing caller is correct without each one being
-rewritten. The callers that read or write children today, all of which move
+`epic_chain`. The callers that read or write children today, all of which move
 to the chain-aware form, are:
 
-- linking: `vrg-epic-link`, `vrg-issue-create`, `vrg-intake-create`,
-  `vrg-security-record`, `vrg-epic-move`, `intake_route`, `ops_report`, the
-  epic sweep's orphan pass and its re-links (`epic_audit`);
+- linking, moving and unlinking (every caller of `add_child`, `remove_child`
+  or `reparent_child` today): `vrg-epic-link`, `vrg-issue-create`,
+  `vrg-intake-create`, `vrg-security-record`, `vrg-epic-move`, `intake_route`
+  (its links, re-parents, the unlink before a transfer and the stale-listing
+  cleanup), `ops_report`, the epic sweep's orphan pass and its re-links
+  (`epic_audit`);
 - reading: `epic_audit` (including `epic_children` with its proxies),
   `queue_view`, `roadmap`, `planning_close`, `security_records`,
   `merge_review/request`, `vrg-submit-pr`;
@@ -179,17 +205,36 @@ view.
 
 ### 4.3 Rollover
 
-- **When:** a writer rolls over before linking when the tail already holds 99
-  children. GitHub counts **every** child, open and closed, so the count is of
-  all children, not only open ones.
+- **First fit.** A writer links an item into the first container, in chain
+  order, that holds fewer than 99 items. Items are never in any order across
+  containers, and nothing reads them in one: every reader sees the flattened
+  list. A slot freed by a drain or a move is therefore reused before the chain
+  grows.
+- **The count is cheap.** A container's item count is its sub-issue total
+  (GitHub's count, without listing the children), less one when it holds a
+  continuation. GitHub counts **every** child, open and closed, so the count is
+  of all children, not only open ones.
+- **When:** a writer rolls over only when every container in the chain holds
+  99 items.
 - **How:** find-or-create the next continuation, then link it into the tail's
   last slot, then link the item into it. Find-or-create first looks for an
-  existing continuation child of the tail (a concurrent writer's), so two
-  rollovers do not normally make two.
+  existing continuation child of the tail (a concurrent writer's), then for an
+  **orphaned continuation** of this head (below), and creates one only when it
+  finds neither, so two rollovers do not normally make two.
 - **Order matters for safety:** the item is linked only after its container is
-  in place, so a writer that dies mid-rollover leaves at worst an empty,
-  correctly linked continuation (which the shrink pass removes, §4.6), never an
-  unlinked item.
+  in place, so a writer that dies mid-rollover never leaves an unlinked item.
+  It can leave an empty, correctly linked continuation (which later links fill,
+  by first fit), or a continuation that was created but never linked.
+- **Orphaned continuations.** A continuation that is open but cannot be
+  reached from the head its `Continues:` line names (created by a writer that
+  died before linking it, by a rollover or by a §4.4 heal, which may leave an
+  item in it) is an orphan. Find-or-create adopts one by linking it into the
+  tail's last slot, and the epic sweep does the same for any it finds (§4.7).
+  An orphan is adopted only when it passes the §4.1 trust rules other than
+  the native link: the label, a trusted body and a `Continues:` line naming
+  this head. Its `Container:` line is rewritten to its place in the chain as
+  it is linked. One that fails a rule is reported as chain drift and never
+  adopted.
 
 ### 4.4 Races
 
@@ -200,12 +245,20 @@ locking:
   sub-issue limit error is never surfaced raw: the writer re-reads the tail,
   rolls over and retries, a bounded number of times. Only when the retries run
   out does it fail, naming the limit, the container and the item.
-- **A full container with no continuation** (two writers each saw 98 and both
-  linked, taking slot 100): after every link the writer reads the container
-  back. If it holds 100 children and no continuation, the writer whose item it
-  just linked moves that item out (unlink), links a continuation into the freed
-  slot (find-or-create), and links its item there. Whoever finds the state
-  heals it.
+- **A full tail with no continuation** (two writers each saw 98 items in the
+  tail and both linked, taking slot 100). Only the tail can reach this state:
+  any other container already holds its continuation, so a racing link there
+  would be a 101st child, which GitHub refuses (the bullet above). After every
+  link into the tail the writer reads it back, and any writer, or the epic
+  sweep, that finds the tail at 100 children with no continuation heals it,
+  with no step that leaves an item outside a container:
+  1. find-or-create the continuation (unlinked for the moment);
+  2. move one item from the tail into it with an atomic re-parent
+     (`replaceParent`), which frees a slot: the item this writer just linked,
+     or, for a writer with no item of its own (the sub-issue list can lag
+     behind writes, so the filler's read-back may have missed the state),
+     the tail's newest item;
+  3. link the continuation into the freed slot.
 - **Two continuations under one container** (two writers both created one):
   the writer that finds it after its own link keeps the lower-numbered issue,
   moves any items from the other into it, and closes the other as not planned
@@ -234,7 +287,7 @@ cannot fail for capacity short of the depth limit.
 re-parent) instead of removing the current link and then adding the new one,
 so a refused move leaves the task where it was.
 
-### 4.6 Rollup, drain and shrink
+### 4.6 Rollup and drain
 
 - **Rollup.** `rollup(task)` resolves the task's head (`head_of(parent)`). A
   finite epic closes only when every item across its chain is closed and
@@ -245,12 +298,10 @@ so a refused move leaves the task where it was.
   kind, not the continuation's, so a closed item drains to its archive from
   any container. The batch drain (`apply_standing_drain`) reads the whole
   chain.
-- **Shrink.** The epic sweep closes any continuation that holds no items
-  (only, at most, its own successor), re-linking its successor under its
-  predecessor with an atomic re-parent first, then closing it as completed with
-  a comment. The head is never removed. New items always go into the tail, so
-  a shrunken chain is simply shorter; items are never moved back toward the
-  head to fill freed slots.
+- **No shrink.** Nothing removes a continuation that drains empty. It stays
+  linked, and first fit (§4.3) reuses its slots once the containers before it
+  are full again. Items are never moved between containers to compact a
+  chain.
 
 ### 4.7 Visibility
 
@@ -268,8 +319,13 @@ so a refused move leaves the task where it was.
   as the "run intake review" signal, but no longer refuses at it: it links
   through the chain and reports the nudge instead.
 - **Drift is reported.** The audit and the sweep report chain drift (§4.1),
-  a full container with no continuation, and duplicate continuations, each
+  a full tail with no continuation, and duplicate continuations, each
   naming the containers, as link drift is reported today.
+- **Orphans are found.** The audit and the sweep list every open issue
+  labelled `continuation` in the home repo and check that each can be reached
+  from the head its `Continues:` line names. The sweep adopts each orphan that
+  passes the trust rules (§4.3) and reports it; the audit reports it; one that
+  fails them is reported as chain drift.
 
 ### 4.8 Re-homing #1384's tasks
 
@@ -278,9 +334,11 @@ vergil-project/.github#1384's Task 13 filed under ad-hoc epics (listed on the
 planning issue) are moved into #1384's chain with `vrg-epic-move`, which rolls
 that epic over. This is the first live rollover of a development epic and so its
 end-to-end check: afterwards `vrg-epic-audit --epic vergil-project/.github#1384`
-lists all of them, and the epic's driver drops the hand tracking. If #1384 has
-closed by then, the move reopens it (the reopen-on-late-child rule) and its
-rollup closes it again once they are all closed.
+lists all of them, and the epic's driver drops the hand tracking. This runs
+only while #1384 is open. If it has closed by then, closed is closed
+(`move_into` refuses it, §4.2): the 14 tasks stay under their ad-hoc epics,
+the retrospective of #1384 records them, and the live check of a development
+epic's rollover is made another way, which the plan names.
 
 ### 4.9 Documentation
 
