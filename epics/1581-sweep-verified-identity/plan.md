@@ -73,14 +73,16 @@ Zensical/Markdown docs (vergil-actions).
 | 4 | `vergil-tooling` | task | Shared check, `--close` gate, flag retired, `--details` re-anchored, docs, tests | 3 |
 | 5 | `vergil-tooling` | validation | Released tooling's sweep closes as automation in every calling org | 4 |
 | 6 | `vergil-actions` | task | Drop `VRG_EPIC_SWEEP`; rewrite the workflow page's authorization text | 5 |
-| 7 | `vergil-tooling` | task | Documentation review (vergil-project/vergil-tooling#5100) | 6 |
-| 8 | `.github` | retrospective | Retrospective (vergil-project/.github#1583) | all others |
+| 7 | `vergil-actions` | deployment | vergil-actions release carries Task 6 | 6 |
+| 8 | `vergil-tooling` | task | Documentation review (vergil-project/vergil-tooling#5100) | 7 |
+| 9 | `.github` | retrospective | Retrospective (vergil-project/.github#1583) | all others |
 
 Task 3 is a deployment task: its closure is the signal that the workflow change
 is live in `v2.1`, which Task 4 needs before it merges (spec §5 step 3). No
 deployment task is needed for vergil-tooling: the sweep installs the newest
 `v2.1.Z` tag at run time, so the release itself is the deploy, a human
-precondition of Task 5.
+precondition of Task 5. Task 7 is the deployment task that confirms the epic's
+end state: the `v2.1` tag every caller pins no longer sets `VRG_EPIC_SWEEP`.
 
 When the tasks are filed, post the hand-off comment on vergil-project/.github#593
 (spec §4.6) and hand the planning issue's advisories to Task 4, the task that
@@ -94,7 +96,8 @@ fixes them.
 
 - Modify: `.github/workflows/ops-epic-sweep.yml` (the
   "Reconcile epic/task drift…" step's `env:`)
-- Modify: `docs/site/docs/workflows/ops-epic-sweep.md` (Behavior, step 3)
+- Modify: `docs/site/docs/workflows/ops-epic-sweep.md` (Behavior, step 3; the
+  Variables table)
 
 **Interfaces:**
 
@@ -107,8 +110,10 @@ fixes them.
   automation identity (vergil-tooling `lib/automation_identity`). Keep
   `VRG_EPIC_SWEEP: "1"`; Task 6 removes it.
 - [ ] **Step 2: Update the page.** Behavior step 3 lists `VRG_AUTOMATION_APP`
-  in the step's environment. The authorization paragraph is unchanged here
-  (Task 6 rewrites it).
+  in the step's environment. The Variables table gains a
+  `VRG_AUTOMATION_APP` row: required, read by both the `epic-sweep` and
+  `report` jobs, and an unset or empty org variable fails the reconcile step.
+  The authorization paragraph is unchanged here (Task 6 rewrites it).
 - [ ] **Step 3: Validate.** Run `vrg-container-run -- vrg-validate`. Expected:
   pass, including `actions/ops/github-config/tests/automation-env.test.sh` and
   `actions/shared/setup/vergil/tests/trusted-authors-env.test.sh`.
@@ -170,8 +175,10 @@ Filed with `vrg-issue-create --kind deployment --blocked-by <Task 2>`.
   `_hermetic_identity`, add `monkeypatch.delenv("GITHUB_ACTIONS",
   raising=False)` beside the other identity variables, with a comment that the
   `--close` gate and the `--details` refusal read it. A test that needs it sets
-  it itself. Run `GITHUB_ACTIONS=true vrg-container-run -- pytest
-  tests/vergil_tooling -q`. Expected: the same result as without the variable.
+  it itself. Run `vrg-container-run -- env GITHUB_ACTIONS=true pytest
+  tests/vergil_tooling -q`, which sets it inside the container as CI does
+  (`vrg-container-run` does not forward a host `GITHUB_ACTIONS`). Expected:
+  the same result as without the variable.
 - [ ] **Step 2: Write the failing predicate tests** in `test_identity_mode.py`,
   class `TestAgentIndicated`. The module manages its own signals; use its
   existing helpers and `_GRAPHQL` / `_viewer`:
@@ -216,14 +223,18 @@ Filed with `vrg-issue-create --kind deployment --blocked-by <Task 2>`.
   - `test_report_without_close_unaffected_under_actions`:
     `GITHUB_ACTIONS=true` and no `--close`, so rc is 0 as before
 - [ ] **Step 6: Rewrite the sweep-path tests (spec §4.3).** Every test that sets
-  `VRG_EPIC_SWEEP` (on develop at planning time: `test_close_refused_for_agent`,
+  `VRG_EPIC_SWEEP=1` to pass the gate (on develop at planning time:
   `test_close_allowed_for_scheduled_sweep`, `test_close_sweep_also_drains_adhoc`,
   `test_close_runs_trusted_checks` and the tests near lines 1262, 1301, 1324,
   1403, 1426 and 1497) instead runs with
   `patch(f"{_MOD}.identity_mode.is_automation", return_value=True)`. Its
   `is_human` patch and the flag go. None is deleted, and none falls back to
-  the human path. Then `vrg-git grep -n VRG_EPIC_SWEEP -- src tests` prints
-  nothing.
+  the human path. `test_close_refused_for_agent` is not one of them: it stays
+  a refusal test, keeping `is_human` patched `False`. Only its
+  `VRG_EPIC_SWEEP=""` pin goes, and its stderr assertion matches the new
+  refusal text (Step 8). Then `vrg-git grep -n VRG_EPIC_SWEEP -- src` prints
+  nothing. In `tests`, the only remaining mention is
+  `test_close_ignores_retired_sweep_flag`.
 - [ ] **Step 7: Run and see the gate tests fail.** `vrg-container-run --
   pytest tests/vergil_tooling/test_vrg_epic_audit.py -q`. Expected: the new
   refusal and automation tests fail.
@@ -234,7 +245,9 @@ Filed with `vrg-issue-create --kind deployment --blocked-by <Task 2>`.
   `AutomationIdentityError` prints `vrg-epic-audit: <message>` to stderr and
   returns 1, following `bin/vrg_ops_report.py`'s handling. The refusal message
   names the verified automation identity and a human outside GitHub Actions,
-  and no flag. Delete `_SWEEP_ENV`, `_automated_sweep` and their comments.
+  and no flag. The `--close` argparse help, which today reads "A human action
+  (or the scheduled reconciliation sweep)", states the same rule. Delete
+  `_SWEEP_ENV`, `_automated_sweep` and their comments.
   Run Step 7 again. Expected: pass.
 - [ ] **Step 9: Re-anchor `--details`.** Update
   `test_list_details_refused_under_epic_sweep` in `test_vrg_security_record.py` (it
@@ -250,7 +263,7 @@ Filed with `vrg-issue-create --kind deployment --blocked-by <Task 2>`.
   or a human outside GitHub Actions, and `--details` is refused under GitHub
   Actions. `vrg-git grep -n VRG_EPIC_SWEEP -- docs/site` prints nothing.
 - [ ] **Step 11: Validate and commit.** Run `vrg-container-run --
-  vrg-validate`, then `GITHUB_ACTIONS=true vrg-container-run -- pytest
+  vrg-validate`, then `vrg-container-run -- env GITHUB_ACTIONS=true pytest
   tests/vergil_tooling -q` (Review Focus 1). Expected: both pass. Commit with
   `vrg-commit --type feat --scope identity`.
 
@@ -293,10 +306,26 @@ Filed with `vrg-issue-create --kind validation --blocked-by <Task 4>`.
   --scope ops-epic-sweep`. The push touches `.github/workflows/**`, as in
   Task 2.
 
-### Task 7 and Task 8: Bookends
+### Task 7: Release vergil-actions without the sweep flag (deployment)
 
-- **Task 7** (vergil-project/vergil-tooling#5100): the documentation-review
+Filed with `vrg-issue-create --kind deployment --blocked-by <Task 6>`.
+
+- **Preconditions:**
+  - `vrg-release-record check vergil-project/vergil-actions#<Task 6>` exits 0.
+    For exit 4, the cross-check is the whole check:
+    `vrg-git merge-base --is-ancestor <Task 6 merge sha> <v2.1 tag sha>` exits 0.
+  - Human-attested: the `v2.1` tag of vergil-actions includes Task 6.
+- **Human-run steps (need a human identity):** the vergil-actions release that
+  moves `v2.1`.
+- **Procedure:** in each calling org that Task 3 did not exclude, the first
+  `epic-sweep` run after the release succeeds, and its reconcile step's
+  environment shows no `VRG_EPIC_SWEEP`.
+- **Acceptance:** the green run in every org that is not excluded.
+
+### Task 8 and Task 9: Bookends
+
+- **Task 8** (vergil-project/vergil-tooling#5100): the documentation-review
   sweep, per its issue. It spawns a same-repo doc task for any page outside
   vergil-tooling that still describes the old gate.
-- **Task 8** (vergil-project/.github#1583): the retrospective, with
+- **Task 9** (vergil-project/.github#1583): the retrospective, with
   `epic-retrospective`, once every other task is closed.
