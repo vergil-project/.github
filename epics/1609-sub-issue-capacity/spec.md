@@ -47,8 +47,9 @@ not a case to design for.
 3. A task's epic is its chain's **head**, the epic known by number, wherever in
    the chain the task is linked.
 4. Concurrent writers cannot break a chain: a lost race heals itself.
-5. A development epic's rollover is loud and stays visible until the epic
-   closes. A queue's is reported as the existing nudge to review the queue.
+5. A development or proxy epic's rollover is loud and stays visible until the
+   epic closes. A queue's is reported as the existing nudge to review the
+   queue. Any other standing epic's is reported as a plain line.
 6. A slot freed anywhere in a chain is reused before the chain grows, so an
    epic has only as many containers as its peak number of items held at once
    needs.
@@ -169,8 +170,10 @@ are the builder's to refine):
   head). It walks native parents while the container is a continuation, and
   checks the `Continues:` line agrees. An **orphaned continuation** (§4.3),
   which has no native parent, resolves through its trusted `Continues:` line
-  instead, and the call reports it as drift. `parent_of` and the rollup adopt
-  such an orphan (find-or-create, §4.3) before they answer or judge.
+  instead, and the call reports it as drift. `parent_of` and every other
+  reader resolve such an orphan the same way and never write: only the
+  rollup (before it judges, §4.6) and the sweep (§4.7) adopt it
+  (find-or-create, §4.3).
 - `chain_child_states(head)`: the flattened children across the chain, in
   container order, continuations excluded.
 - `link_into(head, task)`: link *task* into the first container with a free
@@ -209,7 +212,10 @@ are the builder's to refine):
 `epic_chain`; every caller outside them links, moves and unlinks only through
 `link_into`, `move_into` and `unlink_from`. A raw writer paired with a
 chain-aware reader would act on the head for an item that sits in a
-continuation, so no public raw writer remains.
+continuation, so no public raw writer remains. That holds for agents too:
+`vrg-gh` refuses the raw sub-issue flags of `issue edit` (`--parent`,
+`--add-sub-issue`, `--remove-sub-issue`) and points to `vrg-epic-link` and
+`vrg-epic-move`.
 
 **Closed is closed.** No tooling path reopens a closed epic. A development
 epic closes when its work is finished and is never written to again; a
@@ -264,6 +270,11 @@ REST selection of an issue's `parent` or `subIssues` outside `epics` and
 public readers above. That includes `epic_audit`'s `_OPEN_ISSUES_QUERY`,
 whose `parent` field `misplaced_adhoc` keys on (it maps a native parent
 through `head_of`), and `merge_review/request`'s own queries.
+
+**Agent-facing readers too.** The plugin skills that find a task's epic by
+reading its native parent and that parent's labels would misjudge a task in a
+continuation. They find a task's epic and its kind through a chain-aware
+tooling command instead, never a raw parent read.
 
 Whether a given caller wants a reader that also exposes containers (the audit,
 for drift) is the builder's call; the default is the flattened, head-level
@@ -345,8 +356,8 @@ counting the head or not) is confirmed by a live probe during implementation
 and fixed as a constant.
 
 **Create-then-link commands check first.** `vrg-issue-create`,
-`vrg-intake-create` and `vrg-security-record` create an issue and then link
-it. They run the chain layer's capacity check before creating, so the depth
+`vrg-intake-create`, `vrg-security-record` and `ops_report` create an issue
+and then link it. They run the chain layer's capacity check before creating, so the depth
 refusal leaves nothing orphaned. Rollover itself never needs a pre-check: it
 cannot fail for capacity short of the depth limit.
 
@@ -385,10 +396,15 @@ so a refused move leaves the task where it was.
 ### 4.7 Visibility
 
 - **A development epic's rollover is loud.** When `link_into` creates a
-  continuation of an epic that is not a standing queue, the command prints a
-  plain line, for example: `epic vergil-project/.github#1384 rolled over into
+  continuation of a development or proxy epic, the command prints a plain
+  line, for example: `epic vergil-project/.github#1384 rolled over into
   continuation vergil-project/.github#N at 99 children; consider splitting
   it`. It also comments the same on the head, so the epic's record shows it.
+- **Any other standing epic's rollover is a plain line.** For a standing
+  epic that is not a queue (an ad-hoc, hoshin or operations epic), which
+  never closes and cannot be split, the command prints one line saying the
+  epic has rolled over into its continuation, with no advice and no comment
+  on the head.
 - **It stays visible.** `vrg-epic-audit --epic` shows a chained epic's
   container count. The epic sweep reports every open development or proxy
   epic with a continuation, each run, as a report line (not a failure).
@@ -439,6 +455,11 @@ that epic) are updated to say the tooling now rolls over.
   whose body is untrusted is drift, never followed.
 - No silent failures: every refusal, heal and rollover is reported.
 - Existing chains do not exist yet, so there is no migration beyond §4.8.
+- No continuation exists before every reader reads through the chain: every
+  tooling reader, and the plugin skills as released and installed on every
+  host and VM. Rollover therefore ships switched off and is switched on last,
+  in its own release; until then every head stays one container and meets
+  today's 100-child limit, refused by name.
 
 ## 6. Left to the builder
 
