@@ -150,6 +150,13 @@ The read-only report and the `--epic` and `--untrusted` modes are unchanged.
   `docs/site/docs/workflows/ops-epic-sweep.md`, whose step environment and
   authorization paragraph name it (§5 says when each changes). Past release
   notes stay as written.
+- The tests that name the flag: `tests/vergil_tooling/test_vrg_epic_audit.py`
+  and `tests/vergil_tooling/test_vrg_security_record.py`. Each test that
+  exercises the sweep's `--close` passes (drift close, archive drain, orphan
+  and proxy passes) is rewritten to run as the verified automation identity
+  (`VRG_AUTOMATION_APP` set with the verification mocked, or `is_automation`
+  patched). None is dropped, and none is left passing through the human half,
+  which the test fixtures' cleared signals would otherwise resolve to.
 
 ### 4.4 The `--details` refusal
 
@@ -199,10 +206,17 @@ each change reaches the sweep through a release, and releases are human steps.
 
 1. **vergil-actions:** the reconcile step also sets `VRG_AUTOMATION_APP`, and
    `docs/site/docs/workflows/ops-epic-sweep.md` lists it in the step's
-   environment. With the released tooling this is harmless: it resolves
-   `automation`, and the flag still authorizes `--close`.
-2. **vergil-actions release** moves `v2.1`; a sweep run after it succeeds
-   with `VRG_AUTOMATION_APP` set.
+   environment. With the released tooling this is harmless only in an org
+   whose org-level `VRG_AUTOMATION_APP` variable is set and non-empty: there
+   it resolves `automation`, and the flag still authorizes `--close`. An unset
+   variable reaches the step as an empty string, which the released tooling
+   rejects with an error before the flag is checked, so that org's sweep stops
+   closing.
+2. **vergil-actions release** moves `v2.1`. Before it, every org whose
+   `.github` calls `ops-epic-sweep.yml` is confirmed to have a non-empty
+   `VRG_AUTOMATION_APP` org variable, or is set up first, or is named as
+   excluded with its reason. After it, a sweep run with `VRG_AUTOMATION_APP`
+   set succeeds in every calling org that is not excluded.
 3. **vergil-tooling:** §4.1 to §4.4, merged only after step 2.
 4. **vergil-tooling release** on the `v2.1` line.
 5. **Validation:** a sweep run on the released tooling completes `--close` as
@@ -220,7 +234,10 @@ gate's human half refuses under GitHub Actions (§4.2).
 
 - Unit tests for §4.1, §4.2 and §4.4, including each mixed-signal case and the
   failed-verification exit.
-- Step 2's sweep run proves the workflow change against the released tooling.
+- Step 2's sweep runs prove the workflow change against the released tooling,
+  in every calling org that is not excluded.
+- The sweep-path tests of `--close` run as the verified automation identity
+  (§4.3).
 - Step 5's validation proves the new gate in the real sweep, in every org whose
   `.github` calls `ops-epic-sweep.yml`.
 
