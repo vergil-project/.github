@@ -31,7 +31,8 @@ runs.
 - One PR path: every PR the tooling opens into `develop` goes through one
   submit path, which always arms auto-merge. Submitting a PR asserts it is
   ready for `develop`; from there its merge is automatic, and no tool merges
-  a PR into `develop` itself.
+  a PR into `develop` itself, except the path's own merge of a PR GitHub
+  will not arm because it can already merge (§5.4).
 - No PR merges into `develop` between a release's cut and its end, other
   than the lock holder's own back-merge and dependency-update PRs.
 - Agents never wait on a release except at the merge; CI runs on their PRs
@@ -187,6 +188,10 @@ The epic is built in two phases, after one standalone fix:
    re-checks are removed (§5.1).
 2. **The release lock** (the rest of this section), built on that path.
 
+The phases stay in one epic. Phase 1 has its own exit criteria, stated in
+the plan, and every phase 2 task is blocked by the phase 1 tasks that meet
+them.
+
 ### 5.1 The invariant
 
 **An open, non-draft PR into `develop` always has auto-merge on, except
@@ -233,8 +238,9 @@ workflow: sweeps skip them, and the audit (§5.9) flags them as invalid.
 - **Updating it** (stage, health, heartbeat) is a compare-and-swap push
   against the value the holder last wrote, so a holder whose lock was broken
   or reclaimed finds out at its next update and stops (§5.6).
-- **Reading it** applies the trusted-author check the relay records use. An
-  untrusted lock commit is treated as held and reported, never as absent.
+- **Reading it** takes the lock as written, with no trusted-author check
+  (§5.10). A lock that cannot be read or parsed is treated as held and
+  reported, never as absent.
 - The release writes the health as it goes: `running` while stages run,
   `broken` with the stage when the pipeline stops on a failure, `running`
   again on `--resume`, and refreshes the heartbeat every few minutes while
@@ -242,37 +248,57 @@ workflow: sweeps skip them, and the audit (§5.9) flags them as invalid.
 - **The lock history** is a second ref, `refs/vergil/release-lock-history`:
   one commit per break, reclaim or supersede takeover, each carrying the old
   lock's contents,
-  who acted, when, and the reason. It is appended by compare-and-swap, read
-  with the same trusted-author check, and is the record of every override
-  whether or not the old lock named a tracking issue.
+  who acted, when, the reason, and for a reclaim the PRs its re-arm sweep
+  armed (§5.9). It is appended by compare-and-swap, and
+  is the record of every override whether or not the old lock named a
+  tracking issue.
 
 ### 5.3 Releasing
 
 `vrg-release` gains two steps around its existing stages:
 
-1. **Lock and quiesce** (before the cut):
-   1. Take the lock. If a lock is held and is not stale (§5.6), refuse,
+1. **Pre-check, lock and quiesce** (before the cut):
+   1. Sync the local `develop` to `origin/develop` under the checkout lock,
+      as preflight does today, and run every preflight gate that judges its
+      head (the pending-deps gate, the develop CD gate, which may wait on an
+      in-progress CD run) against it. A refusal here exits with nothing
+      locked and nothing disarmed. Record the head the gates judged.
+   2. Take the lock. If a lock is held and is not stale (§5.6), refuse,
       naming the holder; this replaces the non-atomic one-release-at-a-time
-      check. If it is stale, reclaim it (§5.6). From here until the
-      tracking issue exists, every refusal and every failure deletes the
-      lock (compare-and-swap against the value this run wrote) before the
-      release exits.
-   2. Wait for every arming ref (§5.4) to clear, deleting any that has
+      check. If it is stale, reclaim it (§5.6).
+   3. Wait for every arming ref (§5.4) to clear, deleting any that has
       expired.
-   3. Turn off auto-merge on every open PR into `develop`.
-   4. Fetch `develop`, then run every preflight gate that judges its head
-      (the pending-deps gate, the develop CD gate, which may wait on an
-      in-progress CD run) against the fetched head, and cut the release from
-      it. The lock comes first so the gates judge exactly what is cut; merges
-      wait meanwhile, CI does not. Everything merged before this point is in
-      the release; everything still in flight stays at its CI gates, CI
-      still running.
-2. **Unlock** (the release's last step, after its other stages succeed):
-   1. Delete the lock ref (compare-and-swap against its last value).
-   2. Run the re-arm sweep: turn on auto-merge, through the arming path
-      (§5.4), on every open, non-draft PR into `develop` with it off.
+   4. Turn off auto-merge on every open PR into `develop`. From here on
+      `develop` cannot move.
+   5. Sync `develop` again. If its head is the one the gates judged, cut
+      the release from it with no second gate run. If it moved (a PR merged
+      between the gates and the disarm), run the head-judging gates again
+      against the new head, which can no longer move, and cut from it if
+      they pass. Either way the gates have judged exactly what is cut.
+      Everything merged before the disarm is in the release; everything
+      still in flight stays at its CI gates, CI still running.
 
-The lock is held for the whole release, deliberately. A release that breaks
+   Every exit after the lock is taken and before the tracking issue exists,
+   a refusal or a failure, runs the full unlock path: delete the lock
+   (compare-and-swap against the value this run wrote), then, if the disarm
+   has started, the re-arm sweep. A PR is never left disarmed with no lock
+   held.
+2. **Unlock**, as two tracked stages placed after `release-records` and
+   before `close-tracking`, so the release's tracking issue stays open until
+   both have succeeded:
+   1. `unlock`: delete the lock ref (compare-and-swap against its last
+      value).
+   2. `rearm`: run the re-arm sweep: turn on auto-merge, through the arming
+      path (§5.4), on every open, non-draft PR into `develop` with it off.
+      It is idempotent: a re-run offers only the PRs still unarmed.
+
+   The stages from `unlock` on do not depend on the lock. A release that
+   breaks at `rearm`, or later, stays visible through its open tracking
+   issue, and `--resume` finishes it without looking for a lock. No new
+   release can take the lock in the meantime: preflight refuses while a
+   release tracking issue is open.
+
+The lock is held for the whole release up to `unlock`, deliberately. A release that breaks
 at any stage, a stage after publication included, leaves `develop` frozen
 until it is finished with `--resume` (or the human breaks the lock). A
 broken release is a stop-the-line event: the workflow stops, the release is
@@ -284,16 +310,20 @@ failure modes are well understood.
 The release's own back-merge and dependency-update PRs into `develop` are
 the only PRs that merge while the lock is held: they are the holder's, and
 the release arms them through the one PR path with the holder's pass
-(§5.4). On `--resume`, the release adopts the lock it holds rather than
-taking a new one. It is the holder when the lock names its identity and its
+(§5.4). On `--resume` at a stage before `unlock`, the release adopts the
+lock it holds rather than taking a new one; a resume at `unlock` or later
+takes and adopts no lock. It is the holder when the lock names its identity and its
 tracking issue; the host is recorded for information only, so a resume on
 another machine adopts the lock too.
 
 On `--supersede X.Y.Z`, the new release takes over the superseded release's
 lock instead of taking a new one: a compare-and-swap against the lock's
 current value, so `develop` stays locked throughout and no re-arm sweep
-runs in between. The takeover is recorded in the lock history (§5.2) and on
-both tracking issues. It goes ahead only when the superseded release's lock
+runs in between. The takeover clears the lock's tracking issue ref, and the
+new release writes its own tracking issue into the lock before the
+superseded release's tracking issue is closed, so the lock never names a
+closed issue while the new release runs. The takeover is recorded in the
+lock history (§5.2) and on both tracking issues. It goes ahead only when the superseded release's lock
 shows health `broken` or a heartbeat older than the staleness threshold; a
 release that is `running` with a fresh heartbeat is refused, naming it.
 
@@ -312,16 +342,22 @@ its command line. That covers agents' PRs, a fix pushed by pr-watch,
 `mechanized_pr` and the update-deps merge converge on it rather than
 keeping paths of their own.
 
-- The path always arms auto-merge. It never merges a PR into `develop`
-  itself, and nothing else does either: no code outside it calls
-  `enablePullRequestAutoMerge`, `gh pr merge` or a wait-and-merge against
-  `develop`. A new tool that opens PRs into `develop` uses the path.
+- The path always arms auto-merge, and nothing else merges a PR into
+  `develop`: no code outside it calls `enablePullRequestAutoMerge`,
+  `gh pr merge` or a wait-and-merge against `develop`. A new tool that opens
+  PRs into `develop` uses the path.
+- The one exception is GitHub's own: it refuses to turn auto-merge on for a
+  PR that can already merge (clean status). The path, and only the path,
+  then merges that PR directly, at the head it would have armed and with the
+  method it worked out, as `lib/auto_merge.py` does today. A re-arm sweep
+  takes the same branch, so a PR held green through a release merges at the
+  unlock.
 - The path works out the merge method itself every time it arms, from the
   PR's trusted linkage, as submit does today: rebase for a batch PR (one
   commit per issue), a merge commit for the holder's back-merge and
   dependency-update PRs, and squash otherwise. It refuses to arm a PR whose
   method it cannot work out, saying why. So every re-arm (the sweeps, the
-  watch's own re-arm, the audit) arms with the right method and needs no
+  watch's own re-arm) arms with the right method and needs no
   record of the one a disarm discarded.
 - `wait_and_merge` is retired for `develop`. A caller that must block until
   its PR lands (the release, a scheduled job) waits until the PR is merged,
@@ -349,6 +385,10 @@ between checking the lock and arming with a two-sided handshake:
     the arming ref.
   - Lock held by another holder: delete the arming ref and leave the PR
     unarmed, reporting `held for release <version>`.
+  - The create-only push fails: another caller is arming the same PR (the
+    unlock sweep and the PR's own watch, say). The caller does not arm. It
+    reads the PR's auto-merge state, and an armed or merged PR is success;
+    a PR still unarmed after a short bounded wait is an error.
 - **The release** writes the lock, *then* lists the arming refs, and waits
   until each is gone before it disarms (§5.3).
 
@@ -360,16 +400,17 @@ PR that is already green merges it at once.
 
 An arming ref expires a few minutes after the release first sees it, so a
 crashed arming side never blocks a release. Expiry is measured from the
-release's own first sighting, never from a time the ref carries. Arming
-refs are read with the same trusted-author check as the lock: an untrusted
-one is reported and deleted, never waited on. The release's total wait on
-arming refs is bounded; past the bound it fails, naming the refs. Expiry
-must not reopen the race:
+release's own first sighting, never from a time the ref carries. The
+release waits on every arming ref, whoever wrote it, with no trusted-author
+check (§5.10). The release's total wait on arming refs is bounded; past the
+bound it fails, naming the refs. Expiry must not reopen the race:
 
 - The arming side renews its ref by compare-and-swap immediately before the
   arm call, and aborts, leaving the PR unarmed, if the ref is gone.
 - The release deletes an expired arming ref only by compare-and-swap against
-  the value it read, and after deleting any, runs the disarm sweep again.
+  the value it read, and after deleting any, runs the disarm sweep again
+  before the cut. This closes the race whenever the delete lands, before or
+  after the arming side's renewal.
 - A PR into `develop` that merged after the cut, other than the holder's own,
   is a hard error: the release reports it, naming the PR, and stops.
 
@@ -406,8 +447,11 @@ must not reopen the race:
 
 ### 5.6 Stale locks, reclaiming and the escape hatch
 
-- **Stale.** A lock whose tracking issue is closed is stale. The check is
-  cheap: one read of the issue's state, made only when a lock is found held.
+- **Stale.** A lock whose health is `running` with a fresh heartbeat is
+  never stale: its holder is alive, whatever state its tracking issue is
+  in. Otherwise, a
+  lock whose tracking issue is closed is stale. The check is cheap: one read
+  of the issue's state, made only when a lock is found held and not live.
   A lock that names no tracking issue (a release that died before
   `prepare`, too hard to delete its lock) is stale once its heartbeat is
   older than the staleness threshold.
@@ -425,9 +469,9 @@ must not reopen the race:
   `vrg-release` is. It records the reason and the old lock's contents in the
   lock history (§5.2), and as a comment on the tracking issue when the lock
   names one, then runs the unlock path (delete the lock, re-arm sweep).
-- A holder whose lock was broken or reclaimed finds out at its next
-  compare-and-swap update and stops with a clear error; it never re-takes the
-  lock silently.
+- A holder whose lock was broken or reclaimed, at any stage before
+  `unlock`, finds out at its next compare-and-swap update and stops with a
+  clear error; it never re-takes the lock silently.
 - There is no "forced release". Because the release disarms in-flight PRs
   instead of waiting for them, it has nothing to force past.
 
@@ -441,7 +485,8 @@ prose and audit behind it:
    no lock held.
 3. The skill re-runs the watch on its `held by release` exit; this is the
    only part that is prose.
-4. The daily audit (§5.9) is the backstop.
+4. The daily audit (§5.9) is the backstop: it flags a PR left unarmed for
+   the human, and never arms one itself.
 
 ### 5.8 Cleanup safety
 
@@ -459,12 +504,40 @@ prose and audit behind it:
 
 ### 5.9 The backstop audit
 
-The daily ops audit in `.github` flags any open PR into `develop` with
-auto-merge off while no lock is held (a breach of the invariant), and
-offers it to the one PR path to re-arm; a PR the path refuses (one that is
-not same-repo with a trusted author on its branch, or fails provenance) is
-only flagged, never armed. It also flags open draft PRs into `develop`, and
-any lock that is stale.
+The daily agent audit stays report-only: it never arms a PR, files no issue
+and never prevents a merge. It flags any open PR into `develop` with
+auto-merge off while no lock is held (a breach of the invariant, left for
+the human), open draft PRs into `develop`, and any lock that is stale.
+
+Its actor check (`lib/agent_audit.py`) expects, on `develop`, the human, or
+the user agent or the automation App on a PR it authored itself. A reclaim
+by a non-human caller re-arms PRs it did not author, so the reclaim's
+lock-history entry (§5.2) lists every PR its sweep armed, and the actor
+check accepts an auto-merge enable by the reclaiming identity on a PR that
+entry names. Any other enable outside the expected set stays an
+`unexpected-actor` finding.
+
+### 5.10 Threat model
+
+The lock is a coordination mechanism among trusted writers, not a security
+boundary.
+
+- Writing any `refs/vergil/*` ref needs write access to the repo. The only
+  identities that hold it are the human, the human's agent user account,
+  each org's automation App and the GitHub bots configured on the repo.
+  Outsiders, fork PRs included, cannot write these refs.
+- So the lock, its history and the arming refs are read as written, with no
+  trusted-author check. A ref records no pusher, and a commit's author is
+  whatever its writer set, so such a check would add no protection and
+  would wrongly refuse the App's refs.
+- The lock's robustness checks guard against bugs and crashes, not against
+  a hostile writer: a lock that cannot be read is held, an arming ref
+  expires from the release's own first sighting, and every wait is bounded.
+- **Accepted residual risk:** code that runs with repo write access, such as
+  a third-party action in a workflow granted `contents: write`, could write
+  these refs. The same code can already push branches, so the lock adds
+  little to that exposure. Narrowing which workflow jobs hold write access
+  is follow-up work, outside this epic.
 
 ## 6. Constraints
 
@@ -483,6 +556,7 @@ any lock that is stale.
   interval and its staleness threshold, and the arming-ref expiry.
 - Exit codes, including the watch's `held by release` code.
 - How the lock JSON and the release state block share or mirror fields.
-- How the audit re-arms (in `ops.yml` or through a tooling command it runs).
+- How the lock-history entry lists a reclaim's re-armed PRs for the audit's
+  actor check.
 - The shape of the shared submit function and how each existing tool is
   moved onto it (§5.4).
