@@ -426,6 +426,7 @@ agent only checks and records it.
 
   ```bash
   set -uo pipefail
+  gh auth status >/dev/null 2>&1 || { echo "gh is not logged in; nothing run" >&2; exit 1; }
   repo=vergil-project/.github
   body="Throwaway for epic vergil-project/.github#1609 Task 4."
   mk()  { gh issue create --repo "$repo" --title "$1" --body "$body" | sed 's#.*/##'; }
@@ -1519,3 +1520,14 @@ runs skills that read a task's raw native parent.
   the epic body, the delivery table and Task 13 (vergil-project/.github#1636)
   were edited in place by vergil-project/.github#1644, before Task 13
   started.
+- **2026-11-25: the Task 4 probe script checks for a `gh` login first.**
+  The script carried on when its `gh` calls failed, so a run on a shell
+  with no `gh` login printed well-formed but false result lines
+  (`Max depth: 1`, `Link under closed parent: refused: <login error>`).
+  The run that recorded Task 4's result used a copy with a guard added
+  after `set -uo pipefail`, which stops with "gh is not logged in;
+  nothing run" before any write. That guard is now in the script above,
+  edited in place by vergil-project/.github#1810, a doc task from the
+  epic's documentation-review sweep (vergil-project/vergil-tooling#5169).
+  Task 4's procedure, its recorded result and the task list are
+  unchanged.
