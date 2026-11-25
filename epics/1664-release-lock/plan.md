@@ -120,16 +120,17 @@ writes.
 | 4 | `vergil-tooling` | task | Provenance relaxation for arming and the path's clean-status merge; audit actor check follows it | — |
 | 5 | `vergil-tooling` | task | The one PR path (`lib/pr_path.py`), the `MERGE` method; `vrg-submit-pr` arms through it | 4 |
 | 6 | `vergil-tooling` | task | Push mode: `vrg-submit-pr --push` judges a head before pushing it to an open PR's branch | 5 |
-| 7 | `vergil-tooling` | task | Mechanized automation (`mechanized_pr`) opens and arms through the path | 5 |
+| 7 | `vergil-tooling` | task | Mechanized automation (`mechanized_pr`) opens and arms through the path; `pr_merge.wait_until_merged` becomes watch-only | 5 |
 | 8 | `vergil-tooling` | task | `vrg-update-deps` and the release's `update-deps` stage arm through the path; their direct merge retired | 5 |
 | 9 | `vergil-tooling` | task | The release's back-merge arms through the path; `wait_and_merge` kept for `main` only; a guard test for the one path | 7, 8 |
-| 10 | `vergil-tooling` | task | `vrg-finalize-pr` reduced: no auto-merge turn-off, no provenance or gate re-checks | 6 |
-| 11 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 4–10, installed on the host and VMs | 4, 5, 6, 7, 8, 9, 10 |
+| 10 | `vergil-tooling` | task | `vrg-finalize-pr` reduced: no auto-merge turn-off, no provenance or gate re-checks | 15 |
+| 10a | `vergil-tooling` | deployment | A vergil-tooling release carries Task 10, installed on the host and VMs | 10 |
+| 11 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 4–9, installed on the host and VMs | 4, 5, 6, 7, 8, 9 |
 | 12 | `vergil-claude-plugin` | task | The pr-watch skill pushes its fixes with `vrg-submit-pr --push` | 11 |
 | 13 | `vergil-claude-plugin` | deployment | A plugin release carries Task 12, installed on the host and VMs | 12 |
 | 14 | `vergil-tooling` | task | `vrg-git` refuses a plain push to an open develop PR's branch, naming `vrg-submit-pr --push` | 13 |
 | 15 | `vergil-tooling` | deployment | A vergil-tooling release carries Task 14, installed on the host and VMs | 14 |
-| 16 | `vergil-tooling` | validation | Phase 1 exit: every caller goes through the one path, live | 15 |
+| 16 | `vergil-tooling` | validation | Phase 1 exit: every caller goes through the one path, live | 10a |
 | **Phase 2** | | | | |
 | 17 | `vergil-tooling` | task | Lock refs: model, create-only and compare-and-swap writes, history, arming refs | 16 |
 | 18 | `vergil-tooling` | task | Staleness; `vrg-release-lock status`; the lock in `vrg-repo-status` | 17 |
@@ -161,12 +162,17 @@ Phase 2 starts only when all of these hold; Task 16 records them, and Task
    `update-deps` stage and back-merge) arms or merges a PR into `develop`
    only through `lib/pr_path.py`. (`vrg-pr-await` and the re-arm sweeps join
    in phase 2, Tasks 20 and 26.)
-2. The guard test of Task 9 passes: no module outside `lib/pr_path.py`
-   calls `enablePullRequestAutoMerge`, `gh pr merge` or a wait-and-merge
-   against `develop`.
-3. `vrg-finalize-pr` never turns auto-merge off (Task 10).
-4. The pr-watch skill pushes with `vrg-submit-pr --push` and `vrg-git`
+2. The guard test of Task 9 passes: outside the named allowed sites, no
+   module calls `github.merge`, `enablePullRequestAutoMerge`, a `gh pr
+   merge` argument list or `wait_and_merge`, and every allowed site but
+   the path's own serves `main` only. Waiting on a PR into `develop` never
+   merges it (Task 7).
+3. The pr-watch skill pushes with `vrg-submit-pr --push` and `vrg-git`
    refuses a plain push to an open develop PR's branch (Tasks 12, 14).
+4. `vrg-finalize-pr` never turns auto-merge off (Task 10). It is released
+   last, after criterion 3 holds on the host and the VMs: the watch keeps
+   judging each new head of an open PR until every push to one is judged
+   by the path.
 5. All of it is released and installed, and Task 16 has run green.
 
 ### Operational tasks
@@ -178,7 +184,9 @@ Phase 2 starts only when all of these hold; Task 16 records them, and Task
 - **Tasks 11, 13 and 15** sequence a cross-repo cut-over: the plugin's
   pr-watch cannot use `--push` until a release carries it (11), and `vrg-git`
   must not refuse a plain push until the plugin that stops making one is
-  installed (13). Each deployment's procedure starts with
+  installed (13). **Task 10a** comes last: the watch's per-head re-check
+  is removed only once Task 15 is installed, so every new head of an open
+  PR stays judged throughout the cut-over. Each deployment's procedure starts with
   `vrg-release-record check <owner>/<repo>#<N>` for each task it ships.
 - **Task 29** ships phase 2; **Task 31** ships the skill rule that depends
   on its exit code.
@@ -244,9 +252,11 @@ Spec §5.8, phase 0 of §5.
   raises `worktrees.ProtectionReadError`, which cleanup treats as protected.
   Task 27 replaces its key with the lock.
 - Produces: `worktrees.log_removal(path: Path, branch: str, reason: str) ->
-  None`, one line on stderr and one in the activity log
-  (`lib/activity_log.py`): `removed worktree <path> (branch <branch>):
-  <reason>`.
+  None`, one line on stderr and one in the running command's run log (the
+  `progress.RunLog` that `vrg-finalize-pr` and `vrg-release` already
+  write, through `progress.emit`): `removed worktree <path> (branch
+  <branch>): <reason>`. `lib/activity_log.py` only renders closed issues
+  and is not a log target.
 - Produces: `release.orchestrator.ReleaseWorktreeVanished(ReleaseError)`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -259,7 +269,8 @@ Spec §5.8, phase 0 of §5.
     raises → no `release/*` worktree removed, the error is printed, and the
     exit is non-zero.
   - `test_every_removal_is_logged`: a merged feature worktree's removal
-    writes the `removed worktree …` line with the reason `PR merged`.
+    writes the `removed worktree …` line with the reason `PR merged`, on
+    stderr and in the run log.
   - `test_release_fails_when_worktree_vanished_before_teardown`: the
     worktree path is missing before `confirm-main` → `ReleaseWorktreeVanished`
     naming the path.
@@ -369,16 +380,25 @@ Spec §5.1, §5.4.
 
   def accepts(pr_url: str) -> str | None: ...        # None when accepted, else why not
   def merge_method(pr_url: str) -> MergeMethod: ...   # raises PRPathError when it cannot tell
-  def arm(pr_url: str) -> ArmResult: ...
+  def arm(pr_url: str, *, clone: Path | None = None) -> ArmResult: ...
   ```
 
   `arm` reads the PR at its current head, runs `accepts`, the provenance
   check and the agent gates (`agent_gates.evaluate`) at that head, works out
-  the method, and enables auto-merge pinned to the head; GitHub's refusal
+  the method, and enables auto-merge pinned to the head. The gates judge in
+  a fresh fetch of the PR's own repo: `clone` when given, checked as
+  `finalize_watch._require_clone_of` checks it, otherwise a clone the path
+  makes itself, so an arm run from a clone of another repo (a reclaim, a
+  sweep, a watch re-arm) still judges. The gates apply only to an
+  agent-involved PR, by `finalize_watch.agent_involvement`'s rule; a PR with
+  no agent involvement (the back-merge, a dependency-update PR, a mechanized
+  sync PR) is armed after `accepts` and the provenance check alone. GitHub's refusal
   for a clean-status PR becomes a direct merge at that head with that
   method (outcome `merged`). A PR it does not accept or that fails a check
   is `refused` and left unarmed. `"held"` is produced from Task 19 on.
-- Consumes: `finalize_watch.confirmed_head`, `pr_provenance.check_pr`,
+- Consumes: `finalize_watch.confirmed_head`,
+  `finalize_watch.agent_involvement`, `finalize_watch._require_clone_of`
+  (made public as `require_clone_of`), `pr_provenance.check_pr`,
   `agent_gates.evaluate`, `update_deps.context.DEPS_LABEL`, submit's batch
   linkage reader.
 
@@ -397,6 +417,16 @@ Spec §5.1, §5.4.
     as clean → one merge call with `--match-head-commit <head>` and the
     worked-out method; `outcome == "merged"`.
   - `test_arm_is_pinned_to_current_head`.
+  - `test_arm_back_merge_pr_passes_without_task_issue` and
+    `test_arm_deps_pr_passes_without_task_issue`: no agent involvement →
+    gates not run, `outcome == "armed"`.
+  - `test_arm_agent_pr_runs_gates`: agent-involved → `agent_gates.evaluate`
+    called once at the head.
+  - `test_arm_from_foreign_clone_judges_in_fresh_fetch`: run from a clone
+    of another repo with no `clone` → the gates judge in the path's own
+    fetch of the PR's repo.
+  - `test_arm_refuses_clone_of_wrong_repo`: a `clone` of another repo →
+    `PRPathError`.
 - [ ] **Step 2: Run them and see them fail.**
 - [ ] **Step 3: Implement** `lib/pr_path.py`; move `vrg-submit-pr`'s arming
   call onto `pr_path.arm`, mapping `refused` to its existing failure output.
@@ -443,15 +473,25 @@ Spec §5.4 (`mechanized_pr` converges on the path).
 
 - Modify: `src/vergil_tooling/lib/mechanized_pr.py` (`_enable_auto_merge`
   and its direct merge removed; `open_sync_pr` calls `pr_path.arm`; it keeps
-  `_wait_until_merged`, which waits and never merges)
+  `_wait_until_merged`)
+- Modify: `src/vergil_tooling/lib/pr_merge.py` (`wait_until_merged` becomes
+  watch-only: it never calls `github.merge`, drops its `strategy`
+  argument, and treats auto-merge off on an open PR as a reason to wait, not
+  to merge; behind-branch updates, the deadline and the shape checks stay;
+  its docstring and existing tests change to match). Tasks 8 and 9 wait
+  with it too.
 - Test: `tests/vergil_tooling/test_mechanized_pr.py`,
+  `tests/vergil_tooling/test_pr_merge.py`,
   `tests/vergil_tooling/test_vrg_github_repo_config.py`
 
 - [ ] **Step 1: Failing tests:** `test_sync_pr_arms_through_pr_path`
   (`pr_path.arm` called once with the PR URL),
   `test_sync_pr_refused_arm_fails_job` (`refused` → `MechanizedPRError`
   naming the reason), `test_sync_pr_never_merges_itself` (no merge call in
-  the module; waits until GitHub merges).
+  the module; waits until GitHub merges);
+  `test_wait_until_merged_never_calls_merge` (a ready PR with auto-merge on
+  and one with auto-merge off: no `github.merge` call; the second waits
+  until the deadline, then raises `MergeDeadlineError`).
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 8: Update-deps through the path (vergil-tooling)
@@ -466,9 +506,9 @@ Spec §3.2 rows 3–4, §5.4.
 - Modify: `src/vergil_tooling/lib/update_deps/orchestrator.py`,
   `src/vergil_tooling/lib/release/update_deps_stage.py` (call the renamed
   function)
-- Modify: `src/vergil_tooling/lib/pr_merge.py` (`wait_and_merge` loses its
-  last develop caller; delete it if nothing else calls it, else leave it with
-  a `main`-only assertion)
+- `pr_merge.wait_and_merge` keeps one develop caller after this task:
+  `release/merge.wait_and_merge`, for the back-merge, until Task 9 moves
+  the back-merge onto the path. It then serves the merge into `main` only.
 - Test: `tests/vergil_tooling/test_update_deps_pr.py`,
   `tests/vergil_tooling/test_release_update_deps_stage.py`
 
@@ -489,6 +529,8 @@ release PR into `main` the one direct merge).
   `pr_merge.wait_until_merged`)
 - Modify: `src/vergil_tooling/lib/release/merge.py` (`wait_and_merge`
   asserts its base is `main`)
+- Modify: `src/vergil_tooling/lib/pr_merge.py` (`wait_and_merge` and each
+  remaining `github.merge` call assert a base of `main`)
 - Create: `tests/vergil_tooling/test_one_pr_path_guard.py`
 - Test: `tests/vergil_tooling/test_release_bump.py`,
   `tests/vergil_tooling/test_release_bump_resume.py`,
@@ -499,11 +541,21 @@ release PR into `main` the one direct merge).
   - `test_back_merge_resume_rearms_open_post_pr`.
   - `test_release_wait_and_merge_refuses_develop_base`.
   - `test_no_module_outside_pr_path_arms_or_merges_develop`: an AST scan of
-    `src/vergil_tooling/` for the string `enablePullRequestAutoMerge`, a
-    `gh pr merge` argument list and calls to `wait_and_merge`; the allowed
-    sites are `lib/pr_path.py`, `lib/auto_merge.py` (private to the path) and
-    `lib/release/merge.py` (`main` only). Any other hit fails, naming the
-    file and line. `bin/vrg_gh.py`'s deny-list strings are allowed by name.
+    the whole of `src/vergil_tooling/` for calls to `github.merge`, the
+    string `enablePullRequestAutoMerge`, a `["pr", "merge"]` argument list
+    and calls to `wait_and_merge`. The allowed sites are named, each with
+    its reason:
+    - `lib/github.py`: defines the `github.merge` primitive;
+    - `lib/pr_path.py` and `lib/auto_merge.py`: the path, and code private
+      to it;
+    - `lib/release/merge.py`, `lib/pr_merge.py` and
+      `lib/release/orchestrator.py`'s `merge_release`: the merge into
+      `main` only, each behind a base-is-`main` assertion.
+
+    Any other hit fails, naming the file and line. `bin/vrg_gh.py`'s
+    deny-list strings are allowed by name.
+  - `test_pr_merge_main_only_sites_assert_main_base`: each `main`-only site
+    refuses a PR whose base is `develop`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 10: `vrg-finalize-pr` reduced to its primary job (vergil-tooling)
@@ -511,6 +563,11 @@ release PR into `main` the one direct merge).
 Spec §5, phase 1; §3.3. Only the auto-merge turn-off and the provenance and
 gate re-checks are removed; every other stage (close-refs, the CD check,
 the advisory sync, cleanup) stays.
+
+This task is blocked by Task 15 and ships in a release of its own (Task
+10a): the watch keeps judging each new head of an open PR until the
+pr-watch skill pushes through the path and `vrg-git` refuses a plain push,
+both installed.
 
 **Files:**
 
@@ -534,7 +591,8 @@ the advisory sync, cleanup) stays.
 ### Task 11: Release phase 1's tooling (deployment)
 
 - Precondition (human-attested): a vergil-tooling release containing Tasks
-  4–10; `vrg-release-record check` exits 0 for each.
+  4–9; `vrg-release-record check` exits 0 for each. Task 10 is not in it
+  (Task 10a ships it).
 - Human-run steps: `vrg-host upgrade`; `vrg-vm update --all`.
 - Acceptance: `vrg-submit-pr --help` lists `--push` on the host and one VM.
 
@@ -568,17 +626,36 @@ Spec §5.4.
 
 **Files:**
 
-- Modify: `src/vergil_tooling/bin/vrg_git.py` (beside the frozen-push
-  refusal)
+- Modify: `src/vergil_tooling/bin/vrg_git.py` (a refusal run on every
+  `push`, alongside the frozen-push refusal)
 - Test: `tests/vergil_tooling/test_vrg_git.py`
+
+**Rules:**
+
+- The refusal judges **every destination branch** the push's refspecs
+  name, not only the current worktree's branch, and refuses when any of
+  them is the branch of an open PR into `develop`. A refspec it cannot
+  parse is refused, as `_pushes_only_branch_at_head` treats one.
+- It has **no bypass**: no environment variable, flag or marker that
+  `vrg-git` honours lets a push through. The path's own push (Task 6)
+  goes through `lib.git` directly, outside the wrapper, as `vrg-submit-pr`
+  already does.
+- It **fails closed**: when it cannot read the state it judges by (the PR
+  lookup, the refspecs), it refuses, naming the error. It never warns and
+  lets the push through.
 
 - [ ] **Step 1: Failing tests:** `test_push_to_open_develop_pr_branch_refused`
   (the message names `vrg-submit-pr --push`),
+  `test_push_refspec_naming_other_open_pr_branch_refused` (from another
+  worktree, `HEAD:<branch of an open develop PR>`),
+  `test_unparseable_refspec_refused`,
   `test_push_of_branch_with_no_pr_allowed`,
   `test_push_to_branch_with_closed_pr_allowed`,
   `test_pr_lookup_failure_refuses` (fail closed, naming the error),
-  `test_submit_push_mode_not_refused` (the path's own push passes, by the
-  same internal marker the frozen-push refusal uses for the relay).
+  `test_no_env_or_flag_bypass` (no environment variable or flag lets a
+  refused push through),
+  `test_path_push_does_not_use_wrapper` (`pr_path.push_to_open_pr` pushes
+  through `lib.git`, never by running `vrg-git`).
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 15: Release Task 14 (deployment)
@@ -587,9 +664,17 @@ Spec §5.4.
   14; `vrg-release-record check` exits 0.
 - Human-run steps: `vrg-host upgrade`; `vrg-vm update --all`.
 
+### Task 10a: Release Task 10 (deployment)
+
+- Precondition (human-attested): Task 15 closed; a vergil-tooling release
+  containing Task 10; `vrg-release-record check` exits 0.
+- Human-run steps: `vrg-host upgrade`; `vrg-vm update --all`.
+- Acceptance: on the host and one VM, the installed `vrg-finalize-pr`'s
+  version is the release's or later.
+
 ### Task 16: Phase 1 exit (validation)
 
-- Precondition: Tasks 11, 13 and 15 closed.
+- Precondition: Tasks 10a, 11, 13 and 15 closed.
 - Procedure:
   1. Confirm criteria 1–4 of the phase 1 exit criteria against
      vergil-tooling `origin/develop`: `test_one_pr_path_guard.py` passes in
@@ -948,8 +1033,12 @@ Spec §5.3 step 1, §5.2 (the worktree, the tracking issue, health), §5.6
 - The early-exit unlock path: every exit after the lock is taken and before
   the tracking issue exists (a refusal or an exception) runs
   `ctx.lock.release()` and then, if `disarm_all` has started,
-  `rearm_all(holder_pass=None)`, in a `finally` scoped to that window; a
-  failure in it is reported with both errors, never swallowed.
+  `rearm_all(holder_pass=None)`; a failure in it is reported with both
+  errors, never swallowed. The window spans two stages (`preflight` takes
+  the lock; `prepare` creates the tracking issue), so the guard lives in
+  the orchestrator, around the stage loop: armed when the lock is taken and
+  disarmed once `tracking_issue` is written into the lock. A `finally`
+  inside `preflight` alone does not cover it.
 
 - [ ] **Step 1: Failing tests:**
   - `test_precheck_refusal_locks_nothing`.
@@ -961,6 +1050,12 @@ Spec §5.3 step 1, §5.2 (the worktree, the tracking issue, health), §5.6
   - `test_unmoved_head_cut_without_rerunning_head_gates`.
   - `test_refusal_after_lock_runs_unlock_path_and_rearms`.
   - `test_exception_before_tracking_issue_runs_unlock_path`.
+  - `test_create_tracking_issue_failure_runs_unlock_path`:
+    `create_tracking_issue` raises in `prepare` → the lock is released and
+    the disarmed PRs re-armed.
+  - `test_unlock_guard_disarmed_once_tracking_issue_recorded`: a failure
+    after the tracking issue is in the lock does not run the early-exit
+    path.
   - `test_tracking_issue_written_into_lock_immediately`.
   - `test_stage_and_health_written_per_stage`.
   - `test_deferred_failure_marks_broken_when_recorded`.
@@ -1175,8 +1270,9 @@ Spec §5.5 (the only skill rule), §5.7 layer 3.
      between the cut and `unlock` (first-parent log of `develop`).
   3. The back-merge merged with a merge commit during the release.
   4. After `rearm`, both PRs are armed and merge; no lock remains; the
-     release worktree was never removed before `teardown-worktree`
-     (activity log).
+     release worktree was never removed before `teardown-worktree` (the
+     `removed worktree …` lines in the run logs of the release and of every
+     `vrg-finalize-pr` run during it).
   5. The agents' watches reported the release while held and ended
      merged, or with `held by release` and were re-run.
 - Acceptance: each step's evidence cited; `Outcome: SUCCESS`.
