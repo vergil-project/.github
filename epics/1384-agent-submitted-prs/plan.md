@@ -480,6 +480,10 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
 
 ## Task 3g (deployment): Grant the user App `workflows: write`
 
+> **Amended 2026-11-25.** The grant was accepted on all six installations;
+> by ruling N0.13 the risk outside the in-scope orgs is accepted, which
+> supersedes "on none outside them" below. See Evolution during execution.
+
 - **Preconditions:** Task 3d and Task 17d closed.
 - **Procedure (the human):** grant the permission and accept it on every
   installation in the three in-scope orgs, and on none outside them (spec
@@ -1591,7 +1595,8 @@ human's.
   ruling N0.21, N0.13's risk acceptance extends to `pull_requests: write`
   in those three orgs, until they are renovated. Task 18d's procedure, the
   global constraints and the spec's §4.11 said no installation outside the
-  in-scope orgs is granted; each now carries an amendment note.
+  in-scope orgs is granted, as Task 3g's procedure did for N0.13; each now
+  carries an amendment note.
 - **2026-11-24: the self-submit fixes came before Task 18d closed.** The
   agent's submit of PR #87 exited 3 on a false provenance violation: the
   `closed` event GitHub records with every merge was not among the user
