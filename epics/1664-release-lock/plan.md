@@ -129,7 +129,8 @@ writes.
 | 12 | `vergil-claude-plugin` | task | The pr-watch skill pushes its fixes with `vrg-submit-pr --push` | 11 |
 | 13 | `vergil-claude-plugin` | deployment | A plugin release carries Task 12, installed on the host and VMs | 12 |
 | 14 | `vergil-tooling` | task | `vrg-git` refuses a plain push to an open develop PR's branch, naming `vrg-submit-pr --push` | 13 |
-| 15 | `vergil-tooling` | deployment | A vergil-tooling release carries Task 14, installed on the host and VMs | 14 |
+| 14a | `vergil-tooling` | task | Every other tooling push to an open develop PR's branch goes through the path or refuses; a guard test for branch pushes | 6 |
+| 15 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 14 and 14a, installed on the host and VMs | 14, 14a |
 | 16 | `vergil-tooling` | validation | Phase 1 exit: every caller goes through the one path, live | 10a |
 | **Phase 2** | | | | |
 | 17 | `vergil-tooling` | task | Lock refs: model, create-only and compare-and-swap writes, history, arming refs | 16 |
@@ -169,6 +170,9 @@ Phase 2 starts only when all of these hold; Task 16 records them, and Task
    merges it (Task 7).
 3. The pr-watch skill pushes with `vrg-submit-pr --push` and `vrg-git`
    refuses a plain push to an open develop PR's branch (Tasks 12, 14).
+   Every other push the tooling makes to a branch goes through the path or
+   refuses when the branch has an open PR into `develop`, and the guard
+   test of Task 14a passes (Task 14a).
 4. `vrg-finalize-pr` never turns auto-merge off (Task 10). It is released
    last, after criterion 3 holds on the host and the VMs: the watch keeps
    judging each new head of an open PR until every push to one is judged
@@ -184,9 +188,10 @@ Phase 2 starts only when all of these hold; Task 16 records them, and Task
 - **Tasks 11, 13 and 15** sequence a cross-repo cut-over: the plugin's
   pr-watch cannot use `--push` until a release carries it (11), and `vrg-git`
   must not refuse a plain push until the plugin that stops making one is
-  installed (13). **Task 10a** comes last: the watch's per-head re-check
-  is removed only once Task 15 is installed, so every new head of an open
-  PR stays judged throughout the cut-over. Each deployment's procedure starts with
+  installed (13). Task 15 also ships Task 14a, which brings the tooling's
+  own other branch pushes onto the path. **Task 10a** comes last: the
+  watch's per-head re-check is removed only once Task 15 is installed, so
+  every new head of an open PR stays judged throughout the cut-over. Each deployment's procedure starts with
   `vrg-release-record check <owner>/<repo>#<N>` for each task it ships.
 - **Task 29** ships phase 2; **Task 31** ships the skill rule that depends
   on its exit code.
@@ -210,7 +215,7 @@ Phase 2 starts only when all of these hold; Task 16 records them, and Task
   fixes. Once Task 2 is filed, close #5187 as completed with the comment
   `Tracked as <Task 2 ref> under vergil-project/.github#1664.` Task 2's body
   refs it.
-- **Advisories.** Six advisories track the planning issue. Before
+- **Advisories.** Nine advisories track the planning issue. Before
   `Tasks filed: yes`, retarget each from vergil-project/.github#1662 to the
   task or tasks that fix it (`vrg-security-record retarget … --from … --to
   …`, one after another), choosing the tasks from each advisory's own notes.
@@ -383,7 +388,10 @@ Spec §5.1, §5.4.
   def arm(pr_url: str, *, clone: Path | None = None) -> ArmResult: ...
   ```
 
-  `arm` reads the PR at its current head, runs `accepts`, the provenance
+  `arm` reads the PR at its current head, its first read behind
+  `retry.retry_known_resource` (as `release.merge.known_pr_state` reads
+  one, #3137), since every caller arms a PR GitHub has just created and a
+  brief 404 then means "not readable yet". It runs `accepts`, the provenance
   check and the agent gates (`agent_gates.evaluate`) at that head, works out
   the method, and enables auto-merge pinned to the head. The gates judge in
   a fresh fetch of the PR's own repo: `clone` when given, checked as
@@ -427,6 +435,8 @@ Spec §5.1, §5.4.
     fetch of the PR's repo.
   - `test_arm_refuses_clone_of_wrong_repo`: a `clone` of another repo →
     `PRPathError`.
+  - `test_arm_retries_brief_404_on_new_pr`: the first read 404s, then
+    succeeds → armed; a 404 past the retry's bound raises, naming the PR.
 - [ ] **Step 2: Run them and see them fail.**
 - [ ] **Step 3: Implement** `lib/pr_path.py`; move `vrg-submit-pr`'s arming
   call onto `pr_path.arm`, mapping `refused` to its existing failure output.
@@ -449,7 +459,8 @@ Spec §5.4 (every push to an open PR's branch goes through the path).
 
 - Produces: `pr_path.push_to_open_pr(branch: str, *, head: str,
   lease: str | None) -> PushResult`, with `PushResult(pushed: bool,
-  pr_url: str, detail: str)`. It finds the branch's open PR into `develop`,
+  pr_url: str, detail: str)`. It finds the branch's open PR into `develop`
+  (its first read of the PR behind the same known-resource retry as `arm`),
   runs the provenance check and the agent gates against `head` before
   pushing, and pushes with `--force-with-lease=<branch>:<lease>` when
   `lease` is given (a rebased head), a plain push otherwise. A head that
@@ -502,7 +513,9 @@ Spec §3.2 rows 3–4, §5.4.
 
 - Modify: `src/vergil_tooling/lib/update_deps/pr.py` (`merge_pr` becomes
   `arm_and_wait(ctx) -> None`: `pr_path.arm`, then
-  `pr_merge.wait_until_merged`)
+  `pr_merge.wait_until_merged` only on `armed`; `merged` returns at once; a
+  `refused` result is recorded through `record_merge_failure` with the
+  path's reason, without waiting. Task 19 adds the `held` case)
 - Modify: `src/vergil_tooling/lib/update_deps/orchestrator.py`,
   `src/vergil_tooling/lib/release/update_deps_stage.py` (call the renamed
   function)
@@ -514,7 +527,8 @@ Spec §3.2 rows 3–4, §5.4.
 
 - [ ] **Step 1: Failing tests:** `test_deps_pr_armed_with_merge_method`
   (the path works out `MERGE` from the `dependency-update` label),
-  `test_deps_pr_waits_and_never_merges`, `test_release_deps_stage_uses_path`.
+  `test_deps_pr_waits_and_never_merges`, `test_release_deps_stage_uses_path`,
+  `test_deps_pr_refused_recorded_with_reason_no_wait`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 9: The back-merge through the path, and the guard test (vergil-tooling)
@@ -526,7 +540,10 @@ release PR into `main` the one direct merge).
 
 - Modify: `src/vergil_tooling/lib/release/bump.py` (`back_merge_and_bump`
   arms its `release/post-X.Y.Z` PR with `pr_path.arm` and waits with
-  `pr_merge.wait_until_merged`)
+  `pr_merge.wait_until_merged` under an explicit deadline,
+  `BACK_MERGE_DEADLINE_SECS` in `lib/release/bump.py`; any outcome but
+  `armed` or `merged` raises `ReleaseError` naming the outcome and its
+  detail, never waits)
 - Modify: `src/vergil_tooling/lib/release/merge.py` (`wait_and_merge`
   asserts its base is `main`)
 - Modify: `src/vergil_tooling/lib/pr_merge.py` (`wait_and_merge` and each
@@ -539,6 +556,8 @@ release PR into `main` the one direct merge).
 - [ ] **Step 1: Failing tests:**
   - `test_back_merge_arms_through_path_with_merge_commit`.
   - `test_back_merge_resume_rearms_open_post_pr`.
+  - `test_back_merge_refused_raises_naming_outcome` (no wait).
+  - `test_back_merge_wait_uses_explicit_deadline`.
   - `test_release_wait_and_merge_refuses_develop_base`.
   - `test_no_module_outside_pr_path_arms_or_merges_develop`: an AST scan of
     the whole of `src/vergil_tooling/` for calls to `github.merge`, the
@@ -603,9 +622,10 @@ both installed.
 - Modify: `skills/pr-watch/SKILL.md` step 4, "Push" (~line 288): every fix
   push becomes `vrg-submit-pr --push`, with `--force-with-lease` after a
   rebase or a fold; a refused push is a stop for the human, with its reason
-- Modify: `skills/issue-implement/SKILL.md` (~line 620, the push that
-  updates an open PR). Its push before report-ready (~line 501) is to a
-  branch with no PR yet and stays a `vrg-git push`
+- `skills/issue-implement/SKILL.md` is not changed: its pushes (before
+  report-ready, ~line 501, and in "Resolving conflicts with the base
+  branch", ~line 637, while still implementing) are to a branch with no PR
+  yet and stay `vrg-git push`; fixes after submit belong to pr-watch
 
 - [ ] **Step 1:** Edit the skills; no `vrg-git push` to an open PR's branch
   remains (`grep -rn "vrg-git push" skills/` shows only pushes before a PR
@@ -658,10 +678,55 @@ Spec §5.4.
   through `lib.git`, never by running `vrg-git`).
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
-### Task 15: Release Task 14 (deployment)
+### Task 14a: Every tooling push to an open PR's branch goes through the path (vergil-tooling)
 
-- Precondition (human-attested): a vergil-tooling release containing Task
-  14; `vrg-release-record check` exits 0.
+Spec §5.4 (every push the tooling makes to the branch of an open PR into
+`develop` goes through the path). Task 14 covers pushes made through
+`vrg-git`; this task covers the tooling's own pushes, which go through
+`lib.git` directly.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/bin/vrg_reword.py` (`_maybe_push`: when the
+  branch has an open PR into `develop`, push through
+  `pr_path.push_to_open_pr` with the lease it pushes with today; a refusal
+  is reported with the path's reason and leaves the remote branch as it
+  was)
+- Modify: `src/vergil_tooling/bin/vrg_pr_workflow.py` (`_push_branch`, the
+  push report-ready makes: refuses, naming `vrg-submit-pr --push`, when the
+  branch has an open PR into `develop`)
+- Create: `tests/vergil_tooling/test_branch_push_guard.py`
+- Test: `tests/vergil_tooling/test_vrg_reword.py`,
+  `tests/vergil_tooling/test_vrg_pr_workflow.py`
+
+**Rules:**
+
+- Both checks look the PR up as Task 14's refusal does and **fail
+  closed**: a lookup that fails refuses the push, naming the error.
+- The guard test scans the whole of `src/vergil_tooling/` for `lib.git`
+  calls that push to a branch (`git.run("push", …)` and its helpers). The
+  allowed sites are named, each with its reason: `lib/pr_path.py` (the
+  path), `lib/release/` (the release's own branches), `lib/mechanized_pr.py`
+  and `lib/update_deps/` (branches pushed before their PR is opened, then
+  armed through the path), `bin/vrg_pr_workflow.py`'s `_push_branch`
+  (before submit, behind its open-PR refusal), `bin/vrg_reword.py` (behind
+  its open-PR routing) and `lib/pr_workflow/github_transport.py` (relay
+  refs only, never `refs/heads/*`). Any other hit fails, naming the file and
+  line.
+
+- [ ] **Step 1: Failing tests:**
+  `test_reword_on_open_pr_branch_pushes_through_path`,
+  `test_reword_refused_head_not_pushed`,
+  `test_reword_on_branch_with_no_pr_pushes_as_today`,
+  `test_report_ready_push_refused_on_open_pr_branch`,
+  `test_open_pr_lookup_failure_refuses_push`,
+  `test_no_branch_push_outside_allowed_sites`.
+- [ ] **Step 2–4: fail, implement, pass, validate, commit.**
+
+### Task 15: Release Tasks 14 and 14a (deployment)
+
+- Precondition (human-attested): a vergil-tooling release containing Tasks
+  14 and 14a; `vrg-release-record check` exits 0 for each.
 - Human-run steps: `vrg-host upgrade`; `vrg-vm update --all`.
 
 ### Task 10a: Release Task 10 (deployment)
@@ -677,9 +742,12 @@ Spec §5.4.
 - Precondition: Tasks 10a, 11, 13 and 15 closed.
 - Procedure:
   1. Confirm criteria 1–4 of the phase 1 exit criteria against
-     vergil-tooling `origin/develop`: `test_one_pr_path_guard.py` passes in
-     CI on the head, and `grep -rn "vrg-git push" skills/` in
-     vergil-claude-plugin shows no push to an open PR's branch.
+     vergil-tooling `origin/develop`: `test_one_pr_path_guard.py` and
+     `test_branch_push_guard.py` pass in CI on the head, and `grep -rn
+     "vrg-git push" skills/` in vergil-claude-plugin shows no push to an
+     open PR's branch. Read the guard test's allowed sites against the
+     head's `lib.git` push calls and confirm no other tooling push to a
+     branch exists.
   2. Live: one agent PR submitted with `vrg-submit-pr` merges by auto-merge;
      one pr-watch fix pushed with `vrg-submit-pr --push` merges; a plain
      `vrg-git push` to that PR's branch is refused.
@@ -726,6 +794,7 @@ Spec §5.2, §5.4 (arming refs), §5.10.
       broken_stage: str          # "" unless health == "broken"
       started_at: str            # ISO 8601 UTC
       heartbeat_at: str
+      token: str                 # random, written at take, adopt, retake and takeover
 
   def to_json(rec: LockRecord) -> str: ...
   def from_json(text: str) -> LockRecord: ...      # raises LockParseError
@@ -758,6 +827,15 @@ Spec §5.2, §5.4 (arming refs), §5.10.
 - Any transport failure other than a lease mismatch raises
   `release_lock.RefWriteError`; a lease mismatch is the `None`/`False`
   return.
+- **A rejected write is reconciled before it is reported.** `lib.git`
+  retries a `push` on a transient failure, so a write whose first attempt
+  landed but whose response was lost comes back as a lease mismatch. Every
+  write (`take_lock`, `update_lock`, `delete_lock`, `arming.create`,
+  `arming.renew`, `arming.delete`, `history.append`) builds its commit
+  before pushing and knows its sha. On a lease rejection it re-reads the
+  ref: a ref at the sha it built is a success (take, create, renew,
+  update, append), and an absent ref after a delete is a success. Only
+  anything else is the mismatch return.
 
 - [ ] **Step 1: Failing tests** (against a bare repo fixture served as
   `origin`):
@@ -771,6 +849,10 @@ Spec §5.2, §5.4 (arming refs), §5.10.
   - `test_history_append_concurrent_both_kept`.
   - `test_arming_create_only_and_renew_cas`.
   - `test_transport_failure_raises_not_returns_none`.
+  - `test_applied_then_failed_push_reconciled_as_success`, for each write:
+    a test transport applies the push and then reports a failure, and the
+    retry's lease rejection → the write returns success.
+  - `test_rejection_with_foreign_value_is_mismatch`.
   - `test_model_round_trip` and `test_model_rejects_unknown_health`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
@@ -834,14 +916,20 @@ scheduled jobs while held).
   release <version>; the release re-arms it` and goes on to its watch)
 - Modify: `src/vergil_tooling/lib/mechanized_pr.py` (`held` is success;
   the PR is left to the unlock sweep, not replaced)
+- Modify: `src/vergil_tooling/lib/update_deps/pr.py` (`arm_and_wait` on
+  `held`: report it and return, with no wait and no failure record)
 - Test: `tests/vergil_tooling/test_pr_path.py`,
-  `test_vrg_submit_pr.py`, `test_mechanized_pr.py`
+  `test_vrg_submit_pr.py`, `test_mechanized_pr.py`, `test_update_deps_pr.py`
 
 **Interfaces:**
 
 - Changes: `pr_path.arm(pr_url: str, *, holder_pass: str | None = None)
-  -> ArmResult`. `holder_pass` is the lock sha the calling release last
-  wrote. When it equals the current lock sha, `arm` skips the handshake.
+  -> ArmResult`. `holder_pass` is the lock's token as the calling release
+  holds it (`LockOwner.token`), not a ref sha: the heartbeat rewrites the
+  lock every `HEARTBEAT_INTERVAL_SECS`, so a sha goes stale within a
+  minute. When it equals the current record's `token`, `arm` skips the
+  handshake. A re-take, adopt or takeover writes a new token, so a pass
+  from a lost holder no longer matches.
 - The handshake, inside `arm`: `arming.create` → `read_lock` → lock free:
   `arming.renew`, then enable (or merge) bounded by `ARM_CALL_BOUND_SECS`,
   retries included, then `arming.delete`; lock held by another holder:
@@ -858,7 +946,14 @@ scheduled jobs while held).
   - `test_arm_racing_lock_never_arms_under_lock`: the lock is taken between
     `create` and `read_lock` → `held`, no enable sent.
   - `test_arm_holder_pass_matching_skips_handshake`.
-  - `test_arm_holder_pass_stale_sha_is_ordinary_call` (→ `held`).
+  - `test_arm_holder_pass_survives_heartbeat_writes`: the heartbeat
+    rewrites the lock between the caller taking its pass and `arm` reading
+    the lock → the pass still matches.
+  - `test_arm_holder_pass_after_retake_is_ordinary_call` (an old token →
+    `held`).
+  - `test_arm_and_wait_held_returns_without_waiting`: a standalone
+    `vrg-update-deps` held by a release reports `held for release <v>; the
+    unlock sweep arms it`, does not wait and records no merge failure.
   - `test_arm_create_collision_waits_for_other_caller` and
     `test_arm_create_collision_still_unarmed_raises`.
   - `test_arm_renew_finds_ref_gone_aborts`.
@@ -899,9 +994,14 @@ Spec §5.1 (only the disarm sweep turns auto-merge off; sweeps skip drafts),
       # pr_path.arm; idempotent
   ```
 
-  `RearmResult(armed: list[str], merged: list[str], refused: list[tuple[str,
-  str]])`. Any failed disarm or GitHub call raises `SweepError`; a refused
-  arm is reported, never raised.
+  `RearmResult(armed: list[str], merged: list[str], held: list[str],
+  refused: list[tuple[str, str]])`. Any failed disarm or GitHub call raises
+  `SweepError`; a refused or held arm is reported, never raised. A
+  create-collision `PRPathError` (another caller, such as an agent's watch
+  re-arming its own PR the moment the lock is gone, holds the PR's arming
+  ref) is never raised either: the sweep reads the PR's auto-merge state
+  and counts it as armed or merged, or reports it as refused with the
+  collision as its reason.
 
 - [ ] **Step 1: Failing tests:**
   `test_wait_deletes_only_value_unchanged_for_expiry`,
@@ -912,7 +1012,9 @@ Spec §5.1 (only the disarm sweep turns auto-merge off; sweeps skip drafts),
   `test_disarm_failure_raises`,
   `test_rearm_skips_drafts`, `test_rearm_idempotent`,
   `test_rearm_reports_refused_outsider_pr`,
-  `test_rearm_clean_status_pr_merges`.
+  `test_rearm_clean_status_pr_merges`,
+  `test_rearm_reports_held_pr`,
+  `test_rearm_collision_with_watch_counted_not_raised`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 21: The lock owner (vergil-tooling)
@@ -939,7 +1041,9 @@ reclaimed holder stops).
       @classmethod
       def adopt(cls, repo: str, state: LockState) -> "LockOwner": ...
       @property
-      def sha(self) -> str: ...           # the holder's pass for pr_path.arm
+      def sha(self) -> str: ...           # the sha of the owner's last write
+      @property
+      def token(self) -> str: ...         # the holder's pass for pr_path.arm
       def update(self, **fields: str) -> None: ...   # stage, health, broken_stage, tracking_issue, worktree
       def start_heartbeat(self) -> None: ...
       def stop_heartbeat(self) -> None: ...
@@ -947,14 +1051,24 @@ reclaimed holder stops).
   ```
 
   One lock serialises every write. A CAS mismatch is re-read: if the ref
-  still holds a record the owner wrote (same holder, version and start
-  time; the mismatch came from its own heartbeat write racing), retry; if
-  it is absent or someone else's, raise `LockLost` on the next `update`
-  (the heartbeat thread records the loss and stops; it never re-takes).
+  is at a sha this owner built for one of its own writes (the mismatch
+  came from its own heartbeat write racing, or from a write that landed
+  and was retried, Task 17), retry against it; if it is absent or at any
+  other sha, raise `LockLost` on the next `update` (the heartbeat thread
+  records the loss and stops; it never re-takes). Own writes are told by
+  the built sha, never by matching record fields: an adopting owner keeps
+  the holder, version and start time, so field matching would read
+  another process's write as its own. `adopt` writes a new `token`, so an
+  earlier owner of the same release sees a foreign record at its next
+  write and stops.
 
 - [ ] **Step 1: Failing tests:** `test_heartbeat_refreshes_during_blocking_wait`,
   `test_writes_serialised_no_lost_update`,
   `test_own_write_cas_failure_retried`,
+  `test_same_fields_other_writer_raises_lock_lost` (a record with this
+  owner's holder, version and start time but a sha it did not build →
+  `LockLost`),
+  `test_adopt_writes_new_token`,
   `test_broken_lock_raises_lock_lost_on_next_update`,
   `test_heartbeat_stops_on_loss_and_never_retakes`,
   `test_release_stops_heartbeat_before_delete`.
@@ -1075,7 +1189,7 @@ removals are sanctioned and logged).
 - Modify: `src/vergil_tooling/lib/release/handoff.py` (`_NEEDS_ALL`
   gains `unlock` and `rearm`)
 - Modify: `src/vergil_tooling/lib/release/bump.py`,
-  `update_deps_stage.py` (pass `holder_pass=ctx.lock.sha` to the path)
+  `update_deps_stage.py` (pass `holder_pass=ctx.lock.token` to the path)
 - Create: `src/vergil_tooling/lib/release/abandon.py`
 - Create: `src/vergil_tooling/lib/release/stray.py`
 - Test: `tests/vergil_tooling/test_release_orchestrator.py`,
@@ -1092,9 +1206,10 @@ removals are sanctioned and logged).
   (branch and worktree, logged with `worktrees.log_removal`), closes the
   tracking issue with an `abandoned` comment naming `reason`, then the full
   unlock path.
-- Stage `unlock`: `ctx.lock.release()`. Stage `rearm`: `rearm_all()`; a
-  refused PR is listed on the tracking issue, not a failure; a `SweepError`
-  is. Neither stage reads the lock after `unlock`.
+- Stage `unlock`: `ctx.lock.release()`; on a resume, where there is no
+  owner, as Task 25 says. Stage `rearm`: `rearm_all()`; a refused or held
+  PR is listed on the tracking issue, not a failure; a `SweepError` is.
+  Neither stage reads the lock after `unlock`.
 
 - [ ] **Step 1: Failing tests:**
   `test_unlock_and_rearm_run_after_records_before_close`,
@@ -1124,13 +1239,22 @@ stops; the human resumes or supersedes).
 
 **Interfaces:**
 
-- Resume before `unlock`: lock names this identity and tracking issue →
-  `LockOwner.adopt` (host ignored), health back to `running`; lock absent →
+- Resume before `unlock`: lock names this identity and tracking issue and
+  is `running` with a heartbeat younger than `STALE_AFTER_SECS` → refuse,
+  naming its host and heartbeat age (another run of this release may be
+  alive; the human waits for it to stop or go stale, or breaks the lock);
+  lock names this identity and tracking issue and is `broken` or
+  heartbeat-stale → `LockOwner.adopt` (host ignored, a new token), health
+  back to `running`; lock absent →
   `LockOwner.take`, `history.append(action="retake")`, `quiesce`; then, at a
   stage before `merge-release`, `stray_merges` after the disarm, and if any,
   `abandon_release` and tell the human to run a fresh release; lock held by
-  another release → refuse naming it. Resume at `unlock` or later takes and
-  adopts no lock.
+  another release → refuse naming it.
+- Resume at `unlock` (the stage itself unfinished): read the lock. Absent →
+  the stage is done. Names this identity and tracking issue →
+  `delete_lock(expected=<the sha just read>)`. Anything else → refuse,
+  naming the holder. No owner is taken or adopted. Resume at `rearm` or
+  later takes, adopts and reads no lock.
 - Supersede: lock held by the superseded release and `broken` or
   heartbeat-stale → `update_lock` compare-and-swap takeover with
   `tracking_issue=""` and the new holder, `history.append(action="takeover")`,
@@ -1138,11 +1262,17 @@ stops; the human resumes or supersedes).
   the lock before the old one is closed; `running` and fresh → refuse naming
   it; no lock → `take` plus `quiesce`.
 
-- [ ] **Step 1: Failing tests:** `test_resume_adopts_own_lock_on_other_host`,
+- [ ] **Step 1: Failing tests:** `test_resume_adopts_own_lock_on_other_host`
+  (a stale heartbeat),
+  `test_resume_refuses_own_live_lock` (running, fresh heartbeat → refused,
+  naming host and heartbeat age; nothing written),
+  `test_resume_at_unlock_deletes_own_remaining_lock`,
+  `test_resume_at_unlock_absent_lock_done`,
+  `test_resume_at_unlock_refuses_other_holder`,
   `test_resume_retakes_absent_lock_quiesces_and_records`,
   `test_resume_before_merge_release_stray_check_after_disarm_abandons`,
   `test_resume_refuses_lock_of_other_release`,
-  `test_resume_at_unlock_takes_no_lock`,
+  `test_resume_at_rearm_takes_no_lock`,
   `test_supersede_takes_over_broken_lock_without_rearm`,
   `test_supersede_refuses_running_fresh_lock`,
   `test_supersede_lock_never_names_closed_issue`,
@@ -1173,7 +1303,10 @@ Spec §5.5, §5.7 layers 2–3, §5.4 (`vrg-pr-await`'s contract change).
   report `held by release <version> (stage <stage>, <health>)`, keep
   polling at the normal pace. Held and broken or heartbeat-stale → report
   the broken release, poll every `BROKEN_WATCH_POLL_SECS`, and call
-  `reclaim_if_stale`. Not held and the PR open, unarmed → `pr_path.arm`.
+  `reclaim_if_stale`. Not held and the PR open, unarmed → `pr_path.arm`:
+  `armed` or `merged` goes on as today; `held` is reported as held;
+  `refused` ends the watch with the outcome `failed: refused (<reason>)`,
+  naming the path's reason, with no further re-arm or poll.
   Deadline (`VRG_FINALIZE_DEADLINE`) passes while held → `held by release`.
 
 - [ ] **Step 1: Failing tests:**
@@ -1183,6 +1316,7 @@ Spec §5.5, §5.7 layers 2–3, §5.4 (`vrg-pr-await`'s contract change).
   `test_watch_reclaims_stale_lock`,
   `test_watch_does_not_reclaim_broken_with_open_issue`,
   `test_watch_rearms_own_pr_when_unlocked`,
+  `test_watch_refused_rearm_ends_failed_refused`,
   `test_deadline_while_held_exits_held`,
   `test_pr_await_rearm_through_path`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
