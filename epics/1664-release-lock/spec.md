@@ -186,7 +186,9 @@ The epic is built in two phases, after one standalone fix:
    it watches and reports each PR's outcome, syncs the local `develop` and
    cleans up. It never turns auto-merge off, and its provenance and gate
    re-checks move into the one PR path, which judges every head the tooling
-   pushes before it is pushed (§5.4).
+   pushes before it is pushed (§5.4). Those two are the only things the
+   reduction removes: every other stage it runs today (closing referenced
+   issues, the CD check and the security-advisory sync among them) stays.
 2. **The release lock** (the rest of this section), built on that path.
 
 The phases stay in one epic. Phase 1 has its own exit criteria, stated in
@@ -218,9 +220,17 @@ accepts, whoever authored it. The provenance check is relaxed for exactly
 that case, an auto-merge enable through the one PR path on a same-repo PR
 whose branch has a trusted author; it stops treating the user agent's
 enable on a PR it did not author as a violation. Everything else it checks
-stays as it is: an enable on a fork or outsider PR, an enable outside the
-path, and every other forbidden action remain violations. The audit's
-provenance and actor checks (§5.9) apply the same rule. Once a PR is armed, the merge is GitHub's. A check that must stop a merge after the PR is armed is a
+stays as it is: an enable on a fork or outsider PR, and every other
+forbidden action, remain violations. The audit's provenance and actor
+checks (§5.9) apply the same rule.
+
+An enable made outside the path cannot be told apart from one made through
+it after the fact: GitHub records who turned auto-merge on, not which code
+did. So for the user agent the control is prevention, not detection:
+`vrg-gh` denies `gh api` and a raw `gh pr merge` to the user identity, and
+the agent reaches auto-merge only through the path. For the human and the
+automation App, an enable outside the path is accepted residual risk
+(§5.10). Once a PR is armed, the merge is GitHub's. A check that must stop a merge after the PR is armed is a
 required CI check in the ruleset, or it is not a merge gate at all: the
 client cannot gate a merge it does not make. The daily agent audit is the
 backstop after the merge. In the normal workflow every PR is
@@ -242,9 +252,11 @@ workflow: sweeps skip them, and the audit (§5.9) flags them as invalid.
 - It points at a one-file commit, built the way the relay records are, whose
   file is a JSON document carrying at least: the holder (the identity and
   host running the release), the version, the tracking issue ref (empty
-  until `prepare` creates the issue, then written by the holder's next
-  update), the current stage, the health (`running`, `broken` with the stage it broke at,
-  or `done`), the start time and a heartbeat time.
+  until `prepare` creates the issue; `prepare` writes it into the lock
+  immediately after creating the issue, before anything else), the current
+  stage, the health (`running`, or `broken` with the stage it broke at;
+  a release ends by deleting the lock, so there is no "done" value), the
+  start time and a heartbeat time.
 - **Taking it** is a create-only push (`--force-with-lease=<ref>:`). A failed
   push means another holder has it: read it.
 - **Updating it** (stage, health, heartbeat) is a compare-and-swap push
@@ -278,9 +290,10 @@ workflow: sweeps skip them, and the audit (§5.9) flags them as invalid.
 
 1. **Pre-check, lock and quiesce** (before the cut):
    1. Sync the local `develop` to `origin/develop` under the checkout lock,
-      as preflight does today, and run every preflight gate that judges its
-      head (the pending-deps gate, the develop CD gate, which may wait on an
-      in-progress CD run) against it. A refusal here exits with nothing
+      as preflight does today, and run the preflight gates that judge it as
+      pre-checks: the pending-deps gate (which judges the open
+      dependency-update PRs) and the develop CD gate (which judges the head,
+      and may wait on an in-progress CD run). A refusal here exits with nothing
       locked and nothing disarmed. Record the head the gates judged.
    2. Take the lock. If a lock is held and is not stale (§5.6), refuse,
       naming the holder. The lock takes over the atomic mutual exclusion
@@ -293,11 +306,14 @@ workflow: sweeps skip them, and the audit (§5.9) flags them as invalid.
       expired.
    4. Turn off auto-merge on every open PR into `develop`. From here on
       `develop` cannot move.
-   5. Sync `develop` again. If its head is the one the gates judged, cut
-      the release from it with no second gate run. If it moved (a PR merged
-      between the gates and the disarm), run the head-judging gates again
-      against the new head, which can no longer move, and cut from it if
-      they pass. Either way the gates have judged exactly what is cut.
+   5. Sync `develop` again. Always run the pending-deps gate again: it
+      judges the set of open dependency-update PRs, not the head, and that
+      set can change between the pre-check and the disarm; after the
+      disarm it can no longer change. If the head is the one the gates
+      judged, cut the release from it with no other gate run again. If it
+      moved (a PR merged between the gates and the disarm), run the
+      head-judging gates again against the new head, which can no longer
+      move, and cut from it if they pass. Either way the gates have judged exactly what is cut.
       Everything merged before the disarm is in the release; everything
       still in flight stays at its CI gates, CI still running.
 
@@ -344,6 +360,14 @@ takes and adopts no lock. It is the holder when the lock names its identity and 
 tracking issue; the host is recorded for information only, so a resume on
 another machine adopts the lock too.
 
+A `--resume` at a stage before `unlock` that finds no lock (it was broken
+or reclaimed) re-takes it by a create-only push and records the re-take in
+the lock history (§5.2). If the resume is at a stage before
+`merge-release`, it then runs the stray-merge check (§5.4): if `develop`
+has moved past `cut`, it refuses, runs the full unlock path and points to
+`--supersede`. A resume that finds the lock held by another release
+refuses, naming it.
+
 On `--supersede X.Y.Z`, the new release takes over the superseded release's
 lock instead of taking a new one: a compare-and-swap against the lock's
 current value, so `develop` stays locked throughout and no re-arm sweep
@@ -353,7 +377,10 @@ superseded release's tracking issue is closed, so the lock never names a
 closed issue while the new release runs. The takeover is recorded in the
 lock history (§5.2) and on both tracking issues. It goes ahead only when the superseded release's lock
 shows health `broken` or a heartbeat older than the staleness threshold; a
-release that is `running` with a fresh heartbeat is refused, naming it.
+release that is `running` with a fresh heartbeat is refused, naming it. If
+the superseded release holds no lock (it was broken or reclaimed), the new
+release takes a fresh lock by a create-only push instead, and runs the
+quiesce of §5.3 before its cut.
 
 The lock and the quiesce run before `_release_contents` records `cut`, so
 the commit pin of §3.4 becomes harmless: `develop` cannot move between the
@@ -381,8 +408,17 @@ keeping paths of their own.
   throughout, so the push needs no exception to the invariant. This keeps
   epic vergil-project/.github#1384's requirement that a head pushed after
   submit is judged before it can merge; the judgment moves from the watch to
-  the path. A push made outside the tooling is out of band, and the daily
-  audit (§5.9) flags it.
+  the path. It is enforced, not left to the caller:
+  - The path has a push mode for the branch of an open PR (for example
+    `vrg-submit-pr --push`), with `--force-with-lease` for a rebased head.
+  - `vrg-git` refuses a plain push to the branch of an open PR into
+    `develop`, naming that command, the way it refuses a push to a frozen
+    branch today.
+  - The pr-watch skill pushes its fixes with that command. Moving it is
+    one of phase 1's exit criteria.
+
+  A push made outside the tooling is out of band, and the daily audit
+  (§5.9) flags it.
 - The one exception is GitHub's own: it refuses to turn auto-merge on for a
   PR that can already merge (clean status). The path, and only the path,
   then merges that PR directly, at the head it would have armed and with the
@@ -536,7 +572,14 @@ bound it fails, naming the refs. Expiry must not reopen the race:
   names one, then runs the unlock path (delete the lock, re-arm sweep).
 - A holder whose lock was broken or reclaimed, at any stage before
   `unlock`, finds out at its next compare-and-swap update and stops with a
-  clear error; it never re-takes the lock silently.
+  clear error; it never re-takes the lock silently. The human finishes it
+  with `--resume`, which re-takes the lock and records that, or replaces it
+  with `--supersede` (§5.3).
+- A stale lock that names no tracking issue is checked, before it is
+  reclaimed, for an open release tracking issue of the lock's version. If
+  one exists, it is treated as the lock's tracking issue, so the lock is
+  not stale while that issue is open: the release died after `prepare`,
+  and is the human's to finish with `--resume`, like any broken release.
 - There is no "forced release". Because the release disarms in-flight PRs
   instead of waiting for them, it has nothing to force past.
 
@@ -600,6 +643,11 @@ boundary.
   these refs. The same code can already push branches, so the lock adds
   little to that exposure. Narrowing which workflow jobs hold write access
   is follow-up work, outside this epic.
+- **Accepted residual risk:** a trusted identity holding write access that
+  turns auto-merge on outside the one PR path skips the path's checks, and
+  the audit cannot tell such an enable from one through the path (§5.1).
+  For the user agent this is prevented by `vrg-gh`; for the human and the
+  automation App it is accepted, as for any write they can make.
 
 ## 6. Constraints
 
