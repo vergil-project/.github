@@ -146,16 +146,30 @@ automation App token; "verified" means the job checks the token against
 8. **`language-lifecycle`**: vergil-containers `ops.yml`; daily. App,
    unverified.
 9. **`nightly-rebuild-dev`**: vergil-containers `ops.yml` →
-   `cd-docker-publish.yml`; daily. `GITHUB_TOKEN`.
+   `cd-docker-publish.yml`; daily. `GITHUB_TOKEN`. **Identity
+   exception:** the `Log in to GHCR` step of every `build-N` and
+   `publish-N` job keeps `GITHUB_TOKEN` (`packages: write`), and so do
+   those jobs' pushes, promotions, attestations and SARIF uploads,
+   because GHCR rejects App installation tokens for registry pushes
+   (`installation not allowed to Write organization package`, found by
+   the GHCR proof, vergil-project/.github#1516).
+   vergil-project/vergil-containers#1044 reverted its App login.
 10. **`nightly-rebuild-prod`**: vergil-containers `ops.yml` →
-    `cd-docker-publish.yml@main`; daily. `GITHUB_TOKEN`.
+    `cd-docker-publish.yml@main`; daily. `GITHUB_TOKEN`. **Identity
+    exception:** as job 9, for the same steps and the same reason.
 11. **`package-cleanup`**: vergil-containers `package-cleanup.yml`;
     weekly. `GHCR_CLEANUP_TOKEN` (likely a personal token) or
     `GITHUB_TOKEN`.
 12. **`package-cache-warm`**: vergil-containers `package-cache-warm.yml`;
     weekly. `GITHUB_TOKEN`.
 13. **`publish-index`**: vergil-actions `publish-index.yml`; on dispatch
-    and weekly; packages. `GITHUB_TOKEN`.
+    and weekly; packages. `GITHUB_TOKEN`. **Identity exception:** the
+    `deploy` job's `Deploy to GitHub Pages` step keeps `GITHUB_TOKEN`
+    (`pages: write`, with the run's OIDC token), the default token of
+    `actions/deploy-pages`, because the job runs in the `github-pages`
+    environment it deploys to and a job declares only one environment,
+    so it cannot read the App keys, which live only in the `automation`
+    environment (epic vergil-project/.github#1384).
 14. **`docs-refresh`**: vergil-actions `cd-docs-refresh.yml`; daily;
     vergil-project/docs and logical-minds-foundry/docs. `GITHUB_TOKEN`.
 15. **`docs-deploy-develop`**: vergil-actions `cd-docs.yml`; push to
@@ -170,8 +184,10 @@ automation App token; "verified" means the job checks the token against
     recover each failed CD publish job, so an ops issue would track the
     same failure twice. Its package-index dispatch steps are covered the
     same way.
-17. **`image-publish`**: vergil-containers `cd.yml` →
-    `cd-docker-publish.yml`; push. `GITHUB_TOKEN`.
+17. **`image-publish`**: vergil-containers `cd.yml` job
+    `docker-publish` → `cd-docker-publish.yml`; push. `GITHUB_TOKEN`.
+    **Identity exception:** as job 9, for the same steps and the same
+    reason.
 
 Jobs 15 and 17 also run on a release, but they run on every push to
 develop as well, including the merges of self-merging automation PRs
@@ -344,6 +360,16 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
   GHCR is **unverified** and decides the rebuild, publish and cleanup
   jobs: the plan's first rollout task proves it on one job before the
   others are changed.
+- **Recorded exceptions** (in §4.1, beside each job): the registry-push
+  jobs `nightly-rebuild-dev` (job 9), `nightly-rebuild-prod` (job 10) and
+  `image-publish` (job 17) keep `GITHUB_TOKEN` for their GHCR login and
+  their pushes, promotions, attestations and SARIF uploads, because the
+  GHCR proof (vergil-project/.github#1516) recorded FAILURE: GHCR rejects
+  App installation tokens for registry pushes. `publish-index`'s `deploy`
+  job (job 13) keeps `GITHUB_TOKEN` for its Pages deployment, because the
+  `github-pages` environment it runs in cannot read the App keys. The
+  Packages-API jobs `package-cleanup` and `package-cache-warm` (jobs 11
+  and 12) use the App token, which the Packages API accepts.
 
 ### 5.5 Existing issue-filers
 
