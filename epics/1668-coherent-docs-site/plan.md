@@ -19,6 +19,10 @@ page, every site follows one navigation standard, and a check in
 - **The hub first.** `vergil-project/docs` is restructured to the six-tab
   layout with a home-page map and the standard's page (Task 2). It depends
   on nothing else.
+- **The ignore entries first.** The new staging outputs are added to the
+  managed `.gitignore` (Task 1a), released and synced to every repo of the
+  in-scope orgs (Task 1b) before any code that writes them can reach a
+  repo.
 - **vergil-tooling** gains the org's lists (`lib/doc_sites.py`, Task 3),
   the navigation check (`lib/docs_nav.py` and `vrg-docs-nav-check`, Tasks
   4 and 5), and two staging steps in `vrg-docs-stage`: the hub's generated
@@ -64,7 +68,14 @@ Markdown (the docs sites).
   warnings, the stage passes) and enforcing (any finding fails the stage).
   Enforcing applies only in an org the lists mark `enforcing=True`; every
   other org, and any org not in the lists, is report-only. The deploy run
-  is always report-only (spec §4.3).
+  follows the same mode as the gate, before the publish step (spec §4.3).
+- **A failure of the check itself is never a finding.** An internal error
+  (a traceback, a missing input, a failed build of the tree to judge)
+  exits non-zero in either mode and fails its stage, the deploy included.
+  Report-only softens findings only.
+- **Every staging output is gitignored before it is written.** The managed
+  `.gitignore` carries them (Task 1a), and the local gate, the audit and CI
+  stage through the same code, so their outputs are the same.
 - **The Pages owner is the org of the repo being checked,** never the
   constant `vergil-project` (spec §4.3).
 - **In-scope orgs:** `vergil-project`, `logical-minds-foundry`,
@@ -100,8 +111,8 @@ Markdown (the docs sites).
    (`test_audit_published_crawl_stays_under_dev`).
 5. **A site that fails its strict build in the audit.** It is a finding
    for that site, the audit goes on to the next site, and the exit is
-   non-zero. Pinned in Task 5
-   (`test_audit_build_failure_is_finding_and_continues`).
+   non-zero. Pinned in Task 5 (`test_audit_build_failure_is_finding`,
+   `test_merge_keeps_every_site_and_coverage`).
 
 ## Delivery table
 
@@ -109,37 +120,43 @@ Each line gives the task, its repo and kind, what it delivers, and what it
 is blocked by.
 
 - **1** (.github, task #1669): spec and plan, this PR.
+- **1a** (vergil-tooling): the managed `.gitignore` gains the new staging
+  outputs (`docs/site/docs/repositories.md`, `docs/site/overrides.staged/`).
+  Blocked by nothing.
+- **1b** (.github, deployment): the vergil-tooling release carrying 1a,
+  and the managed `.gitignore` synced to every repo of the in-scope orgs
+  at once, not left to the nightly job. Blocked by 1a.
 - **2** (docs): the hub restructure: six tabs in the spec's order, the
   home page as a map, the navigation standard's page, the
   vergil-claude-plugin title fix. Blocked by nothing.
 - **3** (vergil-tooling): `lib/doc_sites.py`, the org's lists filled from
   an inventory of the in-scope orgs, every org `enforcing=False`;
-  `doc_links` and the docs-link check derive the Pages owner from the
-  checked repo's org.
+  `doc_links` and the docs-link check also judge each listed org's own
+  Pages links, report-only until the org enforces.
 - **4** (vergil-tooling): `lib/docs_nav.py` (crawl, home map, tab cap, hub
   link) and `vrg-docs-nav-check` gate mode, run in `vrg-validate`'s
   `docs` stage after the strict build; report-only. Blocked by 3.
 - **5** (vergil-tooling): `vrg-docs-nav-check --audit`: the strict build
   and the published `dev` crawl of each site, and the lists' coverage
   report. Blocked by 4.
-- **6a** (vergil-tooling): `vrg-docs-stage` writes the hub's
-  `repositories.md` from the lists. Blocked by 3.
-- **6b** (vergil-tooling): `vrg-docs-stage` adds the header link to the
-  hub on every member site of an org with a hub. Blocked by 3.
+- **6a** (vergil-tooling): docs staging (CI's `vrg-docs-stage` and the
+  local gate's) writes the hub's `repositories.md` from the lists. Blocked
+  by 1b, 3.
+- **6b** (vergil-tooling): docs staging adds the header link to the hub on
+  every member site of an org with a hub. Blocked by 1b, 3.
 - **7** (vergil-tooling): the `vrg-github-repo-init` site template brought
   to the standard, with a test that its built site passes the check.
   Blocked by 4, 6b.
 - **8** (vergil-actions): `ci-docs.yml` runs the check after its strict
-  build; `cd-docs.yml` builds and runs it report-only after the pre-deploy
-  command and staging. Blocked by 9.
+  build; `cd-docs.yml` builds and runs it after the pre-deploy command and
+  staging, before the publish, in the org's mode. Blocked by 9.
 - **9** (.github, deployment): the vergil-tooling release carrying 3–7,
   report-only, installed on the host and every VM. Blocked by 3, 4, 5, 6a,
   6b, 7.
 - **10** (.github, deployment): the vergil-actions release carrying 8, on
   the `v2.1` series. Blocked by 8.
 - **2b** (docs): the hub's Repositories tab from the generated page,
-  replacing the home-page table, with `repositories.md` gitignored.
-  Blocked by 2, 9.
+  replacing the home-page table. Blocked by 2, 9.
 - **11** (.github, validation): the audit of every docs site in the
   in-scope orgs with the released check, recorded per site; the human's
   review; one fix task filed per short site, and each added to 12z's
@@ -195,6 +212,12 @@ Notes:
   may reach the fleet before Task 9. Every vergil-tooling task up to 13
   keeps every org `enforcing=False`, so no release before Task 14 can fail
   a repo's docs stage. Task 13 is blocked by the re-audit (12z).
+- **The ignore entries ship before the code that needs them.** For the
+  same reason, Tasks 6a and 6b could reach the fleet in any release once
+  merged, and staging refuses to write a path that is not gitignored
+  (`unignored_staging_error`). So 6a and 6b are blocked by 1b, the
+  deployment that has the entries in every in-scope repo, not only by 1a's
+  merge.
 - **Task 8 needs the command released.** vergil-actions' CI and every
   caller install the newest vergil-tooling `v2.1.x` tag, so a workflow that
   calls `vrg-docs-nav-check` before Task 9's release would fail every docs
@@ -224,6 +247,43 @@ Notes:
   Files); the doc-review bookend checks the whole.
 
 ---
+
+### Task 1a: the managed ignore entries (vergil-tooling)
+
+Spec §4.4 step 1 (no repo meets a failing docs gate).
+
+**Files:**
+
+- Modify: `src/vergil_tooling/data/gitignore/base` (the docs staging
+  block gains `docs/site/docs/repositories.md` and
+  `docs/site/overrides.staged/`)
+- Test: the existing managed-gitignore tests, extended for the two entries
+
+- [ ] **Step 1: Write the failing test:** the rendered managed
+  `.gitignore` ignores both paths.
+- [ ] **Step 2: Run it to verify it fails.**
+- [ ] **Step 3: Add the two entries** beside the existing staging entries,
+  with a comment naming the staging step that writes each.
+- [ ] **Step 4: Run the full gate** — PASS.
+- [ ] **Step 5: Commit.**
+
+### Task 1b: release and sync the ignore entries (.github, deployment)
+
+`vrg-issue-create --kind deployment --blocked-by` 1a.
+
+- **Human-gated precondition:** a vergil-tooling release carrying Task 1a,
+  checked with `vrg-release-record check vergil-project/vergil-tooling#<1a>`,
+  exit 0.
+- **Human-run steps (need a human identity):** upgrade the host and the VMs
+  to the release (`vrg-host upgrade`, `vrg-vm update --all`), then sync the
+  managed files at once rather than waiting for the nightly job: either
+  dispatch the GitHub config job of each in-scope org's `ops.yml`, or run
+  `vrg-github-repo-config update` in each repo of the in-scope orgs. The
+  sync PRs auto-merge.
+- **Agent-safe check:** in each repo of the three in-scope orgs that has
+  `docs/site/mkdocs.yml`, after `vrg-git fetch origin`, `vrg-git show
+  origin/develop:.gitignore` carries both entries.
+- **Acceptance:** every such repo's `develop` ignores both paths.
 
 ### Task 2: the hub restructure (docs)
 
@@ -285,14 +345,14 @@ Spec §4.1 rule 6, §4.2.
 
 - Modify: `docs/site/mkdocs.yml` (`Repositories: repositories.md` between
   Platform and Getting started)
-- Modify: `.gitignore` (`docs/site/docs/repositories.md`)
 - Modify: `docs/site/docs/index.md` (drop the repository table; the map
   gains a Repositories card linking `repositories.md`; the `packages` row's
   link moves to the Platform card)
 
 **Interfaces:**
 
-- Consumes: Task 6a's staged `repositories.md` (released in Task 9).
+- Consumes: Task 6a's staged `repositories.md` (released in Task 9),
+  gitignored through the managed `.gitignore` (Task 1b).
 
 - [ ] **Step 1: Make the nav and home-page changes above**
 - [ ] **Step 2: Validate**
@@ -327,8 +387,9 @@ Spec §4.3 (the org's lists), §4.4 step 1.
     output that is not a docs site, such as `packages`, is
     `docs_site=False` and is named in `OrgDocs.other_pages`).
   - `@dataclass(frozen=True) class OrgDocs: org: str; has_hub: bool;
-    enforcing: bool; repos: tuple[Repo, ...]; other_pages:
-    frozenset[str]`.
+    hub_label: str; enforcing: bool; repos: tuple[Repo, ...]; other_pages:
+    frozenset[str]`. `hub_label` is the header link's label (on
+    vergil-project, `Vergil project docs`), recorded in the inventory.
   - `ORGS: dict[str, OrgDocs]`, keyed by lower-case org, with
     vergil-project, logical-minds-foundry, mnemosys-project and
     mq-rest-admin-project, every `enforcing=False`.
@@ -350,7 +411,8 @@ Spec §4.3 (the org's lists), §4.4 step 1.
   `docs/site/mkdocs.yml` exists on `develop` and whether its `cd.yml`
   deploys versioned docs. Record it in `ORGS`, with a comment giving the
   date of the inventory. `has_hub` is whether the org has a `docs` repo
-  with a docs site.
+  with a docs site; `hub_label` names the project's docs, taken from the
+  hub's `site_name`.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -362,13 +424,20 @@ Spec §4.3 (the org's lists), §4.4 step 1.
   - `test_no_org_enforces_yet`: every `ORGS` entry has `enforcing=False`.
   - `test_versioned_implies_docs_site`: no `Repo` has `versioned` without
     `docs_site`.
-  - `test_unpublished_links_uses_checked_org` (doc_links): a link to
+  - `test_vergil_project_links_judged_from_every_org` (doc_links): a link
+    to an unpublished `https://vergil-project.github.io/<repo>/` is still a
+    hit when checked from a logical-minds-foundry repo, and still fails the
+    check, as today.
+  - `test_own_org_links_judged_for_listed_org` (doc_links): a link to
     `https://logical-minds-foundry.github.io/nope/` is unpublished when the
-    owner is logical-minds-foundry; a vergil-project link checked from that
-    org is not judged.
-  - `test_docs_link_check_derives_owner` (validate_common): a repo whose
-    `origin` is in mnemosys-project judges links to mnemosys-project's
-    Pages host.
+    checked repo is in logical-minds-foundry.
+  - `test_own_org_links_unjudged_for_unknown_org` (doc_links): a repo in an
+    org not in `ORGS` has its own-org Pages links left unjudged, never
+    flagged against an empty set.
+  - `test_own_org_hits_warn_until_enforcing` (validate_common): a hit on a
+    repo's own-org Pages host, in an org that is not enforcing and is not
+    vergil-project, is a warning and the check passes; with the org
+    patched to enforcing, it fails.
 
 - [ ] **Step 3: Run them to verify they fail**
 
@@ -376,9 +445,13 @@ Spec §4.3 (the org's lists), §4.4 step 1.
   Expected: FAIL (no module `doc_sites`).
 
 - [ ] **Step 4: Implement** the module and switch `doc_links` and
-  `validate_common` to it. `doc_links`' functions gain a keyword `owner:
-  str`; a link to another org's Pages host is left unjudged (the standard
-  is intra-org).
+  `validate_common` to it. `doc_links`' functions take the owner of the
+  host being judged. Links to `vergil-project.github.io` are judged from
+  every org and enforced, exactly as today. In addition, a repo in another
+  org listed in `ORGS` has its links to its own org's Pages host judged,
+  and those hits follow `is_enforcing(org)`: warnings that leave the check
+  passing until Task 13. A repo in an org not in `ORGS` gets only today's
+  check. Links to any other org's Pages host are left unjudged.
 
 - [ ] **Step 5: Run the full gate**
 
@@ -424,7 +497,8 @@ Spec §4.1, §4.3 (gate; what it judges; modes).
   checkout's `origin`. Exit 0 with no findings, or with findings when
   report-only applies (`--report-only`, or `not is_enforcing(org)`), each
   printed as `WARNING: docs-nav: <rule>: <path>: <message>`; exit 1 with
-  findings when enforcing, each printed as `ERROR: …`.
+  findings when enforcing, each printed as `ERROR: …`. An internal error
+  (an exception, an unreadable argument) exits 2 in either mode, never 0.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -457,6 +531,8 @@ Spec §4.1, §4.3 (gate; what it judges; modes).
   - `test_gate_enforcing_org_fails` (CLI): with `doc_sites.ORGS` patched to
     mark the org enforcing, findings → exit 1, `ERROR:` lines.
   - `test_report_only_flag_overrides_enforcing` (CLI).
+  - `test_internal_error_exits_2_in_report_only` (CLI): an exception inside
+    the check exits 2 with `--report-only`, never 0.
   - `test_validate_docs_stage_runs_check_after_build` (vrg_validate): the
     stage builds, then calls `check_site` on the built directory; a finding
     in a report-only org leaves the stage passing with the warnings in its
@@ -504,12 +580,18 @@ Spec §4.3 (as an audit), §4.4 step 3.
 - Consumes: `crawl`, `check_site`, `Finding` (Task 4); `doc_sites`
   (Task 3); `vrg_validate`'s staging and strict build, factored into a
   callable `build_site(repo_root: Path) -> Path` that Task 4's stage also
-  uses.
-- Produces: `vrg-docs-nav-check --audit <checkout> [<checkout> …]
-  [--json]`: per site, the strict-build findings and the published-site
-  findings (labelled `build` and `published`), then a `coverage` block;
-  exit 1 on any finding anywhere, 0 otherwise. Always reports, never
-  enforces.
+  uses (and that carries Tasks 6a and 6b's staging once they land).
+- Produces: `vrg-docs-nav-check --audit [--json]`, run inside one checkout
+  through `vrg-container-run`, which mounts only that checkout: the
+  checkout's strict-build findings and its published-site findings
+  (labelled `build` and `published`). The published crawl is plain HTTPS
+  to a public Pages site and needs no credentials.
+- Produces: `vrg-docs-nav-check --coverage <org> [--json]`, run on the
+  host, where `vrg-gh` has its credentials: the lists' coverage findings
+  for the org.
+- Produces: `vrg-docs-nav-check --merge <json> [<json> …]`: one report
+  from the per-checkout and coverage results. Every mode exits 1 on any
+  finding and 0 otherwise; an audit always reports, never enforces.
 - Produces: `coverage(org: str, repos: Iterable[str], sites:
   Iterable[str]) -> list[Finding]` with rule `"coverage"`: a repo of the
   org not in the lists, and a repo with `docs/site/mkdocs.yml` the lists
@@ -525,9 +607,11 @@ Spec §4.3 (as an audit), §4.4 step 3.
   - `test_audit_published_generated_page_orphan`: a page present only in
     the published fetch (the hub's Activity tree) and reached from nowhere
     is reported under `published`.
-  - `test_audit_build_failure_is_finding_and_continues`: the first
-    checkout's build fails → an `unjudged` finding for it; the second is
-    still judged; exit 1.
+  - `test_audit_build_failure_is_finding`: the checkout's build fails →
+    an `unjudged` finding for it, exit 1.
+  - `test_merge_keeps_every_site_and_coverage`: merging two checkouts'
+    results and a coverage result reports every finding of each; a missing
+    or unreadable input is an internal error (exit 2).
   - `test_audit_fetch_failure_is_unjudged`: an HTTP error on the published
     home page → `unjudged`, never a pass.
   - `test_coverage_reports_unlisted_repo_and_site`.
@@ -538,7 +622,8 @@ Spec §4.3 (as an audit), §4.4 step 3.
 - [ ] **Step 3: Implement.** Fetch with `urllib.request`, following
   redirects, within the site's URL prefix only, with a page cap of 5000
   that, when hit, is itself an `unjudged` finding. The repo list for
-  `coverage` comes from `vrg-gh repo list` (the audit may use the network).
+  `--coverage` comes from `vrg-gh repo list`, and whether a repo has
+  `docs/site/mkdocs.yml` on `develop` from a `vrg-gh api` contents lookup.
 - [ ] **Step 4: Run the full gate** — PASS.
 - [ ] **Step 5: Commit.**
 
@@ -549,26 +634,38 @@ Spec §4.1 rule 6, §4.2.
 **Files:**
 
 - Modify: `src/vergil_tooling/lib/docs.py` (`render_repositories_page`;
-  `stage_docs` writes it when the repo is its org's hub)
+  `stage_docs` takes the org and repo and writes it when the repo is its
+  org's hub; `staging_outputs` lists it)
 - Modify: `src/vergil_tooling/bin/vrg_docs_stage.py` (passes the org and
   repo)
+- Modify: `src/vergil_tooling/bin/vrg_validate.py` (`_stage_docs_sources`,
+  and so Task 5's `build_site`, passes the checked repo's org and repo)
 - Modify: `docs/site/docs/reference/cli-tools-overview.md`
 - Test: `tests/vergil_tooling/test_docs.py`,
-  `tests/vergil_tooling/test_vrg_docs_stage.py`
+  `tests/vergil_tooling/test_vrg_docs_stage.py`,
+  `tests/vergil_tooling/test_vrg_validate.py`
 
 **Interfaces:**
 
-- Consumes: `doc_sites.org_docs`, `site_url` (Task 3).
-- Produces: `render_repositories_page(org_docs: OrgDocs) -> str`; staging
+- Consumes: `doc_sites.org_docs`, `site_url` (Task 3); the ignore entry
+  (Task 1b).
+- Produces: `render_repositories_page(org_docs: OrgDocs) -> str`; staging,
+  from CI's `vrg-docs-stage` and from the local gate and the audit alike,
   writes `<docs-dir>/repositories.md` when `repo == "docs"` and the org
-  `has_hub`, and nothing otherwise. The file is a staging output, so
-  `unignored_staging_error` requires it to be gitignored.
+  `has_hub`, and nothing otherwise. The file is a staging output listed by
+  `staging_outputs`, so `unignored_staging_error` requires it to be
+  gitignored.
 
 - [ ] **Step 1: Write the failing tests**
 
+  - `test_local_staging_writes_repositories_on_hub` (vrg_validate): the
+    local gate's staging of a vergil-project `docs` fixture writes the same
+    `repositories.md` as `vrg-docs-stage`, and its strict build has
+    `repositories/index.html`.
   - `test_repositories_page_lists_every_repo`: one row per `Repo`, sorted
-    by name; a `docs_site` repo links `site_url(org, name, version="latest"
-    if versioned else None)`; any other repo links
+    by name; a `docs_site` repo links its bare site root, `site_url(org,
+    name, version=None)`, which mike redirects to the default version (a
+    repo that has never released has no `latest`); any other repo links
     `https://github.com/<org>/<name>`; a repo in `other_pages` links its
     Pages URL too.
   - `test_stage_writes_repositories_only_on_hub`: staged in `docs` of
@@ -588,43 +685,65 @@ Spec §4.1 rule 5, §6 (one mechanism on every member site).
 
 **Files:**
 
-- Create: `src/vergil_tooling/data/docs_overrides/partials/header.html`
-- Modify: `src/vergil_tooling/lib/docs.py` (`stage_hub_link`)
+- Create: `src/vergil_tooling/data/docs_overrides/main.html` (or, only if
+  Step 3's fallback is taken, `partials/header.html`)
+- Modify: `src/vergil_tooling/lib/docs.py` (`stage_hub_link`;
+  `staging_outputs` lists `docs/site/overrides.staged/`)
 - Modify: `src/vergil_tooling/bin/vrg_docs_stage.py`,
   `src/vergil_tooling/bin/vrg_docs_patch_nav.py` (the staged config)
+- Modify: `src/vergil_tooling/bin/vrg_validate.py` (`_stage_docs_sources`,
+  and so Task 5's `build_site`, stages the hub link too)
 - Test: `tests/vergil_tooling/test_docs.py`,
-  `tests/vergil_tooling/test_vrg_docs_patch_nav.py`
+  `tests/vergil_tooling/test_vrg_docs_patch_nav.py`,
+  `tests/vergil_tooling/test_vrg_validate.py`
 
 **Interfaces:**
 
-- Consumes: `doc_sites.org_docs`, `hub_url` (Task 3).
-- Produces: on a member site of an org with a hub, the staged config sets
-  `extra.vergil_hub: {url: <hub_url>, label: "<Project> project docs"}`
-  and a staged `theme.custom_dir` whose `partials/header.html` renders an
-  anchor `<a class="vrg-hub-link" href="{{ config.extra.vergil_hub.url }}">`
-  with the label in the header. A site with its own `custom_dir` gets a
-  staged copy of it with the partial added, unless it already overrides
-  `partials/header.html`, in which case staging stops with an error naming
-  the file (the site must then render the anchor itself). Task 4's
-  `hub-link` rule checks the result.
+- Consumes: `doc_sites.org_docs`, `hub_url` (Task 3); the ignore entry
+  (Task 1b).
+- Produces: on a member site of an org with a hub, from CI's staging and
+  the local gate's and the audit's alike, the staged config sets
+  `extra.vergil_hub: {url: <hub_url>, label: <org_docs.hub_label>}` and
+  `theme.custom_dir: overrides.staged`, a directory staged at
+  `docs/site/overrides.staged/` that renders an anchor `<a
+  class="vrg-hub-link" href="{{ config.extra.vergil_hub.url }}">` with the
+  label inside `header.md-header`. A site with its own `custom_dir` has it
+  copied into the staged directory with the override added, unless it
+  already overrides `main.html` or `partials/header.html`: then staging
+  adds nothing, and Task 4's `hub-link` rule reports the site if its own
+  header lacks the anchor (a report-only finding until Task 13, never a
+  staging error). Task 4's `hub-link` rule checks the result.
 
 - [ ] **Step 1: Write the failing tests**
 
   - `test_hub_link_staged_on_member_site`: the staged config of a
-    vergil-project member site carries `extra.vergil_hub` and the
-    `custom_dir`; a strict build's pages contain the anchor.
+    vergil-project member site carries `extra.vergil_hub`, with the label
+    `Vergil project docs` from `hub_label`, and the `custom_dir`; a strict
+    build's pages contain the anchor inside `header.md-header`.
+  - `test_local_staging_stages_hub_link` (vrg_validate): the local gate's
+    staging of a member fixture gives the same staged config and
+    `overrides.staged/` as `vrg-docs-stage` and `vrg-docs-patch-nav`.
   - `test_hub_link_not_staged_on_hub_or_hubless_org`.
   - `test_hub_link_merges_existing_custom_dir`.
-  - `test_hub_link_existing_header_override_is_error`.
+  - `test_hub_link_existing_header_override_left_to_rule`: a site that
+    already overrides `partials/header.html` stages without error, and
+    `check_site` gives a `hub-link` finding when its header lacks the
+    anchor.
   - `test_built_member_site_passes_hub_link_rule`: Task 4's `check_site`
     gives no `hub-link` finding on the built fixture.
 
 - [ ] **Step 2: Run them to verify they fail.**
-- [ ] **Step 3: Implement.** Add the anchor beside the site title with
-  the least override Material allows for the pinned version: a block
-  override if the header exposes one, otherwise a copy of that version's
-  `partials/header.html` whose first line names the Material version it
-  was copied from.
+- [ ] **Step 3: Implement.** Material is not pinned (the images install
+  it unversioned), so add no copy of a Material template if it can be
+  avoided. First choice: a `main.html` that extends `base.html` and
+  overrides `{% block header %}` with `{{ super() }}`, the anchor placed
+  inside `header.md-header` with CSS (or a small `extra_css` /
+  `extra_javascript`). Only if that cannot place the anchor inside
+  `header.md-header`, copy `partials/header.html` with the anchor added,
+  and add a vergil-tooling test that compares the copy with the installed
+  Material's `partials/header.html`, apart from the anchor, and fails on
+  drift. Either way, the strict-build test above runs with the image's
+  current Material.
 - [ ] **Step 4: Run the full gate** — PASS.
 - [ ] **Step 5: Commit.**
 
@@ -646,14 +765,18 @@ Spec §2 (new repos start compliant), §4.4 step 1.
 - [ ] **Step 1: Write the failing test**
 
   `test_rendered_site_passes_nav_check`: render the template for a repo in
-  vergil-project, stage it, build it strictly, and `check_site` returns no
-  findings. The rendered `index.md` links `getting-started.md` from its
-  own content.
+  vergil-project, stage it (staging always writes `releases/index.md`, and
+  `changelog.md` when there is a changelog), build it strictly, and
+  `check_site` returns no findings. The rendered `index.md` links every
+  top-level `nav` entry from its own content.
 
-- [ ] **Step 2: Run it to verify it fails** (the home page links nothing).
-- [ ] **Step 3: Implement.** `render_docs_index` writes a home page with a
-  map section linking every top-level `nav` entry; the template's `nav`
-  stays at two entries.
+- [ ] **Step 2: Run it to verify it fails** (the home page links nothing,
+  and the staged release pages are orphans).
+- [ ] **Step 3: Implement.** `render_mkdocs_yml`'s `nav` gains
+  `Changelog: changelog.md` and a `Release Notes` section holding
+  `releases/index.md`, as on vergil-tooling's and vergil-actions' sites,
+  so `patch_nav` adds each release under it. `render_docs_index` writes a
+  home page with a map section linking every top-level `nav` entry.
 - [ ] **Step 4: Run the full gate** — PASS.
 - [ ] **Step 5: Commit.**
 
@@ -668,7 +791,7 @@ Spec §4.3 (gate in `ci-docs.yml`; on every docs deploy).
   `vrg-docs-nav-check --site-dir <dir>`)
 - Modify: `.github/workflows/cd-docs.yml` (after `Stage documentation
   sources`, before `Deploy docs`: a strict `mkdocs build` to a temporary
-  directory and `vrg-docs-nav-check --site-dir <dir> --report-only`)
+  directory and `vrg-docs-nav-check --site-dir <dir>`)
 - Modify: the workflows' README and the smoke test for `cd-docs`
   (`smoke-cd-docs.yml`)
 
@@ -678,9 +801,14 @@ Spec §4.3 (gate in `ci-docs.yml`; on every docs deploy).
 
 - [ ] **Step 1: Add the steps.** `Build docs` gains `-d
   "$RUNNER_TEMP/site"`; the new step runs only when `present == 'true'`.
-  The CI step passes no `--report-only`: the mode comes from the released
-  tooling. The deploy step always passes `--report-only` and never fails
-  the deploy.
+  Neither step passes `--report-only`: the mode comes from the released
+  tooling and the org's lists, so a finding fails the deploy only where
+  the org enforces (after Task 13). Neither step carries
+  `continue-on-error` or `|| true`: a non-zero exit fails the job, so an
+  internal error (exit 2) or a failed build always does. The deploy step
+  runs before `Deploy docs`, so a failing site is not published. The
+  `smoke-cd-docs` test pins this: a report-only finding passes, and a
+  forced exit 2 fails the job.
 - [ ] **Step 2: Validate** — `vrg-container-run -- vrg-validate`, PASS
   (actionlint included).
 - [ ] **Step 3: Confirm in CI.** The PR's own docs job (and the
@@ -719,14 +847,22 @@ Spec §4.4 steps 3–4. `--blocked-by` 2b, 9, 10.
   --help` exits 0).
 - **Procedure:**
   1. Clone or fetch every repo `doc_sites.ORGS` marks `docs_site` in the
-     three in-scope orgs, at `origin/develop`.
-  2. Run `vrg-container-run -- vrg-docs-nav-check --audit <checkouts…>
-     --json`, and post the per-site findings and the coverage block as a
-     comment (as a fenced block, or an attached file if long).
-  3. A `coverage` finding (a repo or site the lists miss) is fixed by a
+     three in-scope orgs (the host's existing checkouts under the projects
+     volume, `vrg-git fetch origin`), each checked out at a detached
+     `origin/develop`.
+  2. For each checkout, `cd` into it and run `vrg-container-run --
+     vrg-docs-nav-check --audit --json`, writing the result to a file in
+     the running session's scratch directory. `vrg-container-run` mounts
+     only the checkout it runs in, so each site is audited in its own
+     container, with its own environment.
+  3. On the host, run `vrg-docs-nav-check --coverage <org> --json` for each
+     of the three orgs, into the same directory.
+  4. Run `vrg-docs-nav-check --merge <files…>`, and post the merged report
+     as a comment (as a fenced block, or an attached file if long).
+  5. A `coverage` finding (a repo or site the lists miss) is fixed by a
      vergil-tooling task filed now, `Plan task: 12 vergil-project/vergil-tooling`,
      before any site's fix is judged.
-  4. Stop for the human's review of the findings. For each site the human
+  6. Stop for the human's review of the findings. For each site the human
      confirms short of the standard, file one fix task in its repo, keyed
      `Plan task: 12 <org>/<repo>`, its body listing that site's findings,
      the standard's page, layout B if the site needs more than 7 tabs, and
@@ -736,7 +872,7 @@ Spec §4.4 steps 3–4. `--blocked-by` 2b, 9, 10.
      no separate task is filed. In logical-minds-foundry and
      mnemosys-project, file under the org's proxy (`vrg-epic-create
      --proxy-for vergil-project/.github#1668 --repo <org>/<repo>`).
-  5. Add a `Blocked-by:` line for each fix task to Task 12z's body.
+  7. Add a `Blocked-by:` line for each fix task to Task 12z's body.
 - **Acceptance:** every in-scope docs site has its findings recorded, and
   every short site has a keyed fix task that 12z is blocked by.
 
@@ -757,7 +893,8 @@ Spec §4.4 step 6. `--blocked-by` 11 and every 12-* task.
   …` task is open; and each fixed site's `dev` version was deployed after
   its fix merged (the site's last `cd-docs` run on `develop` succeeded
   after the merge).
-- **Procedure:** rerun Task 11's audit command over the same checkouts.
+- **Procedure:** rerun Task 11's procedure steps 1–4 over the same
+  repos, after a fresh fetch.
 - **Acceptance:** exit 0: no finding on any site's build or published
   `dev` version, and no coverage finding.
 

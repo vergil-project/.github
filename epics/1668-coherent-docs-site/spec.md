@@ -223,9 +223,13 @@ The check lives in `vergil-tooling` and runs in two ways:
   lists, and every docs site the lists do not name.
 - **On every docs deploy.** `vergil-actions`' docs deploy runs the check on
   the deploy build, after its pre-deploy command, so the pages generated at
-  deploy time are judged on every deploy, not only during the audit. Here
-  the check is always report-only: its findings are a visible warning in
-  the deploy run, which still publishes.
+  deploy time are judged on every deploy, not only during the audit. It
+  runs before the publish, in the same mode as the gate: where the org
+  enforces, a finding fails the deploy and the site is not published.
+  Report-only lasts only until the switch to enforcing (§4.4), and its
+  reader is the audit, not the deploy log. A failure of the check itself
+  (an internal error, or a build of the deploy tree that fails) fails the
+  deploy in either mode.
 
 It judges the built site:
 
