@@ -119,7 +119,7 @@ reporter.
 - The reporter, the queue and the morning review match the spec.
 - The identity goal shipped in a narrower form, with five exceptions
   instead of "every job on the App".
-- Nine tasks were added during execution:
+- Ten tasks were added during execution:
   - the revert and the three cleanup tasks (#1044, #1050, #1051, #1054);
   - #1029, split from Task 15;
   - the plan-evolution and spec-correction tasks #1549, #1553, #1617, #1671
