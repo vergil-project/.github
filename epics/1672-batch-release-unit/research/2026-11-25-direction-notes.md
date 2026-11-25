@@ -86,5 +86,3 @@ practice.
   fixed order (holding what is already held). The first cannot deadlock but
   can starve a large epic; the second avoids both.
 - The full list of batch edge cases to test, from the research's §6.
-- Whether the epic's slug and title, chosen when it was planned as release
-  blocks, still fit.
