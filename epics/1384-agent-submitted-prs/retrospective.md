@@ -225,12 +225,12 @@ and the secrets moved into an environment), then the records, then the
 gates, then the permission grants, then the skills and steering, with the
 fixture runs as the first live agent cycle. What changed was the content
 of the middle, and the number of tasks: the plan's Evolution log records
-five execution passes, and the epic grew from its filed tasks to 124
+four execution passes, and the epic grew from its filed tasks to 124
 children and 20 more under the repos' ad-hoc epics.
 
 **The protected core came out.** The spec's largest single mechanism, a
 protected-path set whose changes needed a human protected-change approval
-recording each file's blob hash, was built (Tasks 4, 6a, 8, 9, 15a) and
+recording each file's blob hash, was built (Tasks 4, 6a, 8, 9, 11, 12 and 15a) and
 then removed by ruling N0.12 on 24 Nov. The reasoning was the spec's own:
 §1.1 argues that an approval given without looking protects nothing, and
 an approval on every workflow and `vergil.toml` change, in an epic whose
@@ -373,8 +373,10 @@ ruling a sub-agent cannot see.
   tracked by vergil-project/.github#1640 (N0.33).
 - **Part of the epic lives outside its tree.** The 14 Task 13 callers and
   the six sweep tasks under the repos' ad-hoc epics are invisible to the
-  epic's audit, rollup and this retrospective's gate; the plan's Evolution
-  log is their only index.
+  epic's audit, rollup and this retrospective's gate. The plan's Evolution
+  log lists the 14 callers (its N0.15 entry); the six sweep tasks are
+  listed only in this retrospective's tables and in ruling N0.35 on the
+  epic.
 - **A fixture release shipped without its evidence.** vergil-fixture-ts-lib
   `v0.1.10` stays published without an evidence bundle (N0.31); `v0.1.11`
   is the clean release.
