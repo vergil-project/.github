@@ -220,8 +220,10 @@ back-merge, dependency-update, mechanized or human PR that no agent took
 part in is armed on the provenance check alone. Turning auto-merge on or
 off is not involvement: the actor of an `auto_merge_enabled` or
 `auto_merge_disabled` event is not counted, so a re-arm by the user agent
-does not make a PR agent-involved. The audit (§5.9) computes involvement
-the same way.
+does not make a PR agent-involved. Nor is the path's own direct merge of a
+PR at clean status (§5.4), the same decision as an arm: the actor of its
+`merged` event and of the `closed` event GitHub records with it is not
+counted either. The audit (§5.9) computes involvement the same way.
 
 Because the path mechanizes every arm, who calls it does not matter: any
 trusted identity with write access (the human, the user agent or the
@@ -241,7 +243,10 @@ An enable made outside the path cannot be told apart from one made through
 it after the fact: GitHub records who turned auto-merge on, not which code
 did. So for the user agent the control is prevention, not detection:
 `vrg-gh` denies `gh api` and a raw `gh pr merge` to the user identity, and
-the agent reaches auto-merge only through the path. For the human and the
+the agent reaches auto-merge only through the path. It also refuses the
+agent a `gh pr update-branch` on a PR into `develop`: every new head of
+such a PR is made through the path (§5.4), never server-side on an agent's
+request. For the human and the
 automation App, an enable outside the path is accepted residual risk
 (§5.10). Once a PR is armed, the merge is GitHub's. A check that must stop a merge after the PR is armed is a
 required CI check in the ruleset, or it is not a merge gate at all: the
