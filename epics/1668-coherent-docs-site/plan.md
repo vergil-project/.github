@@ -86,6 +86,9 @@ Markdown (the docs sites).
   versions are out of scope (spec §2, non-goals).
 - **The hub's six tabs, in order:** Home, Logbook, Management, Platform,
   Repositories, Getting started (spec §4.2).
+- **Every code task runs red, green, refactor:** a failing test first,
+  then the change, then a refactor step that names its clean-up, then the
+  full gate.
 
 ## Review Focus
 
@@ -127,18 +130,19 @@ is blocked by.
   and the managed `.gitignore` synced to every repo of the in-scope orgs
   at once, not left to the nightly job. Blocked by 1a.
 - **2** (docs): the hub restructure: six tabs in the spec's order, the
-  home page as a map, the navigation standard's page, the
-  vergil-claude-plugin title fix. Blocked by nothing.
+  home page as a map, the navigation standard's page. Blocked by nothing.
+- **2c** (vergil-claude-plugin): the site's `site_name` becomes `Vergil
+  Claude plugin`. Blocked by nothing.
 - **3** (vergil-tooling): `lib/doc_sites.py`, the org's lists filled from
   an inventory of the in-scope orgs, every org `enforcing=False`;
   `doc_links` and the docs-link check also judge each listed org's own
-  Pages links, report-only until the org enforces.
+  Pages links, report-only until the org enforces. Blocked by nothing.
 - **4** (vergil-tooling): `lib/docs_nav.py` (crawl, home map, tab cap, hub
   link) and `vrg-docs-nav-check` gate mode, run in `vrg-validate`'s
   `docs` stage after the strict build; report-only. Blocked by 3.
 - **5** (vergil-tooling): `vrg-docs-nav-check --audit`: the strict build
-  and the published `dev` crawl of each site, and the lists' coverage
-  report. Blocked by 4.
+  and the published `dev` crawl of each site, the docs-link check's
+  findings for any checkout, and the lists' coverage report. Blocked by 4.
 - **6a** (vergil-tooling): docs staging (CI's `vrg-docs-stage` and the
   local gate's) writes the hub's `repositories.md` from the lists. Blocked
   by 1b, 3.
@@ -156,17 +160,24 @@ is blocked by.
 - **8b** (vergil-actions): `ops-docs-coverage.yml`, a reusable ops
   workflow that runs `vrg-docs-nav-check --coverage <calling org>` daily,
   with an `ops-report` job that reports a failure to the org's operations
-  queue. Blocked by 9.
+  queue; it declares the org App's keys as named secrets, so a caller in
+  another org can pass them. Blocked by 9.
 - **10** (.github, deployment): the vergil-actions release carrying 8 and
   8b, on the `v2.1` series. Blocked by 8, 8b.
 - **2b** (docs): the hub's Repositories tab from the generated page,
   replacing the home-page table. Blocked by 2, 9.
+- **2d** (logical-minds-foundry/docs, under that org's proxy, by full ref)
+  and **2e** (mnemosys-project/docs, under that org's proxy, by full ref):
+  the org hub's Repositories tab from the generated page, as 2b does for
+  vergil-project's. Each blocked by 9.
 - **11** (.github, validation): the audit of every docs site in the
-  in-scope orgs with the released check, recorded per site; the human's
-  review; one fix task filed per short site, and each added to 12z's
-  `Blocked-by:`. Blocked by 2b, 9, 10.
-- **12-*** (each site's repo; filed by 11, not by `file-tasks`): one fix
-  task per site the audit finds short of the standard; and, if any of them
+  in-scope orgs with the released check, and of every repo of them with
+  the docs-link check, recorded per repo; the human's review; one fix task
+  filed per short repo, and each added to 12z's `Blocked-by:`. Blocked by
+  2b, 2c, 2d, 2e, 9, 10.
+- **12-*** (each repo; filed by 11, not by `file-tasks`): one fix task per
+  site the audit finds short of the standard or repo with docs-link
+  findings; and, if any of them
   is in vergil-tooling, a deployment task (`Plan task: 12 release`) that
   releases and installs it and redeploys the hub, blocked by those
   vergil-tooling fixes.
@@ -184,7 +195,9 @@ is blocked by.
   (logical-minds-foundry/.github, under that org's proxy, by full ref) and
   **17c** (mnemosys-project/.github, under that org's proxy, by full ref):
   the org's `ops.yml` calls `ops-docs-coverage.yml@v2.1` as a
-  `docs-coverage` job. Each blocked by 10 and 12z, so the first daily run
+  `docs-coverage` job, passing the App keys as its existing jobs do
+  (`secrets: inherit` in vergil-project, by name in the other two). Each
+  blocked by 10 and 12z, so the first daily run
   judges the corrected lists.
 - **16** (fixture runs, via `fixture-run`): `python-lib`, `python-app`,
   `rust-lib`, `rust-app`, `ts-lib`, `ts-app`; `--validates "the
@@ -237,9 +250,17 @@ Notes:
   caller install the newest vergil-tooling `v2.1.x` tag, so a workflow that
   calls `vrg-docs-nav-check` before Task 9's release would fail every docs
   job. Task 8 is therefore blocked by Task 9, not by Task 4.
-- **The hub's Repositories tab waits for the generator's release** (2b
-  blocked by 9) for the same reason: the hub's strict build stages the
-  page through the released `vrg-docs-stage`.
+- **Each hub's Repositories tab waits for the generator's release** (2b,
+  2d and 2e blocked by 9) for the same reason: a hub's strict build stages
+  the page through the released `vrg-docs-stage`. Task 6a writes the page
+  on every hub, so without 2d and 2e it would be an orphan on the
+  logical-minds-foundry and mnemosys-project hubs.
+- **Enforcing makes docs-link findings fatal too.** Task 3's own-org
+  docs-link judgement follows the org's mode, so Task 13 enforces it in
+  logical-minds-foundry and mnemosys-project as well as the nav check. The
+  audit (Task 11) therefore runs the docs-link check over every repo of
+  the in-scope orgs, a repo with no docs site included, and its findings
+  are fixed (Task 12-*) before 12z.
 - **Fix tasks are filed by the audit,** since only the audit knows which
   sites are short. Task 11 files each in the site's own repo, under this
   epic for vergil-project and under the org's proxy otherwise
@@ -281,8 +302,10 @@ Spec §4.4 step 1 (no repo meets a failing docs gate).
 - [ ] **Step 2: Run it to verify it fails.**
 - [ ] **Step 3: Add the two entries** beside the existing staging entries,
   with a comment naming the staging step that writes each.
-- [ ] **Step 4: Run the full gate** — PASS.
-- [ ] **Step 5: Commit.**
+- [ ] **Step 4: Refactor:** keep the docs staging block's entries in one
+  ordered group with one comment style; rerun the test.
+- [ ] **Step 5: Run the full gate** — PASS.
+- [ ] **Step 6: Commit.**
 
 ### Task 1b: release and sync the ignore entries (.github, deployment)
 
@@ -304,7 +327,7 @@ Spec §4.4 step 1 (no repo meets a failing docs gate).
 
 ### Task 2: the hub restructure (docs)
 
-Spec §4.2, §4.1 rules 2–4, §4.5.
+Spec §4.2, §4.1 rules 2–4, §4.5 (the standard's page).
 
 **Files:**
 
@@ -337,8 +360,7 @@ Spec §4.2, §4.1 rules 2–4, §4.5.
   key pages: Logbook links its five level indexes (daily first) and Hoshin
   and Fleet; Management its six pages, the Roadmap and Activity; Platform
   its three pages. Keep the repository table and the closing generated-pages
-  note until Task 2b. In the table, the vergil-claude-plugin row drops any
-  "Standard Tooling Plugin" wording.
+  note until Task 2b.
 
 - [ ] **Step 3: Write the navigation standard's page**
 
@@ -380,6 +402,49 @@ Spec §4.1 rule 6, §4.2.
 
 - [ ] **Step 3: Commit.**
 
+### Task 2c: the plugin site's title (vergil-claude-plugin)
+
+Spec §4.5 (stale details).
+
+**Files:**
+
+- Modify: `docs/site/mkdocs.yml` (`site_name: Standard Tooling Plugin`
+  becomes `site_name: Vergil Claude plugin`)
+
+- [ ] **Step 1: Rename `site_name`,** and grep the site's pages for any
+  other "Standard Tooling Plugin" wording, renaming it too.
+- [ ] **Step 2: Validate** — `vrg-container-run -- vrg-validate`, PASS.
+- [ ] **Step 3: Commit** with `vrg-commit --type docs`.
+
+### Tasks 2d, 2e: the other hubs' Repositories tabs (each org's docs)
+
+Spec §4.1 rule 6, §4.2. 2d in `logical-minds-foundry/docs` and 2e in
+`mnemosys-project/docs`, each under its org's proxy (`vrg-epic-create
+--proxy-for vergil-project/.github#1668 --repo <org>/docs`). `--blocked-by`
+9.
+
+**Files:**
+
+- Modify: `docs/site/mkdocs.yml` (a `Repositories: repositories.md` entry
+  in `nav`)
+- Modify: `docs/site/docs/index.md` (the home page links
+  `repositories.md`; any hand-written repository list it replaces is
+  dropped)
+
+**Interfaces:**
+
+- Consumes: Task 6a's staged `repositories.md` (released in Task 9),
+  gitignored through the managed `.gitignore` (Task 1b).
+
+- [ ] **Step 1: Make the nav and home-page changes above.**
+- [ ] **Step 2: Validate**
+
+  Run: `vrg-container-run -- vrg-validate`
+  Expected: PASS, and the staged site has a `repositories/index.html`
+  listing every repo of the org.
+
+- [ ] **Step 3: Commit.**
+
 ### Task 3: the org's lists (vergil-tooling)
 
 Spec §4.3 (the org's lists), §4.4 step 1.
@@ -392,6 +457,10 @@ Spec §4.3 (the org's lists), §4.4 step 1.
   `<owner>.github.io` for the owner passed in)
 - Modify: `src/vergil_tooling/bin/validate_common.py:190-260` (the own-site
   and docs-link check use the checked repo's org)
+- Modify: `docs/site/docs/reference/lint/markdown-standards.md` (its
+  "Links to other Vergil docs sites" section: the own-org judgement and its
+  mode) and `docs/site/docs/guides/validation-matrix.md` (the docs-links
+  entry)
 - Test: `tests/vergil_tooling/test_doc_sites.py`,
   `tests/vergil_tooling/test_doc_links.py`,
   `tests/vergil_tooling/test_validate_common.py`
@@ -472,14 +541,19 @@ Spec §4.3 (the org's lists), §4.4 step 1.
   org listed in `ORGS` has its links to its own org's Pages host judged,
   and those hits follow `is_enforcing(org)`: warnings that leave the check
   passing until Task 13. A repo in an org not in `ORGS` gets only today's
-  check. Links to any other org's Pages host are left unjudged.
+  check. Links to any other org's Pages host are left unjudged. Update the
+  two docs pages above to match.
 
-- [ ] **Step 5: Run the full gate**
+- [ ] **Step 5: Refactor:** remove `PAGES_OWNER`, `VERSIONED_SITES` and
+  any other site constant `doc_links` kept beside `doc_sites`, so the lists
+  have one source; rerun the three test files.
+
+- [ ] **Step 6: Run the full gate**
 
   Run: `vrg-container-run -- vrg-validate`
   Expected: PASS.
 
-- [ ] **Step 6: Commit.**
+- [ ] **Step 7: Commit.**
 
 ### Task 4: the check, gate mode (vergil-tooling)
 
@@ -490,10 +564,13 @@ Spec §4.1, §4.3 (gate; what it judges; modes).
 - Create: `src/vergil_tooling/lib/docs_nav.py`
 - Create: `src/vergil_tooling/bin/vrg_docs_nav_check.py` (and its
   `pyproject.toml` entry point)
-- Modify: `src/vergil_tooling/bin/vrg_validate.py:1289-1340`
-  (`_run_docs_build` keeps the built site and passes it to the check)
-- Modify: `docs/site/docs/reference/cli-tools-overview.md` (the command;
-  the docs stage's new step)
+- Modify: `src/vergil_tooling/bin/vrg_validate.py` (`_run_docs_build`
+  keeps the built site and passes it to the check)
+- Modify: `docs/site/docs/reference/cli-tools-overview.md` (the
+  `vrg-docs-nav-check` section, and the `vrg-validate` section's docs
+  stage) and `docs/site/docs/guides/validation-matrix.md` (its Docs build
+  stage), each describing the check and linking the hub's
+  `management/navigation-standard/` page
 - Test: `tests/vergil_tooling/test_docs_nav.py`,
   `tests/vergil_tooling/test_vrg_docs_nav_check.py`,
   `tests/vergil_tooling/test_vrg_validate.py`, fixture sites under
@@ -576,12 +653,16 @@ Spec §4.1, §4.3 (gate; what it judges; modes).
   requires an anchor in the home page's content into each. The hub link is
   an anchor with class `vrg-hub-link` and `href` equal to `hub_url(org)`
   inside `header.md-header`, on every page. A directory URL resolves to its
-  `index.html`.
+  `index.html`. Write the docs above, each linking `STANDARD_URL`.
 
-- [ ] **Step 4: Run the full gate** — `vrg-container-run -- vrg-validate`,
+- [ ] **Step 4: Refactor:** keep the HTML parsing in one parser class that
+  `check_site` and `crawl` share, and the message text in one place built
+  from `STANDARD_URL`; rerun the three test files.
+
+- [ ] **Step 5: Run the full gate** — `vrg-container-run -- vrg-validate`,
   expected PASS. vergil-tooling's own site gives warnings only.
 
-- [ ] **Step 5: Commit.**
+- [ ] **Step 6: Commit.**
 
 ### Task 5: the audit mode (vergil-tooling)
 
@@ -605,8 +686,11 @@ Spec §4.3 (as an audit), §4.4 step 3.
 - Produces: `vrg-docs-nav-check --audit [--json]`, run inside one checkout
   through `vrg-container-run`, which mounts only that checkout: the
   checkout's strict-build findings and its published-site findings
-  (labelled `build` and `published`). The published crawl is plain HTTPS
-  to a public Pages site and needs no credentials.
+  (labelled `build` and `published`), and the docs-link check's findings
+  over the checkout's markdown, with the org judged as enforcing (labelled
+  `links`, rule `"docs-link"`). A checkout with no docs site gives only
+  `links` findings. The published crawl is plain HTTPS to a public Pages
+  site and needs no credentials.
 - Produces: `vrg-docs-nav-check --coverage <org> [--json]`, run on the
   host, where `vrg-gh` has its credentials: the lists' coverage findings
   for the org.
@@ -638,6 +722,10 @@ Spec §4.3 (as an audit), §4.4 step 3.
   - `test_coverage_reports_unlisted_repo_and_site`.
   - `test_audit_reports_every_finding`: two orphans and a tab-cap finding
     on one site are all reported in one run.
+  - `test_audit_reports_docs_link_findings`: in a logical-minds-foundry
+    checkout with no docs site, a link to an unpublished
+    `https://logical-minds-foundry.github.io/nope/` is a `links` finding,
+    though the org is not enforcing yet, and the exit is 1.
 
 - [ ] **Step 2: Run them to verify they fail.**
 - [ ] **Step 3: Implement.** Fetch with `urllib.request`, following
@@ -645,8 +733,13 @@ Spec §4.3 (as an audit), §4.4 step 3.
   that, when hit, is itself an `unjudged` finding. The repo list for
   `--coverage` comes from `vrg-gh repo list`, and whether a repo has
   `docs/site/mkdocs.yml` on `develop` from a `vrg-gh api` contents lookup.
-- [ ] **Step 4: Run the full gate** — PASS.
-- [ ] **Step 5: Commit.**
+  The `links` pass calls the docs-link check's own function in
+  `validate_common`, never a copy of it.
+- [ ] **Step 4: Refactor:** move the docs stage's staging and strict build
+  behind `build_site`, so `vrg-validate`'s stage and the audit share one
+  path; rerun the test files and Task 4's.
+- [ ] **Step 5: Run the full gate** — PASS.
+- [ ] **Step 6: Commit.**
 
 ### Task 6a: the hub's generated Repositories page (vergil-tooling)
 
@@ -701,8 +794,11 @@ Spec §4.1 rule 6, §4.2.
 - [ ] **Step 2: Run them to verify they fail.**
 - [ ] **Step 3: Implement.** The page opens with a line saying it is
   generated from vergil-tooling's `lib/doc_sites.py`.
-- [ ] **Step 4: Run the full gate** — PASS.
-- [ ] **Step 5: Commit.**
+- [ ] **Step 4: Refactor:** pass the org and repo to staging once, as one
+  argument both `vrg-docs-stage` and `_stage_docs_sources` build the same
+  way, ready for Task 6b; rerun the test files.
+- [ ] **Step 5: Run the full gate** — PASS.
+- [ ] **Step 6: Commit.**
 
 ### Task 6b: the member sites' header link to the hub (vergil-tooling)
 
@@ -784,8 +880,11 @@ Spec §4.1 rule 5, §6 (one mechanism on every member site).
   and fails on drift. A site with no `repo_url` gets no anchor, and Task
   4's `hub-link` rule reports it. The strict-build test above runs with the
   image's current Material.
-- [ ] **Step 4: Run the full gate** — PASS.
-- [ ] **Step 5: Commit.**
+- [ ] **Step 4: Refactor:** keep the config merge (`extra`, `theme`) in
+  one helper that `vrg-docs-stage`, `vrg-docs-patch-nav` and
+  `_stage_docs_sources` all call; rerun the test files.
+- [ ] **Step 5: Run the full gate** — PASS.
+- [ ] **Step 6: Commit.**
 
 ### Task 7: the site template to the standard (vergil-tooling)
 
@@ -817,8 +916,11 @@ Spec §2 (new repos start compliant), §4.4 step 1.
   `releases/index.md`, as on vergil-tooling's and vergil-actions' sites,
   so `patch_nav` adds each release under it. `render_docs_index` writes a
   home page with a map section linking every top-level `nav` entry.
-- [ ] **Step 4: Run the full gate** — PASS.
-- [ ] **Step 5: Commit.**
+- [ ] **Step 4: Refactor:** derive the home page's map from the same `nav`
+  list `render_mkdocs_yml` writes, so the two cannot drift; rerun the
+  test.
+- [ ] **Step 5: Run the full gate** — PASS.
+- [ ] **Step 6: Commit.**
 
 ### Task 8: the check in PR CI and the docs deploy (vergil-actions)
 
@@ -842,31 +944,42 @@ Spec §4.3 (gate in `ci-docs.yml`; on every docs deploy).
 
 - Consumes: `vrg-docs-nav-check` as released in Task 9.
 
-- [ ] **Step 1: Add the steps.** `Build docs` gains `-d
+- [ ] **Step 1: Write the failing smoke assertions.** `smoke-cd-docs`
+  asserts that the deploy job has a `Check docs navigation` step before
+  `Deploy docs`, that a report-only finding leaves the job passing, and
+  that a forced exit 2 fails it; the `ci-docs` layout check asserts the
+  step after `Build docs`.
+- [ ] **Step 2: Run them to verify they fail** (no such step yet).
+- [ ] **Step 3: Add the steps.** `Build docs` gains `-d
   "$RUNNER_TEMP/site"`; the new step runs only when `present == 'true'`.
   Neither step passes `--report-only`: the mode comes from the released
   tooling and the org's lists, so a finding fails the deploy only where
   the org enforces (after Task 13). Neither step carries
   `continue-on-error` or `|| true`: a non-zero exit fails the job, so an
   internal error (exit 2) or a failed build always does. The deploy step
-  runs before `Deploy docs`, so a failing site is not published. The
-  `smoke-cd-docs` test pins this: a report-only finding passes, and a
-  forced exit 2 fails the job.
-- [ ] **Step 2: Validate** — `vrg-container-run -- vrg-validate`, PASS
+  runs before `Deploy docs`, so a failing site is not published.
+- [ ] **Step 4: Refactor:** the two workflows resolve the mkdocs command
+  the same way; share it as one composite step if both copies match
+  line for line; rerun the smoke assertions.
+- [ ] **Step 5: Validate** — `vrg-container-run -- vrg-validate`, PASS
   (actionlint included).
-- [ ] **Step 3: Confirm in CI.** The PR's own docs job (and the
+- [ ] **Step 6: Confirm in CI.** The PR's own docs job (and the
   `smoke-cd-docs` run) shows the `docs-nav` output.
-- [ ] **Step 4: Commit.**
+- [ ] **Step 7: Commit.**
 
 ### Task 8b: the daily coverage check (vergil-actions)
 
-Spec §4.1 rule 6 (the hub links every member site; generated from the
-lists, so the lists must match the org).
+Spec §4.3 (daily, for the lists' coverage), §4.1 rule 6 (the hub links
+every member site; generated from the lists, so the lists must match the
+org).
 
 **Files:**
 
 - Create: `.github/workflows/ops-docs-coverage.yml`, modelled on
-  `ops-github-config.yml`: on `workflow_call`, in the `automation`
+  `ops-github-config.yml`: on `workflow_call`, declaring `APP_CLIENT_ID`
+  and `APP_PRIVATE_KEY` as named secrets as `ops-github-config.yml` and
+  `ops-agent-audit.yml` do (a caller in vergil-project passes them with
+  `secrets: inherit`, one in another org by name), in the `automation`
   environment with the org App's token (verified with `vrg-whoami --mode`
   before use, as there), one `docs-coverage` job running
   `vrg-docs-nav-check --coverage "${{ github.repository_owner }}"`, and an
@@ -882,10 +995,18 @@ lists, so the lists must match the org).
 - Produces: a reusable workflow each in-scope org's `.github/ops.yml`
   calls (Tasks 17a–17c).
 
-- [ ] **Step 1: Write the workflow and its layout test.**
-- [ ] **Step 2: Validate** — `vrg-container-run -- vrg-validate`, PASS
+- [ ] **Step 1: Write the failing layout test:** the workflow exists, is
+  `workflow_call` only, declares the two named secrets, runs the coverage
+  job in the `automation` environment, and has an `ops-report` job that
+  runs on failure or cancel.
+- [ ] **Step 2: Run it to verify it fails** (no workflow yet).
+- [ ] **Step 3: Write the workflow.**
+- [ ] **Step 4: Refactor:** reuse `ops-github-config.yml`'s token and
+  `ops-report` steps (its composite actions, where it has them) rather
+  than copies; rerun the layout test.
+- [ ] **Step 5: Validate** — `vrg-container-run -- vrg-validate`, PASS
   (actionlint included).
-- [ ] **Step 3: Commit.**
+- [ ] **Step 6: Commit.**
 
 ### Task 9: release vergil-tooling, report-only (.github, deployment)
 
@@ -914,15 +1035,16 @@ lists, so the lists must match the org).
 
 ### Task 11: the audit (.github, validation)
 
-Spec §4.4 steps 3–4. `--blocked-by` 2b, 9, 10.
+Spec §4.4 steps 3–4. `--blocked-by` 2b, 2c, 2d, 2e, 9, 10.
 
 - **Precondition:** Task 9's release is installed (`vrg-docs-nav-check
   --help` exits 0).
 - **Procedure:**
-  1. Clone or fetch every repo `doc_sites.ORGS` marks `docs_site` in the
-     three in-scope orgs (the host's existing checkouts under the projects
-     volume, `vrg-git fetch origin`), each checked out at a detached
-     `origin/develop`.
+  1. Clone or fetch every repo `doc_sites.ORGS` lists in the three
+     in-scope orgs, a repo with no docs site included, since the audit's
+     `links` pass judges every repo (the host's existing checkouts under the
+     projects volume, `vrg-git fetch origin`), each checked out at a
+     detached `origin/develop`.
   2. For each checkout, `cd` into it and run `vrg-container-run --
      vrg-docs-nav-check --audit --json`, writing the result to a file in
      the running session's scratch directory. `vrg-container-run` mounts
@@ -943,10 +1065,12 @@ Spec §4.4 steps 3–4. `--blocked-by` 2b, 9, 10.
      The released lists do not name it yet, so a finding that depends on
      them (its org mode, its hub link) is judged again by 12z.
   6. Stop for the human's review of the findings. For each site the human
-     confirms short of the standard, file one fix task in its repo, keyed
-     `Plan task: 12 <org>/<repo>`, its body listing that site's findings,
-     the standard's page, layout B if the site needs more than 7 tabs, and
-     the removal of any remaining "standard tooling" naming (spec §4.5).
+     confirms short of the standard, or repo with `links` findings, file
+     one fix task in its repo, keyed `Plan task: 12 <org>/<repo>`, its body
+     listing that repo's findings (a site's `links` findings ride its site
+     fix), the standard's page, layout B if the site needs more than 7
+     tabs, and the removal of any remaining "standard tooling" naming
+     (spec §4.5).
      For a fixture site, the fix may ride that fixture's run (Task 16): if
      its change task is still open, its body gains the fix and the key, and
      no separate task is filed. In logical-minds-foundry and
@@ -965,15 +1089,17 @@ Spec §4.4 steps 3–4. `--blocked-by` 2b, 9, 10.
      hub's `cd-docs` run succeeded after the release.
   8. Add a `Blocked-by:` line for each fix task, and for the `12 release`
      task if one was filed, to Task 12z's body.
-- **Acceptance:** every in-scope docs site has its findings recorded, and
-  every short site has a keyed fix task that 12z is blocked by.
+- **Acceptance:** every in-scope docs site and repo has its findings
+  recorded, and every short site and every repo with `links` findings has
+  a keyed fix task that 12z is blocked by.
 
-### Task 12-* (filed by Task 11): fix one site
+### Task 12-* (filed by Task 11): fix one site or repo
 
 Each: restructure the site to the standard (rules 1–5 of spec §4.1, tab
-grouping and wording the builder's), clear every orphan, remove "standard
-tooling" naming, and pass `vrg-container-run -- vrg-validate` with no
-`docs-nav` warning. The PR lands on `develop`. A member site's fix needs
+grouping and wording the builder's), clear every orphan and every
+docs-link finding, remove "standard tooling" naming, and pass
+`vrg-container-run -- vrg-validate` with no `docs-nav` or docs-link
+warning. A repo with no docs site clears only its docs-link findings. The PR lands on `develop`. A member site's fix needs
 no release (the bar is `dev`). A vergil-tooling fix does: the audit, the
 gate and the hub's Repositories page all run from the installed release,
 so Task 11 files the `12 release` deployment task after it (step 7).
@@ -988,11 +1114,11 @@ Spec §4.4 step 6. `--blocked-by` 11 and every 12-* task.
   its fix merged (the site's last `cd-docs` run on `develop` succeeded
   after the merge).
 - **Procedure:** rerun Task 11's procedure steps 1–4, after a fresh fetch,
-  over the repos the installed release's `doc_sites.ORGS` marks
-  `docs_site` (after any `12 release`, the updated lists), not only the
-  repos Task 11 audited.
+  over every repo the installed release's `doc_sites.ORGS` lists (after
+  any `12 release`, the updated lists), not only the repos Task 11
+  audited.
 - **Acceptance:** exit 0: no finding on any site's build or published
-  `dev` version, and no coverage finding.
+  `dev` version, no `links` finding in any repo, and no coverage finding.
 
 ### Task 13: enforce in the in-scope orgs (vergil-tooling)
 
@@ -1009,9 +1135,13 @@ Spec §4.3 (modes), §4.4 step 6.
   the recovery: a patch release setting the orgs back to report-only)
 
 - [ ] **Step 1: Update the test; run it; expect FAIL.**
-- [ ] **Step 2: Flip the three entries; run the full gate; expect PASS**
-  (vergil-tooling's own site has no findings after its Task 12 fix).
-- [ ] **Step 3: Commit.**
+- [ ] **Step 2: Flip the three entries; rerun the test; expect PASS.**
+- [ ] **Step 3: Refactor:** remove any test or comment that still assumes
+  no org enforces (Task 3's `test_own_org_hits_warn_until_enforcing`
+  patches the mode explicitly, so it stays); rerun the test files.
+- [ ] **Step 4: Run the full gate; expect PASS** (vergil-tooling's own
+  site has no findings after its Task 12 fix).
+- [ ] **Step 5: Commit.**
 
 ### Task 14: release vergil-tooling, enforcing (.github, deployment)
 
@@ -1049,9 +1179,12 @@ Spec §4.3 (modes), §4.4 step 6.
 
 - Modify: `.github/workflows/ops.yml`: a `docs-coverage` job calling
   `vergil-project/vergil-actions/.github/workflows/ops-docs-coverage.yml@v2.1`
-  with `secrets: inherit`, after the existing jobs and run whatever their
-  result (`if: ${{ !cancelled() }}`), as `agent-audit` is in
-  vergil-project's.
+  after the existing jobs and run whatever their result (`if: ${{
+  !cancelled() }}`), passing the App keys as the org's existing
+  `agent-audit` job does: 17a with `secrets: inherit` (same org); 17b and
+  17c by name (`APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}`,
+  `APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}`), since the reusable
+  workflow is in another org.
 
 - [ ] **Step 1: Add the job.**
 - [ ] **Step 2: Validate** — `vrg-container-run -- vrg-validate`, PASS.

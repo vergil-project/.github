@@ -220,7 +220,10 @@ The check lives in `vergil-tooling` and runs in two ways:
   site mike does not version), fetched from its Pages URL, so pages that
   only the deploy generates (the hub's Activity tree and Roadmap) are
   judged too. It also reports every repo of the org missing from the org's
-  lists, and every docs site the lists do not name.
+  lists, and every docs site the lists do not name. It also reports the
+  docs-link check's findings for every repo of the in-scope orgs, a repo
+  with no docs site included, since the switch to enforcing (§4.4) makes
+  them fatal too.
 - **On every docs deploy.** `vergil-actions`' docs deploy runs the check on
   the deploy build, after its pre-deploy command, so the pages generated at
   deploy time are judged on every deploy, not only during the audit. It
@@ -230,6 +233,11 @@ The check lives in `vergil-tooling` and runs in two ways:
   reader is the audit, not the deploy log. A failure of the check itself
   (an internal error, or a build of the deploy tree that fails) fails the
   deploy in either mode.
+- **Daily, for the lists' coverage.** Each in-scope org's daily operations
+  workflow runs the audit's coverage report for that org and reports a
+  failure to the org's operations queue. The hub's Repositories page is
+  generated from the lists (§4.1 rule 6), so a repo added to the org after
+  the epic would otherwise be missing from the hub with nothing to say so.
 
 It judges the built site:
 
@@ -250,7 +258,11 @@ publishes a docs site, and whether the check enforces there. This is a new
 data model. Today's `lib/doc_links.py` knows only vergil-project, with its
 Pages owner hard-coded (`PAGES_OWNER`). The Pages owner is instead derived
 from the org of the repo being checked, so the existing docs-link check
-works in every org too. The lists are filled when the check is built
+works in every org too. Links to vergil-project's Pages host stay judged and
+enforced from every org, as today. A repo in another listed org also has
+its links to its own org's Pages host judged, and those findings follow the
+org's mode (below): warnings until the org enforces, then failures. The
+lists are filled when the check is built
 (§4.4 step 1), from an inventory of every repo of the in-scope orgs, each
 `docs/site/mkdocs.yml` included.
 
@@ -287,13 +299,15 @@ form that fails a stage until the sites are fixed:
    `vergil-tooling` sets, so switching to enforcing (step 6) needs no
    second `vergil-actions` release.
 3. **Audit the in-scope orgs** with the released check, against every docs
-   site in them, and record the findings per site.
+   site in them, and the docs-link check against every repo in them, and
+   record the findings per repo.
 4. **Review the audit.** The audit is a checkpoint for the human, who
    confirms the fix tasks it leads to. Every in-scope site is fixed in this
    epic.
 5. **Fix every site**, one task per site: restructure it to the standard
-   and clear its orphans. A site in another org is fixed by a task in that
-   org.
+   and clear its orphans. A repo with docs-link findings gets them cleared
+   in the same task, or in a task of its own when it has no docs site. A
+   repo in another org is fixed by a task in that org.
 6. **Re-audit**, and once every in-scope site passes, **switch the check to
    enforcing** for the in-scope orgs in one small `vergil-tooling` change,
    and release it. The re-audit's bar is the strict build and the published
@@ -327,10 +341,11 @@ exact set of sites):
 - The hub gains a page describing the navigation standard (§4.1), which
   `vergil-tooling`'s docs for `vrg-validate` and the check link to.
 - `vergil-tooling`'s docs describe the check and its audit mode.
-- A stale detail on the hub is fixed in passing: the vergil-claude-plugin
-  site loses its old "Standard Tooling Plugin" title. (The generated
-  Repositories page lists the TypeScript fixtures, which the old repository
-  table missed.)
+- A stale detail is fixed in passing: the vergil-claude-plugin site's own
+  title, `site_name: Standard Tooling Plugin` in its `docs/site/mkdocs.yml`,
+  becomes `Vergil Claude plugin`, whatever the audit finds. (The generated
+  Repositories page lists the TypeScript fixtures, which the hub's old
+  repository table missed.)
 - Each site's fix task also removes any remaining "standard tooling" naming
   in that site's docs.
 
@@ -343,8 +358,9 @@ exact set of sites):
    `vergil-actions`, the change that runs the check in PR CI's docs job and
    in the docs deploy, and its release.
 2. The audit: an operational task that runs the released check against
-   every site of the in-scope orgs and records the findings, then the
-   human's review of them.
+   every site of the in-scope orgs, and the docs-link check against every
+   repo of them, and records the findings, then the human's review of
+   them.
 3. The hub restructure (§4.2), the standard's page and the stale details.
    It depends on neither item 1 nor item 2 and lands first, so the hub is
    navigable without waiting for the check. The generated Repositories page
@@ -352,11 +368,13 @@ exact set of sites):
    audit judges the hub like any other site, and any gap it finds there is
    fixed in item 4.
 4. One fix task per site the audit finds short of the standard (the hub
-   included), in each site's own repo, under a proxy epic for each other
-   org.
+   included), and per repo with docs-link findings, in each repo, under a
+   proxy epic for each other org.
 5. A re-audit, then the change that switches the check to enforcing in the
    in-scope orgs, its `vergil-tooling` release, and a validation that the
-   enforcing gate passes across them.
+   enforcing gate passes across them. Alongside, a reusable daily coverage
+   workflow in `vergil-actions`, wired into each in-scope org's operations
+   workflow (§4.3).
 6. One follow-up issue in each inactive org with docs sites
    (mq-rest-admin-project), in that org's deferred queue (§4.4).
 
