@@ -197,8 +197,9 @@ them.
 
 ### 5.1 The invariant
 
-**An open, non-draft PR into `develop` always has auto-merge on, except
-while a release lock holds it.**
+**An open, non-draft PR into `develop` that the one PR path accepts (a
+same-repo PR whose branch has a trusted author, below) always has
+auto-merge on, except while a release lock holds it.**
 
 Once the PR workflow declares a PR ready, the PR's CI gates are the only
 thing that decides whether it merges. Quiescing `develop` for a release is
@@ -217,9 +218,12 @@ Because the path mechanizes every arm, who calls it does not matter: any
 trusted identity with write access (the human, the user agent or the
 automation App) may turn auto-merge on through the path for any PR the path
 accepts, whoever authored it. The provenance check is relaxed for exactly
-that case, an auto-merge enable through the one PR path on a same-repo PR
-whose branch has a trusted author; it stops treating the user agent's
-enable on a PR it did not author as a violation. Everything else it checks
+that case, on a same-repo PR whose branch has a trusted author: an
+auto-merge enable through the one PR path, and the path's own direct merge
+of a PR that can already merge (clean status, §5.4), with the `closed`
+event GitHub records with that merge. The direct merge is the same
+decision as an arm, carried out at once. The check stops treating either,
+by the user agent on a PR it did not author, as a violation. Everything else it checks
 stays as it is: an enable on a fork or outsider PR, and every other
 forbidden action, remain violations. The audit's provenance and actor
 checks (§5.9) apply the same rule.
@@ -251,7 +255,8 @@ workflow: sweeps skip them, and the audit (§5.9) flags them as invalid.
   lock metadata lives in refs, never in issues or repo variables.
 - It points at a one-file commit, built the way the relay records are, whose
   file is a JSON document carrying at least: the holder (the identity and
-  host running the release), the version, the tracking issue ref (empty
+  host running the release), the version, the release worktree's path
+  (empty until preflight creates it), the tracking issue ref (empty
   until `prepare` creates the issue; `prepare` writes it into the lock
   immediately after creating the issue, before anything else), the current
   stage, the health (`running`, or `broken` with the stage it broke at;
@@ -362,11 +367,16 @@ another machine adopts the lock too.
 
 A `--resume` at a stage before `unlock` that finds no lock (it was broken
 or reclaimed) re-takes it by a create-only push and records the re-take in
-the lock history (§5.2). If the resume is at a stage before
-`merge-release`, it then runs the stray-merge check (§5.4): if `develop`
-has moved past `cut`, it refuses, runs the full unlock path and points to
-`--supersede`. A resume that finds the lock held by another release
-refuses, naming it.
+the lock history (§5.2). The break or reclaim that removed the lock ended
+with a re-arm sweep, so the re-take then runs the quiesce of steps 1.3 and
+1.4 above (wait for every arming ref to clear, then disarm every open PR
+into `develop`) before its stage runs. Every path that takes a lock, other
+than supersede's compare-and-swap takeover, runs that quiesce. If the
+resume is at a stage before `merge-release`, it runs the stray-merge check
+(§5.4) only after the disarm: if `develop` has moved past `cut`, it
+abandons the release as that check does, ending with the full unlock path,
+and tells the human to run a fresh release. A resume that finds the lock
+held by another release refuses, naming it.
 
 On `--supersede X.Y.Z`, the new release takes over the superseded release's
 lock instead of taking a new one: a compare-and-swap against the lock's
@@ -391,7 +401,9 @@ cut and the end of the release.
 **One path.** Every PR into `develop` that the tooling opens or arms goes
 through one submit path: a shared library function, with `vrg-submit-pr` as
 its command line. That covers agents' PRs, a fix pushed by pr-watch,
-`vrg-finalize-pr`, the mechanized automation (`vrg-github-repo-config`,
+`vrg-finalize-pr`, `vrg-pr-await` (whose contract changes: today it never
+turns auto-merge on or off, and it gains the watch's own re-arm through the
+path, §5.5), the mechanized automation (`vrg-github-repo-config`,
 `vrg-upstream-refresh`), `vrg-update-deps` run on its own, the release's
 `update-deps` stage, the release's back-merge, and the re-arm sweeps.
 `mechanized_pr` and the update-deps merge converge on it rather than
@@ -486,17 +498,28 @@ check (§5.10). The release's total wait on arming refs is bounded; past the
 bound it fails, naming the refs. Expiry must not reopen the race:
 
 - The arming side renews its ref by compare-and-swap immediately before the
-  arm call, and aborts, leaving the PR unarmed, if the ref is gone.
+  arm call, and aborts, leaving the PR unarmed, if the ref is gone. The arm
+  call, retries included, is bounded well below the expiry; past the bound
+  the arming side stops and reports, and does not retry the arm.
 - The release deletes an expired arming ref only by compare-and-swap against
   the value it read, and after deleting any, runs the disarm sweep again
-  before the cut. This closes the race whenever the delete lands, before or
-  after the arming side's renewal.
+  before the cut. After that sweep it lists the arming refs and every open
+  PR's auto-merge state once more before the cut, and disarms any PR it
+  finds armed. With the arm call bounded below the expiry, this closes the
+  race whenever the delete lands, before or after the arming side's
+  renewal.
 - A PR into `develop` that merged after the cut, other than the holder's
   own, is checked for at two points:
   - **Immediately before `merge-release`**, while nothing is published yet.
     A stray merge there is a hard error: the release reports it, naming the
-    PR, runs the full unlock path (delete the lock, then the re-arm sweep)
-    and exits. Re-running the release cuts again, with the PR included.
+    PR, and abandons the release. Nothing is tagged or published yet, so
+    the abandon step undoes everything `prepare` made: it closes the
+    release PR into `main`, removes the `release/X.Y.Z` branch and the
+    release worktree, and closes the tracking issue, recorded as abandoned
+    with the stray PR named. Only then does it run the full unlock path
+    (delete the lock, then the re-arm sweep) and exit. With no release
+    tracking issue left open, a fresh `vrg-release` runs normally and cuts
+    again, with the PR included.
   - **Again before `unlock`.** A stray merge found then is reported, naming
     the PR, and recorded on the tracking issue, and the release continues:
     the published release is correct for what it cut, the PR goes into the
@@ -573,7 +596,8 @@ bound it fails, naming the refs. Expiry must not reopen the race:
 - A holder whose lock was broken or reclaimed, at any stage before
   `unlock`, finds out at its next compare-and-swap update and stops with a
   clear error; it never re-takes the lock silently. The human finishes it
-  with `--resume`, which re-takes the lock and records that, or replaces it
+  with `--resume`, which re-takes the lock, records that and runs the
+  quiesce before going on (§5.3), or replaces it
   with `--supersede` (§5.3).
 - A stale lock that names no tracking issue is checked, before it is
   reclaimed, for an open release tracking issue of the lock's version. If
@@ -598,29 +622,40 @@ prose and audit behind it:
 
 ### 5.8 Cleanup safety
 
-- `vrg-finalize-pr`'s cleanup, and every other path that removes worktrees,
-  skips the worktree the lock names (the lock records it), and skips any
-  `release/*` worktree while any lock is held.
+- Cleanup that judges what is removable (`vrg-finalize-pr`'s cleanup and
+  any sweep of worktrees) skips the worktree the lock names (§5.2), and
+  skips any `release/*` worktree while any lock is held.
+- The release's own removals are sanctioned and are not blocked: its
+  `teardown-worktree` stage, supersede's removal of the superseded
+  release's worktree and branch, and the abandon step of a stray merge
+  (§5.4). Each is logged.
 - Every worktree removal is logged, naming the worktree, the branch and the
   reason it was judged removable.
 - Before the lock exists (§5, the standalone fix), the same protection is
-  keyed on an open release tracking issue: no `release/*` worktree is removed
-  while one is open.
-- When the release finds its worktree gone, it fails with a clear "release
-  worktree vanished" error naming the path, rather than the obscure error a
-  later `git fetch` gives today.
+  keyed on an open release tracking issue: cleanup that judges what is
+  removable removes no `release/*` worktree while one is open, and the
+  release's own removals stay sanctioned.
+- When the release, at a stage before `teardown-worktree`, finds its
+  worktree gone, it fails with a clear "release worktree vanished" error
+  naming the path, rather than the obscure error a later `git fetch` gives
+  today. From `teardown-worktree` on, the worktree is gone by design.
 
 ### 5.9 The backstop audit
 
 The daily agent audit stays report-only: it never arms a PR, files no issue
-and never prevents a merge. It flags any open PR into `develop` with
-auto-merge off while no lock is held (a breach of the invariant, left for
-the human), open draft PRs into `develop`, and any lock that is stale.
+and never prevents a merge. It flags any open PR into `develop` that the
+one PR path accepts with auto-merge off while no lock is held (a breach of
+the invariant, left for the human), open draft PRs into `develop`, and any
+lock that is stale. Open PRs into `develop` that the path does not accept
+(fork or outsider PRs) are reported on a line of their own, never as a
+breach.
 
 Its provenance and actor checks (`lib/agent_audit.py`) follow the relaxed
 rule of §5.1: an auto-merge enable on `develop` by any trusted identity, on
 a same-repo PR whose branch has a trusted author, is expected, whoever
-authored the PR. Any other enable stays a finding, as today.
+authored the PR, and so is that identity's direct merge of such a PR at
+clean status, with its merge-close event. Any other enable or merge stays a
+finding, as today.
 
 ### 5.10 Threat model
 
