@@ -167,8 +167,9 @@ vergil-tooling.
   switch and its disabled path removed. Blocked by 11, 14b.
 - **12b** (.github, deployment): the vergil-tooling release carrying 11b,
   installed on the host and every VM. Blocked by 11b.
-- **13** (.github, validation): #1384's 14 tasks re-homed into its chain, the
-  first live rollover of a development epic. Blocked by 12b.
+- **13** (.github, validation): the live rollover, on a probe epic: the
+  first live rollover of a development epic, made on a throwaway epic.
+  Blocked by 12b.
 
 ### Bookends
 
@@ -1395,53 +1396,43 @@ Spec §4.8 (once released and installed). Blocked by 11b.
   3. The installed version reported by the tooling matches the release tag.
 - **SUCCESS:** every check passes, recorded with the version and tag.
 
-### Task 13: re-home #1384's tasks, the live rollover (validation, .github)
+### Task 13: the live rollover, on a probe epic (validation, .github)
 
 Spec §4.8, goals 1, 3, 5 and 7. Blocked by 12b, which follows 11b and so
 Task 14b: the installed skills read a task's epic through the chain before
 any task can move into a continuation.
 
-- **Precondition (machine probe):** vergil-project/.github#1384 is open
-  (`vrg-gh issue view 1384 --repo vergil-project/.github --json state`). Its
-  sub-issue total was 96 on 2026-11-24; record the current total, and
-  whether #1384 already has a continuation (`vrg-epic-audit --epic
-  vergil-project/.github#1384 | jq .containers` prints `<n>`, 1 with none),
-  since tasks filed after Task 12b may already have rolled it over.
-- **Procedure (if #1384 is open):**
-  1. Move each of the 14 tasks listed on the planning issue
-     (vergil-project/vergil-tooling#3840, comment of 2026-11-24) with
-     `vrg-epic-move --epic vergil-project/.github#1384 --task <ref>`.
-  2. Observe the rollover. If #1384 had no continuation at the
-     precondition: once the head holds 99 items, the next move prints the
-     development-epic rollover line, and the head gets the same comment. If
-     it already had one: record the existing rollover comment on the head
-     as the evidence, and confirm the moves went first-fit into the chain.
-  3. `vrg-epic-audit --epic vergil-project/.github#1384` exits 0 (an exit
-     of 1 is chain drift, named on stderr), its JSON `children` lists all
-     14, and its `containers` is at least 2.
-  4. The epic sweep's next scheduled run (`epic-sweep.yml`) reports #1384
-     as a chained development epic, not a failure. The agent waits for it
-     and reads its log with `vrg-gh run view`. **Human-run step (needs a
-     human identity), optional:** to avoid the wait, the human runs `gh
-     workflow run epic-sweep.yml --repo vergil-project/.github` and names
-     the run; `vrg-gh` refuses `workflow run` for the agent.
-  5. Tell the #1384 driver the hand tracking can be dropped; note it on
-     #1384.
-- **Fallback (if #1384 has closed):** the 14 tasks stay where they are
-  (closed is closed). Make the live check on a throwaway development epic
-  instead: `vrg-epic-create --repo vergil-project/.github --title "Epic:
-  chain rollover probe"`, file 100 throwaway tasks under it with
-  `vrg-issue-create --epic …` (titles `Probe: rollover <n>`), and observe
-  step 2 against it, the case with no continuation. Then check that
-  `vrg-epic-audit --epic <probe epic>` exits 0, its JSON `children` lists
-  all 100 probe tasks, and its `containers` is 2. Close every task as not
-  planned and let the rollup close the chain, confirming head-first.
-  Last, comment on #1384's retrospective task (its `retrospective`-labelled
-  child) listing the 14 tasks by full ref, each under its ad-hoc epic, so
-  the retrospective records them as #1384's work (spec §4.8); if that
-  retrospective has already merged, comment on #1384 itself.
-- **SUCCESS:** the rollover line, the head comment and the audit output are
-  recorded in the result comment, with no item left outside the chain.
+The check runs on a throwaway development epic only. It does not touch
+vergil-project/.github#1384 or its 14 tasks under ad-hoc epics: #1384
+closes before this task runs, and its own retrospective records them
+(spec §4.8).
+
+- **Precondition (machine probe):** Task 12b has recorded `Outcome:
+  SUCCESS`, and the installed vergil-tooling version reported by the
+  tooling matches the release tag that outcome names, so rollover is on
+  where this check runs.
+- **Procedure:**
+  1. Create the probe epic: `vrg-epic-create --repo vergil-project/.github
+     --title "Epic: chain rollover probe"`.
+  2. File 100 throwaway tasks under it with `vrg-issue-create --epic …`
+     (titles `Probe: rollover <n>`), and observe the rollover: once the
+     head holds 99 items, the next filing prints the development-epic
+     rollover line, and the head gets the same comment.
+  3. `vrg-epic-audit --epic <probe epic>` exits 0 (an exit of 1 is chain
+     drift, named on stderr), its JSON `children` lists all 100 probe
+     tasks, and its `containers` is 2.
+  4. The epic sweep's next scheduled run (`epic-sweep.yml`) reports the
+     probe epic as a chained development epic, not a failure. The agent
+     waits for it and reads its log with `vrg-gh run view`. **Human-run
+     step (needs a human identity), optional:** to avoid the wait, the
+     human runs `gh workflow run epic-sweep.yml --repo
+     vergil-project/.github` and names the run; `vrg-gh` refuses
+     `workflow run` for the agent.
+  5. Close every probe task as not planned and let the rollup close the
+     chain, confirming it closes the head first.
+- **SUCCESS:** the rollover line, the head comment, the audit output and
+  the sweep's report are recorded in the result comment, with no probe
+  task left outside the chain and the whole chain closed.
 
 ### Task 14: the plugin skills read a task's epic through the chain (vergil-claude-plugin)
 
@@ -1508,3 +1499,23 @@ runs skills that read a task's raw native parent.
   and the hosts and VMs the human attested.
 
 ## Evolution during execution
+
+- **2026-11-25: rebased onto epic 1384, and Task 13 made a probe-epic
+  check.** This epic was planned while vergil-project/.github#1384 (agents
+  submit and finalize their own PRs into `develop`) was in flight. A
+  review against #1384 as shipped found little to change: no text here
+  says the agent stops at report-ready, the human-gated steps that remain
+  (the Task 4 probe, the releases behind Tasks 12, 12b and 14b, and the
+  plugin and VM refreshes) are still human under #1384, the rollover order
+  (11b blocked by 14b, blocked by 14, blocked by 12) still holds with
+  agents merging on their own, and #1384 added no direct read of a task's
+  epic or an epic's children that Tasks 6, 10 and 14 do not already name.
+  The one change is Task 13. It moved #1384's 14 tasks under ad-hoc epics
+  into #1384's chain if #1384 was still open, but Task 13 runs after the
+  12b release and #1384 is closing now, so that branch can no longer run.
+  The probe-epic procedure, until now the fallback, is the only one; the
+  14 tasks stay under their ad-hoc epics, and #1384's retrospective
+  (vergil-project/.github#1386) records them. Spec goal 7, §4.8 and §5,
+  the epic body, the delivery table and Task 13 (vergil-project/.github#1636)
+  were edited in place by vergil-project/.github#1644, before Task 13
+  started.

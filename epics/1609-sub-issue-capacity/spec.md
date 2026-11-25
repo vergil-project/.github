@@ -53,8 +53,10 @@ not a case to design for.
 6. A slot freed anywhere in a chain is reused before the chain grows, so an
    epic has only as many containers as its peak number of items held at once
    needs.
-7. The 14 tasks of vergil-project/.github#1384 filed under ad-hoc epics are
-   re-homed under #1384's chain, if #1384 is still open (§4.8).
+7. A development epic's rollover is checked live, end to end, on a
+   throwaway probe epic. This epic re-homes nothing: the 14 tasks of
+   vergil-project/.github#1384 filed under ad-hoc epics stay there, and
+   #1384's own retrospective records them (§4.8).
 8. Closed is closed: no tooling path reopens a closed epic, and linking or
    moving an item into one is refused by name (§4.2).
 
@@ -430,18 +432,20 @@ so a refused move leaves the task where it was.
   the head could see; the audit reports it; one that fails them is reported
   as chain drift.
 
-### 4.8 Re-homing #1384's tasks
+### 4.8 The live rollover check
 
-Once the chain layer is released and installed, the 14 tasks of
-vergil-project/.github#1384's Task 13 filed under ad-hoc epics (listed on the
-planning issue) are moved into #1384's chain with `vrg-epic-move`, which rolls
-that epic over. This is the first live rollover of a development epic and so its
-end-to-end check: afterwards `vrg-epic-audit --epic vergil-project/.github#1384`
-lists all of them, and the epic's driver drops the hand tracking. This runs
-only while #1384 is open. If it has closed by then, closed is closed
-(`move_into` refuses it, §4.2): the 14 tasks stay under their ad-hoc epics,
-the retrospective of #1384 records them, and the live check of a development
-epic's rollover is made another way, which the plan names.
+Once the chain layer is released and installed with rollover on, the first
+live rollover of a development epic is made on a throwaway **probe epic**:
+enough throwaway tasks are filed under it to roll it over, and the audit and
+the rollup are checked against the chain that results. This is the
+end-to-end check of a development epic's rollover; the plan's Task 13 gives
+the procedure.
+
+This epic re-homes nothing. The 14 tasks of vergil-project/.github#1384's
+Task 13 filed under ad-hoc epics (listed on the planning issue) stay under
+their ad-hoc epics: #1384 closes before this check can run, and closed is
+closed (`move_into` refuses a closed epic, §4.2). #1384's own retrospective
+records them as its work.
 
 ### 4.9 Documentation
 
@@ -459,7 +463,8 @@ that epic) are updated to say the tooling now rolls over.
 - Every read of issue content goes through the trust layer; a continuation
   whose body is untrusted is drift, never followed.
 - No silent failures: every refusal, heal and rollover is reported.
-- Existing chains do not exist yet, so there is no migration beyond §4.8.
+- Existing chains do not exist yet, and no existing item is re-homed into
+  one (§4.8), so there is no migration.
 - No continuation exists before every reader reads through the chain: every
   tooling reader, and the plugin skills as released and installed on every
   host and VM. Rollover therefore ships switched off and is switched on last,
