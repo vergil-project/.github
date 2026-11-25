@@ -1256,3 +1256,57 @@ Blocked by 17, 19, 19b.
   when every planned delete was answered "not found", or when a version
   so answered is still listed. A delete raced by another run, whose
   version is gone, still passes (vergil-project/vergil-containers#911).
+
+### 2026-11-25: Package cleanup deletes with `GITHUB_TOKEN`
+
+This entry corrects the fourth entry above, which is left as written.
+
+**What changed:**
+
+- **`GHCR_CLEANUP_TOKEN` never existed.** The human listed the secrets on
+  2026-11-25: there is none by that name at the repo level, in the
+  `automation` environment or at the org level. So the first run on
+  vergil-project/vergil-containers#1052 (45657526863) failed every
+  `cleanup` and `reap` leg at its empty-token guard, and the reporter
+  recorded the failure on vergil-project/vergil-containers#1049.
+- **vergil-project/vergil-containers#1054 was added** under the epic and
+  merged as PR #1055 (merge `c9c093b5`). `package-cleanup` now uses only
+  `GITHUB_TOKEN`: `packages: write` on `cleanup` and `reap-aliases`, and
+  `verify-deletes` reads the logs and the packages with it. It has no
+  personal access token and no fallback. The `automation` environment was
+  dropped from those three jobs; only `report` keeps it, for the App's
+  keys. `package-cache-warm` stays on the App.
+- **The exception is recorded as `GITHUB_TOKEN`.** GitHub Packages does
+  not accept App installation tokens for deletes or untags, and
+  `GITHUB_TOKEN` is the documented token for a workflow repository's own
+  packages. vergil-project/.github#1675 corrected spec §4.1 job 11, the
+  §4.2 "Not running as the bot" bullet and the §5.4 exceptions, which
+  vergil-project/.github#1671 had set to `GHCR_CLEANUP_TOKEN`.
+- **The live check passed.** Run 45663239343 (2026-11-25, at `c9c093b5`)
+  passed every job, `verify-deletes` included, and deleted 4,503 versions
+  with 0 answered "not found". The reporter recorded the recovery on
+  vergil-project/vergil-containers#1049.
+- **vergil-project/vergil-containers#1053 was closed** as superseded by
+  #1054, which removed the stale comment with every other
+  `GHCR_CLEANUP_TOKEN` reference.
+- **Task 17's withdrawn human action stays withdrawn**, for a new reason:
+  there is no `GHCR_CLEANUP_TOKEN` secret or PAT to delete or revoke.
+- **Task 20 (vergil-project/.github#1520) and the retrospective
+  (vergil-project/.github#1498) are still open.** Task 20 no longer waits
+  for a cleanup run on a PAT; the run above is a live `package-cleanup`
+  run that deletes, on `GITHUB_TOKEN`.
+
+**Why:**
+
+- The fourth entry's reasoning was wrong on one point: the repository's
+  `GITHUB_TOKEN` can delete these packages. The last green run before
+  the App move, 45056026741 (2026-11-22), resolved
+  `GHCR_CLEANUP_TOKEN || GITHUB_TOKEN` to `GITHUB_TOKEN`, since no PAT
+  existed, and made 10,400 deletes with 0 "not found". GitHub's
+  documentation says to use `GITHUB_TOKEN` to delete packages associated
+  with the workflow repository
+  (<https://docs.github.com/en/packages/learn-github-packages/about-permissions-for-github-packages>).
+- **Lesson for the retrospective:** #1050 chose a token without checking
+  that it existed or what the last green run had actually used. A token
+  change should be checked against the secrets that exist and the run
+  that last worked.
