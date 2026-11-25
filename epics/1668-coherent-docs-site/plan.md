@@ -154,16 +154,16 @@ is blocked by.
 - **8** (vergil-actions): `ci-docs.yml` runs the check after its strict
   build; `cd-docs.yml` builds and runs it after the pre-deploy command and
   staging, before the publish, in the org's mode. Blocked by 9.
-- **9** (.github, deployment): the vergil-tooling release carrying 3–7,
-  report-only, installed on the host and every VM. Blocked by 3, 4, 5, 6a,
-  6b, 7.
+- **9** (.github, deployment): the gate on the vergil-tooling release
+  carrying 3–7, report-only; the release's own install covers the host and
+  every running VM. Blocked by 3, 4, 5, 6a, 6b, 7.
 - **8b** (vergil-actions): `ops-docs-coverage.yml`, a reusable ops
   workflow that runs `vrg-docs-nav-check --coverage <calling org>` daily,
   with an `ops-report` job that reports a failure to the org's operations
   queue; it declares the org App's keys as named secrets, so a caller in
   another org can pass them. Blocked by 9.
-- **10** (.github, deployment): the vergil-actions release carrying 8 and
-  8b, on the `v2.1` series. Blocked by 8, 8b.
+- **10** (.github, deployment): the gate on the vergil-actions release
+  carrying 8 and 8b, on the `v2.1` series. Blocked by 8, 8b.
 - **2b** (docs): the hub's Repositories tab from the generated page,
   replacing the home-page table. Blocked by 2, 9.
 - **2d** (logical-minds-foundry/docs, under that org's proxy, by full ref)
@@ -179,15 +179,16 @@ is blocked by.
   site the audit finds short of the standard or repo with docs-link
   findings; and, if any of them
   is in vergil-tooling, a deployment task (`Plan task: 12 release`) that
-  releases and installs it and redeploys the hub, blocked by those
-  vergil-tooling fixes.
+  gates the vergil-tooling release carrying them and redeploys the hub,
+  blocked by those vergil-tooling fixes.
 - **12z** (.github, validation): the re-audit: every in-scope site passes
   on its strict build and its published `dev` version. Blocked by 11 and
   every 12-* task, the `12 release` task included.
 - **13** (vergil-tooling): the in-scope orgs marked `enforcing=True`.
   Blocked by 12z.
-- **14** (.github, deployment): the vergil-tooling release carrying 13,
-  installed on the host and every VM. Blocked by 13.
+- **14** (.github, deployment): the gate on the vergil-tooling release
+  carrying 13; the release's own install covers the host and every
+  running VM. Blocked by 13.
 - **15** (.github, validation): the enforcing gate passes in every docs
   site's repo of the in-scope orgs, and each org's daily coverage job has
   run green. Blocked by 14, 17a, 17b, 17c.
@@ -314,9 +315,10 @@ Spec §4.4 step 1 (no repo meets a failing docs gate).
 - **Human-gated precondition:** a vergil-tooling release carrying Task 1a,
   checked with `vrg-release-record check vergil-project/vergil-tooling#<1a>`,
   exit 0.
-- **Human-run steps (need a human identity):** upgrade the host and the VMs
-  to the release (`vrg-host upgrade`, `vrg-vm update --all`), then sync the
-  managed files at once rather than waiting for the nightly job: either
+- **Human-run steps (need a human identity):** the release's own install
+  already covers the host and every running VM, so the only step left over
+  is to sync the managed files at once rather than wait for the nightly
+  job: either
   dispatch the GitHub config job of each in-scope org's `ops.yml`, or run
   `vrg-github-repo-config update` in each repo of the in-scope orgs. The
   sync PRs auto-merge.
@@ -1012,14 +1014,17 @@ org).
 
 `vrg-issue-create --kind deployment --blocked-by` 3, 4, 5, 6a, 6b, 7.
 
+The release's gate. A completed `vrg-release` of vergil-tooling has already
+run its install (`vrg-tooling-install` on the host that ran it, `vrg-vm
+update --all` for every running VM), and its `Released:` records attest
+it, so nothing is left over to deploy. Whether the released check behaves
+is judged by the audit (Task 11), not here.
+
 - **Human-gated precondition:** a vergil-tooling release on `v2.1`
   carrying Tasks 3–7, checked with `vrg-release-record check
   vergil-project/vergil-tooling#<T>` for each, exit 0.
-- **Human-run steps:** `vrg-host upgrade` on the host, `vrg-vm update
-  --all` for the VMs.
-- **Acceptance:** `vrg-docs-nav-check --help` runs on the host and a VM;
-  `vrg-container-run -- vrg-validate` in `vergil-project/docs` shows
-  `WARNING: docs-nav:` lines (or none) and passes.
+- **Procedure:** the release-record check alone.
+- **Acceptance:** every check passes, recorded with the release version.
 
 ### Task 10: release vergil-actions (.github, deployment)
 
@@ -1028,17 +1033,19 @@ org).
 - **Human-gated precondition:** a vergil-actions `v2.1.x` tag carrying
   Tasks 8 and 8b (`vrg-release-record check
   vergil-project/vergil-actions#<T>` for each).
-- **Agent-safe step:** none beyond the check; callers pick the tag up
-  through `@v2.1`.
-- **Acceptance:** a PR in any vergil-project repo with a docs site runs
-  the `docs / docs` job with the `Check docs navigation` step, passing.
+- **Procedure:** the release-record check alone; vergil-actions configures
+  no install, and callers pick the tag up through `@v2.1`. Whether a docs
+  job runs the new step is judged by the audit's precondition (Task 11).
+- **Acceptance:** both checks pass, recorded with the release version.
 
 ### Task 11: the audit (.github, validation)
 
 Spec §4.4 steps 3–4. `--blocked-by` 2b, 2c, 2d, 2e, 9, 10.
 
-- **Precondition:** Task 9's release is installed (`vrg-docs-nav-check
-  --help` exits 0).
+- **Preconditions:** Task 9's release is installed (`vrg-docs-nav-check
+  --help` exits 0); and a PR in a vergil-project repo with a docs site,
+  opened or updated after Task 10's tag, ran its `docs / docs` job with the
+  `Check docs navigation` step, passing.
 - **Procedure:**
   1. Clone or fetch every repo `doc_sites.ORGS` lists in the three
      in-scope orgs, a repo with no docs site included, since the audit's
@@ -1080,13 +1087,12 @@ Spec §4.4 steps 3–4. `--blocked-by` 2b, 2c, 2d, 2e, 9, 10.
      deployment task in `.github`, keyed `Plan task: 12 release`, blocked
      by every vergil-tooling fix task: the human-gated precondition is a
      vergil-tooling release carrying them (`vrg-release-record check
-     vergil-project/vergil-tooling#<T>` for each, exit 0); the human-run
-     steps are `vrg-host upgrade` on the host and `vrg-vm update --all`;
-     the agent-safe step re-runs the hub's `cd-docs` on `develop`
+     vergil-project/vergil-tooling#<T>` for each, exit 0), whose own
+     install covers the host and every running VM, so it has no human-run
+     step; the agent-safe step re-runs the hub's `cd-docs` on `develop`
      (`workflow_dispatch`), so its published Repositories page is staged
-     from the released lists. Its acceptance: `vrg-docs-nav-check
-     --coverage` for each org runs from the installed release, and the
-     hub's `cd-docs` run succeeded after the release.
+     from the released lists. Its acceptance: the release-record checks
+     pass, and the hub's `cd-docs` run succeeded after the release.
   8. Add a `Blocked-by:` line for each fix task, and for the `12 release`
      task if one was filed, to Task 12z's body.
 - **Acceptance:** every in-scope docs site and repo has its findings
