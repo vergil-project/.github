@@ -17,8 +17,9 @@ evidence behind it is in
    release holds back merges into `develop`.
 2. **Batching as the unit of release** (this epic). It replaces release
    blocks and PR sets.
-3. **Epic ownership of repos** (a follow-on epic). It coordinates work
-   that must ship together across repos.
+3. **Epic ownership of repos** (a follow-on epic, planning issue
+   vergil-project/.github#1678). It coordinates work that must ship
+   together across repos.
 
 ## 2. Batching as the unit of release
 
