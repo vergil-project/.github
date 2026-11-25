@@ -65,7 +65,9 @@ are to it.
 - `vrg-release` and `vrg-release-lock break` are human only, fail-closed
   against every agent identity and agent signal, as `bin/vrg_release.py` is
   today. The agent identity may read the lock, arm any PR the path accepts
-  and reclaim a stale lock; it never takes or breaks one (§6).
+  and reclaim a stale lock; it never takes or breaks one (§6). `vrg-git`
+  refuses every push to the lock, history and arming refs (Task 14); only
+  the tooling writes them, through `lib.git`.
 - No silent failures: a failed disarm, re-arm, ref write or issue read stops
   the step with an error naming what failed (§6).
 - Every vergil-tooling task ends with `vrg-container-run -- vrg-validate`
@@ -128,7 +130,7 @@ writes.
 | 11 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 4–9, installed on the host and VMs | 4, 5, 6, 7, 8, 9 |
 | 12 | `vergil-claude-plugin` | task | The pr-watch skill pushes its fixes with `vrg-submit-pr --push` | 11 |
 | 13 | `vergil-claude-plugin` | deployment | A plugin release carries Task 12, installed on the host and VMs | 12 |
-| 14 | `vergil-tooling` | task | `vrg-git` refuses a plain push to an open develop PR's branch, naming `vrg-submit-pr --push` | 13 |
+| 14 | `vergil-tooling` | task | `vrg-git` refuses a plain push to an open develop PR's branch, naming `vrg-submit-pr --push`, and every push to the lock refs | 13 |
 | 14a | `vergil-tooling` | task | Every other tooling push to an open develop PR's branch goes through the path or refuses; a guard test for branch pushes | 6 |
 | 15 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 14 and 14a, installed on the host and VMs | 14, 14a |
 | 16 | `vergil-tooling` | validation | Phase 1 exit: every caller goes through the one path, live | 10a |
@@ -143,10 +145,10 @@ writes.
 | 24 | `vergil-tooling` | task | `vrg-release`: the `unlock` and `rearm` stages, the stray-merge checks and the abandon step | 23 |
 | 25 | `vergil-tooling` | task | `vrg-release`: `--resume` and `--supersede` under the lock | 24 |
 | 26 | `vergil-tooling` | task | The merge watch under the lock (`vrg-finalize-pr`, `vrg-pr-await`) | 19, 22 |
-| 27 | `vergil-tooling` | task | Cleanup safety moves onto the lock | 18 |
+| 27 | `vergil-tooling` | task | Cleanup safety also keys on the lock | 18 |
 | 28 | `vergil-tooling` | task | The backstop audit: invariant breaches, drafts, stale locks, outsider PRs | 18 |
 | 29 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 17–28, installed on the host and VMs | 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 |
-| 30 | `vergil-claude-plugin` | task | Skills re-run the watch on its `held by release` exit | 29 |
+| 30 | `vergil-claude-plugin` | task | Skills re-run the watch on its `held by release` exit; pr-watch's outcomes follow Tasks 10 and 26 | 29 |
 | 31 | `vergil-claude-plugin` | deployment | A plugin release carries Task 30, installed on the host and VMs | 30 |
 | 32 | `vergil-tooling` | validation | A live vergil-tooling release under the lock, with an agent PR in flight | 29, 31 |
 | 33 | fixtures | fixture runs | One run on each of the six fixtures against the Task 29 release | 29 |
@@ -215,7 +217,7 @@ Phase 2 starts only when all of these hold; Task 16 records them, and Task
   fixes. Once Task 2 is filed, close #5187 as completed with the comment
   `Tracked as <Task 2 ref> under vergil-project/.github#1664.` Task 2's body
   refs it.
-- **Advisories.** Nine advisories track the planning issue. Before
+- **Advisories.** Ten advisories track the planning issue. Before
   `Tasks filed: yes`, retarget each from vergil-project/.github#1662 to the
   task or tasks that fix it (`vrg-security-record retarget … --from … --to
   …`, one after another), choosing the tasks from each advisory's own notes.
@@ -255,7 +257,7 @@ Spec §5.8, phase 0 of §5.
   a frozen dataclass `ReleaseProtection(active: bool, reason: str)`; `active`
   while any open, trusted release tracking issue exists. A failed read
   raises `worktrees.ProtectionReadError`, which cleanup treats as protected.
-  Task 27 replaces its key with the lock.
+  Task 27 adds the lock to its key; this key stays.
 - Produces: `worktrees.log_removal(path: Path, branch: str, reason: str) ->
   None`, one line on stderr and one in the running command's run log (the
   `progress.RunLog` that `vrg-finalize-pr` and `vrg-release` already
@@ -301,8 +303,8 @@ Spec §5.8, phase 0 of §5.
   exists; `vrg-release-record check vergil-project/vergil-tooling#<Task 2>`
   exits 0.
 - Human-run steps: `vrg-host upgrade`; `vrg-vm update --all`.
-- Acceptance: `vrg-finalize-pr --help` on the host and one VM shows the
-  installed version is the release's or later.
+- Acceptance: on the host and one VM, `uv tool list` shows
+  `vergil-tooling v<version>` at the release's version or later.
 
 ---
 
@@ -347,7 +349,18 @@ Spec §5.1 (the relaxed rule), §5.9 (the audit follows it).
 - [ ] **Step 3: Implement** the rule exactly as §5.1 states it: the
   relaxation covers an auto-merge enable and a clean-status direct merge
   with its merge-close event, by a trusted identity, on a same-repo PR whose
-  branch has a trusted author. Nothing else changes.
+  branch has a trusted author. Nothing else in the relaxation changes.
+  Turning auto-merge on or off changes no content, so it is not
+  involvement: `pr_provenance.pr_actors`, the evidence
+  `finalize_watch.agent_involvement` and the audit's `_check_landing` judge
+  involvement by, leaves out the actor of every `auto_merge_enabled` and
+  `auto_merge_disabled` event. An agent reclaim's re-arm of a human's,
+  dependency-update or mechanized PR leaves it not agent-involved.
+  Tests: `test_pr_actors_leaves_out_arming_events` (an agent's
+  `auto_merge_enabled` and `auto_merge_disabled` events on a human's PR →
+  the agent is not among the actors) and
+  `test_audit_agent_armed_human_pr_not_gated` (`_check_landing` runs no
+  gate findings on it).
 - [ ] **Step 4: Pass, validate, commit.**
 
 ### Task 5: The one PR path (vergil-tooling)
@@ -430,6 +443,9 @@ Spec §5.1, §5.4.
     gates not run, `outcome == "armed"`.
   - `test_arm_agent_pr_runs_gates`: agent-involved → `agent_gates.evaluate`
     called once at the head.
+  - `test_arm_agent_armed_deps_pr_not_gated`: a dependency-update PR whose
+    only agent event is an earlier `auto_merge_enabled` by the user agent →
+    gates not run, `outcome == "armed"`.
   - `test_arm_from_foreign_clone_judges_in_fresh_fetch`: run from a clone
     of another repo with no `clone` → the gates judge in the path's own
     fetch of the PR's repo.
@@ -656,6 +672,16 @@ Spec §5.4.
   name, not only the current worktree's branch, and refuses when any of
   them is the branch of an open PR into `develop`. A refspec it cannot
   parse is refused, as `_pushes_only_branch_at_head` treats one.
+- A **bare push** (no remote or refspec, such as issue-implement's
+  `vrg-git push --force-with-lease`) is judged by the destination it
+  resolves to: the current branch's push target (`@{push}`, falling back
+  to its upstream). It is refused only when that cannot be resolved, or
+  when it resolves to the branch of an open PR into `develop`.
+- A push whose destination is under `refs/vergil/release-lock` (the lock,
+  `refs/vergil/release-lock-history` and every
+  `refs/vergil/release-lock-arming/*` ref) is **always refused**, a delete
+  and a lease create included, with the same no-bypass and fail-closed
+  rules. Only the tooling writes those refs, through `lib.git`.
 - It has **no bypass**: no environment variable, flag or marker that
   `vrg-git` honours lets a push through. The path's own push (Task 6)
   goes through `lib.git` directly, outside the wrapper, as `vrg-submit-pr`
@@ -675,7 +701,14 @@ Spec §5.4.
   `test_no_env_or_flag_bypass` (no environment variable or flag lets a
   refused push through),
   `test_path_push_does_not_use_wrapper` (`pr_path.push_to_open_pr` pushes
-  through `lib.git`, never by running `vrg-git`).
+  through `lib.git`, never by running `vrg-git`),
+  `test_bare_push_of_branch_with_no_pr_allowed`,
+  `test_bare_push_to_open_pr_branch_refused`,
+  `test_bare_push_unresolvable_destination_refused`,
+  `test_lock_ref_delete_refused` (`origin :refs/vergil/release-lock`),
+  `test_lock_ref_lease_create_refused`
+  (`--force-with-lease=refs/vergil/release-lock:`) and
+  `test_arming_ref_write_refused`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 14a: Every tooling push to an open PR's branch goes through the path (vergil-tooling)
@@ -704,15 +737,30 @@ Spec §5.4 (every push the tooling makes to the branch of an open PR into
 - Both checks look the PR up as Task 14's refusal does and **fail
   closed**: a lookup that fails refuses the push, naming the error.
 - The guard test scans the whole of `src/vergil_tooling/` for `lib.git`
-  calls that push to a branch (`git.run("push", …)` and its helpers). The
-  allowed sites are named, each with its reason: `lib/pr_path.py` (the
-  path), `lib/release/` (the release's own branches), `lib/mechanized_pr.py`
-  and `lib/update_deps/` (branches pushed before their PR is opened, then
-  armed through the path), `bin/vrg_pr_workflow.py`'s `_push_branch`
-  (before submit, behind its open-PR refusal), `bin/vrg_reword.py` (behind
-  its open-PR routing) and `lib/pr_workflow/github_transport.py` (relay
-  refs only, never `refs/heads/*`). Any other hit fails, naming the file and
-  line.
+  push calls (`git.run("push", …)` and its helpers) and classifies each by
+  its destination. A literal destination that is `refs/heads/*` or a bare
+  branch name is a branch push. A literal tag or other non-branch ref is
+  not one, and is not flagged. A destination it cannot determine
+  statically (a refspec built at run time, such as
+  `f"{commit}:{ref}"`) counts as a branch push. Every branch push must be
+  at an allowed site. The allowed sites are named, each with its reason:
+  - `lib/pr_path.py`: the path;
+  - `lib/release/`: the release's own branches;
+  - `lib/mechanized_pr.py` and `lib/update_deps/`: branches pushed before
+    their PR is opened, then armed through the path;
+  - `bin/vrg_submit_pr.py`: the branch pushed before its PR exists;
+  - `bin/vrg_pr_workflow.py`'s `_push_branch`: before submit, behind its
+    open-PR refusal;
+  - `bin/vrg_reword.py`: behind its open-PR routing;
+  - `lib/repo_init.py`: the bootstrap pushes of `develop`, `main` and
+    `gh-pages` to a new repo, which has no PR;
+  - `lib/promote.py`: tags;
+  - `lib/rulings/draft_ref.py`: a ruling draft ref, never `refs/heads/*`;
+  - `lib/pr_workflow/github_transport.py`: relay refs and the factored-out
+    one-file-commit builder, never `refs/heads/*`.
+
+  Task 17 adds `lib/release_lock/` (the lock, history and arming refs,
+  never `refs/heads/*`). Any other hit fails, naming the file and line.
 
 - [ ] **Step 1: Failing tests:**
   `test_reword_on_open_pr_branch_pushes_through_path`,
@@ -734,8 +782,8 @@ Spec §5.4 (every push the tooling makes to the branch of an open PR into
 - Precondition (human-attested): Task 15 closed; a vergil-tooling release
   containing Task 10; `vrg-release-record check` exits 0.
 - Human-run steps: `vrg-host upgrade`; `vrg-vm update --all`.
-- Acceptance: on the host and one VM, the installed `vrg-finalize-pr`'s
-  version is the release's or later.
+- Acceptance: on the host and one VM, `uv tool list` shows
+  `vergil-tooling v<version>` at the release's version or later.
 
 ### Task 16: Phase 1 exit (validation)
 
@@ -772,6 +820,8 @@ Spec §5.2, §5.4 (arming refs), §5.10.
 - Modify: `src/vergil_tooling/lib/pr_workflow/github_transport.py` (factor
   out the one-file-commit builder so both use it; the relay's own
   force-push stays as it is)
+- Modify: `tests/vergil_tooling/test_branch_push_guard.py` (adds
+  `lib/release_lock/` to the allowed sites, with its reason)
 - Test: `tests/vergil_tooling/test_release_lock_refs.py`,
   `test_release_lock_model.py`, `test_release_lock_arming.py`
 
@@ -915,7 +965,10 @@ scheduled jobs while held).
 - Modify: `src/vergil_tooling/bin/vrg_submit_pr.py` (reports `held for
   release <version>; the release re-arms it` and goes on to its watch)
 - Modify: `src/vergil_tooling/lib/mechanized_pr.py` (`held` is success;
-  the PR is left to the unlock sweep, not replaced)
+  the PR is left to the unlock sweep, not replaced. Its `_wait_until_merged`
+  reads the lock on each poll: the PR open and unarmed while a lock is held
+  ends the wait with `held`, which `open_sync_pr` treats as success, as for
+  a `held` arm)
 - Modify: `src/vergil_tooling/lib/update_deps/pr.py` (`arm_and_wait` on
   `held`: report it and return, with no wait and no failure record)
 - Test: `tests/vergil_tooling/test_pr_path.py`,
@@ -960,6 +1013,9 @@ scheduled jobs while held).
   - `test_arm_call_past_bound_stops_without_retry`.
   - `test_submit_reports_held_and_continues_to_watch`.
   - `test_mechanized_held_is_success`.
+  - `test_sync_pr_disarmed_mid_wait_is_held_success`: the PR is armed, a
+    release takes the lock and disarms it during the wait → the job ends
+    `held` and succeeds, before the deadline.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 20: The disarm and re-arm sweeps (vergil-tooling)
@@ -1062,6 +1118,13 @@ reclaimed holder stops).
   earlier owner of the same release sees a foreign record at its next
   write and stops.
 
+  On a loss, the owner reads `refs/vergil/release-lock-history`. A
+  `break`, `reclaim` or `takeover` entry written after its last write names
+  the cause in `LockLost`. With no such entry, the lock was removed or
+  rewritten outside the tooling. `LockLost` then says so, and the release
+  records it on its tracking issue when it has one, as a failure to
+  analyse.
+
 - [ ] **Step 1: Failing tests:** `test_heartbeat_refreshes_during_blocking_wait`,
   `test_writes_serialised_no_lost_update`,
   `test_own_write_cas_failure_retried`,
@@ -1071,7 +1134,9 @@ reclaimed holder stops).
   `test_adopt_writes_new_token`,
   `test_broken_lock_raises_lock_lost_on_next_update`,
   `test_heartbeat_stops_on_loss_and_never_retakes`,
-  `test_release_stops_heartbeat_before_delete`.
+  `test_release_stops_heartbeat_before_delete`,
+  `test_loss_with_history_entry_names_cause`,
+  `test_loss_without_history_entry_reported_as_outside_change`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 22: Reclaim and `vrg-release-lock break` (vergil-tooling)
@@ -1094,7 +1159,13 @@ Spec §5.6.
   comment on the tracking issue when the lock names one.
 - Produces: `reclaim.break_lock(repo: str, *, actor: str, reason: str) ->
   ReclaimResult`: records the history entry and tracking-issue comment
-  first, then deletes (CAS) and runs `rearm_all`.
+  first, then deletes (CAS) and runs `rearm_all`. A live holder's
+  heartbeat can rewrite the lock between the read and the delete. On a CAS
+  mismatch `break_lock` re-reads the lock and retries the delete against
+  the new sha, up to three attempts. If it still loses, it appends a
+  history entry and a tracking-issue comment saying the break did not
+  land, then fails with an error naming the race. It never runs
+  `rearm_all` with the lock in place.
 - Produces: `vrg-release-lock break --reason "<why>"`, refused under every
   agent identity and agent signal (the same check `bin/vrg_release.py`
   uses); `--reason` required and non-empty.
@@ -1107,7 +1178,9 @@ Spec §5.6.
   `test_break_refused_for_agent_identity`,
   `test_break_refused_with_agent_signal`,
   `test_break_requires_reason`,
-  `test_break_records_before_delete_then_rearms`.
+  `test_break_records_before_delete_then_rearms`,
+  `test_break_retries_cas_after_heartbeat_write`,
+  `test_break_still_losing_records_failure_and_raises`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 23: Pre-check, lock, quiesce and cut (vergil-tooling)
@@ -1297,8 +1370,12 @@ Spec §5.5, §5.7 layers 2–3, §5.4 (`vrg-pr-await`'s contract change).
 **Interfaces:**
 
 - Produces: outcome `held by release` and the constant
-  `EXIT_HELD_BY_RELEASE` (the next unused exit code of each command,
-  documented in its `--help`), shared from `lib/finalize_watch.py`.
+  `EXIT_HELD_BY_RELEASE = 6`, shared from `lib/finalize_watch.py` and
+  documented in each command's `--help`. Neither `vrg-finalize-pr` (0, 1,
+  3, 4, 5, 130) nor `vrg-pr-await` (0, 1, 2) uses 6 today. In a
+  finalize batch, `EXIT_NOT_ALL_MERGED` (3) wins when any PR failed or
+  ended for another reason; 6 applies only when every PR not merged is
+  held by release.
 - Per poll, before judging auto-merge off: `read_lock`. Held and live →
   report `held by release <version> (stage <stage>, <health>)`, keep
   polling at the normal pace. Held and broken or heartbeat-stale → report
@@ -1318,7 +1395,9 @@ Spec §5.5, §5.7 layers 2–3, §5.4 (`vrg-pr-await`'s contract change).
   `test_watch_rearms_own_pr_when_unlocked`,
   `test_watch_refused_rearm_ends_failed_refused`,
   `test_deadline_while_held_exits_held`,
-  `test_pr_await_rearm_through_path`.
+  `test_pr_await_rearm_through_path`,
+  `test_exit_held_by_release_is_6_in_both_commands`,
+  `test_finalize_batch_failed_and_held_exits_not_all_merged`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 27: Cleanup safety on the lock (vergil-tooling)
@@ -1328,15 +1407,19 @@ Spec §5.8.
 **Files:**
 
 - Modify: `src/vergil_tooling/lib/worktrees.py` (`release_protection`
-  keyed on the lock: protects the worktree the lock names and every
-  `release/*` worktree while any lock is held; an unreadable lock protects)
+  adds the lock to Task 2's key: it is active while any lock is held,
+  while the lock cannot be read, or while an open trusted release tracking
+  issue exists. It protects the worktree the lock names and every
+  `release/*` worktree. Keeping the tracking-issue key protects a broken
+  release's worktree after a `break`, until its tracking issue closes)
 - Test: `tests/vergil_tooling/test_worktrees.py`,
   `test_vrg_finalize_pr.py`
 
 - [ ] **Step 1: Failing tests:** `test_cleanup_skips_worktree_lock_names`,
   `test_cleanup_skips_release_worktrees_while_lock_held`,
   `test_cleanup_unreadable_lock_protects`,
-  `test_cleanup_removes_release_worktree_with_no_lock`,
+  `test_cleanup_removes_release_worktree_with_no_lock_and_no_open_issue`,
+  `test_cleanup_skips_release_worktree_after_break_while_issue_open`,
   `test_release_own_teardown_not_blocked`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
@@ -1356,7 +1439,10 @@ Spec §5.9.
   `test_audit_flags_draft_pr_into_develop`,
   `test_audit_flags_stale_lock`,
   `test_audit_reports_outsider_prs_on_own_line_not_breach`,
-  `test_audit_never_arms` (no mutation issued).
+  `test_audit_never_arms` (no mutation issued),
+  `test_audit_agent_reclaimed_human_pr_not_breach` (a human's PR re-armed
+  by an agent reclaim and armed again at the next release is neither a gate
+  finding nor an invariant breach).
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 29: Release phase 2's tooling (deployment)
@@ -1378,9 +1464,17 @@ Spec §5.5 (the only skill rule), §5.7 layer 3.
 - Modify: `skills/issue-implement/SKILL.md` (submit and watch),
   `skills/pr-watch/SKILL.md`
 
-- [ ] **Step 1:** Add the one rule: on the watch's `held by release` exit,
-  report the release it names and re-run the same watch command; never turn
-  auto-merge on by hand, never treat it as a failure.
+- [ ] **Step 1:** Add the one rule: on the watch's `held by release` exit
+  (`EXIT_HELD_BY_RELEASE`, 6), report the release it names and re-run the
+  same watch command; never turn auto-merge on by hand, never treat it as a
+  failure.
+- [ ] **Step 1a:** Bring pr-watch's outcomes in line with Tasks 10 and
+  26. In its reasons table, add a `failed: refused (<reason>)` row: stop
+  for the human, naming the path's reason. Remove the `failed: gates` and
+  `failed: provenance` rows, which the watch no longer produces. Correct
+  step 5, which says finalize re-runs the merge-review gate on each head:
+  the path judges each pushed head (`vrg-submit-pr --push`), and the watch
+  only waits.
 - [ ] **Step 2:** `vrg-container-run -- vrg-validate`; commit.
 
 ### Task 31: Release the plugin (deployment)
