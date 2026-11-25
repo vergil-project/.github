@@ -158,17 +158,19 @@ automation App token; "verified" means the job checks the token against
     `cd-docker-publish.yml@main`; daily. `GITHUB_TOKEN`. **Identity
     exception:** as job 9, for the same steps and the same reason.
 11. **`package-cleanup`**: vergil-containers `package-cleanup.yml`;
-    weekly. `GHCR_CLEANUP_TOKEN`, a personal access token (classic) with
-    `delete:packages`, read from the `automation` environment, with no
-    fallback; its `report` job uses the App. **Identity exception:**
-    every GHCR call of the `cleanup`, `reap-aliases` and `verify-deletes`
-    jobs keeps `GHCR_CLEANUP_TOKEN`, because the Packages API refuses the
-    App's deletes. It accepts only a classic PAT, or `GITHUB_TOKEN` for
-    the repository's own packages, and the repository holds only the
-    write role on these packages, not the admin role a delete needs
-    (vergil-project/vergil-containers#1050). The one App-token run,
-    vergil-containers run 45635208056, had all 3,880 deletes answered
-    "not found" and its one untag refused with a 403.
+    weekly. `GITHUB_TOKEN`, with `packages: write` on the `cleanup` and
+    `reap-aliases` jobs and `packages: read` on `verify-deletes`, and no
+    personal access token or fallback. Only its `report` job declares the
+    `automation` environment, and it uses the App. **Identity
+    exception:** every GHCR call of the `cleanup`, `reap-aliases` and
+    `verify-deletes` jobs keeps `GITHUB_TOKEN`, because GitHub Packages
+    does not accept App installation tokens for its deletes and untags,
+    and `GITHUB_TOKEN` is the documented token for a workflow
+    repository's own packages (vergil-project/vergil-containers#1054,
+    PR #1055). The one App-token run, vergil-containers run 45635208056,
+    had all 3,880 deletes answered "not found" and its one untag refused
+    with a 403. The first run on `GITHUB_TOKEN` alone, 45663239343,
+    deleted 4,503 versions with none answered "not found".
 12. **`package-cache-warm`**: vergil-containers `package-cache-warm.yml`;
     weekly. App (`permission-packages: read`), unverified. It only reads
     packages, which the App can do.
@@ -232,14 +234,14 @@ automation; the macOS host's launchd was not inspected.
   lifecycle check (job 8).
 
 - **Not running as the bot:** nightly-rebuild-dev/prod, the image publish
-  after release, package-cache-warm, publish-index, cd-docs-refresh and the
+  after release, package-cleanup, publish-index, cd-docs-refresh and the
   develop docs deploy use `GITHUB_TOKEN`; pin-exposure has no write token;
-  package-cleanup uses `GHCR_CLEANUP_TOKEN || GITHUB_TOKEN` (likely a
-  personal token); the main release creates its GitHub Release with
-  `GITHUB_TOKEN`; upstream-refresh `prepare` uses a read-only
-  `GITHUB_TOKEN` by design, keeping the App key off the runner that runs
-  the hook. Only github-config and upstream-refresh `publish` verify that
-  their token is the automation App's.
+  the main release creates its GitHub Release with `GITHUB_TOKEN`;
+  upstream-refresh `prepare` uses a read-only `GITHUB_TOKEN` by design,
+  keeping the App key off the runner that runs the hook. Only github-config
+  and upstream-refresh `publish` verify that their token is the automation
+  App's. package-cache-warm runs as the bot: it makes an App token with
+  `packages: read` when its cache is empty, but does not verify it.
 - **Silent today:** pin-exposure exits 0 when it finds lagging pins; the
   release job's package-index dispatch steps continue on error (job 16,
   out of scope).
@@ -381,12 +383,12 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
   App installation tokens for registry pushes. `publish-index`'s `deploy`
   job (job 13) keeps `GITHUB_TOKEN` for its Pages deployment, because the
   `github-pages` environment it runs in cannot read the App keys.
-  `package-cleanup` (job 11) keeps `GHCR_CLEANUP_TOKEN`, a personal access
-  token (classic), for every GHCR call of its `cleanup`, `reap-aliases`
-  and `verify-deletes` jobs, because the Packages API accepts only a
-  classic PAT for its deletes and untags
-  (vergil-project/vergil-containers#1050). `package-cache-warm` (job 12),
-  which only reads, uses the App token.
+  `package-cleanup` (job 11) keeps `GITHUB_TOKEN` for every GHCR call of
+  its `cleanup`, `reap-aliases` and `verify-deletes` jobs, because GitHub
+  Packages does not accept App installation tokens for its deletes and
+  untags, and `GITHUB_TOKEN` is the documented token for a workflow
+  repository's own packages (vergil-project/vergil-containers#1054).
+  `package-cache-warm` (job 12), which only reads, uses the App token.
 
 ### 5.5 Existing issue-filers
 
