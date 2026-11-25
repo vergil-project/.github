@@ -236,12 +236,12 @@ automation; the macOS host's launchd was not inspected.
 - **Not running as the bot:** nightly-rebuild-dev/prod, the image publish
   after release, package-cleanup, publish-index, cd-docs-refresh and the
   develop docs deploy use `GITHUB_TOKEN`; pin-exposure has no write token;
-  package-cache-warm makes an App token with `packages: read` when its
-  cache is empty; the main release creates its GitHub Release with
-  `GITHUB_TOKEN`; upstream-refresh `prepare` uses a read-only
-  `GITHUB_TOKEN` by design, keeping the App key off the runner that runs
-  the hook. Only github-config and upstream-refresh `publish` verify that
-  their token is the automation App's.
+  the main release creates its GitHub Release with `GITHUB_TOKEN`;
+  upstream-refresh `prepare` uses a read-only `GITHUB_TOKEN` by design,
+  keeping the App key off the runner that runs the hook. Only github-config
+  and upstream-refresh `publish` verify that their token is the automation
+  App's. package-cache-warm runs as the bot: it makes an App token with
+  `packages: read` when its cache is empty, but does not verify it.
 - **Silent today:** pin-exposure exits 0 when it finds lagging pins; the
   release job's package-index dispatch steps continue on error (job 16,
   out of scope).
