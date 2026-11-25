@@ -1171,3 +1171,88 @@ Blocked by 17, 19, 19b.
 - The plan's no-fallback rule holds for the docs deploy. The human
   accepted the six repos' stopped docs deploys as the cost of the caller
   tasks that left the epic.
+
+### 2026-11-25: The GHCR proof fails, Task 17 narrows, package cleanup returns to the PAT
+
+**What changed:**
+
+- **Task 16 (vergil-project/.github#1516) ended FAILURE and was closed as
+  completed** by a scope change, so it does not hold the retrospective.
+  GHCR refused the App installation token for registry pushes
+  (`installation not allowed to Write organization package`). The
+  scheduled vergil-containers run 45594320332, about 11 hours after the
+  installation's `packages: write` grant, still failed in all 57
+  `nightly-rebuild-dev` build and publish jobs. The API dry run (run
+  45498152456), which only listed versions, passed on all 37 legs.
+- **vergil-project/vergil-containers#1044 (PR #1045) was added** under
+  the epic. It reverted the App registry login in `nightly-rebuild-dev`,
+  which pushes with `GITHUB_TOKEN` again. The dev rebuild recovered in run
+  45635185391, recorded on vergil-project/vergil-containers#1042.
+- **Task 17 (vergil-project/vergil-containers#990, PR #1048) was narrowed
+  by a scope change.** The registry jobs (`image-publish`,
+  `nightly-rebuild-prod`, `nightly-rebuild-dev`) keep `GITHUB_TOKEN` as
+  recorded exceptions, and `package-cleanup` and `package-cache-warm`
+  moved to the App. `package-cache-warm` now declares
+  `environment: automation`, so it runs only from `develop` or `main`.
+- **Task 19b (vergil-project/.github#1519, PR #1661)** recorded four
+  exceptions in spec §4.1 and §5.4: the three registry jobs and
+  `publish-index`'s Pages deployment.
+- **Task 17's `package-cleanup` move failed in its first live run**
+  (45635208056). Every one of the 3,880 deletes was answered "not found"
+  and treated as already deleted, and the one untag (`reap: dev-rust`)
+  got a 403; the reporter opened vergil-project/vergil-containers#1049.
+  Two tasks were added under the epic and worked as one batch:
+  - vergil-project/vergil-containers#1050 returned `package-cleanup` to
+    `GHCR_CLEANUP_TOKEN`, a classic PAT, as a recorded identity
+    exception. Its `cleanup`, `reap-aliases` and `verify-deletes` jobs
+    read the token from the `automation` environment, with no fallback.
+    `package-cache-warm`, which only reads, stays on the App.
+  - vergil-project/vergil-containers#1051 added a `verify-deletes` job,
+    which fails a leg whose deletes did not happen.
+  - Both merged together as vergil-project/vergil-containers#1052
+    (merge `2bf1adb9`).
+- **Task 17's one human action is withdrawn.** It was to delete the
+  `GHCR_CLEANUP_TOKEN` secret and revoke its PAT once a cleanup passed as
+  the App. The secret is in use again and must stay.
+- **vergil-project/.github#1671 was added** under the epic to write this
+  entry and bring spec §4.1 and §5.4 in line: `package-cleanup` is
+  recorded as a fifth exception, and §5.4's "unverified" GHCR question is
+  settled.
+- **Task 20 (vergil-project/.github#1520) is still pending.** It waits
+  for a live `package-cleanup` run that deletes, on the PAT.
+- **Follow-ups filed during execution, outside the plan,** after those in
+  the third entry:
+  - vergil-project/vergil-tooling#5175, ad hoc.
+  - vergil-project/vergil-tooling#5196, ad hoc, closed as completed with
+    no code change. The provenance flags on
+    vergil-project/vergil-containers#1045,
+    vergil-project/vergil-claude-plugin#1375 and
+    vergil-project/vergil-tooling#5177 were false positives, already fixed
+    by vergil-project/vergil-tooling#5180 in v2.1.348.
+  - vergil-project/vergil-containers#1053, ad hoc: a stale
+    `GHCR_CLEANUP_TOKEN` header comment in `package-cleanup.yml`.
+
+**Why:**
+
+- The plan treated Task 16's dry run as proof of the API path, but a
+  listing does not prove a delete. Task 17 moved `package-cleanup` on
+  that proof, and its first live run deleted nothing. **Lesson for the
+  retrospective:** a proof must exercise the operation the change depends
+  on, here a delete, not a weaker one beside it.
+- The 11-hour gap ruled out propagation of the `packages: write` grant.
+  That GHCR refuses App installation tokens for registry pushes is the
+  human's judgment from the failures; GitHub documents it nowhere.
+- For the Packages API, GitHub's documentation says it accepts only a
+  personal access token (classic), plus `GITHUB_TOKEN` for the workflow
+  repository's own packages
+  (<https://docs.github.com/en/rest/packages/packages>,
+  <https://docs.github.com/en/packages/learn-github-packages/about-permissions-for-github-packages>).
+  The repository holds only the write role on its packages, so
+  `GITHUB_TOKEN` cannot delete them either.
+- The cleanup action (`dataaxiom/ghcr-cleanup-action`) counts a "not
+  found" delete as already deleted, and exposes nothing that tells a real
+  delete from a refused one. That made the failed cleanup look green on
+  35 of 36 legs. So `verify-deletes` reads each leg's log and fails it
+  when every planned delete was answered "not found", or when a version
+  so answered is still listed. A delete raced by another run, whose
+  version is gone, still passes (vergil-project/vergil-containers#911).

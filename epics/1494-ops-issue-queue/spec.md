@@ -158,10 +158,20 @@ automation App token; "verified" means the job checks the token against
     `cd-docker-publish.yml@main`; daily. `GITHUB_TOKEN`. **Identity
     exception:** as job 9, for the same steps and the same reason.
 11. **`package-cleanup`**: vergil-containers `package-cleanup.yml`;
-    weekly. `GHCR_CLEANUP_TOKEN` (likely a personal token) or
-    `GITHUB_TOKEN`.
+    weekly. `GHCR_CLEANUP_TOKEN`, a personal access token (classic) with
+    `delete:packages`, read from the `automation` environment, with no
+    fallback; its `report` job uses the App. **Identity exception:**
+    every GHCR call of the `cleanup`, `reap-aliases` and `verify-deletes`
+    jobs keeps `GHCR_CLEANUP_TOKEN`, because the Packages API refuses the
+    App's deletes. It accepts only a classic PAT, or `GITHUB_TOKEN` for
+    the repository's own packages, and the repository holds only the
+    write role on these packages, not the admin role a delete needs
+    (vergil-project/vergil-containers#1050). The one App-token run,
+    vergil-containers run 45635208056, had all 3,880 deletes answered
+    "not found" and its one untag refused with a 403.
 12. **`package-cache-warm`**: vergil-containers `package-cache-warm.yml`;
-    weekly. `GITHUB_TOKEN`.
+    weekly. App (`permission-packages: read`), unverified. It only reads
+    packages, which the App can do.
 13. **`publish-index`**: vergil-actions `publish-index.yml`; on dispatch
     and weekly; packages. `GITHUB_TOKEN`. **Identity exception:** the
     `deploy` job's `Deploy to GitHub Pages` step keeps `GITHUB_TOKEN`
@@ -356,10 +366,13 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
   needs it (upstream-refresh `prepare`'s read-only token, which keeps the
   App key off the runner that runs an untrusted hook) or where the App
   cannot perform the operation. Each exception is recorded in the spec's
-  inventory with its reason. Whether the App can push to and delete from
-  GHCR is **unverified** and decides the rebuild, publish and cleanup
-  jobs: the plan's first rollout task proves it on one job before the
-  others are changed.
+  inventory with its reason. Whether the App could push to and delete
+  from GHCR was unverified when this spec was written, and it decided the
+  rebuild, publish and cleanup jobs. It is settled: the App can do
+  neither. GHCR refused its registry pushes (the GHCR proof,
+  vergil-project/.github#1516), and the Packages API refused its deletes
+  (vergil-project/vergil-containers#1050). The App can list and read
+  packages through the API.
 - **Recorded exceptions** (in §4.1, beside each job): the registry-push
   jobs `nightly-rebuild-dev` (job 9), `nightly-rebuild-prod` (job 10) and
   `image-publish` (job 17) keep `GITHUB_TOKEN` for their GHCR login and
@@ -367,9 +380,13 @@ vrg-ops-report --repo <owner>/<repo> --job <job-name> \
   GHCR proof (vergil-project/.github#1516) recorded FAILURE: GHCR rejects
   App installation tokens for registry pushes. `publish-index`'s `deploy`
   job (job 13) keeps `GITHUB_TOKEN` for its Pages deployment, because the
-  `github-pages` environment it runs in cannot read the App keys. The
-  Packages-API jobs `package-cleanup` and `package-cache-warm` (jobs 11
-  and 12) use the App token, which the Packages API accepts.
+  `github-pages` environment it runs in cannot read the App keys.
+  `package-cleanup` (job 11) keeps `GHCR_CLEANUP_TOKEN`, a personal access
+  token (classic), for every GHCR call of its `cleanup`, `reap-aliases`
+  and `verify-deletes` jobs, because the Packages API accepts only a
+  classic PAT for its deletes and untags
+  (vergil-project/vergil-containers#1050). `package-cache-warm` (job 12),
+  which only reads, uses the App token.
 
 ### 5.5 Existing issue-filers
 
