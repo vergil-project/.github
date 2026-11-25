@@ -226,13 +226,13 @@ is blocked by.
   Vergil navigation standard`, its body naming this epic, the standard's
   page and the two steps (fix each site; mark the org `enforcing=True` in
   vergil-tooling's `lib/doc_sites.py`). Filed with `vrg-intake-create
-  --repo mq-rest-admin-project/.github`, then routed with
-  `vrg-intake-route <ref> defer --reason "outside coherent-docs-site's
-  scope: the org is inactive" --revisit-when "the org returns to active
-  development"`. It is not a child of this epic, so the key pass cannot see
-  it: the stage's progress comment records it on a `Follow-up filed:
-  <ref>` line, and a re-entry that finds a trusted one files nothing. If
-  the org has no intake or deferred queue, stop for the human.
+  --repo mq-rest-admin-project/.github`. The org has no deferred queue, so
+  it stays in the org's intake queue, its body giving the revival
+  condition ("the org returns to active development"); where an org has a
+  deferred queue, the item is routed there with `vrg-intake-route <ref>
+  defer`. It is not a child of this epic, so the key pass cannot see it:
+  the stage's progress comment records it on a `Follow-up filed: <ref>`
+  line, and a re-entry that finds a trusted one files nothing.
 
 Notes:
 

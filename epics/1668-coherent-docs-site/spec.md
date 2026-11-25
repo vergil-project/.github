@@ -320,9 +320,10 @@ before the check enforces again.
 **Scope.** The epic covers the three orgs under active development:
 vergil-project, logical-minds-foundry and mnemosys-project. For each
 inactive org with docs sites, the epic files one follow-up issue in that
-org, placed in its deferred queue with "the org returns to active
-development" as its revival condition: bringing its sites up to the
-standard and marking the org as enforcing in the lists.
+org's queue, with "the org returns to active development" as its revival
+condition: bringing its sites up to the standard and marking the org as
+enforcing in the lists. It goes in the deferred queue where the org has
+one, and otherwise stays in its intake queue.
 
 The fleet as surveyed when this spec was written (the audit confirms the
 exact set of sites):
@@ -376,7 +377,7 @@ exact set of sites):
    workflow in `vergil-actions`, wired into each in-scope org's operations
    workflow (§4.3).
 6. One follow-up issue in each inactive org with docs sites
-   (mq-rest-admin-project), in that org's deferred queue (§4.4).
+   (mq-rest-admin-project), in that org's queue (§4.4).
 
 ## 6. Left to the builder
 
