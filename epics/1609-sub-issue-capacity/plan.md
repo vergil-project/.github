@@ -418,8 +418,10 @@ agent only checks and records it.
   preconditions not met" and stop.
 - **The human-run probe.** Run it in one sitting, away from the daily epic
   sweep's scheduled time (`epic-sweep.yml`), since the sweep links
-  unparented, unlabelled issues under the intake epic. Paste it as one
-  `! bash -c '…'` block, or save it to a scratch file and run that:
+  unparented, unlabelled issues under the intake epic. Save it to a
+  scratch file and run it with `! bash <file>`: it holds single quotes,
+  so it cannot be pasted inside `bash -c '…'`. It indexes arrays without
+  negative subscripts, so macOS's stock bash 3.2 runs it:
 
   ```bash
   set -uo pipefail
@@ -434,14 +436,14 @@ agent only checks and records it.
   probes=("$(mk 'Probe: sub-issue depth 1')"); depth=1
   while [ "$depth" -lt 50 ]; do
     next=$(mk "Probe: sub-issue depth $((depth + 1))")
-    if out=$(sub addSubIssue "${probes[-1]}" "$next"); then probes+=("$next"); depth=$((depth + 1))
+    if out=$(sub addSubIssue "${probes[${#probes[@]}-1]}" "$next"); then probes+=("$next"); depth=$((depth + 1))
     else echo "Depth error: $out"; gh issue close "$next" --repo "$repo" --reason "not planned"; break; fi
   done
   [ -z "$(parent "${probes[0]}")" ] || echo "WARNING: probe 1 gained a parent; the depth is not valid"
   echo "Max depth: $depth"
   # 2. The 100-child error: set full=<N> to an open issue holding 100 sub-issues, or leave it empty.
   full=""
-  if [ -n "$full" ]; then echo "Limit error: $(sub addSubIssue "$full" "${probes[-1]}")"; else echo "Limit error: unobserved"; fi
+  if [ -n "$full" ]; then echo "Limit error: $(sub addSubIssue "$full" "${probes[${#probes[@]}-1]}")"; else echo "Limit error: unobserved"; fi
   # 3. A link under a closed parent.
   cp=$(mk 'Probe: closed parent'); cc=$(mk 'Probe: closed child')
   gh issue close "$cp" --repo "$repo" --reason "not planned"
