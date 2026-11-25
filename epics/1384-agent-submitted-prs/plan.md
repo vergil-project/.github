@@ -67,6 +67,8 @@ Copied from the spec; every task's requirements include them.
   mnemosys-project (spec §4.11). Archived repos are left alone.
   diogenes-project, mq-rest-admin-project and vergils-nemesis are out of
   scope, and no installation there accepts the user App's new permissions.
+  (Superseded: both permissions were accepted there, a risk the human
+  accepted by rulings N0.13 and N0.21; see Evolution during execution.)
 - Every code task is red, green, refactor: write the failing test and see
   it fail, make it pass, then refactor with the tests green, before the
   commit. A task's "Run → PASS" step includes the refactor.
@@ -477,6 +479,10 @@ means the bypass list is left unmanaged (`bypass_actors is None` on
     reports it unset.
 
 ## Task 3g (deployment): Grant the user App `workflows: write`
+
+> **Amended 2026-11-25.** The grant was accepted on all six installations;
+> by ruling N0.13 the risk outside the in-scope orgs is accepted, which
+> supersedes "on none outside them" below. See Evolution during execution.
 
 - **Preconditions:** Task 3d and Task 17d closed.
 - **Procedure (the human):** grant the permission and accept it on every
@@ -1219,6 +1225,10 @@ runs no install by hand. After a plugin release, the session still needs
 
 ## Task 21d (deployment): Plugin release B and the steering
 
+> **Amended 2026-11-25.** By ruling N0.25, 21d closes on its release,
+> install and steering evidence; the acceptance's live agent cycle is
+> covered by Task 19. See Evolution during execution.
+
 - **Preconditions:** Task 18d done; Tasks 15b, 15c and 16a, and the
   approval removal vergil-project/vergil-claude-plugin#1326, released (the
   record check above). Task 15d is dropped (see Evolution during
@@ -1252,6 +1262,13 @@ runs no install by hand. After a plugin release, the session still needs
 
 ## Task 18d (deployment): Grant the user App `pull_requests: write`
 
+> **Amended 2026-11-25.** The grant was accepted on all six installations;
+> by ruling N0.21 the risk outside the in-scope orgs is accepted, which
+> supersedes the procedure's last sentence. The test PR is the probe
+> vergil-project/vergil-fixture-python-lib#86 (N0.20), the before-grant
+> refusal check is dropped (N0.19) and the `main` refusal is covered by
+> existing evidence (N0.23). See Evolution during execution.
+
 - **Preconditions:** Tasks 2d and 12d closed.
 - **Procedure (the human):** change the App's permission and accept it on
   each installation whose repos all appear in Task 12d's list with their
@@ -1265,6 +1282,11 @@ runs no install by hand. After a plugin release, the session still needs
     the ruleset, repeating Task 2d's check with this identity.
 
 ## Task 16b: `.github` CLAUDE.md on the new boundary
+
+> **Amended 2026-11-25.** By ruling N0.24, 16b is the template sync of
+> Task 16a's released consumer template (sync PR
+> vergil-project/.github#1626), not a hand edit. See Evolution during
+> execution.
 
 The same rule text as Task 16a, in the "PR handoff" section of
 `.github/CLAUDE.md`. It is filed
@@ -1287,6 +1309,12 @@ each run's change PR and carries it to merge. The release stays the
 human's.
 
 ## Task 19v (validation): Exemption and audit on one fixture
+
+> **Amended 2026-11-25.** By rulings N0.26 and N0.32, 19v has three cases:
+> the agent's own submit of a workflow change, the exemption, and the
+> refusal of the gated paths (`vrg-gh pr create` and `vrg-gh pr merge`)
+> for the user agent. The procedure below is superseded. See Evolution
+> during execution.
 
 - **Preconditions:** Task 19's runs closed on `vergil-fixture-python-lib`.
 - **Procedure:**
@@ -1536,3 +1564,139 @@ human's.
   (vergil-project/.github#1413), which grants the agent `pull_requests:
   write` and proves its own submit end to end. Task 17d carries an
   amendment note.
+- **2026-11-24: the audit skips a branch the repo does not have.**
+  vergil-project/.github has no `main`, so `vrg-agent-audit --init` failed
+  on it after creating the `develop` marker, and its daily audit would have
+  reported a missing `main` marker on every run. By the human's ruling
+  N0.18, a repo that is not released or published has no `main`, and the
+  audit and `--init` skip an audited branch the repo does not have.
+  vergil-project/vergil-tooling#5131 skips only when both the branch and
+  its marker are absent, and reports the skip; a marker whose branch has
+  disappeared is a finding. vergil-project/.github audits `develop` only.
+- **2026-11-24: Task 18d drops the before-grant refusal check.** N0.17
+  waived Task 17d's "agent submit fails at GitHub" check as covered by Task
+  18d, but 18d checks only the agent's submit after the grant. By the
+  human's ruling N0.19, the before-grant refusal check is dropped: the
+  after-grant agent submit, together with Task 17d's gates, shows the
+  boundary works. This amends N0.17: 18d covers the agent's own submit,
+  not the before-grant refusal.
+- **2026-11-24: a probe task supplies Task 18d's test PR.** A deployment
+  task opens no PR, so by the human's ruling N0.20 a one-line fixture task,
+  vergil-project/vergil-fixture-python-lib#86, stopped at report-ready, and
+  the agent's submit of it was 18d's after-grant test, run with the human's
+  go-ahead. That submit, vergil-project/vergil-fixture-python-lib PR #87,
+  was the first agent-submitted PR: it opened with auto-merge on and
+  merged.
+- **2026-11-24: the user App's `pull_requests: write` outside the epic's
+  orgs.** The human accepted Task 18d's grant on all six installations,
+  not only the three in-scope orgs. In the three out-of-scope orgs of
+  N0.13, the agent can now also open PRs and arm auto-merge, with no agent
+  audit there and before their rulesets are renovated. By the human's
+  ruling N0.21, N0.13's risk acceptance extends to `pull_requests: write`
+  in those three orgs, until they are renovated. Task 18d's procedure, the
+  global constraints and the spec's §4.11 said no installation outside the
+  in-scope orgs is granted, as Task 3g's procedure did for N0.13; each now
+  carries an amendment note.
+- **2026-11-24: the self-submit fixes came before Task 18d closed.** The
+  agent's submit of PR #87 exited 3 on a false provenance violation: the
+  `closed` event GitHub records with every merge was not among the user
+  identity's own-PR actions. Finalize's CD check also had no credentials
+  in agent mode. By the human's ruling N0.22,
+  vergil-project/vergil-tooling#5140 fixed both before 18d closed, and 18d
+  re-runs `vrg-finalize-pr` on PR #87 after its release and closes on a
+  clean result.
+- **2026-11-24: Task 18d's `main` refusal is covered by existing
+  evidence.** Running the check would risk a real commit on a fixture's
+  `main`. By the human's ruling N0.23, it is covered: `main`'s "Main
+  updates" ruleset allows only an admin bypass and the agent App is not an
+  admin (vergil-project/vergil-tooling#5095); the daily `github-config`
+  audit enforces that ruleset and passed in all 23 in-scope repos on
+  2026-11-24; and the nightly agent audit raises `main-merge` on any
+  non-human merge into `main`.
+- **2026-11-24: Task 16b is the template sync of Task 16a.** The "PR
+  handoff" rules in this repo's `CLAUDE.md` sit inside the
+  `vergil:template:claude-md` region, a copy of vergil-tooling's consumer
+  template that Task 16a (vergil-project/vergil-tooling#4789) edits, so a
+  hand edit would be drift the nightly config job reverts. By the human's
+  ruling N0.24, Task 16b (vergil-project/.github#1414) was blocked on 16a
+  and the tooling release that ships it, and became the template sync:
+  sync PR vergil-project/.github#1626.
+- **2026-11-24: Task 21d closes on its release, install and steering
+  evidence.** Its acceptance needed a fixture task carried to merge with no
+  human step, and the only such tasks were Task 19's change tasks, blocked
+  on 21d. By the human's ruling N0.25, 21d
+  (vergil-project/vergil-claude-plugin#1207) closes on its release, install
+  and steering evidence, and its live agent cycle is covered by Task 19; a
+  failure there is fixed there.
+- **2026-11-24: Task 19v is rescoped.** Task 19v
+  (vergil-project/vergil-fixture-python-lib#39) still validated the
+  protected-change approval that N0.12 removed. By the human's ruling
+  N0.26, its cases became: (1) an agent PR editing a workflow file runs
+  merge review, is submitted by the agent and merges with no approval;
+  (2) an agent PR with the human's merge-review exemption is submitted by
+  the agent and merges; (3) an agent-opened PR with no merge-review record,
+  merged by the human through the API, is reported by name by the next
+  daily audit. Case 3 needed an agent-opened PR outside the gated
+  `vrg-submit-pr` path, which the agent identity cannot open or merge, so
+  by the human's ruling N0.32 (2026-11-25) case 3 records the refusals of
+  `vrg-gh pr create` and `vrg-gh pr merge` for the user agent. #39's body
+  was updated each time. Cases 1 and 2 merged by the agent's own submit
+  (python-lib PRs #96 and #97, the second with exemption request
+  7150927606). A coverage follow-up was filed as a private security
+  advisory, tracked by vergil-project/.github#1640 (ruling N0.33,
+  2026-11-25).
+- **2026-11-24: the fixture-run agents submit their own PRs.** The
+  steering the driver's session loaded still forbade agent submits, while
+  `develop`'s `CLAUDE.md` after Tasks 16a and 16b allowed them. By the
+  human's ruling N0.27, the fixture-run sub-agents submit and finalize
+  their own PRs into `develop`, watching and fixing to the merge; fixture
+  releases and merges into `main` stay human.
+- **2026-11-24: Task 19's change tasks merged with no human step.** All six
+  fixture-run change tasks were implemented, merge-reviewed, submitted and
+  merged by the agent, the first live agent cycles under plugin release B.
+  Each `vrg-submit-pr` exited 0 and each merge review was eligible:
+  vergil-project/vergil-fixture-python-app#30 (PR #80),
+  vergil-project/vergil-fixture-python-lib#36 (PR #89),
+  vergil-project/vergil-fixture-rust-app#45 (PR #95),
+  vergil-project/vergil-fixture-rust-lib#46 (PR #101),
+  vergil-project/vergil-fixture-ts-app#47 (PR #97) and
+  vergil-project/vergil-fixture-ts-lib#46 (PR #96). Five of the six
+  releases and validations then closed with SUCCESS and PASS; ts-lib's
+  release is recorded below.
+- **2026-11-24: `fixture-run` learned conditions.** By the human's ruling
+  N0.28, the runs' three proposed conditions were accepted and filed as
+  vergil-project/vergil-claude-plugin#1363: the agent runs
+  `vrg-github-repo-config diff` itself and reads `local:`, leaving only the
+  admin-only settings to the human; the serialization command uses the
+  `vrg-issue-read` form; and a non-trio validation task such as
+  python-lib#39 does not block a fixture run. A further condition, on
+  version naming, went to intake as vergil-project/vergil-claude-plugin#1373
+  (ruling N0.34, 2026-11-25).
+- **2026-11-24 to 2026-11-25: ts-lib's release.** vergil-fixture-ts-lib's
+  `v0.1.10` was tagged and published, then its provenance attestation
+  failed transiently; a re-run of the failed CD job succeeded while
+  skipping every evidence step, and no post-release stage ran. By the
+  human's ruling N0.29, the two defects were filed under this epic:
+  vergil-project/vergil-tooling#5153 (resuming a release whose PR has
+  already merged) and vergil-project/vergil-actions#1439 (a re-run on a
+  published release must attach or fail on missing evidence). By ruling
+  N0.30 they landed and were released first, but the resume could not
+  attach the evidence: the earlier CI attempt's artifacts had been
+  overwritten by the failed re-run. By ruling N0.31 (2026-11-25), an agent
+  repaired `develop` and the human cut a clean `v0.1.11`; `v0.1.10` stays
+  published without its evidence bundle. The two new findings went to
+  intake: vergil-project/vergil-tooling#5174 (a watch error reported as a
+  release failure) and vergil-project/vergil-actions#1444 (a CI re-run
+  overwrites the earlier attempt's evidence).
+- **2026-11-24: fixes filed during execution.** Two fixes were filed under
+  this epic with the human's approval. vergil-project/vergil-actions#1428,
+  a regression from Task 3d, makes `ops-upstream-refresh` accept App keys
+  that exist only in the `automation` environment, and tests required
+  secrets against job environments. vergil-project/vergil-actions#1432,
+  found while fixing #1428, makes the `ops/report` action refuse empty App
+  key inputs by name.
+- **2026-11-25: the epic's last sub-issue.** By the human's ruling N0.34,
+  the epic's 100th sub-issue is this record of the fourth execution pass,
+  vergil-project/.github#1641. The epic issue's body said `hoshin` PRs are
+  agent-submitted; the spec (§4.10) keeps the human's submit as the
+  logbook PR's sign-off, and the body is corrected to match.

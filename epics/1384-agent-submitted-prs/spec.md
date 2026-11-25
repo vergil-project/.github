@@ -635,6 +635,12 @@ The soft gates now say "use the tool" instead of "ask the human":
 
 ### 4.11 The orgs in scope
 
+> **Amended 2026-11-25.** The user App's `workflows: write` and
+> `pull_requests: write` were accepted on the three out-of-scope
+> installations too. The human accepted that risk until those orgs are
+> renovated (rulings N0.13 and N0.21; see the plan's Evolution during
+> execution). The last sentence below is superseded.
+
 The epic covers three orgs: vergil-project, logical-minds-foundry and
 mnemosys-project, the ones under active work. Archived repos in them are
 left alone. diogenes-project, mq-rest-admin-project and vergils-nemesis
