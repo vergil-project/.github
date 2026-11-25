@@ -214,6 +214,15 @@ author (the watch's existing `confirmed_head` rule) and which passes the
 provenance check. Any other PR into `develop` is reported and never armed,
 by any path.
 
+The agent gates apply only to an **agent-involved** PR, by the rule the
+watch and the audit already use (`finalize_watch.agent_involvement`); a
+back-merge, dependency-update, mechanized or human PR that no agent took
+part in is armed on the provenance check alone. Turning auto-merge on or
+off is not involvement: the actor of an `auto_merge_enabled` or
+`auto_merge_disabled` event is not counted, so a re-arm by the user agent
+does not make a PR agent-involved. The audit (§5.9) computes involvement
+the same way.
+
 Because the path mechanizes every arm, who calls it does not matter: any
 trusted identity with write access (the human, the user agent or the
 automation App) may turn auto-merge on through the path for any PR the path
@@ -363,7 +372,11 @@ the release arms them through the one PR path with the holder's pass
 lock it holds rather than taking a new one; a resume at `unlock` or later
 takes and adopts no lock. It is the holder when the lock names its identity and its
 tracking issue; the host is recorded for information only, so a resume on
-another machine adopts the lock too.
+another machine adopts the lock too. A resume refuses to adopt a lock that
+is `running` with a fresh heartbeat (younger than the staleness
+threshold), naming its host and heartbeat age: the first run may still be
+alive, and two live runs of one release must never both go on. The human
+waits for the heartbeat to go stale or breaks the lock (§5.6).
 
 A `--resume` at a stage before `unlock` that finds no lock (it was broken
 or reclaimed) re-takes it by a create-only push and records the re-take in
@@ -645,8 +658,9 @@ prose and audit behind it:
 The daily agent audit stays report-only: it never arms a PR, files no issue
 and never prevents a merge. It flags any open PR into `develop` that the
 one PR path accepts with auto-merge off while no lock is held (a breach of
-the invariant, left for the human), open draft PRs into `develop`, and any
-lock that is stale. Open PRs into `develop` that the path does not accept
+the invariant, left for the human), open draft PRs into `develop`, any
+lock that is stale, and a lock that cannot be read or parsed, which it
+reports with its read error as a finding of its own and never deletes. Open PRs into `develop` that the path does not accept
 (fork or outsider PRs) are reported on a line of their own, never as a
 breach.
 
@@ -655,7 +669,9 @@ rule of §5.1: an auto-merge enable on `develop` by any trusted identity, on
 a same-repo PR whose branch has a trusted author, is expected, whoever
 authored the PR, and so is that identity's direct merge of such a PR at
 clean status, with its merge-close event. Any other enable or merge stays a
-finding, as today.
+finding, as today. It judges agent involvement by the rule of §5.1, with
+arming events left out, so it gates the landed head of exactly the PRs the
+path gated.
 
 ### 5.10 Threat model
 
@@ -691,6 +707,8 @@ boundary.
 - `vrg-release` and `vrg-release-lock break` stay human only. The agent
   identity may read the lock, arm any PR the one PR path accepts (§5.1) and
   reclaim a stale lock; it never takes or breaks a lock.
+- Only the tooling writes the lock, its history and the arming refs:
+  `vrg-git` refuses a manual push to any of them, a delete included.
 - No silent failures: a lock that cannot be read is held, not absent; a
   failed disarm or re-arm stops the step with an error, never a skip.
 - The per-repo scope must not preclude the cross-epic layer of #1663.

@@ -74,9 +74,14 @@ are to it.
   green and a commit with `vrg-commit`; every new or changed behavior is
   test-first (write the test, see it fail, implement, see it pass).
 - Releases (vergil-tooling and vergil-claude-plugin) are human actions; a
-  deployment task attests them as preconditions and never cuts one.
-  `vrg-host upgrade`, `vrg-host plugins` and `vrg-vm update --all` are
-  human-run steps.
+  deployment task never cuts one. Deployment tasks follow the plugin's
+  `issue-deploy/references/release-coverage.md`: a completed `vrg-release`
+  installs the release on the host that ran it and in every running VM, so
+  a deployment task's precondition is `vrg-release-record check` on each
+  task it ships, it never reinstalls or re-verifies what the release
+  installed, and its steps are only what the release leaves over (for the
+  plugin, `/reload-plugins` in each running session, a human-run step).
+  A check that released behavior works belongs to a validation task.
 
 ## Review Focus
 
@@ -117,7 +122,7 @@ writes.
 | 1 | `.github` | task | Spec and plan (vergil-project/.github#1665) | — |
 | **Phase 0** | | | | |
 | 2 | `vergil-tooling` | task | Cleanup never removes a `release/*` worktree while a release tracking issue is open; every removal logged; "release worktree vanished" error | — |
-| 3 | `vergil-tooling` | deployment | A vergil-tooling release carries Task 2, installed on the host and VMs | 2 |
+| 3 | `vergil-tooling` | deployment | A vergil-tooling release carries Task 2 (the release gate; the release installs it) | 2 |
 | **Phase 1** | | | | |
 | 4 | `vergil-tooling` | task | Provenance relaxation for arming and the path's clean-status merge; audit actor check follows it | — |
 | 5 | `vergil-tooling` | task | The one PR path (`lib/pr_path.py`), the `MERGE` method; `vrg-submit-pr` arms through it | 4 |
@@ -126,13 +131,13 @@ writes.
 | 8 | `vergil-tooling` | task | `vrg-update-deps` and the release's `update-deps` stage arm through the path; their direct merge retired | 5 |
 | 9 | `vergil-tooling` | task | The release's back-merge arms through the path; `wait_and_merge` kept for `main` only; a guard test for the one path | 7, 8 |
 | 10 | `vergil-tooling` | task | `vrg-finalize-pr` reduced: no auto-merge turn-off, no provenance or gate re-checks | 15 |
-| 10a | `vergil-tooling` | deployment | A vergil-tooling release carries Task 10, installed on the host and VMs | 10 |
-| 11 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 4–9, installed on the host and VMs | 4, 5, 6, 7, 8, 9 |
+| 10a | `vergil-tooling` | deployment | A vergil-tooling release carries Task 10 (the release gate; the release installs it) | 10 |
+| 11 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 4–9 (the release gate; the release installs it) | 4, 5, 6, 7, 8, 9 |
 | 12 | `vergil-claude-plugin` | task | The pr-watch skill pushes its fixes with `vrg-submit-pr --push` | 11 |
-| 13 | `vergil-claude-plugin` | deployment | A plugin release carries Task 12, installed on the host and VMs | 12 |
+| 13 | `vergil-claude-plugin` | deployment | A plugin release carries Task 12; every running session reloads its plugins | 12 |
 | 14 | `vergil-tooling` | task | `vrg-git` refuses a plain push to an open develop PR's branch, naming `vrg-submit-pr --push`, and every push to the lock refs | 13 |
 | 14a | `vergil-tooling` | task | Every other tooling push to an open develop PR's branch goes through the path or refuses; a guard test for branch pushes | 6 |
-| 15 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 14 and 14a, installed on the host and VMs | 14, 14a |
+| 15 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 14 and 14a (the release gate; the release installs it) | 13, 14, 14a |
 | 16 | `vergil-tooling` | validation | Phase 1 exit: every caller goes through the one path, live | 10a |
 | **Phase 2** | | | | |
 | 17 | `vergil-tooling` | task | Lock refs: model, create-only and compare-and-swap writes, history, arming refs | 16 |
@@ -147,9 +152,9 @@ writes.
 | 26 | `vergil-tooling` | task | The merge watch under the lock (`vrg-finalize-pr`, `vrg-pr-await`) | 19, 22 |
 | 27 | `vergil-tooling` | task | Cleanup safety also keys on the lock | 18 |
 | 28 | `vergil-tooling` | task | The backstop audit: invariant breaches, drafts, stale locks, outsider PRs | 18 |
-| 29 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 17–28, installed on the host and VMs | 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 |
+| 29 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 17–28 (the release gate; the release installs it) | 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 |
 | 30 | `vergil-claude-plugin` | task | Skills re-run the watch on its `held by release` exit; pr-watch's outcomes follow Tasks 10 and 26 | 29 |
-| 31 | `vergil-claude-plugin` | deployment | A plugin release carries Task 30, installed on the host and VMs | 30 |
+| 31 | `vergil-claude-plugin` | deployment | A plugin release carries Task 30; every running session reloads its plugins | 30 |
 | 32 | `vergil-tooling` | validation | A live vergil-tooling release under the lock, with an agent PR in flight | 29, 31 |
 | 33 | fixtures | fixture runs | One run on each of the six fixtures against the Task 29 release | 29 |
 | doc-review | `vergil-tooling` | task | Documentation review: `Documentation review: release-lock` | 32, 33 |
@@ -160,11 +165,13 @@ writes.
 Phase 2 starts only when all of these hold; Task 16 records them, and Task
 17, the root of phase 2, is blocked by it:
 
-1. Every caller §5.4 names (submit, pr-watch fixes, `vrg-finalize-pr`,
-   `mechanized_pr`, standalone `vrg-update-deps`, the release's
-   `update-deps` stage and back-merge) arms or merges a PR into `develop`
-   only through `lib/pr_path.py`. (`vrg-pr-await` and the re-arm sweeps join
-   in phase 2, Tasks 20 and 26.)
+1. Every caller §5.4 names (submit, pr-watch fixes, `mechanized_pr`,
+   standalone `vrg-update-deps`, the release's `update-deps` stage and
+   back-merge) arms or merges a PR into `develop` only through
+   `lib/pr_path.py`. (`vrg-finalize-pr`, `vrg-pr-await` and the re-arm
+   sweeps join in phase 2, Tasks 20 and 26; until then finalize neither
+   arms nor merges, and criterion 4 holds it to never turning auto-merge
+   off.)
 2. The guard test of Task 9 passes: outside the named allowed sites, no
    module calls `github.merge`, `enablePullRequestAutoMerge`, a `gh pr
    merge` argument list or `wait_and_merge`, and every allowed site but
@@ -183,10 +190,10 @@ Phase 2 starts only when all of these hold; Task 16 records them, and Task
 
 ### Operational tasks
 
-- **Task 3** ships the incident fix ahead of everything, since the human
-  must otherwise wait out agents by hand before every release. Nothing
-  downstream needs it deployed; its closure is the signal that #5187 cannot
-  recur.
+- **Task 3** is the release gate of the incident fix, ahead of everything,
+  since the human must otherwise wait out agents by hand before every
+  release. Nothing downstream needs it; its closure is the signal that the
+  #5187 fix is released.
 - **Tasks 11, 13 and 15** sequence a cross-repo cut-over: the plugin's
   pr-watch cannot use `--push` until a release carries it (11), and `vrg-git`
   must not refuse a plain push until the plugin that stops making one is
@@ -299,12 +306,13 @@ Spec §5.8, phase 0 of §5.
 
 ### Task 3: Release the cleanup fix (deployment)
 
-- Precondition (human-attested): a vergil-tooling release containing Task 2
-  exists; `vrg-release-record check vergil-project/vergil-tooling#<Task 2>`
+The release's gate for the incident fix: its closure records that the fix
+for #5187 is released.
+
+- Precondition: `vrg-release-record check vergil-project/vergil-tooling#<Task 2>`
   exits 0.
-- Human-run steps: `vrg-host upgrade`; `vrg-vm update --all`.
-- Acceptance: on the host and one VM, `uv tool list` shows
-  `vergil-tooling v<version>` at the release's version or later.
+- Procedure: that check, alone; nothing is installed (the release did it).
+- Acceptance: the check passes; the result names the release version.
 
 ---
 
@@ -625,11 +633,10 @@ both installed.
 
 ### Task 11: Release phase 1's tooling (deployment)
 
-- Precondition (human-attested): a vergil-tooling release containing Tasks
-  4–9; `vrg-release-record check` exits 0 for each. Task 10 is not in it
-  (Task 10a ships it).
-- Human-run steps: `vrg-host upgrade`; `vrg-vm update --all`.
-- Acceptance: `vrg-submit-pr --help` lists `--push` on the host and one VM.
+- Precondition: `vrg-release-record check` exits 0 for each of Tasks 4–9.
+  Task 10 is not in that release (Task 10a ships it).
+- Procedure: those checks, alone; nothing is installed (the release did it).
+- Acceptance: every check passes; the result names the release version.
 
 ### Task 12: pr-watch pushes through the path (vergil-claude-plugin)
 
@@ -650,11 +657,14 @@ both installed.
 
 ### Task 13: Release the plugin (deployment)
 
-- Precondition (human-attested): a vergil-claude-plugin release containing
-  Task 12; `vrg-release-record check` exits 0.
-- Human-run steps: `vrg-host plugins`; `vrg-vm update --all`.
-- Acceptance: the installed pr-watch skill on the host and one VM contains
-  `vrg-submit-pr --push`.
+- Precondition: `vrg-release-record check` exits 0 for Task 12.
+- Procedure: that check; nothing is installed (the release did it).
+- Human-run steps: `/reload-plugins` (or a restart) in every running Claude
+  Code session, so no session started before the release keeps the old
+  pr-watch, which pushes plainly and would be refused once Task 15 is
+  installed.
+- Acceptance: the check passes and the human confirms the reload; the
+  result names the release version.
 
 ### Task 14: `vrg-git` refuses a plain push to an open PR's branch (vergil-tooling)
 
@@ -773,17 +783,17 @@ Spec §5.4 (every push the tooling makes to the branch of an open PR into
 
 ### Task 15: Release Tasks 14 and 14a (deployment)
 
-- Precondition (human-attested): a vergil-tooling release containing Tasks
-  14 and 14a; `vrg-release-record check` exits 0 for each.
-- Human-run steps: `vrg-host upgrade`; `vrg-vm update --all`.
+- Precondition: Task 13 closed (every running session reloaded);
+  `vrg-release-record check` exits 0 for Tasks 14 and 14a.
+- Procedure: those checks, alone; nothing is installed (the release did it).
+- Acceptance: every check passes; the result names the release version.
 
 ### Task 10a: Release Task 10 (deployment)
 
-- Precondition (human-attested): Task 15 closed; a vergil-tooling release
-  containing Task 10; `vrg-release-record check` exits 0.
-- Human-run steps: `vrg-host upgrade`; `vrg-vm update --all`.
-- Acceptance: on the host and one VM, `uv tool list` shows
-  `vergil-tooling v<version>` at the release's version or later.
+- Precondition: Task 15 closed; `vrg-release-record check` exits 0 for
+  Task 10.
+- Procedure: that check, alone; nothing is installed (the release did it).
+- Acceptance: the check passes; the result names the release version.
 
 ### Task 16: Phase 1 exit (validation)
 
@@ -1209,9 +1219,11 @@ Spec §5.3 step 1, §5.2 (the worktree, the tracking issue, health), §5.6
 - Consumes: `LockOwner`, `sweeps.quiesce`, `sweeps.rearm_all`,
   `reclaim.reclaim_if_stale`, `pending_deps_prs`, `_check_pending_deps`,
   `check_develop_cd`.
-- Order in `preflight` (§5.3 step 1): sync `develop` under the checkout
-  lock and run the pending-deps and develop CD gates as pre-checks
-  (refusal: exit with nothing locked), record the judged head;
+- Order in `preflight` (§5.3 step 1): `_check_no_open_release`, with its
+  supersede exemption, first, as today (refusal: exit with nothing locked
+  and nothing disarmed); sync `develop` under the checkout lock and run the
+  pending-deps and develop CD gates as pre-checks (refusal: exit with
+  nothing locked), record the judged head;
   `reclaim_if_stale`; `LockOwner.take` (held → refuse naming holder,
   version and tracking issue); `quiesce`; sync again; always re-run the
   pending-deps gate; if the head moved, re-run the head-judging gates on the
@@ -1247,6 +1259,9 @@ Spec §5.3 step 1, §5.2 (the worktree, the tracking issue, health), §5.6
   - `test_stage_and_health_written_per_stage`.
   - `test_deferred_failure_marks_broken_when_recorded`.
   - `test_one_release_check_kept_as_second_guard`.
+  - `test_open_tracking_issue_refused_before_take`: an open release
+    tracking issue with no lock held → refused, no lock taken, no PR
+    disarmed.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 24: Unlock, rearm, stray merges and the abandon step (vergil-tooling)
@@ -1363,9 +1378,13 @@ Spec §5.5, §5.7 layers 2–3, §5.4 (`vrg-pr-await`'s contract change).
   `src/vergil_tooling/lib/pr_await.py`,
   `src/vergil_tooling/bin/vrg_finalize_pr.py`,
   `src/vergil_tooling/bin/vrg_pr_await.py` (docstring: the watch's own
-  re-arm through the path is now allowed)
+  re-arm through the path is now allowed),
+  `src/vergil_tooling/bin/vrg_submit_pr.py` (`_FINALIZE_OUTCOMES` gains 6;
+  `_submit_exit` returns `EXIT_NOT_ALL_MERGED` over a 6 when any PR failed
+  to submit, since `max` alone would keep 6)
 - Test: `tests/vergil_tooling/test_finalize_watch.py`,
-  `test_pr_await.py`, `test_vrg_finalize_pr.py`, `test_vrg_pr_await.py`
+  `test_pr_await.py`, `test_vrg_finalize_pr.py`, `test_vrg_pr_await.py`,
+  `test_vrg_submit_pr.py`
 
 **Interfaces:**
 
@@ -1380,16 +1399,23 @@ Spec §5.5, §5.7 layers 2–3, §5.4 (`vrg-pr-await`'s contract change).
   report `held by release <version> (stage <stage>, <health>)`, keep
   polling at the normal pace. Held and broken or heartbeat-stale → report
   the broken release, poll every `BROKEN_WATCH_POLL_SECS`, and call
-  `reclaim_if_stale`. Not held and the PR open, unarmed → `pr_path.arm`:
+  `reclaim_if_stale`. Present but unreadable → report `held by an
+  unreadable release lock (<read error>)`, poll every
+  `BROKEN_WATCH_POLL_SECS`, never reclaim (only `break` clears it). Not held and the PR open, unarmed → `pr_path.arm`:
   `armed` or `merged` goes on as today; `held` is reported as held;
   `refused` ends the watch with the outcome `failed: refused (<reason>)`,
   naming the path's reason, with no further re-arm or poll.
   Deadline (`VRG_FINALIZE_DEADLINE`) passes while held → `held by release`.
+- Retires the outcome `failed: auto-merge off`: an open, unarmed PR is
+  either held (reported as held) or re-armed through the path (armed,
+  merged or `failed: refused`), so the watch never ends on auto-merge off.
+  It leaves the outcome table and `--help`.
 
 - [ ] **Step 1: Failing tests:**
   `test_held_pr_never_reported_auto_merge_off`,
   `test_watch_reports_release_version_stage_health`,
   `test_broken_release_slows_poll`,
+  `test_unreadable_lock_reported_slow_poll_no_reclaim`,
   `test_watch_reclaims_stale_lock`,
   `test_watch_does_not_reclaim_broken_with_open_issue`,
   `test_watch_rearms_own_pr_when_unlocked`,
@@ -1397,7 +1423,9 @@ Spec §5.5, §5.7 layers 2–3, §5.4 (`vrg-pr-await`'s contract change).
   `test_deadline_while_held_exits_held`,
   `test_pr_await_rearm_through_path`,
   `test_exit_held_by_release_is_6_in_both_commands`,
-  `test_finalize_batch_failed_and_held_exits_not_all_merged`.
+  `test_finalize_batch_failed_and_held_exits_not_all_merged`,
+  `test_submit_failed_and_held_exits_not_all_merged`,
+  `test_submit_all_held_exits_held_by_release`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 27: Cleanup safety on the lock (vergil-tooling)
@@ -1438,6 +1466,9 @@ Spec §5.9.
   `test_audit_quiet_on_unarmed_pr_while_lock_held`,
   `test_audit_flags_draft_pr_into_develop`,
   `test_audit_flags_stale_lock`,
+  `test_audit_flags_unreadable_lock` (a lock present but unreadable or
+  unparseable is its own `unreadable-lock` finding, naming the read error;
+  the audit never deletes it),
   `test_audit_reports_outsider_prs_on_own_line_not_breach`,
   `test_audit_never_arms` (no mutation issued),
   `test_audit_agent_reclaimed_human_pr_not_breach` (a human's PR re-armed
@@ -1447,13 +1478,12 @@ Spec §5.9.
 
 ### Task 29: Release phase 2's tooling (deployment)
 
-- Precondition (human-attested): a vergil-tooling release containing Tasks
-  17–28; `vrg-release-record check` exits 0 for each. That release is itself
-  cut by the previous installed version, so it is the last release without
-  a lock.
-- Human-run steps: `vrg-host upgrade`; `vrg-vm update --all`.
-- Acceptance: `vrg-release-lock status` runs on the host and one VM and
-  prints `no release lock held` for vergil-tooling.
+- Precondition: `vrg-release-record check` exits 0 for each of Tasks
+  17–28. That release is itself cut by the previous installed version, so
+  it is the last release without a lock.
+- Procedure: those checks, alone; nothing is installed (the release did it).
+- Acceptance: every check passes; the result names the release version.
+  The released lock's behavior is validated by Task 32.
 
 ### Task 30: Skills re-run the watch on `held by release` (vergil-claude-plugin)
 
@@ -1470,8 +1500,10 @@ Spec §5.5 (the only skill rule), §5.7 layer 3.
   failure.
 - [ ] **Step 1a:** Bring pr-watch's outcomes in line with Tasks 10 and
   26. In its reasons table, add a `failed: refused (<reason>)` row: stop
-  for the human, naming the path's reason. Remove the `failed: gates` and
-  `failed: provenance` rows, which the watch no longer produces. Correct
+  for the human, naming the path's reason. Remove the `failed: gates`,
+  `failed: provenance` and `failed: auto-merge off` rows, which the watch
+  no longer produces, and the "Auto-merge off or a provenance violation —
+  stop" section with them. Correct
   step 5, which says finalize re-runs the merge-review gate on each head:
   the path judges each pushed head (`vrg-submit-pr --push`), and the watch
   only waits.
@@ -1479,9 +1511,12 @@ Spec §5.5 (the only skill rule), §5.7 layer 3.
 
 ### Task 31: Release the plugin (deployment)
 
-- Precondition (human-attested): a vergil-claude-plugin release containing
-  Task 30; `vrg-release-record check` exits 0.
-- Human-run steps: `vrg-host plugins`; `vrg-vm update --all`.
+- Precondition: `vrg-release-record check` exits 0 for Task 30.
+- Procedure: that check; nothing is installed (the release did it).
+- Human-run steps: `/reload-plugins` (or a restart) in every running Claude
+  Code session, so the skills' `held by release` rule is live in each.
+- Acceptance: the check passes and the human confirms the reload; the
+  result names the release version.
 
 ### Task 32: A live release under the lock (validation)
 
