@@ -179,7 +179,8 @@ The epic is built in two phases, after one standalone fix:
 
 0. **Cleanup safety first** (§5.8), for the incident in #5187: protect every
    `release/*` worktree while an open release tracking issue exists, and log
-   every removal. It needs neither phase, and phase 2 moves it onto the lock.
+   every removal. It needs neither phase, and phase 2 adds the lock to its
+  key, which stays (§5.8).
 1. **Rationalize the PR path** (§5.4): every tool that gets a PR into
    `develop` converges on the one PR path, which is made stable before
    anything is built on it. `vrg-finalize-pr` is reduced to its primary job:
@@ -298,8 +299,11 @@ workflow: sweeps skip them, and the audit (§5.9) flags them as invalid.
 - **The lock history** is a second ref, `refs/vergil/release-lock-history`:
   one commit per break, reclaim or supersede takeover, each carrying the old
   lock's contents,
-  who acted, when, the reason, and for a reclaim the PRs its re-arm sweep
-  armed, as a record only. It is appended by compare-and-swap, and
+  who acted, when and the reason. A reclaim is recorded as soon as its
+  delete wins, before its re-arm sweep, and a second commit after the sweep
+  lists the PRs it armed, as a record only; when the sweep fails, that
+  commit lists the PRs armed before the failure and names it. It is
+  appended by compare-and-swap, and
   is the record of every override whether or not the old lock named a
   tracking issue.
 
@@ -642,17 +646,21 @@ prose and audit behind it:
 
 - Cleanup that judges what is removable (`vrg-finalize-pr`'s cleanup and
   any sweep of worktrees) skips the worktree the lock names (§5.2), and
-  skips any `release/*` worktree while any lock is held.
+  skips any `release/*` worktree while any lock is held, while the lock
+  cannot be read, or while an open release tracking issue exists.
 - The release's own removals are sanctioned and are not blocked: its
   `teardown-worktree` stage, supersede's removal of the superseded
   release's worktree and branch, and the abandon step of a stray merge
   (§5.4). Each is logged.
 - Every worktree removal is logged, naming the worktree, the branch and the
   reason it was judged removable.
-- Before the lock exists (§5, the standalone fix), the same protection is
-  keyed on an open release tracking issue: cleanup that judges what is
+- The standalone fix (§5) keys the protection on an open release tracking
+  issue alone, before the lock exists: cleanup that judges what is
   removable removes no `release/*` worktree while one is open, and the
-  release's own removals stay sanctioned.
+  release's own removals stay sanctioned. Phase 2 adds the lock to that key
+  and keeps the tracking-issue key, so a broken release's worktree stays
+  protected after a `break` deletes its lock, until its tracking issue
+  closes.
 - When the release, at a stage before `teardown-worktree`, finds its
   worktree gone, it fails with a clear "release worktree vanished" error
   naming the path, rather than the obscure error a later `git fetch` gives

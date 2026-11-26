@@ -943,8 +943,10 @@ Spec §5.2, §5.4 (arming refs), §5.10.
   `LockState.held` is a property: `sha is not None`.
 - Produces, `history.py`: `append(repo: str, entry: HistoryEntry) -> None`
   (compare-and-swap, retried on a concurrent append), with
-  `HistoryEntry(action: Literal["break", "reclaim", "takeover", "retake"],
-  old: str, actor: str, at: str, reason: str, rearmed: tuple[str, ...])`.
+  `HistoryEntry(action: Literal["break", "reclaim", "reclaim-rearm",
+  "takeover", "retake"], old: str, actor: str, at: str, reason: str,
+  rearmed: tuple[str, ...])` (a `reclaim-rearm` entry's `reason` names a
+  failed sweep's error, and is empty when the sweep succeeded).
 - Produces, `arming.py`: `create(repo, pr: int) -> str | None`,
   `renew(repo, pr, *, expected: str) -> str | None`,
   `delete(repo, pr, *, expected: str) -> bool`,
@@ -1254,8 +1256,14 @@ Spec §5.6.
 - Produces: `reclaim.reclaim_if_stale(repo: str, *, actor: str) ->
   ReclaimResult | None`: judges with `stale.judge`; not stale → `None`;
   stale → `delete_lock(expected=state.sha)`; a lost race → `None`; won →
-  `rearm_all`, then `history.append(action="reclaim", rearmed=…)`, then a
-  comment on the tracking issue when the lock names one.
+  `history.append(action="reclaim")` and a comment on the tracking issue
+  when the lock names one, both before the sweep, as `break_lock` records
+  before it acts; then `rearm_all`; then
+  `history.append(action="reclaim-rearm", rearmed=…)`. When `rearm_all`
+  raises `SweepError`, the second entry lists the PRs armed before the
+  failure and names the failure, and the error then propagates. So a
+  failed sweep never leaves a reclaim with no history entry, and a holder
+  that loses its lock (Task 21) finds the `reclaim` entry.
 - Produces: `reclaim.break_lock(repo: str, *, actor: str, reason: str) ->
   ReclaimResult`: records the history entry and tracking-issue comment
   first, then deletes (CAS) and runs `rearm_all`. A live holder's
@@ -1274,6 +1282,11 @@ Spec §5.6.
   `test_reclaim_lost_race_returns_none`,
   `test_reclaim_refuses_unparseable_lock`,
   `test_reclaim_broken_open_issue_refused`,
+  `test_reclaim_records_before_rearm`,
+  `test_reclaim_sweep_failure_still_recorded` (`rearm_all` raises
+  `SweepError` after arming one PR: the `reclaim` entry and the comment are
+  written, the `reclaim-rearm` entry lists that PR and the failure, and the
+  error propagates),
   `test_break_refused_for_agent_identity`,
   `test_break_refused_with_agent_signal`,
   `test_break_requires_reason`,
