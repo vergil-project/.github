@@ -79,8 +79,9 @@ are to it. References to the release lock (#1664) are to
 - A repo's share of a coordinated group is either exactly one standalone
   task (in no release group), referenced by its task ref, or exactly one
   release group of #1672, referenced by its epic and group ID (#1672 spec
-  §5.9 allows both), read only through #1672's group tool list command. A share of several tasks must be one
-  release group. No task here parses group records itself.
+  §5.9 allows both), read only through #1672's group reader (`groups_of`,
+  the library side of `vrg-release-group list`). A share of several tasks
+  must be one release group. No task here parses group records itself.
 - A share in another org is filed under the primary epic's proxy epic
   there, and its release group, when it has several tasks, lives on that
   proxy epic. This needs #1672 to allow a group on a proxy epic for the
@@ -140,12 +141,12 @@ a task of epic vergil-project/.github#1672 that does not yet exist (see
 | 1 | `.github` | task | Spec and plan (vergil-project/.github#1819) | — |
 | **Phase 1** | | | | |
 | 2 | `vergil-tooling` | task | Ref-agnostic helpers (`lib/ref_store/`) factored out of `lib/release_lock/`; the ownership record, ref and history on them; `vrg-git` refuses pushes to the ownership refs | vergil-project/vergil-tooling#5263, vergil-project/vergil-tooling#5275 |
-| 3 | `vergil-tooling` | task | `vrg-repo-owner take`, `give-up` and `status`: run identity, main-clone resolution, all-or-nothing take, staleness | 2 |
+| 3 | `vergil-tooling` | task | `vrg-repo-owner take`, `give-up`, `status` and `handoff`: run identity, main-clone resolution, all-or-nothing take, staleness | 2 |
 | 4 | `vergil-tooling` | task | `vrg-repo-owner break`: human only, history, a comment on the owning task | 3 |
 | 5 | `vergil-tooling` | task | `vrg-release --epic --task` and the two ownership checks | 3 |
 | 6 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 2, 3, 4 and 5 (the release gate) | 2, 3, 4, 5 |
 | **Phase 2** | | | | |
-| 7 | `vergil-tooling` | task | The `coordinated-release` kind in every place that lists the kinds; `lib/coordinated_release.py` reads the group; `vrg-issue-create` refuses a link to the task's own group | 3, `#1672/group-list` |
+| 7 | `vergil-tooling` | task | The `coordinated-release` kind in every place that lists the kinds; `lib/coordinated_release.py` reads and checks the group, and `vrg-repo-owner group` prints it; `vrg-issue-create` refuses a link to the task's own group | 3, `#1672/group-list` |
 | 8 | `vergil-tooling` | task | `vrg-epic-audit`: a coordinated release task runnable at report-ready of its group, and in its window while it owns the repos; a same-group `Blocked-by:` met at report-ready; the refused link reported | 7 |
 | 9 | `vergil-tooling` | task | `vrg-submit-pr` submits a PR with a coordinated member only while its task owns the repo | 7, `#1672/whole-group-rule` |
 | 10 | `vergil-tooling` | task | Visibility: owner in `vrg-repo-status`, owned repos in `vrg-queue hoshin`, stale and unreadable ownership in the daily agent audit | 3 |
@@ -216,7 +217,12 @@ a task of epic vergil-project/.github#1672 that does not yet exist (see
   - `#1672/epic-create-groups`: the `epic-create` change that first writes
     release groups (#1672 spec §8).
 
-  If #1672's plan delivers one of these in several tasks, list each.
+  If #1672's plan delivers one of these in several tasks, list each. The
+  expected mapping, from #1672's draft plan and to be re-checked against
+  its published plan: `group-list` is its Task 2 (the record and
+  `vrg-release-group list`), shipped by its Task 3 release, so the
+  blocker is Task 3; `whole-group-rule` is its Task 11;
+  `epic-create-groups` is its Task 20.
 - **Task 2's `vergil-project/vergil-tooling#5275` blocker** is the release
   lock's phase 2 release gate: refactoring `lib/release_lock/` while #1664
   still changes it would collide, and the three epics are built in series.
@@ -251,27 +257,42 @@ Spec §5.1.
   `refs.py`, `history.py`
 - Modify: `src/vergil_tooling/bin/vrg_git.py` (a `_REPO_OWNER_PREFIX =
   "refs/vergil/repo-owner"` refusal beside `_RELEASE_LOCK_PREFIX`)
-- Modify: `tests/vergil_tooling/test_branch_push_guard.py` (adds
-  `lib/ref_store/` and `lib/repo_owner/` to the allowed sites, each with
-  its reason)
+- Modify: `tests/vergil_tooling/test_branch_push_guard.py` (replaces the
+  `lib/release_lock/` allowed site with `lib/ref_store/`, the one module
+  that pushes once `write_ref` moves, with its reason: it pushes only refs
+  under `refs/vergil/release-lock*` and `refs/vergil/repo-owner*`, never
+  `refs/heads/*`; `lib/repo_owner/` pushes only through `ref_store`, so
+  it gets no entry)
+- Modify: `tests/vergil_tooling/release_lock_stubs.py` and the
+  `origin_url` patch in `test_release_lock_arming.py` (retargeted to
+  `ref_store.transport.origin_url`, so the lock refs still go to the local
+  bare repo)
 - Test: `tests/vergil_tooling/test_ref_store.py`,
   `test_repo_owner_refs.py`, `test_repo_owner_model.py`, and the existing
-  `test_release_lock_*.py` unchanged and passing
+  `test_release_lock_*.py` passing with their assertions unchanged (only
+  the stubs are retargeted)
 
 **Interfaces:**
 
 - Produces, `ref_store.transport` (moved from `release_lock.refs`,
-  re-exported there so callers keep working): `scratch(repo, error)`,
-  `list_remote`, `remote_sha`, `fetch`, `read_file`, `build`, `write_ref`,
-  each with its current signature. The error classes move with them:
-  `ref_store` defines `RefError` and its subclasses `RefReadError` /
-  `RefWriteError`, which the moved functions raise. `release_lock.model`
-  re-exports those two classes under its own names (aliases, not
-  subclasses), and `ReleaseLockError` subclasses `ref_store.RefError`,
-  so every existing `except RefReadError`, `except RefWriteError` and
-  `except ReleaseLockError` in the release lock and its callers still
-  catches what the moved functions raise. `repo_owner` adds subclasses only
-  for its own parse errors.
+  re-exported there so callers keep working): `origin_url(repo)`,
+  `scratch(repo, error)`, `list_remote`, `remote_sha`, `fetch`, `read_file`, `build`, `write_ref`,
+  each with its current signature plus its failure classes as parameters,
+  the way `scratch(repo, error)` already takes its failure class: every
+  moved function that can fail takes the read or write class it raises
+  (`read_error`, `write_error`), and `ref_store` defines no error classes
+  of its own. The release-lock wrappers re-exported in `release_lock.refs`
+  pass `release_lock.model`'s `RefReadError` and `RefWriteError`, which
+  stay subclasses of `ReleaseLockError`, so every existing `except
+  RefReadError`, `except RefWriteError` and `except ReleaseLockError` in
+  the release lock and its callers catches exactly what it catches today.
+  `repo_owner.model` defines its own base `RepoOwnerError` with
+  `OwnerReadError` and `OwnerWriteError` beneath it, which `repo_owner`
+  passes, and `OwnerParseError` for its parse errors, so a release-lock
+  handler never catches an ownership failure. Release-lock code keeps
+  calling the moved functions through `release_lock.refs.<name>`, never
+  importing them from `ref_store` directly, so the holder tests' patches
+  of `refs.write_ref` and `refs.remote_sha` still apply.
 - Produces, `ref_store.history`:
 
   ```python
@@ -321,12 +342,17 @@ Spec §5.1.
   unparsed) and `read_history(repo)`.
 
 - [ ] **Step 1: Failing tests:**
-  - `test_release_lock_tests_pass_unchanged` (the existing release-lock
-    suites, run as the refactor's guard).
+  - The existing release-lock suites, their assertions unchanged and
+    their stubs retargeted, run as the refactor's guard.
   - `test_unreadable_lock_still_held_after_move` (a fetch failure in the
     moved transport still makes `read_lock` report the lock held).
-  - `test_release_lock_error_names_catch_moved_errors` (each release-lock
-    `except` class catches what `ref_store` raises).
+  - `test_release_lock_error_names_catch_moved_errors` (a read and a
+    write failure in each moved function, called through `release_lock`,
+    raises `release_lock.model`'s class, caught by `except
+    ReleaseLockError`).
+  - `test_owner_errors_not_release_lock_errors` (a failure called through
+    `repo_owner` raises an `OwnerReadError` or `OwnerWriteError`, which is
+    not a `ReleaseLockError`).
   - `test_appended_history_refuses_unknown_action`,
     `test_appended_history_concurrent_both_kept`.
   - `test_take_owner_create_only_second_returns_none`.
@@ -348,7 +374,7 @@ Spec §5.1.
   then add `repo_owner` on the helpers.
 - [ ] **Step 4: Pass; `vrg-container-run -- vrg-validate`; commit.**
 
-### Task 3: `vrg-repo-owner take`, `give-up` and `status` (vergil-tooling)
+### Task 3: `vrg-repo-owner take`, `give-up`, `status` and `handoff` (vergil-tooling)
 
 Spec §5.1 (transport), §5.2, §5.6 (staleness).
 
@@ -378,10 +404,15 @@ Spec §5.1 (transport), §5.2, §5.6 (staleness).
   `<org>/<repo>` below them; default `live_branches.default_repo_roots()`),
   so one root covers every org. It raises `MissingCloneError` naming the
   repo, and the existing duplicate-clone error for two clones of one repo.
-  Every operation resolves every repo first, so a missing clone stops it
-  before anything is written (§5.1). The refs themselves are written through Task 2's scratch
-  transport, whose `origin` is the repo, as the release lock's are; the
-  clone is the one the run submits from (§5.5 step 1).
+  Only `take` resolves main clones: it resolves every repo of the group
+  first, so a missing clone stops it before anything is taken (§5.1), and
+  `status` with no `--repo` uses the same discovery to find its repos.
+  `status --repo`, `give-up` and `break` resolve no clone and need no
+  roots: they read and write the refs through Task 2's scratch transport
+  alone, so they work on the physical host and in CI. Every operation
+  reads and writes the refs through that transport, whose `origin` is the
+  repo, as the release lock's are; the clone is the one the run submits
+  from (§5.5 step 1).
 - Produces, `take.py`:
 
   ```python
@@ -431,13 +462,26 @@ Spec §5.1 (transport), §5.2, §5.6 (staleness).
     result is a hold by another task (exit 3), holding nothing between
     attempts and printing a line each time the holder changes, and returns
     the first other result.
-  - `vrg-repo-owner give-up --task <ref> --run-dir <path> [--repo …]
-    [--root DIR …]`; exit 0, or 1 naming what is still held.
+  - `vrg-repo-owner give-up --task <ref> --run-dir <path> [--repo …]`;
+    exit 0, or 1 naming what is still held.
+  - `vrg-repo-owner handoff --run-dir <path> --repo <owner>/<repo>
+    [--repo …] [--check]`, resolving no clone. Without `--check` it
+    writes `<run_dir>/handoff.json` from `run.current` (the run identity
+    copied from `run.json`, never retyped) and the time, after checking
+    that every named repo's record is bound to that run; exit 0, or 1
+    naming each repo that is not. With `--check` it writes nothing: exit
+    0 when `handoff.json` exists, its `run` equals `run.current` in all
+    four fields, and every named repo's record is bound to that run;
+    otherwise 1, naming the first difference (no `handoff.json`, another
+    run, or a repo not bound to the run). A failed read exits 1, naming
+    it.
   - `vrg-repo-owner status [--repo …] [--root DIR …] [--json]`, any
     identity; with no `--repo`, every repo `live_branches.discover_repos`
-    finds under the roots whose origin is in an org with a `.github` repo.
-    `--root` means the same in every operation, and with no `--root` the
-    defaults of `live_branches.default_repo_roots()` apply. JSON: a list of `{repo,
+    finds under the roots whose origin is in an org with a `.github` repo;
+    with `--repo`, those repos alone, read without a clone, and `--root`
+    is not used. `--root` means the same in `take` and `status`, and with
+    no `--root` the defaults of `live_branches.default_repo_roots()`
+    apply. JSON: a list of `{repo,
     owned, epic, task, group, run, taken_at, age_secs, stale,
     stale_reason, error}`. Exit 0 on a complete read, 1 if any repo could
     not be read (still printing the rest).
@@ -468,6 +512,11 @@ Spec §5.1 (transport), §5.2, §5.6 (staleness).
   - `test_give_up_unowned_counts_as_given_up`.
   - `test_give_up_no_repo_reads_taken_json`,
     `test_give_up_no_repo_without_taken_json_fails`.
+  - `test_handoff_writes_run_from_run_json`,
+    `test_handoff_refuses_repo_not_bound_to_run`,
+    `test_handoff_check_passes_for_same_run`,
+    `test_handoff_check_fails_for_other_run`,
+    `test_handoff_check_fails_without_handoff_json`.
   - `test_every_take_and_give_up_in_history_with_actor`.
   - `test_stale_when_task_closed`, `test_stale_when_epic_closed`,
     `test_issue_read_failure_raises`.
@@ -486,17 +535,21 @@ Spec §5.2 (`break`).
 
 **Interfaces:**
 
-- Produces: `vrg-repo-owner break --repo <owner>/<repo> --reason "<why>"
-  [--root DIR …]`. Refused before any read under any agent identity or
+- Produces: `vrg-repo-owner break --repo <owner>/<repo> --reason "<why>"`,
+  which resolves no clone (Task 3). Refused before any read under any agent identity or
   signal. In order: read the ref; append a `break` entry with the old
   record's file text (parsed or not) and the reason; comment on the owning
   task, when the record parses, with
   `Ownership of <repo> broken by <identity>: <reason>`; delete the ref by
-  CAS. A CAS mismatch deletes nothing: it re-reads the ref, appends a
-  `break-not-applied` entry with what is there now, posts a follow-up
-  comment on the task saying the break did not apply and naming what is
-  there now, and reports it. An unreadable ref is broken like any other,
-  with no comment.
+  CAS. A delete that does not apply, by a CAS mismatch or any other
+  failure (a transport error included), deletes nothing: it re-reads the
+  ref, appends a `break-not-applied` entry with what is there now (or the
+  failure, when the re-read fails too), posts a follow-up comment on the
+  task saying the break did not apply and naming what is there now, and
+  reports it, exiting 1. If that entry or comment cannot be written, it
+  stops with an error naming the ref as still held and the `break`
+  history entry and comment as already written. An unreadable ref is
+  broken like any other, with no comment.
 - Produces: `breaking.break_owner(repo: str, *, reason: str, actor: str)
   -> None`.
 
@@ -504,6 +557,8 @@ Spec §5.2 (`break`).
   (each of `is_agent` and `any_agent_signal`),
   `test_break_records_history_then_comments_then_deletes`,
   `test_break_unreadable_ref_records_raw_text_no_comment`,
+  `test_break_transport_failure_records_not_applied`,
+  `test_break_not_applied_comment_failure_names_ref_still_held`,
   `test_break_cas_mismatch_deletes_nothing` (and records
   `break-not-applied` in the history and on the task),
   `test_break_requires_reason`.
@@ -581,13 +636,19 @@ Spec §3 (the five places), §5.4.
   `src/vergil_tooling/lib/pr_workflow/batch_rules.py` (the refusal text
   naming the kinds), `src/vergil_tooling/data/labels.json`
 - Create: `src/vergil_tooling/lib/coordinated_release.py`
+- Modify: `src/vergil_tooling/bin/vrg_repo_owner.py` (the `group`
+  subcommand)
 - Test: `tests/vergil_tooling/test_vrg_issue_create.py`,
-  `test_coordinated_release.py`, `test_labels.py`
+  `test_coordinated_release.py`, `test_labels.py`, `test_vrg_repo_owner.py`
 
 **Interfaces:**
 
-- Consumes: #1672's group tool list command (its library function; the
-  name its plan gives).
+- Consumes: #1672's group reader `release_groups.record.groups_of(task)`
+  (the name in #1672's draft plan, Task 2; re-take it from the published
+  plan if it changes). It returns `[]` for a standalone task and raises
+  when a broken group may hold the task, so `check_group` fails closed on
+  a broken group, never reading it as standalone. `vrg-release-group list`
+  is the same reader's command.
 - Produces: the label `coordinated-release` (`"Coordinated release task:
   submits a cross-repo group inside an ownership window; never
   auto-closed"`). The scaffold's sections: `Intro`, `Preconditions`,
@@ -614,14 +675,21 @@ Spec §3 (the five places), §5.4.
   `find_group` lists the primary epic's tasks and its proxies' tasks as
   `vrg-epic-audit` does (`epic_audit` / `proxies`), reading each task's
   line through the trust layer. `check_group` accepts a repo's share when
-  it is exactly one standalone task, one the group tool's list command
-  does not return (#1672 §5.9's ref-only share), or exactly one release
+  it is exactly one standalone task, one for which `groups_of` returns
+  `[]` (#1672 §5.9's ref-only share), or exactly one release
   group of #1672, read from the share's own
   epic: the primary epic for its own-org shares, the proxy epic for a share
   in another org. It refuses any other share (several tasks that are not
   one group, a partial group, a task in a group with members outside the
   share), naming the repo and the difference, so each repo has one PR
   (§5.4).
+- Produces, the CLI: `vrg-repo-owner group --epic <ref> --task <ref>
+  [--json]`, read-only. It runs `find_group`, then `check_group`, and
+  prints the group: its task, members, repos, `by_repo` and each member's
+  `Coordinated release:` line as read. Exit 0 for a group that passes
+  `check_group`; 1 for a `GroupError`, naming the repo and the difference;
+  1 for an untrusted line or a failed read, naming it. It is the only way
+  the run skill reads its group (Task 12).
 - Produces: `vrg-issue-create --kind coordinated-release` refuses a
   `--blocked-by` naming a task that carries a `Coordinated release:` line,
   naming it. In `file-tasks`' order (the coordinated release task first,
@@ -647,6 +715,9 @@ Spec §3 (the five places), §5.4.
     tasks under a proxy epic, one release group on the proxy: accepted),
     `test_check_group_proxy_standalone_task_accepted`.
   - `test_coordinated_task_blocked_by_lined_task_refused`.
+  - `test_group_cli_prints_members_repos_and_lines`,
+    `test_group_cli_group_error_exits_1_naming_repo`,
+    `test_group_cli_untrusted_line_exits_1`.
   - `test_batch_rules_text_names_coordinated_release`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
@@ -767,7 +838,12 @@ Spec §5.6. Placed here so it ships in Task 11's release with the rest.
 
 **Interfaces:**
 
-- Consumes: Task 3's `repo_owner.status` and `repo_owner.stale.judge`.
+- Consumes: Task 3's `repo_owner.status` and `repo_owner.stale.judge`,
+  and Task 2's `repo_owner.refs.read_owner`.
+- The daily agent audit never calls `status` and resolves no clone: for
+  its own repo it calls `refs.read_owner` and `stale.judge` directly, so
+  it runs in CI (`ops.yml`), where there is no projects root.
+  `vrg-repo-status` and `vrg-queue hoshin` use `status`.
 - Produces: `vrg-queue hoshin --json` gains `owned_repos`: a list of
   `{repo, epic, task, age_secs, stale, stale_reason, error}`, from
   `status` over the roots it already takes (the same projects-level roots,
@@ -800,25 +876,30 @@ The skill, in order (each a section):
 
 1. **Preflight and the resumed-run gate.** User mode; read the task with
    `vrg-issue-read`; `run_dir` from the Global Constraints. Read the group
-   (`vrg-epic-audit`, which lists its members and their report-ready
-   state). If any member's PR is submitted (an open PR whose trusted
+   with `vrg-repo-owner group --json` (Task 7); a non-zero exit stops for
+   the human before anything else. Each member's report-ready state comes
+   from `vrg-epic-audit`. If any member's PR is submitted (an open PR whose trusted
    closing references name it, or a merged one, read from GitHub as Task
-   8's `submitted` does, never from the relay): when `<run_dir>/handoff.json` exists, its
-   `run` equals this run's identity (`vrg-repo-owner`'s `run.current`, all
-   four fields), and every repo of the group is owned by that run, go on
-   at step 6 (§5.5, the planned hand-off). Otherwise report the repos owned
+   8's `submitted` does, never from the relay): when `vrg-repo-owner
+   handoff --check --run-dir <run_dir>`, with a `--repo` for each repo
+   the `group` output lists, exits 0 (Task 3), go on at step 6 (§5.5, the
+   planned hand-off). The agent never compares run identities itself.
+   On any other exit, report the repos owned
    and by which run (`vrg-repo-owner status --json`), each PR's state and
    the ownership history, and stop for the human, changing nothing.
 2. **Preconditions** (§5.5 step 1): every member reported ready, none
    submitted, each with a frozen worktree at its recorded head in its
    repo's main clone (`vrg-pr-workflow status` in it). A failure stops
    before anything is taken.
-3. **Take** (§5.5 step 2): `vrg-repo-owner take --json`. Exit 3: comment on
+3. **Take** (§5.5 step 2): `vrg-repo-owner take --json`, with a `--repo`
+   for each repo that step 1's `group` output lists, and no other. Exit
+   3: comment on
    the task, once per new holder, naming the epic and task holding each
    repo (a stale holder marked stale, for the human to break), then run
    `take --wait` in the background and go on when it exits. Any exit
    other than 0 and 3 stops for the human. Once
-   taken, record each member's line, as read, in `<run_dir>/group.json`.
+   taken, write step 1's `group` output, unchanged, to
+   `<run_dir>/group.json`.
 4. **Submit** (§5.5 step 3): for each repo's PR, re-read each member's
    line and refuse one that changed; `vrg-submit-pr` from its worktree;
    watch each to its merge with `pr-watch` on a failure. A failure that
@@ -826,14 +907,16 @@ The skill, in order (each a section):
 5. **Release** (§5.5 step 4): hand the human the paste-ready
    `vrg-release --epic <epic ref> --task <task ref>` for each repo, in the
    task's `Release order` where it has one, as human-run steps. Once every
-   member's PR has merged, write `<run_dir>/handoff.json` (the run's
-   identity and the time), post a comment on the task naming the commands
+   member's PR has merged, run `vrg-repo-owner handoff --run-dir
+   <run_dir>` with a `--repo` for each repo of `group.json` (a non-zero
+   exit stops for the human, ownership held), post a comment on the task naming the commands
    handed over, and end the run `waiting: releases`, recording no outcome.
    The next run is a resumed run that continues at step 6 (step 1).
 6. **Confirm** (§5.5 step 5): `vrg-release-record check` on every member,
    exit 0 for each.
-7. **Give up and close** (§5.5 step 6): read the group again and compare it
-   with `group.json`; a difference stops for the human, ownership held.
+7. **Give up and close** (§5.5 step 6): read the group again with
+   `vrg-repo-owner group --json` and compare it with `group.json`; a
+   non-zero exit or a difference stops for the human, ownership held.
    Otherwise `vrg-repo-owner give-up` with a `--repo` for each repo in
    `group.json`, then record `Outcome: SUCCESS` with the results template
    and close the task.
