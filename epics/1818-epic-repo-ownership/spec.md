@@ -340,7 +340,8 @@ open child gating its epic's rollup.
 - **The coordinated release task is runnable** once every batch of its
   group is recorded report-ready, read from the tooling's records (the
   report-ready relay), not from the batches' open or closed state. A
-  batch once submitted, or closed, still counts as met, and while the task
+  batch once submitted (an open PR that closes it, read from GitHub, since
+  the relay does not record a submit), or closed, still counts as met, and while the task
   owns the group's repos `vrg-epic-audit` reports it in its window, never
   blocked, so a resumed run always reaches the run's own gate.
   `vrg-epic-audit` reports it runnable or blocked on that rule.
@@ -473,6 +474,14 @@ the other operational kinds.
   is published before this epic's tasks are filed. This epic's plan is not
   filed until that spec records planned batches; if it does not, this
   spec's group source is revised first.
+- A repo's share of a coordinated group is one task, or one release group
+  of #1672; a share of several tasks must be one group. A share in another
+  org lives under the primary epic's proxy epic there, so this design
+  needs #1672 to allow a release group on a proxy epic for that proxy's
+  own-org tasks. A proxy epic is the development epic's stand-in in its
+  org; its separate category serves rollup and the audits, not release
+  groups. The change is raised with #1672's planning session, and this
+  epic's tasks are not filed until #1672's published spec states it.
 - Git and GitHub access goes through the tooling's sanctioned paths; the
   ownership refs use the helpers generalized from the release lock's
   (§5.1).
