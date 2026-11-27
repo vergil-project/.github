@@ -182,7 +182,7 @@ until Task 20 ships.
 | **Phase 3** | | | | |
 | 9 | `vergil-tooling` | task | The ceiling: `MAX_BATCH = 20` | — |
 | 10 | `vergil-tooling` | task | The group rules and the holder check (`lib/release_groups/rules.py`) | 2 |
-| 11 | `vergil-tooling` | task | The whole-group rule on every PR path and stage | 2, 5, 9 |
+| 11 | `vergil-tooling` | task | The whole-group rule on every PR path and stage | 2, 5, 9, vergil-project/vergil-tooling#5275 |
 | 12 | `vergil-tooling` | task | `vrg-release-group set` and `dissolve` | 10, 11 |
 | 13 | `vergil-tooling` | task | `vrg-gh pr edit` keeps a develop PR's closing lines | — |
 | 14 | `vergil-tooling` | task | Move, route and transfer of a grouped task refused | 2 |
@@ -778,7 +778,9 @@ design-question rule stays a planning judgment and is not checked.
   `test_dependency_path_across_epics`; `test_one_member_group_valid`;
   `test_holder_open_pr`, `test_holder_handed_off_batch_relay`,
   `test_holder_handed_off_batch_local`, `test_holder_batch_marker`;
-  `test_holder_read_failure_raises`.
+  `test_holder_read_failure_raises`; `test_rules_read_failure_raises`
+  (`check_group_rules` and `dependency_paths` raise `GroupRuleReadError`
+  on a failed issue read, blocker read and proxy-link read).
 - [ ] **Step 2–4:** fail, implement, pass, validate, commit.
 
 ### Task 11: The whole-group rule on every PR path (vergil-tooling)
@@ -798,10 +800,14 @@ Spec §5.2.
   says nothing was pushed and no PR was opened, as submit's other gate
   refusals do)
 - Modify: `src/vergil_tooling/lib/pr_path.py` (`arm` and `push_to_open_pr`
-  call it after the provenance check, for every PR into `develop`, agent
-  involved or not; a refusal is the `refused` outcome, or `pushed=False`;
-  for a PR that submit opened, this is the backstop for a group that broke
-  between submit's gate and `arm`)
+  call it among their judgments, after the provenance check and before
+  `_through_the_gate` and `_enable_bounded`, so both the release lock's
+  `holder_pass` branch and its arming-handshake branch reach it, and so do
+  `arm`'s callers: the release back-merge, the re-arm sweep
+  (`release_lock.sweeps`) and the merge watch's re-arm (`LockWatch`); for
+  every PR into `develop`, agent involved or not; a refusal is the
+  `refused` outcome, or `pushed=False`; for a PR that submit opened, this
+  is the backstop for a group that broke between submit's gate and `arm`)
 - Test: `tests/vergil_tooling/test_release_group_pr_check.py`,
   `tests/vergil_tooling/test_pr_path.py`,
   `tests/vergil_tooling/test_vrg_pr_workflow.py`,
@@ -841,6 +847,14 @@ Spec §5.2.
     it;
   - `test_arm_applies_rule_without_agent_involvement` and
     `test_push_applies_rule_without_agent_involvement` (a human PR);
+  - `test_rearm_sweep_partial_group_refused` and
+    `test_merge_watch_rearm_partial_group_refused`: a re-arm by
+    `release_lock.sweeps` and by `LockWatch` of a PR holding part of a
+    group is refused, and the refusal is reported as each caller reports
+    a refused arm;
+  - `test_back_merge_holder_pass_reads_no_group`: a release back-merge PR,
+    which closes no issue, passes the `holder_pass` branch with no group
+    read;
   - `test_batch_start_partial_group_refused` (a batch holding part of a
     group);
   - `test_arm_reads_github_closing_refs_not_body_only` (Review Focus 2);
@@ -904,7 +918,10 @@ Behaviour:
 - Every **incoming** task (not in the latest record, by an addition or a
   merge of two groups) must be open and have no holder, so an addition
   never itself makes a broken group. The open-only relaxation above covers
-  only members already in the latest record.
+  only members already in the latest record. One exception: with
+  `--at-batch-stop`, an incoming task whose only holder is a `batch marker`
+  of the same batch as the group's members' markers is accepted (spec
+  §5.5); it is already in that batch. Any other holder still refuses.
 - **Frozen:** while any open member has an `open PR` or `handed-off batch`
   holder, every change is refused, naming the holder and saying the PR must
   be taken back first (`vrg-pr-workflow unfreeze`, or closing the PR).
@@ -929,7 +946,9 @@ Behaviour:
   `test_set_on_proxy_epic_posts_on_proxy`;
   `test_set_on_ad_hoc_or_management_epic_refused`;
   `test_set_retry_posts_nothing`; `test_set_dissolved_id_refused`;
-  `test_set_rule_break_refused`; `test_set_without_reason_refused` (a new
+  `test_set_rule_break_refused`; `test_set_dependency_path_refused` (a
+  path from one member to another through an open task outside the
+  group); `test_set_without_reason_refused` (a new
   group, an addition, a removal and `dissolve`; a retry that posts nothing
   needs none);
   `test_dissolve_records_no_members`; `test_incoming_task_with_holder_refused`
@@ -937,6 +956,10 @@ Behaviour:
   and a merge of two groups); `test_change_refused_while_frozen` (open PR, and a
   handed-off batch); `test_change_after_batch_start_stops_for_human` and
   `test_at_batch_stop_allows_marker_only`;
+  `test_at_batch_stop_incoming_same_batch_marker_allowed` (a standalone
+  task in the running batch joins the group) and
+  `test_at_batch_stop_incoming_other_holder_refused` (another batch's
+  marker, an open PR or a handed-off batch);
   `test_set_refuses_on_conflict` (Review Focus 1: naming both comments and
   the recovery; once one is deleted, `set` posts the next revision);
   `test_set_refuses_on_edited_record` (naming the comment; once it is

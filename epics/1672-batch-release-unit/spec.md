@@ -143,9 +143,9 @@ The "small" guideline and the guideline caps go (§5.2).
   rounds hold the plan to, and which the group tool checks on every write
   (§5.5), all but the design-question rule, which stays a planning
   judgment:
-  - every member is an open code task in one repo (no deployment or
+  - every member is a code task in one repo (no deployment or
     validation task, no documentation review, no task in another repo or
-    org);
+    org), open when it joins and while it waits to ship (§5.5);
   - no dependency path runs from one member to another through a task
     outside the group, a deployment task or any other: the group would wait
     on work that waits on the group. So a group sits wholly between
@@ -240,8 +240,11 @@ easily broken:
   neither a development epic nor a proxy of one (§5.1) is refused, and so
   is one on a proxy whose `Primary:` link is broken or names an epic that
   is not a development epic.
-- **Reads fail closed,** like every batch rule today: a group record that
-  cannot be read, or an untrusted or edited one, refuses.
+- **Reads fail closed,** like every batch rule today: a group log that
+  cannot be read, an edited record, or a trusted comment skipped for an
+  untrusted identity's edit refuses. A comment an untrusted identity wrote
+  is not a record: it is ignored and reported, metadata only, so untrusted
+  content alone never refuses.
 - **Size.** `MAX_BATCH = 8` becomes a high safety ceiling (about 20; the
   value is the builder's), kept only to refuse a runaway list. The skill
   guidelines on size ("small", about 150 lines and 6 files, the caps of 4
@@ -340,10 +343,19 @@ in the release notes as needing a fresh merge review.
   records say why each group had to change, so that the human can study
   what planning missed and improve it.
 - **Every write is checked.** The group tool refuses a record that breaks
-  a group rule (§5.1), checked against the tasks as they are. On an
-  addition, or a merge of two groups, each incoming task must also be
-  clean: open, and held by no open PR, no handed-off batch and no batch
-  marker. So an addition can never itself make a broken group.
+  a group rule (§5.1), checked against the tasks as they are. The rules
+  that need an open member (open, and no dependency path through a task
+  outside the group) apply to every incoming task and to each existing
+  member that is still open; a closed existing member, kept so that a
+  repair record matches what shipped (§5.6), is held only to the
+  structural rules. On an addition, or a merge of two groups, each incoming
+  task must also be clean: open, and held by no open PR, no handed-off
+  batch and no batch marker. So an addition can never itself make a broken
+  group. One exception serves a batch stop: a group change ruled at the
+  stop accepts an incoming task whose only holder is the marker of the
+  same batch that holds the group's members. The task is already in that
+  batch, so the addition still cannot break the group, and the action the
+  human ruled then proceeds as for any change at a stop.
 - **When a group can change.** Membership is open while the group is
   planned (`plan`, `file-tasks`) and until its batch starts
   (`batch-start`); within that window the agent may change it alone.
