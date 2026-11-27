@@ -18,10 +18,9 @@ mechanize those stamps so that agents can, later, run their own releases:
    that must ship together in one repo are one batch PR, so that submitting a
    PR asserts it is ready to merge **and** ready to release at any time.
 3. **Epic ownership of repos** (this epic): the exception to that invariant.
-   When work in one repo must not release until other work is ready (most
-   often its partner batch in another repo, occasionally something outside
-   the fleet), the epic takes **ownership** of the repos involved, and only
-   it decides when they release.
+   When work in one repo must not release until its partner work in another
+   repo is ready, the epic takes **ownership** of the repos involved, and
+   only it decides when they release.
 
 The goal beyond the three is an epic that is planned with `epic-create`,
 started with `epic-implement` and a single confirmation, and next heard from
@@ -100,14 +99,21 @@ two epics can race for one repo.
   drafts) are force-pushed one-file commits, handled in vergil-tooling's
   `src/vergil_tooling/lib/pr_workflow/github_transport.py` and
   `src/vergil_tooling/lib/rulings/draft_ref.py`.
-- **Operational task kinds** are `validation` and `deployment`
-  (`bin/vrg_issue_create.py`, `_OPERATIONAL_KINDS`), each with a label, a
-  scaffold and a run skill (`issue-validate`, `issue-deploy`), not
-  PR-workable, closed only on `Outcome: SUCCESS`.
+- **Operational task kinds** are `validation` and `deployment`, each with a
+  label, a scaffold and a run skill (`issue-validate`, `issue-deploy`), not
+  PR-workable, closed only on `Outcome: SUCCESS`. The kind list is written
+  out in five places in vergil-tooling, all of which a new kind must join:
+  `_OPERATIONAL_KINDS` and the `--kind` choices in `bin/vrg_issue_create.py`,
+  `_OPERATIONAL_KINDS` in `lib/queue_view.py`, `_OPERATIONAL_LABELS` in
+  `lib/epics.py` (the check `vrg-submit-pr`, `report-ready` and the batch
+  rules use for "not PR-workable"), and `data/labels.json`.
 - **`vrg-release-record check <task>`** proves that a task's change is in a
   release, from its `Released:` record cross-checked against git ancestry.
-- **Batches** (epic #1672, being planned in parallel) make one PR, one
-  commit per task, the unit that ships together within a repo.
+- **Batch PRs** shipped with epic #1019 (`lib/pr_workflow/batch_rules.py`):
+  one PR, one commit per task, for 2 to 8 issues of one epic in one repo.
+  Epic #1672, being planned in parallel, makes the batch the unit of
+  release. A repo's share of a coordinated group may be one task, so this
+  design speaks of the group's PRs, single or batch.
 - **Proxy epics** let one primary epic file tasks in other orgs.
 
 ## 4. Approaches
@@ -161,8 +167,9 @@ two epics can race for one repo.
   from the release lock. It points at a one-file commit whose JSON document
   carries at least: the owning epic (the primary epic's full ref), the
   coordinated release task's full ref, the group (every repo the task
-  takes, as full names, in take order), the identity and host that took it,
-  and the time taken.
+  takes, as full names, in take order), the run that took it (§5.5: the
+  identity, the host and the run's session state directory), and the time
+  taken.
 - **Taking it** is a create-only push. A failed push means it is held: read
   it.
 - **Giving it up** and **breaking it** are compare-and-swap deletes against
@@ -191,28 +198,31 @@ A new command, named here `vrg-repo-owner` (the builder may rename it), with
 four operations:
 
 - **`take --task <ref> --repo <owner>/<repo> [--repo …]`.** Takes every
-  named repo for the task, in sorted order of full name. A repo whose ref
-  already names this task with the same group counts as taken (a re-run
-  adopts it). On the first repo held by anything else (another task, this
-  task with a different group, or an unreadable ref) it gives back, by
-  compare-and-swap, every repo whose ref names this task, those adopted
-  from an earlier run included, so a re-run after a crash never holds some
-  repos while waiting on others. This is safe because `take` runs only
-  before any batch of the group is submitted (§5.5, steps 1–2). It exits
-  with a distinct
-  `held` code, naming for each held repo its owning epic and task. A failure
-  while giving back is reported, naming the repos still held, never
-  swallowed.
+  named repo for the task, in sorted order of full name, binding each record
+  to the calling run. A repo whose ref already names this task, with the
+  same group and the same run, counts as taken (a re-run adopts it). On the
+  first repo held by anything else (another task, this task with a
+  different group or another run, or an unreadable ref) it gives back, by
+  compare-and-swap, every repo whose ref is bound to this run, those adopted
+  from an earlier attempt included, so a re-run never holds some repos
+  while waiting on others. It never gives back a record bound to another
+  run. This is safe because `take` runs only before any PR of the group is
+  submitted (§5.5, steps 1–2); a resumed run past that point never runs it.
+  It exits with a distinct `held` code, naming for each held repo its
+  owning epic, task and run; a repo held by another run of this same task
+  is reported as such, and the run stops for the human rather than waiting.
+  A failure while giving back is reported, naming the repos still held,
+  never swallowed.
 - **`status [--repo …]`.** Prints each repo's owner (epic, task, group,
   taker, age) or that it is unowned, and whether the ownership is stale
   (§5.6), as text or `--json`. Any identity may run it. With no `--repo` it
   covers the fleet's repos, as hoshin and the audit need.
 - **`give-up --task <ref> [--repo …]`.** Deletes each ref that names the
   task; a repo whose ref names another task is refused, never deleted.
-  Only the run that holds the ownership gives it up: `take` binds the
-  record to the taking run, and `give-up` refuses a caller that is not
-  that run (or its resumption), pointing to `break`. Every give-up is
-  recorded in the history with its caller. With
+  Only the run the record is bound to gives it up: `give-up` refuses any
+  other caller, naming the bound run and pointing to `break`, by the same
+  rule `take` applies when it adopts. Every give-up is recorded in the
+  history with its caller. With
   no `--repo`, it gives up every repo of the task's group. A repo already
   unowned counts as given up.
 - **`break --repo <owner>/<repo> --reason "<why>"`.** The human's escape
@@ -226,7 +236,9 @@ ownership.
 
 ### 5.3 `vrg-release` checks ownership
 
-`vrg-release` gains `--epic <ref>` and an ownership check. It runs twice:
+`vrg-release` gains `--epic <ref>` and `--task <ref>`, given together, and an
+ownership check. An epic can hold several coordinated release tasks, so the
+check matches the owning task as well as the epic. It runs twice:
 first in its pre-check, before it takes the release lock, so a release that
 cannot run fails fast; and again once the release lock has disarmed merges
 (#1664 spec §5.3, after step 1.4), when `develop` can no longer move. The
@@ -235,10 +247,11 @@ owned batch merged, while the pre-check waits on a develop CD run. If the
 second check fails, the release aborts through the release lock's full
 unlock path. Each check applies these rules:
 
-- **With `--epic X`:** the release runs only if the repo's ownership names
-  epic X, and aborts otherwise (unowned, owned by another epic, or
-  unreadable), telling the human to reconcile with the owner.
-- **Without `--epic`:** the release runs as today when the repo is unowned,
+- **With `--epic X --task T`:** the release runs only if the repo's
+  ownership names epic X and task T, and aborts otherwise (unowned, owned by
+  another epic or task, or unreadable), telling the human to reconcile with
+  the owner.
+- **Without them:** the release runs as today when the repo is unowned,
   and fails, naming the owning epic and task, when it is owned or its ref
   cannot be read.
 - It never takes, changes or ends ownership. A release does not end it.
@@ -249,7 +262,7 @@ unlock path. Each check applies these rules:
 
 `vrg-release` stays human only. For an agent-run release later, the
 authorization rule is already fixed: an agent may release only a repo that
-its own epic owns.
+the coordinated release task it is running owns.
 
 ### 5.4 The coordinated release task
 
@@ -259,20 +272,32 @@ it), with its own label, scaffold and run skill (named here
 PR-workable, closed only on `Outcome: SUCCESS` recorded as a comment, an
 open child gating its epic's rollup.
 
-- **It names its group:** the plan's batches, one or more in each repo
-  (by plan task ID in the plan, by full ref once filed), each repo's
-  release group (#1672), and any release order between the repos.
-  Batches are planned in `epic-create` (§6); `epic-implement` may change
-  them when implementation calls for it. The run reads its group from the
-  tooling's current record, the `Coordinated release:` lines on the tasks,
-  never from the plan's text, so a re-batch keeps the two in step. The releases of a group normally
-  run in parallel; an order (a plugin release that would break current
-  users if it went out before the tooling release, say) should be rare, and
-  the plan states it only where it is real.
+- **Its group** is the plan's PRs, one or more in each repo, each a batch
+  or a single task (by plan task ID in the plan). Batches are planned in
+  `epic-create` (§6); `epic-implement` may change them when implementation
+  calls for it.
+- **The `Coordinated release:` lines are the only record of the group.**
+  Each task in the group carries a `Coordinated release: <ref>` line,
+  naming the coordinated release task that submits it. The tooling finds
+  the group by reading those lines across the primary epic's tasks and its
+  proxies' tasks, as `vrg-epic-audit` lists them, never from the plan's
+  text or the task's body, so a re-batch keeps them in step; the run and
+  `status` show the group so found. The line is read through the trust
+  layer wherever it is read (the run, `issue-implement`, `vrg-submit-pr`,
+  `vrg-epic-audit`), as `Blocked-by:` lines are, and untrusted content
+  fails closed.
+- **The task's body carries only the release order**, keyed by repo, where
+  there is one. The releases of a group normally run in parallel; an order
+  (a plugin release that would break current users if it went out before
+  the tooling release, say) should be rare, and the plan states it only
+  where it is real.
 - **It is filed in the primary epic's home** (`<org>/.github`), since it
   has no PR and may span orgs.
-- **Each batch task in the group carries a `Coordinated release: <ref>`
-  line**, naming the task that submits it.
+- **It carries no `Blocked-by:` link to a task of its own group**: the
+  `Coordinated release:` lines are that link, and its group's tasks close
+  only inside its window. `vrg-issue-create` and `vrg-epic-audit` refuse
+  such a link. It may be blocked by tasks outside its group, such as a
+  deployment.
 - **A batch task in the group is done at report-ready.** For
   `epic-implement`, report-ready is its hand-off to the coordinated release
   task: `issue-implement` stops it there with a named outcome (held for
@@ -288,13 +313,28 @@ open child gating its epic's rollup.
 
 ### 5.5 Running it
 
-The run skill follows the human's sequence. Every step derives its state
-from the ownership refs, the PRs and the release records, so a run
-interrupted at any point resumes by re-running:
+A **run** is one execution of the run skill on one coordinated release task,
+through the steps below. A **resumed run** is the run skill taking up the
+same task again after its session stopped partway (a cleared context, a
+crash, a lost VM, or the human stopping it), whether `epic-implement` or
+the human invokes it.
 
-1. **Preconditions.** Every batch of the group is implemented and recorded
-   report-ready, and none has been submitted. A batch already submitted
-   outside the window stops the run for the human.
+A resumed run first asks whether it can pick the task up. It can only while
+no PR of the group has been submitted: steps 1 and 2 are then re-run from
+the start, and nothing has shipped. Once any PR of the group has been
+submitted, a resumed run does not continue. It reports what it finds (the
+repos owned and by which run, each PR's state, open, merged or released,
+and the ownership history) and stops for the human, with ownership left as
+it is. Failures inside the window are too varied to enumerate; each is an
+exception the human and the agent resolve together, using the tools as the
+case needs (a break, a release, an emergency patch), and this design does
+not script them.
+
+1. **Preconditions.** Every task of the group is implemented and recorded
+   report-ready, none has been submitted, and each has a local, frozen
+   worktree at its recorded head in its repo's main clone, from which the
+   user agent can submit it. A missing worktree, or a PR already
+   submitted, stops the run for the human before anything is taken.
 2. **Take ownership** of every repo in the group (§5.2). On `held`, the run
    waits, like a process blocked on a lock:
    - it says so where the human will see it, in its session and in a
@@ -309,7 +349,11 @@ interrupted at any point resumes by re-running:
    by itself, so the run reports it as such, and the human breaks it. How
    the wait is built (a blocking mode of `take`, a monitoring subagent, a
    skill to block on) is left to the builder.
-3. **Submit the batches** with `vrg-submit-pr` and watch each to its merge,
+
+   Once the group is taken, the run records each task's `Coordinated
+   release:` line as it read it, and refuses to submit a PR whose line has
+   changed since.
+3. **Submit the group's PRs** with `vrg-submit-pr` and watch each to its merge,
    as `issue-implement` does. A batch that cannot merge is fixed forward
    with `pr-watch`, as any submitted PR is, while ownership stays held, so
    a partner batch that has already merged cannot release alone. A failure
@@ -317,7 +361,7 @@ interrupted at any point resumes by re-running:
    still held: it is an exception the human and the agent resolve together,
    out of band, and this design does not script it.
 4. **Release each repo.** For now, hand the human the paste-ready
-   `vrg-release --epic <epic ref>` command for each repo, as a human-run
+   `vrg-release --epic <epic ref> --task <task ref>` command for each repo, as a human-run
    step, stating any release order the group names; the human carries the
    order out, and the tooling does not check it. Later, when agents run
    releases, this step changes, and so does step 5, whose release records
@@ -331,8 +375,8 @@ interrupted at any point resumes by re-running:
 **Submission is guarded in the tooling, not only in prose.**
 `issue-implement` stops a task carrying a `Coordinated release:` line at
 report-ready, and `vrg-submit-pr` refuses to submit it unless the repo is
-owned by the task that line names. The guard covers the whole batch: a batch
-PR with any member carrying the line submits only inside the window, and
+owned by the task that line names. The guard covers every PR, single or
+batch: a PR with any member carrying the line submits only inside the window, and
 tasks that came along with it, releasable by the invariant, ship in the
 owner's release. So a batch cannot leave the window early, whoever runs the
 submit.
@@ -352,11 +396,14 @@ submit.
 
 `epic-create`'s plan step gains the rule:
 
-- When the plan has batches in different repos that must ship together, or
-  a batch whose release must wait on work outside the fleet, it adds a
-  coordinated release task for each such group, naming its batches and any
-  release order between its repos, and lists it like any other operational task, with its
-  plan task ID.
+- When the plan has PRs in different repos that must ship together, it
+  adds a coordinated release task for each such group, naming its PRs and
+  any release order between its repos, and lists it like any other
+  operational task, with its plan task ID.
+- A step that happens outside the tooling (something the human does in
+  the physical world) is planned as its own task, which the human attests
+  and closes, ordered with `Blocked-by:` like any other. Ownership has no
+  part in it.
 - Most epics need none: their batches are releasable whenever they merge.
 - Plan pushback holds each group to the smallest set of repos that must
   ship together.
@@ -386,13 +433,12 @@ the other operational kinds.
 
 - The tool's, task kind's and run skill's final names.
 - How the wait on `held` is built, and its retry interval (§5.5).
-- How `take` binds a record to its run, and how a resumed run proves it is
-  that run (§5.2).
+- How the run identity in the record is formed and compared (§5.1, §5.2).
 - Exit codes, including `take`'s `held` code.
 - The exact JSON fields of the ownership record and history commits.
 - How `status` enumerates the fleet's repos.
-- How the coordinated release task's body records its group and release
-  order, within the operational scaffold's sections.
+- How the coordinated release task's body records its release order,
+  within the operational scaffold's sections.
 
 ## 8. Delivery shape
 
