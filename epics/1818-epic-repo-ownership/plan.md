@@ -59,8 +59,14 @@ are to it. References to the release lock (#1664) are to
 - **A run's identity** is a `RunIdentity(identity, host, run_dir, token)`:
   `identity` from `vrg-whoami`, `host` from `socket.gethostname()`,
   `run_dir` the absolute path
-  `<home main clone>/build/.vergil-state/coordinated-release/<N>/` (`<N>`
-  the coordinated release task's number), and `token` a random hex string
+  `<home main clone>/build/.vergil-state/operational/<N>/` (`<N>` the
+  coordinated release task's number), the task's `operational` state
+  directory, created and checked only through
+  `merge_review.state.ensure_task_dir(main_clone, "operational", N)` (the
+  library side of `vrg-state-dir --kind operational --issue
+  <owner>/<repo>#<N>`):
+  every level a real directory, not a symlink, mode 700. A directory that
+  fails those checks is refused, never used or repaired. `token` is a random hex string
   written once to `<run_dir>/run.json` and read back by every later step
   and by a resumed run on the same host. Two identities match only when all
   four fields are equal.
@@ -150,7 +156,7 @@ a task of epic vergil-project/.github#1672 that does not yet exist (see
 | 5 | `vergil-tooling` | task | `vrg-release --epic --task` and the two ownership checks | 3 |
 | 6 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 2, 3, 4 and 5 (the release gate) | 2, 3, 4, 5 |
 | **Phase 2** | | | | |
-| 7 | `vergil-tooling` | task | The `coordinated-release` kind in every place that lists the kinds; `lib/coordinated_release.py` reads and checks the group, and `vrg-repo-owner group` prints it; `vrg-issue-create` refuses a link to the task's own group | 3, `#1672/group-list` |
+| 7 | `vergil-tooling` | task | The `coordinated-release` kind in every place that lists the kinds; `lib/coordinated_release.py` reads and checks the group, `vrg-repo-owner group` prints it and `vrg-repo-owner member` writes a task's line; the kind messages built from one list; `vrg-issue-create` refuses a link to the task's own group | 3, `#1672/group-list` |
 | 8 | `vergil-tooling` | task | `vrg-epic-audit`: a coordinated release task runnable at report-ready of its group, and in its window while it owns the repos; a same-group `Blocked-by:` met at report-ready; the refused link reported | 7 |
 | 9 | `vergil-tooling` | task | `vrg-submit-pr` submits a PR with a coordinated member only while its task owns the repo | 7, `#1672/whole-group-rule` |
 | 10 | `vergil-tooling` | task | Visibility: owner in `vrg-repo-status`, owned repos in `vrg-queue hoshin`, stale and unreadable ownership in the daily agent audit | 3 |
@@ -173,7 +179,8 @@ a task of epic vergil-project/.github#1672 that does not yet exist (see
   but its owner. Nothing yet takes ownership but a human at the shell.
 - **Phase 2** ends when Task 16 closes: plans can name coordinated release
   tasks and `epic-implement` runs them.
-- **Phase 3** ends with Task 17, the first coordinated release run live.
+- **Phase 3** ends when Tasks 17 and 18 close: the first coordinated
+  release run live, and the fixture run of the plain release path.
 
 ### Operational tasks
 
@@ -401,10 +408,15 @@ Spec §5.1 (transport), §5.2, §5.6 (staleness).
 
 - Consumes: Task 2's `repo_owner.refs`, `repo_owner.history`,
   `repo_owner.model`.
-- Produces, `run.py`: `load_or_create(run_dir: Path) -> RunIdentity`
-  (creates `run.json` with a fresh token once; later calls read it) and
-  `current(run_dir: Path) -> RunIdentity` (reads only; raises
-  `RunDirError` when absent).
+- Produces, `run.py`: `load_or_create(main_clone: Path, task: int) ->
+  RunIdentity` (gets `run_dir` from `ensure_task_dir(main_clone,
+  "operational", task)`, which raises on a symlinked level or a mode other
+  than 700, and lets that error stop it; creates `run.json` with a fresh
+  token once, mode 600; later calls read it) and `current(run_dir: Path) ->
+  RunIdentity` (reads only; re-checks every level as `ensure_task_dir`
+  does, creating nothing, and raises `RunDirError` when a level fails or
+  `run.json` is absent). `--run-dir` on every subcommand is checked the
+  same way before it is used.
 - Produces, `clones.py`: `main_clone(repo: str, roots: Sequence[Path] |
   None) -> Path`, built on the fleet's existing clone discovery, not a new
   layout: it finds the clone by its `origin` with `in_flight.find_clones`
@@ -534,6 +546,10 @@ Spec §5.1 (transport), §5.2, §5.6 (staleness).
     `test_handoff_check_fails_for_other_run`,
     `test_handoff_check_fails_without_handoff_json`.
   - `test_every_take_and_give_up_in_history_with_actor`.
+  - `test_run_dir_is_operational_state_dir`,
+    `test_run_dir_symlinked_level_refused`,
+    `test_run_dir_wrong_mode_refused`,
+    `test_current_rechecks_levels_creates_nothing`.
   - `test_stale_when_task_closed`, `test_stale_when_epic_closed`,
     `test_issue_read_failure_raises`.
   - `test_status_json_fields`, `test_status_unreadable_repo_exit_1_lists_rest`.
@@ -636,7 +652,7 @@ As "Operational tasks" above.
 
 ### Task 7: The `coordinated-release` kind and its group (vergil-tooling)
 
-Spec §3 (the five places), §5.4.
+Spec §3 (the five places and the messages that name the kinds), §5.4.
 
 **Files:**
 
@@ -649,11 +665,17 @@ Spec §3 (the five places), §5.4.
   name `_scaffold_body` reads, `<kind>_task_body.md`)
 - Modify: `src/vergil_tooling/lib/queue_view.py` (`_OPERATIONAL_KINDS`),
   `src/vergil_tooling/lib/epics.py` (`_OPERATIONAL_LABELS`),
-  `src/vergil_tooling/lib/pr_workflow/batch_rules.py` (the refusal text
-  naming the kinds), `src/vergil_tooling/data/labels.json`
+  `src/vergil_tooling/data/labels.json`
+- Modify, the messages that name the kinds, each built from
+  `epics.operational_labels()` in place of a hand-written list:
+  `src/vergil_tooling/lib/pr_workflow/batch_rules.py` (its refusal),
+  `src/vergil_tooling/bin/vrg_pr_workflow.py` (the operational-task
+  refusal), `src/vergil_tooling/bin/vrg_submit_pr.py` (the same refusal),
+  and `src/vergil_tooling/bin/vrg_issue_create.py` (the `--body-file` and
+  `--kind` help strings and the kind refusal)
 - Create: `src/vergil_tooling/lib/coordinated_release.py`
-- Modify: `src/vergil_tooling/bin/vrg_repo_owner.py` (the `group`
-  subcommand)
+- Modify: `src/vergil_tooling/bin/vrg_repo_owner.py` (the `group` and
+  `member` subcommands)
 - Test: `tests/vergil_tooling/test_vrg_issue_create.py`,
   `test_coordinated_release.py`, `test_labels.py`, `test_vrg_repo_owner.py`
 
@@ -706,6 +728,16 @@ Spec §3 (the five places), §5.4.
   `check_group`; 1 for a `GroupError`, naming the repo and the difference;
   1 for an untrusted line or a failed read, naming it. It is the only way
   the run skill reads its group (Task 12).
+- Produces, the CLI: `vrg-repo-owner member --task <member ref> (--set
+  <coordinated release ref> | --clear) [--json]`, the only writer of a
+  `Coordinated release:` line (spec §5.4), used by `file-tasks` (Task 14)
+  and by `epic-implement` when it re-batches (Task 13). It reads the body
+  through the trust layer (an untrusted body exits 1), adds, replaces or
+  removes the one line, and writes the body back. It refuses, exit 3,
+  naming the repo and its owner, when any repo of the group named by the
+  old line or the new one is owned by that group's coordinated release
+  task (Task 2's `read_owner`; an unreadable ref also refuses). A task
+  already carrying the requested line exits 0 with no write.
 - Produces: `vrg-issue-create --kind coordinated-release` refuses a
   `--blocked-by` naming a task that carries a `Coordinated release:` line,
   naming it. In `file-tasks`' order (the coordinated release task first,
@@ -718,6 +750,14 @@ Spec §3 (the five places), §5.4.
 - [ ] **Step 1: Failing tests:**
   - `test_kind_in_every_operational_list` (one test reading all five
     places, so a sixth forgotten place fails it).
+  - `test_kind_messages_built_from_operational_labels` (each message
+    above names `coordinated-release`, and none of the four files holds a
+    hand-written `validation/deployment` list).
+  - `test_member_set_writes_line`, `test_member_clear_removes_line`,
+    `test_member_same_line_no_write`,
+    `test_member_refused_once_group_taken`,
+    `test_member_refused_on_unreadable_owner`,
+    `test_member_untrusted_body_exits_1`.
   - `test_coordinated_release_scaffold_sections_and_release_order`.
   - `test_body_file_unknown_section_refused` for the new kind.
   - `test_find_group_reads_primary_and_proxy_tasks`.
@@ -734,7 +774,6 @@ Spec §3 (the five places), §5.4.
   - `test_group_cli_prints_members_repos_and_lines`,
     `test_group_cli_group_error_exits_1_naming_repo`,
     `test_group_cli_untrusted_line_exits_1`.
-  - `test_batch_rules_text_names_coordinated_release`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 8: Runnability in `vrg-epic-audit` (vergil-tooling)
@@ -782,6 +821,11 @@ Spec §5.4 (report-ready hand-off, same-group `Blocked-by:`, runnable).
   - a `Blocked-by:` from a coordinated release task to a member of its own
     group is reported as a drift finding, `coordinated-self-block`, and
     the task is listed `stopped`, never runnable.
+- Produces: `vrg-epic-audit --json` gains, on each child, a
+  `coordinated_release` field: the ref its `Coordinated release:` line
+  names, read with `line_of` through the trust layer, or `null`. A child
+  whose body is untrusted is reported as an error, never as `null`. It is
+  the skills' only source for the line (spec §5.4, Task 13).
 
 - [ ] **Step 1: Failing tests:**
   `test_coordinated_task_blocked_until_all_members_reported`,
@@ -796,6 +840,8 @@ Spec §5.4 (report-ready hand-off, same-group `Blocked-by:`, runnable).
   `test_same_group_blocker_met_once_submitted`,
   `test_submitted_reads_open_pr_closing_task`,
   `test_submitted_ignores_untrusted_closing_reference`,
+  `test_audit_json_coordinated_release_field`,
+  `test_audit_json_untrusted_line_is_error_not_null`,
   `test_member_met_after_relay_ref_deleted` (the relay ref deleted by
   finalize, the open PR still there: met). The submit side is tested
   against the real write paths (`record_submission`, `_delete_relay_ref`),
@@ -891,7 +937,9 @@ Spec §5.5, every step.
 The skill, in order (each a section):
 
 1. **Preflight and the resumed-run gate.** User mode; read the task with
-   `vrg-issue-read`; `run_dir` from the Global Constraints. Read the group
+   `vrg-issue-read`; `run_dir` is the path `vrg-state-dir --kind
+   operational --issue <task ref>` prints, run from the home's main clone (the
+   Global Constraints), and a non-zero exit stops for the human. Read the group
    with `vrg-repo-owner group --json` (Task 7); a non-zero exit stops for
    the human before anything else. Each member's report-ready state comes
    from `vrg-epic-audit`. If any member's PR is submitted (an open PR whose trusted
@@ -910,10 +958,13 @@ The skill, in order (each a section):
 3. **Take** (§5.5 step 2): `vrg-repo-owner take --json`, with a `--repo`
    for each repo that step 1's `group` output lists, and no other. Exit
    3: comment on
-   the task, once per new holder, naming the epic and task holding each
-   repo (a stale holder marked stale, for the human to break), then run
-   `take --wait` in the background and go on when it exits. Any exit
-   other than 0 and 3 stops for the human. Once
+   the task naming the epic and task holding each repo (a stale holder
+   marked stale, for the human to break), then run `take --wait --json` in
+   the background. Each holder change it prints is posted as a new comment
+   on the task, in the same form, while the wait runs. The wait's exit is
+   handled as the first take's: 0 goes on; any other exit (4, 5, 1 or 2)
+   stops for the human, with its output, holding nothing. Any exit of the
+   first take other than 0 and 3 stops for the human too. Once
    taken, write step 1's `group` output, unchanged, to
    `<run_dir>/group.json`.
 4. **Submit** (§5.5 step 3): for each repo's PR, re-read each member's
@@ -962,7 +1013,11 @@ Spec §5.4 (hand-off at report-ready, re-entry), §5.7 (dispatch).
   `coordinated-release` → `issue-coordinated-release`; that outcome is the
   task's gate passed; on re-entry a reported-ready task carrying the line
   is handed off and shown under its coordinated release task's state,
-  never submitted, read from the line; the runnable frontier comes from
+  never submitted; every read of a task's line is the
+  `coordinated_release` field of `vrg-epic-audit --json` (Task 8), never
+  the skill reading the body; a re-batch that adds, moves or removes a
+  grouped task's line runs `vrg-repo-owner member` (Task 7), and its
+  refusal once the group is taken stops for the human; the runnable frontier comes from
   `vrg-epic-audit`, Task 8's rules, a task `in-window` included; a run of
   `issue-coordinated-release` that ends `waiting: releases` is a human-run
   stop: the gate shows the human the commands its comment names, and once the human
@@ -987,7 +1042,8 @@ Spec §5.7.
   group; `file-tasks` files the coordinated release task first, in the
   primary epic's home (`<org>/.github`) under the primary epic, since it
   has no PR and may span orgs (spec §5.4), then
-  writes each member's `Coordinated release: <ref>` line, never a
+  writes each member's `Coordinated release: <ref>` line with
+  `vrg-repo-owner member --set` (Task 7), never a
   `Blocked-by:` from it to its own group.
 
 - [ ] **Step 1: Edit the skill.**
@@ -1052,6 +1108,13 @@ As "Operational tasks" above.
 - **Acceptance:** each check above as stated; the task closed with
   `Outcome: SUCCESS`; both members closed and released; the probe epic
   closed.
+- **Not covered: cross-org use.** Both fixtures are in `vergil-project`,
+  and the fleet has no fixture in a second org, so this run does not
+  exercise a take and give-up across orgs, a comment on a task in another
+  org, a proxy epic's share or the audit's per-org reads. Those are
+  covered by unit tests alone (Task 3's clone discovery, Task 7's proxy
+  share checks); a live cross-org run needs a fixture org first, and is
+  follow-on work tracked in intake (spec §8).
 
 ### Task 18: Fixture run
 

@@ -109,9 +109,12 @@ two epics can race for one repo.
   `deployment_task_body.md` and `validation_task_body.md`;
   `_OPERATIONAL_KINDS` in `lib/queue_view.py`; `_OPERATIONAL_LABELS` in
   `lib/epics.py` (the check `vrg-submit-pr`, `report-ready` and the batch
-  rules use for "not PR-workable"); the refusal text in
-  `lib/pr_workflow/batch_rules.py` that names the operational kinds; and
-  `data/labels.json`.
+  rules use for "not PR-workable"); and `data/labels.json`. Several
+  messages also name the kinds in their text: the refusal in
+  `lib/pr_workflow/batch_rules.py`, the operational-task refusals in
+  `bin/vrg_pr_workflow.py` and `bin/vrg_submit_pr.py`, and the help and
+  refusal strings in `bin/vrg_issue_create.py`. Those messages are built
+  from `epics.operational_labels()`, so no message lists the kinds by hand.
 - **`vrg-release-record check <task>`** proves that a task's change is in a
   release, from its `Released:` record cross-checked against git ancestry.
 - **Batch PRs** shipped with epic #1019 (`lib/pr_workflow/batch_rules.py`):
@@ -173,8 +176,12 @@ two epics can race for one repo.
   carries at least: the owning epic (the primary epic's full ref), the
   coordinated release task's full ref, the group (every repo the task
   takes, as full names, in take order), the run that took it (§5.5: the
-  identity, the host and the run's session state directory), and the time
-  taken.
+  identity, the host and the run's state directory), and the time taken.
+- **The run's state directory** is the coordinated release task's
+  `operational` state directory in its home's main clone, created and
+  checked through the fleet's state-directory helper (`vrg-state-dir`),
+  never by hand: every level a real directory, mode 700. The run refuses a
+  directory that fails those checks.
 - **Taking it** is a create-only push. A failed push means it is held: read
   it.
 - **Giving it up** and **breaking it** are compare-and-swap deletes against
@@ -210,8 +217,13 @@ two epics can race for one repo.
 
 ### 5.2 The ownership tool
 
-A new command, named here `vrg-repo-owner` (the builder may rename it), with
-four operations:
+A new command, named here `vrg-repo-owner` (the builder may rename it). Its
+four ownership operations are `take`, `status`, `give-up` and `break`; three
+more serve the run and the skills, and write no ownership ref: `group`, which
+reads and checks a coordinated release task's live group (§5.4); `member`,
+which writes a task's `Coordinated release:` line (§5.4); and `handoff`,
+which records the run's hand-off of the releases, bound to its run identity,
+and checks it on a resumed run (§5.5).
 
 - **`take --task <ref> --repo <owner>/<repo> [--repo …]`.** Takes every
   named repo for the task, in sorted order of full name, binding each record
@@ -300,7 +312,11 @@ open child gating its epic's rollup.
   unmerged one; plan pushback refuses a group with two PRs in one repo.
   Batches are planned in
   `epic-create` (§6); `epic-implement` may change them when implementation
-  calls for it.
+  calls for it, but only before the group is taken. It adds, moves or
+  removes a task's `Coordinated release:` line only through the tool's
+  `member` operation, which refuses once any repo of the group is owned by
+  its coordinated release task; a change the window needs after the take
+  stops for the human.
 - **The `Coordinated release:` lines are the only record of the group.**
   Each task in the group carries a `Coordinated release: <ref>` line,
   naming the coordinated release task that submits it. The tooling finds
@@ -312,7 +328,8 @@ open child gating its epic's rollup.
   stays a ref read with no issue reads. The line is read through the trust
   layer wherever it is read (the run, `issue-implement`, `vrg-submit-pr`,
   `vrg-epic-audit`), as `Blocked-by:` lines are, and untrusted content
-  fails closed.
+  fails closed. The skills take it from a tooling command
+  (`vrg-epic-audit --json`), never by reading the body themselves.
 - **The task's body carries only the release order**, keyed by repo, where
   there is one. The releases of a group normally run in parallel; an order
   (a plugin release that would break current users if it went out before
@@ -520,3 +537,9 @@ ownership ref, the tool and `vrg-release`'s checks; then the task kind, its
 run skill and the skill changes, with visibility (`vrg-repo-status`,
 hoshin and the audit), which ships in that phase's tooling and plugin
 releases rather than releases of its own; then the live run.
+
+The live run spans two repos of one org. The fleet has no fixture repo in
+a second org, so cross-org use (a take and give-up across orgs, comments on
+a task in another org, a proxy epic's share, the audit's per-org reads) is
+covered by unit tests alone in this epic. A live cross-org run waits on a
+fixture org, which is follow-on work.
