@@ -105,7 +105,7 @@ part. These assignments are judgment, not measurement.
 | `issue-implement` driver | subagent, no pin today | the long procedure | **Sonnet** (new `vergil:task-runner`) |
 | code writer | new | writing code | **Haiku** (new `vergil:implementer`) |
 | `merge-review` | inside the driver | rulings, the fix loop | Sonnet (driver) |
-| `vergil:merge-reviewer` | subagent, pinned `opus` | is this good enough to merge | **Sonnet** |
+| `vergil:merge-reviewer` | subagent, pinned `opus` | is this good enough to merge | **Sonnet**; **Opus** for docs PRs, passed by the dispatch |
 | `pr-watch` | inside the driver | diagnosing CI failures | Sonnet (driver) |
 | `issue-deploy`, `issue-validate` | subagent, no pin today | preconditions, judging an outcome | **Sonnet** (`vergil:task-runner`) |
 | `epic-retrospective`, `hoshin`, `epic-review`, `summarize`, `fixture-run`, `deprecation-triage`, `intake-capture` | human session | various | session model |
@@ -122,6 +122,12 @@ Notes:
 - **The merge reviewer moves from Opus to Sonnet.** That is the one change
   in this pass that lowers a model on purpose. It stays a tier above the
   Haiku writer whose work it reviews.
+- **`merge-review` is shared.** `epic-create`, `epic-retrospective` and
+  `hoshin` also run it, on their docs PRs, whose specs, plans,
+  retrospectives and logbook entries are written on Opus. Under those three
+  callers the skill dispatches `vergil:merge-reviewer` with a per-invocation
+  `model: opus`, so docs PRs keep an Opus review. Under `issue-implement`
+  and `pr-watch` it relies on the agent's `sonnet` pin.
 - **`epic-implement`'s own session** mostly waits on the subagents it
   dispatches, so it costs little on any model. It is not pinned. The model
   map notes that the human may run it on Sonnet with `/model`.
@@ -161,7 +167,10 @@ Notes:
   It never suppresses a gate, never submits, pushes or posts on GitHub, never
   creates issues and never runs merge review. It returns one of two
   results: `green` (with its commits), or `stuck` (what it tried and what
-  still fails).
+  still fails). Both carry `notes`: any deviation from the issue and why,
+  and any concern it noticed (a gap in the issue, a defect outside the
+  change), which the driver screens and handles as follow-ups, as it does a
+  concern any sub-agent reports today.
 
 ### 5.3 The driver's use of the writer
 
@@ -174,18 +183,30 @@ Notes:
 - **Fixes.** Code fixes asked for by merge review's fix step, and by
   pr-watch's fixes for failing CI, review comments and conflicts, go through
   the same writer. Only the code goes to the writer. The driver still
-  diagnoses the problem and runs every check and push.
+  diagnoses the problem and runs every check and push. The hand-off to the
+  writer lives in `issue-implement` and `pr-watch` only, not in the shared
+  `merge-review` skill: under the docs-PR callers (§4), merge review's fix
+  step stays in the caller's session, as today.
 - **Escalation.** If the writer returns `stuck`, the driver dispatches it
   once more with a per-invocation `model: sonnet`, passing on what the
   first attempt found. A second `stuck` stops the run for the human, as a
   problem the run cannot resolve does today.
+- **Other helpers.** `issue-implement`, `issue-deploy` and `issue-validate`
+  today invite ad-hoc subagents (research fan-out, parallel sub-tasks,
+  isolated exploration, a fresh subagent per acceptance check). Each of the
+  three skills is changed to say that code changes go only to
+  `vergil:implementer`, never to an ad-hoc helper and never in the driver
+  itself, and that every other helper it dispatches carries an explicit
+  per-invocation `model`, named in the skill text.
 - **The human-run path.** When the human runs `/issue-implement` in a
   session, the skill dispatches the writer just the same, so the code is
   always written on Haiku whatever the session's model.
 
 ### 5.4 Other pins
 
-- `vergil:merge-reviewer` moves from `model: opus` to `model: sonnet`.
+- `vergil:merge-reviewer` moves from `model: opus` to `model: sonnet`, and
+  `merge-review` passes a per-invocation `model: opus` when it runs for a
+  docs PR (§4).
 - `epic-create`'s design-review rounds dispatch `paad:paad-delegate` with a
   per-invocation `model: opus`. The paad fork is not changed. Its nested
   `paad-analyst` agents inherit Opus from it.
@@ -204,6 +225,10 @@ agent runs on: the §4 table, the reason for each entry, the pinning facts in
 §3, and how to change a pin (edit the agent definition's `model:`, or the
 dispatch's `model` parameter) or revert one. Every later change to a pin
 updates this page in the same PR.
+
+The model map is the single source for models. The existing agents page
+(`docs/site/docs/agents/index.md`) drops its per-agent `**Model**:` lines
+and links to the model map instead.
 
 ## 7. Wave 2: the roadmap
 
