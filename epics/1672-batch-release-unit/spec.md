@@ -152,8 +152,8 @@ The "small" guideline and the guideline caps go (§5.2).
     deployments;
   - a group has at least 1 member and at most the hard ceiling (§5.2);
     a one-member group ships as one PR like a standalone task, and exists
-    so that the task can be named as a group, as a coordinated release
-    names each repo's share (§5.9);
+    so that the task can be named as a group where planning marks it;
+    a coordinated release's share of one task needs no group (§5.9);
   - no member's plan entry leaves a design question open;
   - each group exists only in a development epic, or in a **proxy epic**
     of one (`Epic (proxy): <name>`, labelled `epic` + `proxy`, whose
@@ -481,10 +481,13 @@ The epic ownership follow-on (planning issue vergil-project/.github#1678)
 coordinates releases across repos, and builds on release groups for each
 repo's share. What it may rely on:
 
-- **A repo's share is its release group.** Where that follow-on speaks of
-  a repo's planned batch, it means a release group of this design: planned
-  in `epic-create`'s plan, changed only as §5.5 says. A share of one task is
-  a one-member group (§5.1).
+- **A repo's share is its release group, or one standalone task.** Where
+  that follow-on speaks of a repo's planned batch, it means a release group
+  of this design: planned in `epic-create`'s plan, changed only as §5.5
+  says. A share of one task may instead be a **standalone task** (§5.1),
+  with no group ID and no group record, absent from the group tool's list,
+  and referenced by its task ref alone. A share of several tasks is always
+  one group.
 - **A group is referenced as its epic and its group ID** (§5.1), never by
   its members.
 - **A share in another org is a group on that org's proxy.** A share filed
