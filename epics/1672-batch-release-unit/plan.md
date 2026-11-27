@@ -59,30 +59,20 @@ are to it.
   ```text
   release-group <id> rev <n>: <owner>/<repo>#<N> [<owner>/<repo>#<N> …]
   release-group <id> rev <n>: dissolved
-  release-group <id> rev <n> resolves <m>: <members, or dissolved, as above>
   ```
 
-  `<n>` and `<m>` are positive integers without leading zeros; members are
-  fully qualified, in build order, each once. The `resolves <m>` form is a
-  **resolving record**, posted only by `--resolve-conflict` (Task 12):
-  `<m>` is the highest revision it supersedes, and `<m>` must be less than
-  `<n>`. Any later line starting `Reason:` is the change's reason; no other
-  line is parsed. A comment whose first line starts `release-group` but
-  does not match is malformed (§5.1).
+  `<n>` is a positive integer without leading zeros; members are fully
+  qualified, in build order, each once. Any later line starting `Reason:`
+  is the change's reason; no other line is parsed. A comment whose first
+  line starts `release-group` but does not match is malformed (§5.1).
 - **The latest record wins:** a group's membership is the record with the
-  highest revision. The checks below run over the group's **checked
-  records**: every record of the group when it has no resolving record,
-  and otherwise the latest-posted resolving record and every record posted
-  after it. Records at or below that record's `<m>`, posted before it, are
-  superseded: they stay in the log and are not checked. The log is valid
-  only when the top revision is held by exactly one checked record and that
-  record is also the latest one posted for the group, and when the checked
-  revisions run without a gap, from 1 with no resolving record, or from the
-  resolving record's `<n>`. Anything else (two records at the top revision,
-  a higher revision posted before a lower one, a missing revision, a record
-  posted after a resolving record at or below its `<n>`) is a **conflict**,
-  and every read of that group refuses until a resolving record supersedes
-  it (§5.1).
+  highest revision. The log is valid only when each record of the group
+  has a higher revision than every record posted before it, so the top
+  revision is held by exactly one record and it is the latest one posted.
+  Anything else (two records at one revision, a lower revision posted
+  after a higher one) is a **conflict**, and every read of that group
+  refuses (§5.1). A missing revision is not a conflict: a deleted record
+  leaves the latest remaining one in force.
 - Records are trusted only from the `human` and `agents` roles
   (`trust.read_comment_stream`, `roles=frozenset({Role.HUMAN,
   Role.AGENTS})`). A trusted record that has been edited (`edited=True`)
@@ -102,16 +92,13 @@ are to it.
   failure that names no group (an unreadable epic, a malformed record with
   no readable group ID, a record on an epic that is not a group's epic, a
   comment skipped for an outsider's edit) refuses every read on the epic.
-- **Recovery stays in the group tool.** A conflict and an edited record are
-  each superseded the same way: `vrg-release-group set` or `dissolve` with
-  `--resolve-conflict` posts a resolving record at one past the highest
-  readable revision the group has held, edited records included, with
-  `resolves` naming that revision (Task 12). A comment skipped for an
-  outsider's edit is recovered by the human: they read it in the web UI
-  and delete it, which clears the epic-wide failure; if it was a group's
-  record, that group then reads as a conflict (its revision is missing),
-  and a resolving record with the group's intended membership supersedes
-  it. The bad records stay in the log, except the deleted one.
+- **The human recovers by deleting the bad comment.** With one driver per
+  epic (below), a conflict or an edited record is rare, so the tooling has
+  no recovery command. Every refusal names the comments involved, and the
+  human reads them in the web UI and deletes the bad one (one side of a
+  conflict, the edited record, or a comment skipped for an outsider's
+  edit). The latest remaining record is then in force again, and the
+  driver runs `vrg-release-group set` if the group still needs a change.
 - Nothing about a group is written into a task body, and no code parses a
   task body for group membership (§5.1).
 - `MAX_BATCH = 20` (the hard ceiling of §5.2; the spec leaves the value to
@@ -147,9 +134,9 @@ are to it.
 1. **Two writers change one group at once.** Two agents post `rev 4` of
    `G1` within seconds. Expected: every read of `G1` (the whole-group rule,
    `list`, the audit) refuses as a conflict naming both comments; `set`
-   refuses too and names `--resolve-conflict`, which only the human's ruling
-   uses (Task 2, `test_conflict_at_top_revision_refuses`; Task 12,
-   `test_set_refuses_on_conflict_without_resolve`).
+   refuses too and says the human must delete one of them (Task 2,
+   `test_conflict_at_top_revision_refuses`; Task 12,
+   `test_set_refuses_on_conflict`).
 2. **A PR that closes a member by a keyword other than `Closes`.** A human
    PR body says `Fixes vergil-project/vergil-tooling#900`, and #900 is in
    a group. Expected: refused at arm, since the rule reads GitHub's closing
@@ -297,7 +284,6 @@ Spec §5.1, §5.9.
       broken: Mapping[str, GroupRecordError]   # groups whose reads refuse, by ID
       epic_error: GroupRecordError | None      # a failure that names no group
       ids_used: frozenset[str]                 # broken groups' IDs included
-      top_rev: Mapping[str, int]               # highest readable revision each group has held, edited and superseded records included; skipped comments are not counted
 
   def parse_record(body: str) -> ParsedRecord | None
       # None when the first line does not start RECORD_PREFIX; GroupRecordError when it does but is malformed
@@ -328,30 +314,26 @@ Spec §5.1, §5.9.
 
 - [ ] **Step 1: Write the failing tests** (comment streams stubbed at
   `trust.read_comment_stream`):
-  - `test_parse_record_members_and_dissolved`: every grammar parses, the
-    `resolves <m>` form with members and with `dissolved` included;
+  - `test_parse_record_members_and_dissolved`: both grammars parse;
     `Reason: split 13` is read as the reason.
   - `test_parse_record_malformed_raises`: `release-group G01 rev 1: …`,
-    `rev 0`, a bare `#5` member, a member listed twice, trailing text,
-    `rev 4 resolves 4` and `rev 4 resolves 5` → each `GroupRecordError`.
+    `rev 0`, a bare `#5` member, a member listed twice, trailing text →
+    each `GroupRecordError`.
   - `test_latest_revision_wins`: records rev 1, 2, 3 → rev 3's members.
   - `test_conflict_at_top_revision_refuses`: two rev 4 records → reading
-    the group raises, naming both comment IDs; a plain rev 5 posted after
-    them still raises; `rev 5 resolves 4` posted after them reads cleanly.
+    the group raises, naming both comment IDs; once one is deleted, the
+    other reads cleanly.
   - `test_out_of_order_revision_refuses`: rev 3 posted after rev 4 → raises.
-  - `test_record_below_resolve_refuses`: `rev 5 resolves 4`, then a rev 5
-    or a rev 3 posted after it → raises.
-  - `test_edited_record_refuses`: the top record has `edited=True` → raises.
+  - `test_edited_record_refuses`: the top record has `edited=True` → raises,
+    naming the comment; once it is deleted, the record below it is in force.
   - `test_untrusted_edit_of_trusted_comment_refuses_epic`: a trusted
     comment the stream skipped for an outsider's edit, whether or not it was
     a group record → every read on the epic raises, a standalone task's
     `groups_of` included, naming the comment ID. The stub's skipped entries
     carry no text, and the test fails if any other read of the comment is
     made.
-  - `test_revision_gap_refuses`: records rev 1 and rev 3 → raises; a plain
-    rev 4 after them still raises.
-  - `test_gap_then_resolve_reads`: records rev 1 and rev 3, then
-    `rev 4 resolves 3` → reads cleanly as rev 4's members.
+  - `test_revision_gap_reads`: records rev 1 and rev 3 (rev 2 deleted) →
+    reads cleanly as rev 3's members.
   - `test_broken_group_may_hold_conflict_side`: two rev 4 records, only
     one of which adds T (rev 3 does not hold T) → `groups_of(T)` raises.
   - `test_broken_group_may_hold_edited_text`: rev 3 holds T and the edited
@@ -718,9 +700,12 @@ Spec §5.2 (size).
 `src/vergil_tooling/bin/vrg_pr_workflow.py`), the
 `src/vergil_tooling/bin/vrg_submit_pr.py` module docstring,
 `docs/specs/worktree-convention.md`,
-`docs/site/docs/reference/dev/submit-pr.md` ("2 to 8 issues of one epic")
-and `docs/site/docs/reference/cli-tools-overview.md` ("The batch hard
-rules are: 2 to 8 issues"); Test
+`docs/site/docs/reference/dev/submit-pr.md` ("2 to 8 issues of one epic"),
+`docs/site/docs/reference/cli-tools-overview.md` ("The batch hard
+rules are: 2 to 8 issues"), `docs/site/docs/standards/github-issues.md`
+("A batch PR (2 to 8 small issues of…") and
+`docs/site/docs/guides/git-workflow.md` ("2 to 8 small issues"), the
+last two also dropping "small", since the size guideline is removed; Test
 `tests/vergil_tooling/pr_workflow/test_batch_rules.py`.
 
 - [ ] **Step 1:** `test_twenty_issues_allowed`, `test_twenty_one_refused`
@@ -854,7 +839,10 @@ Spec §5.2.
   - `test_grouped_single_issue_submit_opens_no_pr`: a single-issue submit
     of a grouped task is refused before any push, and no PR exists after
     it;
-  - `test_arm_applies_rule_without_agent_involvement` (a human PR);
+  - `test_arm_applies_rule_without_agent_involvement` and
+    `test_push_applies_rule_without_agent_involvement` (a human PR);
+  - `test_batch_start_partial_group_refused` (a batch holding part of a
+    group);
   - `test_arm_reads_github_closing_refs_not_body_only` (Review Focus 2);
   - `test_uncounted_fixes_reference_counts_for_rule`,
     `test_cross_repo_closing_reference_counts_for_rule` and
@@ -889,14 +877,13 @@ Spec §5.1 (the tool; safe to retry), §5.5.
   `rules.check_group_rules`, `rules.holders` (Task 10).
 - Produces:
   - `vrg-release-group set --epic <ref> --group <id> --member <ref>
-    [--member <ref> …] [--reason <text>] [--at-batch-stop]
-    [--resolve-conflict]`
+    [--member <ref> …] --reason <text> [--at-batch-stop]`
   - `vrg-release-group dissolve --epic <ref> --group <id> --reason <text>
-    [--at-batch-stop] [--resolve-conflict]`
+    [--at-batch-stop]`
   - Exit 0 when the record is posted or already the latest (prints
     `G1 rev 3: already recorded`), 1 on any refusal or failure, 2 on usage.
   - `write.set_group(epic, group, members, *, reason, at_batch_stop,
-    resolve_conflict, main_root) -> WriteResult(posted: bool, rev: int)`.
+    main_root) -> WriteResult(posted: bool, rev: int)`.
 
 Behaviour:
 
@@ -909,10 +896,15 @@ Behaviour:
   does (Task 17); the structural rules (a task, one repo, the same
   development epic, not operational, not a documentation review, the size)
   apply to every member.
-- A **removal** (any member of the latest record not in the new one,
-  `dissolve` included) needs a non-empty `--reason`, written as the
-  record's `Reason:` line.
-- Every **incoming** task (not in the latest record) must have no holder.
+- Every record posted needs a non-empty `--reason`, written as the
+  record's `Reason:` line: a new group, an addition, a merge of two
+  groups, a removal and `dissolve` alike. A retry that posts nothing
+  needs none.
+- A new record is posted at one past the group's latest revision.
+- Every **incoming** task (not in the latest record, by an addition or a
+  merge of two groups) must be open and have no holder, so an addition
+  never itself makes a broken group. The open-only relaxation above covers
+  only members already in the latest record.
 - **Frozen:** while any open member has an `open PR` or `handed-off batch`
   holder, every change is refused, naming the holder and saying the PR must
   be taken back first (`vrg-pr-workflow unfreeze`, or closing the PR).
@@ -922,48 +914,39 @@ Behaviour:
   ruled a group change at a batch stop). The frozen rule still applies.
   The markers read are this clone's: with one driver per epic (Global
   Constraints), that is where the epic's batches run.
-- A **conflict** or an **edited** record in the group (Global Constraints)
-  refuses unless `--resolve-conflict` is given; with it, a resolving record
-  is posted at one past the group's `top_rev`, as `rev <top_rev + 1>
-  resolves <top_rev>`. The flag is refused when the group reads cleanly. A
-  failure that names no group is not resolved this way. For a comment
-  skipped for an outsider's edit, the refusal names the comment and gives
-  the human's recovery (Global Constraints): read it in the web UI and
-  delete it, then, if it was a group's record, resolve that group's
-  conflict with `--resolve-conflict`. Any other such failure names what
-  failed and says the human must look at it.
+- A **conflict**, an **edited** record, or a comment skipped for an
+  outsider's edit (Global Constraints) refuses, naming the comments and
+  the human's recovery: read them in the web UI and delete the bad one.
+  Any other read failure names what failed and says the human must look at
+  it.
 - Run from the main clone of the members' repo (its `origin`), since
   batch markers are local; refuse elsewhere.
-- Changing a group in a closed epic is allowed only as a repair (a removal,
-  or `dissolve`), which is how a broken group is brought in line with what
-  shipped (§5.6). A repair whose remaining members are all closed passes
-  the rules that need an open member, since none is open (above).
+- A group in a closed epic is never changed: `set` and `dissolve` refuse
+  it, since the sweep no longer checks it and there is nothing to repair
+  (spec §5.6).
 
 - [ ] **Step 1: Write the failing tests:** `test_set_new_group_rev_1`;
   `test_set_on_proxy_epic_posts_on_proxy`;
   `test_set_on_ad_hoc_or_management_epic_refused`;
   `test_set_retry_posts_nothing`; `test_set_dissolved_id_refused`;
-  `test_set_rule_break_refused`; `test_removal_without_reason_refused`;
+  `test_set_rule_break_refused`; `test_set_without_reason_refused` (a new
+  group, an addition, a removal and `dissolve`; a retry that posts nothing
+  needs none);
   `test_dissolve_records_no_members`; `test_incoming_task_with_holder_refused`
-  (one per holder kind); `test_change_refused_while_frozen` (open PR, and a
+  (one per holder kind); `test_incoming_closed_task_refused` (an addition,
+  and a merge of two groups); `test_change_refused_while_frozen` (open PR, and a
   handed-off batch); `test_change_after_batch_start_stops_for_human` and
   `test_at_batch_stop_allows_marker_only`;
-  `test_set_refuses_on_conflict_without_resolve` (Review Focus 1) and
-  `test_resolve_conflict_posts_next_rev` (`rev <top_rev + 1> resolves
-  <top_rev>`, after which the group reads cleanly);
-  `test_set_supersedes_edited_record` (posted above the edited record's
-  revision, after which the group reads cleanly);
+  `test_set_refuses_on_conflict` (Review Focus 1: naming both comments and
+  the recovery; once one is deleted, `set` posts the next revision);
+  `test_set_refuses_on_edited_record` (naming the comment; once it is
+  deleted, `set` posts above the latest remaining revision);
   `test_skipped_edit_refuses_with_recovery` (while a comment skipped for
-  an outsider's edit is on the epic, `set` refuses, with or without
-  `--resolve-conflict`, naming the comment and the recovery);
-  `test_resolve_after_skipped_record_deleted` (once that comment, a `G1`
-  record, is gone, `G1` reads as a gap, and `set --resolve-conflict`
-  posts a resolving record above the highest readable revision, after
-  which `G1` reads cleanly);
-  `test_resolve_conflict_refused_on_clean_group`;
+  an outsider's edit is on the epic, `set` refuses, naming the comment and
+  the recovery);
   `test_split_is_one_record` (13 replaced by 13a and 13b, with a reason);
-  `test_repair_in_closed_epic_allowed_only_as_removal` (a removal that
-  keeps closed, shipped members is posted); `test_open_rules_skip_closed_members`;
+  `test_change_in_closed_epic_refused`; `test_open_rules_skip_closed_members`
+  (a repair on an open epic that keeps closed, shipped members is posted);
   `test_run_outside_members_clone_refused`.
 - [ ] **Step 2–4:** fail, implement, pass, validate, commit.
 
@@ -1041,7 +1024,9 @@ Spec §5.5 (the check comes before anything is discarded).
 
 - [ ] **Step 1:** `test_extract_split_refused_before_marker_change`,
   `test_extract_whole_group_allowed`, `test_extract_standalone_allowed`,
-  `test_handoff_set_whole_groups_allowed`, `test_unbatch_all_allowed`,
+  `test_handoff_set_whole_groups_allowed`, `test_unbatch_all_allowed`
+  (a batch holding a one-member group among others: its member leaves
+  with the rest, and a single-issue PR of it then passes the rule),
   `test_check_writes_nothing`, `test_check_read_failure_exits_1`,
   `test_extract_set_one_marker_rewrite`, and
   `test_collapsed_batch_under_group_rules` (an extraction of whole groups
@@ -1096,15 +1081,13 @@ Spec §5.6.
       kind: Literal["split", "closed unmerged", "rule", "edited", "unreadable"]
       detail: str      # names the members and their PRs, or the rule broken
 
-  GROUP_AUDIT_CLOSED_DAYS = 14
   def group_findings(org: str) -> list[GroupFinding]
   ```
 
-  It checks the live groups of every group's epic (Global Constraints:
-  every development epic and every proxy epic) in the org's home that is
-  open, or closed within `GROUP_AUDIT_CLOSED_DAYS` (an epic closes
-  as soon as its last task does, so a split found after the merge is often
-  on a closed epic).
+  It checks the live groups of every open group's epic (Global
+  Constraints: every development epic and every proxy epic) in the org's
+  home. A closed epic is never checked (spec §5.6): every member is closed
+  there, so nothing of the group can still be missing from `develop`.
 - `split`: members closed by different merged PRs (each member's merged
   `closedByPullRequestsReferences`). `closed unmerged`: a closed member
   that no merged PR closes. `rule`: a group with an open member that
@@ -1128,7 +1111,8 @@ Spec §5.6.
   `test_conflict_flagged_unreadable`;
   `test_audit_flags_member_moved_out_of_epic` (Review Focus 4);
   `test_dissolved_group_not_checked`; `test_proxy_epic_groups_checked`;
-  `test_closed_epic_within_window_checked`.
+  `test_closed_epic_not_checked` (a split group on a closed epic leaves
+  `--close` at exit 0).
 - [ ] **Step 2–4:** fail, implement, pass, validate, commit.
 
 ### Task 18: Release phase 3's tooling (deployment)

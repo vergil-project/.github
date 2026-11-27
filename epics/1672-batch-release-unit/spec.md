@@ -174,12 +174,17 @@ The "small" guideline and the guideline caps go (§5.2).
     revision number and its full membership, in build order, as fully
     qualified issue refs. It is a snapshot, never a delta, so no history is
     replayed to read it. The lines after it carry the change's reason, a
-    `Reason:` line that a record removing a member must have (§5.5), and
+    `Reason:` line that every record must have (§5.5), and
     the parser reads none of them for membership.
   - **The latest record wins.** A group's membership is its latest trusted
     record, the highest revision. A record comment that has been edited
     since it was posted is refused, so a record can only be superseded by
-    a new one, never rewritten.
+    a new one, never rewritten. Two records at one revision, or a lower
+    revision posted after a higher one, are a conflict, refused the same
+    way. The tooling has no recovery command for either: the refusal names
+    the comments, and the human deletes the bad one in the web UI, which
+    leaves the latest remaining record in force. With one driver per epic
+    (§7), neither is expected in practice.
   - **Safe to retry.** A change is one comment, so there is no partial
     write. The group tool re-reads the log before it posts, so a retry
     after a failure posts nothing twice.
@@ -327,9 +332,8 @@ in the release notes as needing a fresh merge review.
 - **No change needs an approval.** Adding a task, merging two groups,
   taking a task out, splitting a group, dissolving it, or removing a
   member closed without a merge is the agent's call while membership is
-  open (below), and the group tool records each one. A record that removes
-  a member must carry a `Reason:` line, and the group tool refuses one
-  without it. A removal can let a release carry partial work; that risk is
+  open (below), and the group tool records each one. Every record must
+  carry a `Reason:` line, and the group tool refuses one without it. A removal can let a release carry partial work; that risk is
   accepted, and a wrong removal is found by what it breaks and fixed
   forward with the human.
 - **The reasons are the data.** The `Reason:` lines in an epic's group
@@ -390,15 +394,24 @@ breaking a group rule, not reported as blocked. The audit repairs none of
 these.
 
 The flag is a failure, not a report line. `vrg-epic-audit --close`, the
-mode the daily `ops-epic-sweep` runs, checks every group in the org and
-exits non-zero while any group is broken or breaks a group rule; a group
-it cannot read fails it the same way. The sweep's `report` job already posts each run's result to
+mode the daily `ops-epic-sweep` runs, checks every group on an open epic
+in the org and exits non-zero while any such group is broken or breaks a
+group rule; a group it cannot read fails it the same way. Only open epics
+are checked because a break matters only while part of a group can sit in
+`develop` without the rest. Once the epic closes, every member is closed:
+a split then means every member merged, only not in one PR, so `develop`
+holds the whole group, and a member closed without a merge was dropped by
+a deliberate act. The sweep's `report` job already posts each run's result to
 the org's operations queue, which hoshin's daily review reads, so a broken
-group reaches the human within a day. The sweep stays failed until the
-group is repaired: merged work cannot be unmerged, so the repair is a
-recorded group change (§5.5), made with the human, that brings the group's
-record in line with what shipped, or a change to the `Blocked-by` lines
-that removes the path. A test proves that a broken group fails
+group reaches the human within a day. The sweep stays failed while the
+epic is open, until the group is repaired: merged work cannot be unmerged,
+so the repair is a recorded group change (§5.5), made with the human, that
+brings the group's record in line with what shipped, or a change to the
+`Blocked-by` lines that removes the path. Finishing the epic's work also
+ends it, since a closed epic is not checked. A group on a closed epic is
+never changed, so no repair is ever made there. The repair fixes the
+record only; work that broke because it shipped out of order is fixed as
+any other defect. A test proves that a broken group fails
 the sweep.
 
 The sweep is detection, not a release gate: `vrg-release` runs no group
@@ -424,7 +437,7 @@ exposes is fixed:
 - a single-issue PR of a grouped task, refused on every path of §5.2;
 - a group change refused while a handed-off batch or an open PR holds a
   member (§5.5);
-- a removal refused without a `Reason:` line (§5.5);
+- a record refused without a `Reason:` line (§5.5);
 - a one-member group sent to the single-issue PR path on dispatch and on
   unbatch (§5.3, §5.5);
 - a dependency path through a non-member made by a `Blocked-by` edit,
@@ -442,6 +455,11 @@ exposes is fixed:
 - a `vrg-gh pr edit` that changes a closing line refused, and the
   whole-group rule run by `pr_path.arm` and `push_to_open_pr` on a PR no
   agent was involved in (§5.2).
+
+One edge case the research lists needs no test here: a security batch that
+had no PR after its handoff, which the research traces to
+vergil-tooling#5199 (submit's trust read rejected a human scope-change
+comment). That issue is closed as fixed, so the case is not repeated here.
 
 Then **one live run**: a validation task drives a deliberately awkward
 batch through a fixture repo with the real skills: a dependency chain of
