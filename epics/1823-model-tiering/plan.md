@@ -105,7 +105,7 @@ writes.
 | Task | Repo | Kind | What | Blocked by |
 |---|---|---|---|---|
 | 1 | `.github` | task | Spec and plan (vergil-project/.github#1824) | — |
-| 2 | `vergil-claude-plugin` | task | The two new agents, the merge reviewer on Sonnet, the agent model guard and the model map | — |
+| 2 | `vergil-claude-plugin` | task | The two new agents, the merge reviewer on Sonnet, the agent model guard, the writer's command gate and the model map | — |
 | 3 | `vergil-claude-plugin` | task | The task-dispatch hook; `epic-implement` dispatches every task run as `vergil:task-runner` | 2 |
 | 4a | `vergil-claude-plugin` | task | `issue-implement` hands every tracked-file change to the writer | 2 |
 | 4b | `vergil-claude-plugin` | task | `merge-review`'s fix step takes the writer from its caller; `pr-watch` uses it under an `issue-implement` driver | 4a |
@@ -121,8 +121,9 @@ images.
 
 ### Notes for `file-tasks`
 
-- **Advisories.** Two advisories track the planning issue
-  (`vrg-security-record list` names them). Before `Tasks filed: yes`,
+- **Advisories.** Several advisories track the planning issue
+  (`vrg-security-record list` names them; take the set from there, never
+  from a count). Before `Tasks filed: yes`,
   retarget each from vergil-project/.github#1822 to the task or tasks that
   fix it, chosen from the advisory's own notes, one retarget after another.
   Every candidate fix task is in `vergil-project`, so no advisory moves.
@@ -144,7 +145,12 @@ Spec §4, §5.2, §5.4, §5.5 (the CI guard), §6.
 - Modify: `agents/merge-reviewer.md` (`model: opus` → `model: sonnet`),
   `scripts/bin/validate-custom`, `docs/site/docs/agents/index.md`,
   `docs/site/mkdocs.yml` (nav)
-- Test: `hooks/tests/agent-models.test.sh` (new; `validate-custom` runs
+- Create: `hooks/scripts/guard-writer-commands.sh` (mode 100755)
+- Modify: `hooks/hooks.json` (a PreToolUse entry, `"matcher": "Bash"`),
+  `hooks/tests/hook-input.test.sh` (the new gate in its fail-closed suite),
+  `docs/site/docs/hooks/index.md` (a section for the new hook)
+- Test: `hooks/tests/agent-models.test.sh` and
+  `hooks/tests/guard-writer-commands.test.sh` (new; `validate-custom` runs
   every `hooks/tests/*.test.sh`)
 
 **Interfaces:**
@@ -198,6 +204,18 @@ every `agents/*.md`:
 Also add `check_agent_tools implementer "Read, Edit, Write, Glob, Grep,
 Bash"`, so the writer can never gain Agent.
 
+**The writer's command gate.** The writer's limits on GitHub and handoff
+commands are enforced by a hook, not by its prose alone.
+`guard-writer-commands.sh` is a PreToolUse hook on Bash, built like the
+other gates (`hook_input_read gated`, the managed-repo check). When the
+hook input's top-level `agent_type` is exactly `vergil:implementer`, it
+exits 2 with a one-line stderr reason (`vergil:implementer may not run
+<command>`) for a command that runs, as a command word anywhere in the
+line (at its start or after `;`, `&&`, `||`, `|`, `(` or `$(`), any of:
+`vrg-gh`, `vrg-issue-create`, `vrg-pr-workflow`, `vrg-submit-pr`,
+`vrg-finalize-pr`, `vrg-ruling`, `vrg-security-record`, or `vrg-git
+push`. Any other `agent_type`, or none (the main session), exits 0.
+
 **The model map** (`docs/site/docs/agents/models.md`), from §3, §4, §6, §7:
 
 - the pinning facts of §3, with the two doc links and their check date;
@@ -228,14 +246,25 @@ entries for the two new agents, and links to the model map.
   `test_inherit_with_map_row_and_reason_passes`,
   `test_inherit_with_empty_reason_fails`, `test_map_model_mismatch_fails`,
   `test_agent_missing_from_map_fails`, `test_map_row_without_agent_fails`,
-  `test_pinned_agents_pass`.
+  `test_pinned_agents_pass`; and in `guard-writer-commands.test.sh`, with
+  a realistic PreToolUse payload in a scratch managed repo:
+  `test_each_command_refused_for_implementer`,
+  `test_chained_command_refused_for_implementer` (`vrg-git status &&
+  vrg-gh issue comment …`, `x=$(vrg-pr-workflow status)`),
+  `test_git_push_refused_for_implementer`,
+  `test_ordinary_commands_allowed_for_implementer` (`vrg-commit`,
+  `vrg-container-run -- vrg-validate`, `vrg-git log`),
+  `test_other_agent_type_allowed`, `test_no_agent_type_allowed`,
+  `test_unmanaged_repo_noop`. Add the gate to `hook-input.test.sh`'s
+  malformed-input suite.
 - [ ] **Step 2:** run `vrg-container-run -- bash
-  hooks/tests/agent-models.test.sh`; expected: FAIL (no
-  `check_agent_models`).
+  hooks/tests/agent-models.test.sh` and the gate's test file; expected:
+  FAIL (no `check_agent_models`, no script).
 - [ ] **Step 3:** implement `check_agent_models`, wire it and the
-  implementer tools check into the main block; add the two agents, the
-  reviewer pin, the model map, the nav entry and the agents-page change.
-- [ ] **Step 4:** the test file passes; `vrg-container-run --
+  implementer tools check into the main block; implement and register the
+  writer's command gate; add the two agents, the reviewer pin, the model
+  map, the nav entry, the agents-page change and the hooks-page section.
+- [ ] **Step 4:** both test files pass; `vrg-container-run --
   vrg-validate` is green; commit.
 
 ## Task 3: The task-dispatch hook and `epic-implement`'s dispatch (vergil-claude-plugin)
@@ -250,8 +279,10 @@ dispatch `epic-implement` makes today.
   `hooks/tests/guard-task-dispatch.test.sh`
 - Modify: `hooks/hooks.json` (a PreToolUse entry, `"matcher": "Agent"`),
   `hooks/tests/hook-input.test.sh` (the new gate in its fail-closed suite),
-  `skills/epic-implement/SKILL.md` (§3 "Work the runnable frontier" and
-  the adhoc path's Step 5), `hooks/register.tsx` (header comment only),
+  `skills/epic-implement/SKILL.md` (the frontmatter `description`, §3
+  "Work the runnable frontier", §4 "Batch at the gate, then stop" (its
+  gate paragraph and its frozen-branch re-entry paragraph), and the adhoc
+  path's Steps 5 and 6), `hooks/register.tsx` (header comment only),
   `docs/site/docs/hooks/index.md` ("Agent row labels", and a section for
   the new hook)
 
@@ -292,7 +323,11 @@ human reports that a task's PR did not merge or asks for it to be fixed,
 and when a reported-ready task with an open PR has no run watching it, it
 dispatches a task run (in a task-run form, as `vergil:task-runner`) whose
 prompt routes it to `pr-watch` on that PR under an `issue-implement`
-driver, so the writer and the Sonnet pin apply. The sentence that says the mod labels the row "instead of
+driver, so the writer and the Sonnet pin apply. Nor does it submit a task
+itself: a reported-ready task whose session was lost before submit (no PR
+yet) is re-dispatched the same way, as a task run of `issue-implement`,
+which its Preflight resumes at "Submit and watch to the merge". Both
+re-entries take this one path. The sentence that says the mod labels the row "instead of
 `general-purpose`" says `vergil:task-runner`, and the table's intro says
 the forms are matched exactly, since the dispatch hook keys on them.
 
@@ -312,12 +347,16 @@ the forms are matched exactly, since the dispatch hook keys on them.
   `test_task_runner_with_model_refused`,
   `test_task_runner_with_empty_model_allowed`,
   `test_unmanaged_repo_noop`, `test_pr_watch_reentry_form_allowed_as_task_runner`
-  (a re-entry's task-run description as `vergil:task-runner`). Add the gate to `hook-input.test.sh`'s
+  (a re-entry's task-run description as `vergil:task-runner`, for both the
+  open-PR and the no-PR re-entry). Add the gate to `hook-input.test.sh`'s
   malformed-input suite.
 - [ ] **Step 2:** run both test files; expected: FAIL (no script).
 - [ ] **Step 3:** implement the script, register it, change the skill, the
   `register.tsx` header comment and the hooks page.
-- [ ] **Step 4:** both test files pass; `vrg-container-run -- vrg-validate`
+- [ ] **Step 4:** check: `grep -n 'pr-watch' skills/epic-implement/SKILL.md`,
+  and settle every hit: none tells the main session to run `pr-watch` on a
+  task's PR itself, and each that names a re-entry names the task run.
+- [ ] **Step 5:** both test files pass; `vrg-container-run -- vrg-validate`
   green (its hook-mode check covers the new script); commit.
 
 ## Task 4a: `issue-implement` hands every change to the writer (vergil-claude-plugin)
@@ -329,7 +368,11 @@ The human-run path).
 
 - Modify: `skills/issue-implement/SKILL.md`: "Execute efficiently — trust
   and escalate" (the sub-agents paragraph), the implementation step, Batch
-  mode, and a new section `## The writer`
+  mode, and a new section `## The writer`;
+  `docs/paad-review-doctrine.md` (§1.5: the `issue-implement` row of the
+  state-directory table and the `issue-implement` directory bullet name
+  the `driver-work` marker as one of its entries, written and removed only
+  by the driver, so it is not an "other entry")
 
 **Interfaces:**
 
@@ -370,10 +413,13 @@ The human-run path).
   is dispatched. A `vrg-git rebase` in progress (a conflict resolution or a
   batch fold) stays with the driver, which finishes or aborts it as its
   rebase rules say. Uncommitted work from the driver's own exceptions, a
-  security item's fix included, stays with the driver, which finishes it;
-  the driver identifies that work from its run state under
-  `build/.vergil-state/` (such as a pending security details file) before
-  any writer dispatch. Only the rest is the writer's
+  security item's fix included, stays with the driver, which finishes it.
+  Before it starts such work, the driver writes a marker file,
+  `build/.vergil-state/issue-implement/<N>/driver-work`, naming the
+  exception (a security fix or a rebase), and removes it once that work is
+  committed; on resume the marker alone decides that a dirty tree is the
+  driver's, never a pending security details file or any other inference.
+  Only the rest is the writer's
   interrupted work: dispatch the writer to finish it, naming the dirty
   state.
 - **Notes.** The writer's `Notes:` are screened and handled as follow-ups,
@@ -410,14 +456,20 @@ conflicts).
 
 **merge-review.** "Fix and check" gains an input from the caller: whether
 it has a writer. Only an `issue-implement` driver has one (itself, and
-`pr-watch` when that driver runs it). With a writer: step 1's file edits
+`pr-watch` when that driver runs it). With a writer, in this order: the
+driver first makes every security-item fix itself and commits it (in a
+batch, as a fixup of the issue's first commit); then step 1's file edits
 for every non-security defect and every ruling that calls for a code
-change, and step 2's validation, go to the writer as
+change, and step 2's validation over the whole tree, go to the writer as
 `issue-implement#the-writer` says, with the reviewer's findings (by ID and
 text, security items left out) and the rulings in its prompt; the driver
-checks the result there as well, then does every filing step 1 calls for
-and every security-item fix, then builds the check (step 3). Without a
-writer, the caller's session does steps 1 and 2, as today.
+checks the result there as well, its green `vrg-validate` at `HEAD`
+covering the security fixes too, then does every filing step 1 calls for,
+then builds the check (step 3). A validate failure that the driver's
+security fix causes is the driver's to fix, inside that security change,
+never the writer's. With no non-security edit to make, the driver runs
+step 2's validation itself after its security fixes. Without a writer,
+the caller's session does steps 1 and 2, as today.
 
 **pr-watch.** Under an `issue-implement` driver, the code of a fix for
 failing CI or a review comment goes to the writer; the driver still
@@ -457,9 +509,12 @@ Spec §5.3 (Helpers), §5.4 (the design-review pin).
 - [ ] **Step 1:** in `epic-implement`, `issue-deploy` and
   `issue-validate`, apply the helper model rule. In `issue-validate`, the
   subagent that loads a skill to check it is dispatched with `model` set
-  to that skill's validation alias from
-  `docs/site/docs/agents/models.md`, read per run; a skill with no row
-  there stops the validation for the human.
+  to that skill's validation alias from the model map, read per run from
+  the installed plugin's own copy, the same tree as the loaded skill,
+  through the skill's relative link
+  (`../../docs/site/docs/agents/models.md`), never from the cwd or a
+  plugin clone, so the alias and the skill come from one release; a skill
+  with no row there stops the validation for the human.
 - [ ] **Step 2:** in `epic-create`'s round step 1 and in the doctrine's
   §1.9 and §2.2, the `paad:paad-delegate` dispatch carries `model:
   "opus"`. The paad fork is not changed.
@@ -506,13 +561,20 @@ Spec §8.
      "sonnet"`), the merge reviewer's all Sonnet.
   3. In the design-review session's transcript, the Agent `tool_use`
      dispatching `paad:paad-delegate` has `input.model == "opus"`.
-  4. If the attested task's PR needed a fix after submit, the
-     `epic-implement` session's transcript shows it dispatched as a task
-     run (`input.subagent_type == "vergil:task-runner"`), not run in the
-     main session; otherwise record that no re-entry occurred.
-  5. In a scratch managed repo session, an Agent call with description
-     `Task vergil-project/vergil-tooling#1` as `general-purpose` is refused
-     with Task 3's message (dispatch nothing else).
+  4. If the attested task's PR needed a fix after submit, or its submit
+     was resumed after a lost session, the `epic-implement` session's
+     transcript shows that re-entry dispatched as a task run
+     (`input.subagent_type == "vergil:task-runner"`), not run in the main
+     session; otherwise record that no re-entry occurred.
+  5. In the validation run's own session (a managed repo), an Agent call
+     with description `Task vergil-project/vergil-tooling#1` as
+     `general-purpose` is refused with Task 3's message; cite the refusal
+     (dispatch nothing else).
+  6. In the validation run's own session, dispatch `vergil:implementer`
+     with the single instruction to run `vrg-pr-workflow status` in this
+     repo and report the output; its transcript shows the call refused
+     with Task 2's writer-gate message. A call that runs is FAILURE: the
+     hook input carries no `agent_type` for the writer's calls.
   If the transcript layout differs from the paths above, find the same
   fields where it keeps them and record where; if a model cannot be read
   at all, the outcome is FAILURE, never a guess.
