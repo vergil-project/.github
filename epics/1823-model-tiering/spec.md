@@ -109,17 +109,25 @@ part. These assignments are judgment, not measurement.
 | `vergil:merge-reviewer` | subagent, pinned `opus` | is this good enough to merge | **Sonnet** |
 | `pr-watch` | inside the driver | diagnosing CI failures | Sonnet (driver) |
 | `issue-deploy`, `issue-validate` | subagent, no pin today | preconditions, judging an outcome | **Sonnet** (`vergil:task-runner`) |
-| `epic-retrospective`, `hoshin`, `epic-review`, `summarize`, `fixture-run`, `deprecation-triage`, `intake-capture` | human session | various | session model |
+| `fixture-run` | agent-invoked, in its caller's session | rule-following task filing | caller's model |
+| `epic-retrospective`, `hoshin`, `epic-review`, `summarize`, `deprecation-triage`, `intake-capture` | human session | various | session model |
 | `vergil:bootstrap` | subagent, pinned `haiku` | checks | Haiku (unchanged) |
 
 Notes:
 
 - **Skills the human runs stay on the session's model**, and the model map
   says so explicitly. The analysis judged several of them (`epic-review`,
-  `hoshin`, `summarize`, `epic-retrospective`, `fixture-run`) to need no more
-  than Sonnet, and `intake-capture` no more than Haiku. Moving them needs a
-  fork or a split, so they go to the wave-2 roadmap (§7), not to frontmatter
-  `model:`, which lasts one turn (§3).
+  `hoshin`, `summarize`, `epic-retrospective`) to need no more than Sonnet,
+  and `intake-capture` no more than Haiku. Moving them needs a fork or a
+  split, so they go to the wave-2 roadmap (§7), not to frontmatter `model:`,
+  which lasts one turn (§3).
+- **`fixture-run` is not a human-run skill.** The agent runs it, not the
+  human: it files the fixture trios that put a change through the whole
+  cycle on the fixture repos, the fleet's end-to-end quality check, and
+  `epic-implement` then drives each trio. It runs on the model of the
+  session that invokes it, and needs no more than Sonnet. With no
+  conversation with the human to keep, it is a direct candidate for a
+  pinned agent or a forked skill (§7).
 - **The merge reviewer moves from Opus to Sonnet.** That is the one change
   in this pass that lowers a model on purpose. It stays a tier above the
   Haiku writer whose work it reviews. It runs on Sonnet for every PR, the
@@ -308,8 +316,9 @@ planning item when this epic closes:
   itself.
 - **`issue-deploy` and `issue-validate`**: split mechanical steps onto Haiku.
 - **`pr-watch`**: separate the wait-and-report loop from diagnosis.
-- **`fixture-run`**: move its rule-following filing to Haiku, perhaps as a
-  forked skill.
+- **`fixture-run`**: move its rule-following filing to a pinned agent or a
+  forked skill, on Haiku or Sonnet. No conversation with the human holds it
+  in the session.
 - **Human-run skills judged below Opus** (`epic-review`, `hoshin`,
   `summarize`, `epic-retrospective`, `intake-capture`): which parts can run
   as forked or agent pieces without losing the conversation with the human.
