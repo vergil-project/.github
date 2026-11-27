@@ -200,8 +200,15 @@ Notes:
 - **Who has a writer.** A caller has a writer only under an
   `issue-implement` driver: `issue-implement` itself, and `pr-watch` when
   that driver runs it. `pr-watch` run by the docs-PR skills (`epic-create`,
-  `epic-retrospective`, `hoshin`), or started by the human, has none and
-  makes its fixes in the session, as today.
+  `epic-retrospective`, `hoshin`), or started by the human outside an
+  epic run, has none and makes its fixes in the session, as today.
+- **`epic-implement`'s re-entries.** `epic-implement`'s main session never
+  runs `pr-watch` on a task's PR, and never submits a task, itself. When
+  the human reports that a task's PR did not merge or asks for it to be
+  fixed, when a reported-ready task with an open PR has no run watching it,
+  and when a reported-ready task's session was lost before submit, it
+  dispatches a task run of `issue-implement`, whose Preflight resumes at
+  submit and watch. So every fix to a task's PR has the writer.
 - **merge-review's fix step.** `merge-review`'s "Fix and check" steps 1 and
   2 (fix every defect and carry out every ruling, then validate to green)
   take the writer as an input from the caller. When the caller has a
@@ -218,12 +225,20 @@ Notes:
   continues the rebase. This is an exception to the writer rule, since a
   conflict can only be resolved inside the stopped rebase. Merge review
   gates the resolved conflict as it gates any fix.
-- **Escalation.** If the writer returns `stuck`, the driver dispatches it
+- **Escalation.** A writer failure is a `stuck` result, or a `green` that
+  fails the driver's check. On the first, the driver dispatches the writer
   once more with a per-invocation `model: sonnet`, passing on what the
-  first attempt found. The retry is per writer dispatch: each of a run's
-  dispatches (the implementation, a merge-review fix, a CI fix) gets one.
-  A second `stuck` on the same dispatch stops the run for the human, as a
-  problem the run cannot resolve does today.
+  first attempt found or what the check found. The retry is per writer
+  dispatch, shared by both kinds of failure: each of a run's dispatches
+  (the implementation, a merge-review fix, a CI fix) gets one. A second
+  failure of either kind on the same dispatch stops the run for the human,
+  as a problem the run cannot resolve does today.
+- **Resume.** A dirty task worktree on a re-dispatch is sorted by owner
+  before anything is dispatched. A rebase in progress, and uncommitted
+  work from the driver's own exceptions (below), stay with the driver,
+  which finishes them; the driver marks such work before it starts it, so
+  the marker alone decides ownership. Everything else is the writer's
+  interrupted work, and the writer is dispatched to finish it.
 - **The writer rule.** `issue-implement` alone is changed to say that
   changes to the task's tracked files in its worktree (code, docs and
   config) go only to `vergil:implementer`, never to an ad-hoc helper and
@@ -235,7 +250,10 @@ Notes:
   that feed a tool's input. `issue-deploy` and `issue-validate` have no
   worktree and edit no tracked files, so they do not carry the rule.
 - **Helpers.** Every helper any skill dispatches carries an explicit
-  per-invocation `model`, named in the skill text. `issue-implement`,
+  per-invocation `model`, named in the skill text: `haiku` for a
+  read-only search or exploration helper, `sonnet` for any other helper,
+  and `opus` for a design-review delegate. The model map records this
+  rule (§6). `issue-implement`,
   `issue-deploy` and `issue-validate` invite ad-hoc subagents today
   (research fan-out, parallel sub-tasks, isolated exploration, a fresh
   subagent per acceptance check), as do `epic-implement` ("use sub-agents
@@ -331,10 +349,14 @@ planning item when this epic closes:
 
 ## 8. Proof
 
-After the plugin release, a validation task runs one real implementation
-task through `epic-implement` and reads the session transcripts to confirm
+After the plugin release, once the human attests that one real
+implementation task has run through `epic-implement` and one design-review
+round has run, a validation task reads those runs' session transcripts to
+confirm
 that the driver ran on Sonnet, the writer on Haiku and the merge reviewer on
-Sonnet. It also reads the transcript of one `epic-create` design-review
+Sonnet. It confirms that a re-entry on a task's PR (§5.3) was dispatched as
+a task run of `issue-implement`, not run in the main session. It also
+reads the transcript of one `epic-create` design-review
 round and confirms that its Agent call dispatching `paad:paad-delegate`
 carried `model: "opus"`, since an unpinned delegate would also run on the
 session's Opus. The escalation's

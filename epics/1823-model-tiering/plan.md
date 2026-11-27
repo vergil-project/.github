@@ -106,7 +106,7 @@ writes.
 | Task | Repo | Kind | What | Blocked by |
 |---|---|---|---|---|
 | 1 | `.github` | task | Spec and plan (vergil-project/.github#1824) | — |
-| 2 | `vergil-claude-plugin` | task | The two new agents, the merge reviewer on Sonnet, the agent model guard, the writer's command gate and the model map | — |
+| 2 | `vergil-claude-plugin` | task | The two new agents, the merge reviewer on Sonnet, the agent model guard and the model map | — |
 | 3 | `vergil-claude-plugin` | task | The task-dispatch hook; `epic-implement` dispatches every task run as `vergil:task-runner` | 2 |
 | 4a | `vergil-claude-plugin` | task | `issue-implement` hands every tracked-file change to the writer | 2 |
 | 4b | `vergil-claude-plugin` | task | `merge-review`'s fix step takes the writer from its caller; `pr-watch` uses it under an `issue-implement` driver | 4a |
@@ -146,12 +146,7 @@ Spec §4, §5.2, §5.4, §5.5 (the CI guard), §6.
 - Modify: `agents/merge-reviewer.md` (`model: opus` → `model: sonnet`),
   `scripts/bin/validate-custom`, `docs/site/docs/agents/index.md`,
   `docs/site/mkdocs.yml` (nav)
-- Create: `hooks/scripts/guard-writer-commands.sh` (mode 100755)
-- Modify: `hooks/hooks.json` (a PreToolUse entry, `"matcher": "Bash"`),
-  `hooks/tests/hook-input.test.sh` (the new gate in its fail-closed suite),
-  `docs/site/docs/hooks/index.md` (a section for the new hook)
-- Test: `hooks/tests/agent-models.test.sh` and
-  `hooks/tests/guard-writer-commands.test.sh` (new; `validate-custom` runs
+- Test: `hooks/tests/agent-models.test.sh` (new; `validate-custom` runs
   every `hooks/tests/*.test.sh`)
 
 **Interfaces:**
@@ -205,48 +200,15 @@ every `agents/*.md`:
 Also add `check_agent_tools implementer "Read, Edit, Write, Glob, Grep,
 Bash"`, so the writer can never gain Agent.
 
-**The writer's command gate.** The writer's limits on GitHub and handoff
-commands are enforced by a hook, not by its prose alone.
-`guard-writer-commands.sh` is a PreToolUse hook on Bash, built like the
-other gates (`hook_input_read gated`, the managed-repo check). When the
-hook input's top-level `agent_type` is exactly `vergil:implementer`, it
-allows only a known set of `vrg-` tools and refuses every other, so a
-`vrg-` tool added later is refused until it is listed. It finds each
-command word anywhere in the line (at its start or after `;`, `&&`, `||`,
-`|`, `(` or `$(`). Quoted text is not a command: single-quoted spans and
-the literal text of double-quoted spans are skipped, as
-`strip_quoted_segments` in `hooks/scripts/lib/command-match.sh` skips
-them, except that a `$(…)` or backtick substitution inside a
-double-quoted span is read as a command, since the shell runs it. The
-gate exits 2 with a one-line stderr reason (`vergil:implementer may not run
-<command>`) for any of:
-
-- a `vrg-` command word other than `vrg-commit`, `vrg-container-run`,
-  `vrg-issue-read` and `vrg-git`;
-- `vrg-git` whose subcommand, found past its global options (`-C <dir>`,
-  `-c <name>=<value>`), is not one of `status`, `diff`, `log`, `show`,
-  `add`, `rm`, `mv`, `restore`, `rev-parse`, `ls-files`, `grep`, `blame`
-  and `merge-base`;
-- a `bash -c`, `sh -c` or `env` command word, which would run a command
-  the gate cannot read.
-
-Any other `agent_type`, or none (the main session), exits 0. The gate
-cannot read a script the writer writes and then runs; that gap is known
-and stated on the hooks page, and the writer's prose rules cover it.
-
 **The model map** (`docs/site/docs/agents/models.md`), from §3, §4, §6, §7:
 
 - the pinning facts of §3, with the two doc links and their check date;
-- the fact the writer's command gate rests on, with its link and check
-  date (2026-11-27): a subagent's tool calls fire PreToolUse with the
-  `agent_id` and `agent_type` common input fields, `agent_type` being the
-  subagent's type (<https://code.claude.com/docs/en/hooks>, "Hook
-  locations" and "Common input fields"). The value the gate matches is
-  the one a plugin subagent reports, as the same page's SubagentStart
-  section gives it, and as `capture-merge-review-result.sh` already
-  matches for `vergil:merge-reviewer`;
 - an **agents table**: Agent | Model | Reason, one row per file in
-  `agents/` plus `paad:paad-delegate` (`opus`, by the dispatch);
+  `agents/` plus `paad:paad-delegate` (`opus`, by the dispatch) and
+  `paad:paad-analyst` (`inherit`: Opus from the delegate that dispatches
+  it, with that reason);
+- the **helper model rule** of the Global Constraints, with its one
+  exception;
 - a **skills table**: Skill | Where it runs | Model there | Validation
   alias. A skill that runs in more than one place has one row per place,
   its alias on each (§6): `issue-implement`, `merge-review` and `pr-watch`
@@ -272,35 +234,14 @@ entries for the two new agents, and links to the model map.
   `test_inherit_with_map_row_and_reason_passes`,
   `test_inherit_with_empty_reason_fails`, `test_map_model_mismatch_fails`,
   `test_agent_missing_from_map_fails`, `test_map_row_without_agent_fails`,
-  `test_pinned_agents_pass`; and in `guard-writer-commands.test.sh`, with
-  a realistic PreToolUse payload in a scratch managed repo:
-  `test_unlisted_vrg_tool_refused_for_implementer` (`vrg-gh`,
-  `vrg-merge-review-close`, `vrg-intake-create`, `vrg-epic-move`,
-  `vrg-pr-workflow`),
-  `test_chained_command_refused_for_implementer` (`vrg-git status &&
-  vrg-gh issue comment …`, `x=$(vrg-pr-workflow status)`),
-  `test_quoted_command_substitution_refused_for_implementer`
-  (`echo "$(vrg-gh issue list)"`),
-  `test_commit_message_naming_a_tool_allowed` (`vrg-commit --message
-  "do not run vrg-gh; …"`),
-  `test_git_push_refused_for_implementer` (`vrg-git push`,
-  `vrg-git -C <dir> push`, `vrg-git -c x=y push`),
-  `test_wrappers_refused_for_implementer` (`bash -c '…'`, `sh -c '…'`,
-  `env vrg-gh …`),
-  `test_ordinary_commands_allowed_for_implementer` (`vrg-commit`,
-  `vrg-container-run -- vrg-validate`, `vrg-git log`,
-  `vrg-git -C <dir> status`, `vrg-issue-read <ref>`, `ls`),
-  `test_other_agent_type_allowed`, `test_no_agent_type_allowed`,
-  `test_unmanaged_repo_noop`. Add the gate to `hook-input.test.sh`'s
-  malformed-input suite.
+  `test_pinned_agents_pass`.
 - [ ] **Step 2:** run `vrg-container-run -- bash
-  hooks/tests/agent-models.test.sh` and the gate's test file; expected:
-  FAIL (no `check_agent_models`, no script).
+  hooks/tests/agent-models.test.sh`; expected: FAIL (no
+  `check_agent_models`).
 - [ ] **Step 3:** implement `check_agent_models`, wire it and the
-  implementer tools check into the main block; implement and register the
-  writer's command gate; add the two agents, the reviewer pin, the model
-  map, the nav entry, the agents-page change and the hooks-page section.
-- [ ] **Step 4:** both test files pass; `vrg-container-run --
+  implementer tools check into the main block; add the two agents, the
+  reviewer pin, the model map, the nav entry and the agents-page change.
+- [ ] **Step 4:** the test file passes; `vrg-container-run --
   vrg-validate` is green; commit.
 
 ## Task 3: The task-dispatch hook and `epic-implement`'s dispatch (vergil-claude-plugin)
@@ -341,7 +282,10 @@ matches, whole, one of these (POSIX ERE):
 ^Batch( #[0-9]+)+$
 ```
 
-Then exit 2 with a one-line stderr reason when:
+Then deny the call, as `block-agent-merge.sh` does (a
+`permissionDecision: "deny"` JSON response on stdout, exit 0, its
+`permissionDecisionReason` the one-line reason below; exit 2 stays for
+input that cannot be parsed), when:
 
 - it is a task run and `subagent_type` is not exactly
   `vergil:task-runner` (absent counts as not): `task run '<description>'
@@ -356,16 +300,17 @@ Then exit 2 with a one-line stderr reason when:
   forms; use one of: Task <id> <owner>/<repo>#<N>, Task
   <owner>/<repo>#<N>, Batch <ids> #<N>…, Batch #<N>…`.
 
-Everything else exits 0.
+Everything else exits 0 with no output.
 
 **The skill.** In `epic-implement`, every task-run dispatch (a re-dispatch
 included) passes `subagent_type: "vergil:task-runner"` and never `model`.
 The main session no longer runs `pr-watch` on a task's PR itself: when the
 human reports that a task's PR did not merge or asks for it to be fixed,
 and when a reported-ready task with an open PR has no run watching it, it
-dispatches a task run (in a task-run form, as `vergil:task-runner`) whose
-prompt routes it to `pr-watch` on that PR under an `issue-implement`
-driver, so the writer and the Sonnet pin apply. Nor does it submit a task
+dispatches a task run of `issue-implement` (in a task-run form, as
+`vergil:task-runner`), whose Preflight resumes at "Submit and watch to the
+merge" and runs `pr-watch` on that PR under its driver, so the writer and
+the Sonnet pin apply (spec §5.3, "`epic-implement`'s re-entries"). Nor does it submit a task
 itself: a reported-ready task whose session was lost before submit (no PR
 yet) is re-dispatched the same way, as a task run of `issue-implement`,
 which its Preflight resumes at "Submit and watch to the merge". Both
@@ -622,14 +567,6 @@ Spec §8.
      with description `Task vergil-project/vergil-tooling#1` as
      `general-purpose` is refused with Task 3's message; cite the refusal
      (dispatch nothing else).
-  6. In the validation run's own session, dispatch `vergil:implementer`
-     with the single instruction to run `vrg-pr-workflow status` in this
-     repo and report the output; its transcript shows the call refused
-     with Task 2's writer-gate message. A call that runs is FAILURE: the
-     hook input carries no `agent_type` for the writer's calls, or not the
-     value the gate matches. The FAILURE result names a follow-up issue
-     that changes how the gate identifies the writer, and until it lands
-     the model map records the gate's enforcement as not met.
   If the transcript layout differs from the paths above, find the same
   fields where it keeps them and record where; if a model cannot be read
   at all, the outcome is FAILURE, never a guess.
