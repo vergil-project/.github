@@ -146,7 +146,10 @@ The "small" guideline and the guideline caps go (§5.2).
     task, no documentation review, no task in another repo or org);
   - a group sits wholly between deployments: no member is blocked by a
     deployment task that another member blocks;
-  - a group has at least 2 members and at most the hard ceiling (§5.2);
+  - a group has at least 1 member and at most the hard ceiling (§5.2);
+    a one-member group ships as one PR like a standalone task, and exists
+    so that the task can be named as a group, as a coordinated release
+    names each repo's share (§5.9);
   - no member's plan entry leaves a design question open;
   - each group exists only in a development epic.
 - **On each task.** `file-tasks` writes, through the group tool, a
@@ -162,7 +165,9 @@ The "small" guideline and the guideline caps go (§5.2).
   lines giving the group's ID and its full membership in build order. The
   tool posts one when the group is filed and a new one at every change
   (§5.5); the latest trusted record of a group is its membership. The
-  lines on the tasks and the record must agree (§5.6).
+  lines on the tasks and the record must agree (§5.6). A group is
+  referenced as its epic and its group ID; an ID is never reused within an
+  epic, a dissolved group's included.
 - **Only the group tool writes the lines.** The tooling enforces it:
   `vrg-gh issue edit` and `vrg-issue-create` refuse every body that adds,
   changes or removes a `Release group:` line, with no exception. An edit that rewrites a whole body (to add a `Blocked-by:`
@@ -304,10 +309,12 @@ rebase changes no commit's own diff, so it voids nothing, as today.
   So the whole-group check at handoff and submit (§5.2) holds for the life
   of the PR: a re-arm or a pushed fix cannot change the membership it
   checked.
-- **A group below two members dissolves.** A change that leaves a group
-  with one member removes that member's `Release group:` line in the same
-  recorded change, and the record says the group is dissolved. The task is
-  then standalone.
+- **A group ends only by a recorded change.** A group that shrinks to one
+  member stays a group: nothing dissolves it by itself, so a group named
+  outside its epic (§5.9) never drops out of view. Dissolving a group is a
+  removal, made with the human's verified approval (below): the change
+  removes every remaining member's `Release group:` line, and the record
+  says the group is dissolved. Its tasks are then standalone.
 - **Closing a member never changes the group.** Membership is the latest
   group record (§5.1), so a member closed without a merge (as not planned,
   say) is still a member, and the group is broken (§5.6). The repair is a
@@ -394,6 +401,29 @@ batching section, `epic-create`'s plan and `file-tasks` steps (release
 groups), the plugin's site docs, and the tooling's `git-workflow.md` and
 `standards/github-issues.md`.
 
+### 5.9 Interface for epic ownership (#1678)
+
+The epic ownership follow-on (planning issue vergil-project/.github#1678)
+coordinates releases across repos, and builds on release groups for each
+repo's share. What it may rely on:
+
+- **A repo's share is its release group.** Where that follow-on speaks of
+  a repo's planned batch, it means a release group of this design: planned
+  in `epic-create`'s plan, changed only as §5.5 says. A share of one task is
+  a one-member group (§5.1).
+- **A group is referenced as its epic and its group ID** (§5.1), never by
+  its members.
+- **The group tool's list command is the supported read path.** It reads
+  through the trust layer and fails closed, and returns the group's latest
+  record. No other tool parses the `Release group:` lines or the records.
+- **A handed-off batch may wait for another task to submit it.** Between
+  the batch's `report-ready` and its submit, however long, membership stays
+  frozen (§5.5), and the whole-group rule runs at that submit (§5.2), as it
+  does at every submit.
+
+What that follow-on adds (its own lines on the tasks, its submit guard, its
+coordinated release task) is its design, not this one's.
+
 ## 6. Approaches
 
 **For the coordination problem** (decided before this design, recorded in
@@ -453,4 +483,6 @@ the direction notes):
   batch, within §5.7.
 - How the tasks split between `vergil-tooling` and `vergil-claude-plugin`,
   and their order, provided the `epic-create` change that first writes
-  groups is blocked by the live run (§5.7).
+  groups is blocked by the live run (§5.7), and the group tool and the
+  group record (§5.1, §5.9) come ahead of the hardening work (§5.7), so
+  the epic ownership follow-on is not blocked on the rest.
