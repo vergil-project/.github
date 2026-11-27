@@ -38,8 +38,8 @@ weekly usage, and then decides whether to iterate.
    code. A Sonnet-pinned driver runs the rest of the procedure (§5).
 3. **A written model map** in the plugin's site docs: which model each skill
    and agent runs on, why, and how to change it (§6).
-4. **A wave-2 roadmap**: the skills worth splitting next, each recorded as a
-   follow-on planning item (§7).
+4. **A wave-2 roadmap**: the skills worth splitting next, each proposed as
+   a follow-on planning item and filed as the human approves (§7).
 5. **Guards** that keep the pins from drifting: plugin CI fails on an
    agent definition with no `model:`, and a hook refuses a task run
    dispatched as any agent type but `vergil:task-runner` (§5.5).
@@ -330,8 +330,9 @@ the header comment of `hooks/register.tsx`, and
 
 ## 7. Wave 2: the roadmap
 
-The model map ends with the follow-on candidates. Each becomes a follow-on
-planning item when this epic closes:
+The model map ends with the follow-on candidates. When this epic closes,
+each is proposed as a follow-on planning item and filed as the human
+approves (the review doctrine's §1.7 approval for creating an issue):
 
 - **Approach B** (§5.1): the pipeline of pinned phases for
   `issue-implement`, the optimization the human prefers once A has proved
@@ -354,8 +355,10 @@ implementation task has run through `epic-implement` and one design-review
 round has run, a validation task reads those runs' session transcripts to
 confirm
 that the driver ran on Sonnet, the writer on Haiku and the merge reviewer on
-Sonnet. It confirms that a re-entry on a task's PR (§5.3) was dispatched as
-a task run of `issue-implement`, not run in the main session. It also
+Sonnet. If the attested task's PR had a re-entry (§5.3), it confirms that
+the re-entry was dispatched as a task run of `issue-implement`, not run in
+the main session. A re-entry is hard to arrange on demand, so when none
+occurred the model map records the re-entry path as not verified. It also
 reads the transcript of one `epic-create` design-review
 round and confirms that its Agent call dispatching `paad:paad-delegate`
 carried `model: "opus"`, since an unpinned delegate would also run on the

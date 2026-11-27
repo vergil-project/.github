@@ -219,7 +219,8 @@ Bash"`, so the writer can never gain Agent.
   dispatch's `model`, and this page in the same PR), and that the human
   may run `epic-implement` on Sonnet with `/model`;
 - the escalation's per-invocation `model: sonnet` recorded as **not
-  verified** (§8);
+  verified** (§8), and the re-entry path (`epic-implement`'s re-entries as
+  task runs) recorded as **not verified** until Task 7 observes one (§8);
 - the wave-2 roadmap of §7, one bullet per candidate.
 
 `docs/site/docs/agents/index.md` drops its two `**Model**:` lines, gains
@@ -360,7 +361,9 @@ The human-run path).
 
 - Modify: `skills/issue-implement/SKILL.md`: "Execute efficiently — trust
   and escalate" (the sub-agents paragraph), the implementation step, Batch
-  mode, and a new section `## The writer`
+  mode, Preflight step 6 and "Resuming a batch" (each resume branch runs
+  the writer section's Resume sort before it routes on), and a new section
+  `## The writer`
 
 **Interfaces:**
 
@@ -398,7 +401,9 @@ The human-run path).
   fix), shared by both kinds. A second failure of either kind stops the run
   for the human as an unresolvable problem does today.
 - **Resume.** A dirty worktree on a re-dispatch is sorted before anything
-  is dispatched. A `vrg-git rebase` in progress (a conflict resolution or a
+  is dispatched, and before Preflight step 6 or "Resuming a batch" routes
+  the run to Merge review, Implement or Submit and watch: every one of
+  those resume branches runs this sort first. A `vrg-git rebase` in progress (a conflict resolution or a
   batch fold) stays with the driver, which finishes or aborts it as its
   rebase rules say. Uncommitted work from the driver's own exceptions, a
   security item's fix included, stays with the driver, which finishes it.
@@ -468,7 +473,12 @@ green run is step 2's validation, and the writer is not dispatched.
 Without a writer,
 the caller's session does steps 1 and 2, as today.
 
-**pr-watch.** Under an `issue-implement` driver, the code of a fix for
+**pr-watch.** `pr-watch` takes the same explicit input from its caller as
+merge-review's "Fix and check": whether it has a writer. `issue-implement`'s
+"Submit and watch to the merge" passes "writer"; every other caller passes
+nothing, which means no writer. `pr-watch` forwards the input to the
+merge-review run it starts for a fix to an open PR. With a writer, the
+code of a fix for
 failing CI or a review comment goes to the writer; the driver still
 diagnoses, checks and pushes. A stopped rebase's conflicts are resolved by
 the driver itself, logic included, and merge review gates the result.
@@ -562,7 +572,8 @@ Spec §8.
      was resumed after a lost session, the `epic-implement` session's
      transcript shows that re-entry dispatched as a task run
      (`input.subagent_type == "vergil:task-runner"`), not run in the main
-     session; otherwise record that no re-entry occurred.
+     session; otherwise record that no re-entry occurred, and the re-entry
+     path stays **not verified** in the model map.
   5. In the validation run's own session (a managed repo), an Agent call
      with description `Task vergil-project/vergil-tooling#1` as
      `general-purpose` is refused with Task 3's message; cite the refusal
@@ -571,7 +582,8 @@ Spec §8.
   fields where it keeps them and record where; if a model cannot be read
   at all, the outcome is FAILURE, never a guess.
 - Acceptance: each step's evidence cited (file and the `jq` output);
-  `Outcome: SUCCESS`. The escalation pin stays recorded as not verified.
+  `Outcome: SUCCESS`. The escalation pin stays recorded as not verified;
+  the result says whether step 4 observed a re-entry.
 
 ## Documentation review and retrospective
 
@@ -580,7 +592,9 @@ Spec §8.
   page sections of `issue-implement`, `merge-review`, `pr-watch`,
   `epic-implement`, `issue-validate`, `issue-deploy` and the execution
   doctrine for the writer and helper rules; the agents page and the model
-  map against the agents as shipped; the hooks page for the dispatch hook.
+  map against the agents as shipped, marking the re-entry path verified if
+  Task 7's result says step 4 observed a re-entry; the hooks page for the
+  dispatch hook.
   Spawn a per-repo doc task in the `docs` repo if its fleet overview names
   the models agents run on, under the epic.
 - **Retrospective** (`.github`, `--kind retrospective`, `Plan task:
