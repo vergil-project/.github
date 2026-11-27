@@ -1,0 +1,323 @@
+# batch-release-unit: batches as the unit of release — design
+
+- **Epic:** vergil-project/.github#1672
+- **Planning issue:** vergil-project/.github#1663 (review history is in its
+  comments)
+- **Status:** draft
+
+## 1. Intent
+
+An ad-hoc task stands alone: its PR can merge and be released by itself.
+An epic's tasks often cannot. When an epic has four PRs coming and the
+first is in `develop`, `develop` must not be released until the other
+three land. Agents now submit and merge their own PRs, and several epics
+run at once, so one epic's partial work can be swept into another epic's
+release and break it. Until now the human prevented this by sequencing the
+work by hand.
+
+This epic removes the need for that sequencing with one invariant:
+
+> **A submitted PR that goes green merges into `develop`, and from that
+> point it is releasable.**
+
+There are no release blocks and no PR sets. The gate moves before
+submission: work that cannot be released by itself is not submitted until
+it can be released at once. Tasks that must ship together are built as
+**one batch PR**, one commit per task, using the batch mechanism of epic
+vergil-project/.github#1019. Batching becomes an essential building block
+of the fleet instead of the low-risk optimization it was introduced as.
+
+The three layers this belongs to:
+
+1. **The release lock** (epic vergil-project/.github#1664, approved): a
+   running release holds back merges into `develop`.
+2. **Batches as the unit of release** (this epic).
+3. **Epic ownership of repos** (follow-on, planning issue
+   vergil-project/.github#1678): work that must ship together across repos.
+
+The supporting documents are in [research/](research/): the batch PR
+research of 2026-11-25 and the direction notes recorded before this design.
+
+## 2. Goals, non-goals and anti-goals
+
+### 2.1 Goals
+
+- The plan of an epic declares which of its tasks must ship together, as
+  **release groups**, and the tooling enforces it: no PR holds part of a
+  group.
+- A dependency chain inside a group is built on one branch in dependency
+  order and merges as one PR, instead of one merge-and-wait round trip per
+  task.
+- A group changes only by an explicit edit the human approves, recorded on
+  the epic with its reason.
+- The batch mechanism is hardened before it carries releases: every edge
+  case the research lists has an automated test, the gaps those tests
+  expose are fixed, and one live run of a deliberately awkward batch
+  proves the skill-driven paths end to end.
+- A broken invariant (a group whose members merged through different PRs)
+  is detected and reported, never silent.
+
+### 2.2 Non-goals
+
+- **Release blocks and PR sets.** Replaced by this design; the planning
+  issue's original question is answered by batching.
+- **Groups across repos.** A PR closes only issues in its own repo, and a
+  batch is one PR. Work that must ship together across repos is the
+  ownership follow-on, vergil-project/.github#1678.
+- **Parallel batch builds** (building a batch's tasks in parallel on local
+  branches, then combining them into one branch). A throughput
+  optimization, captured as planning issue vergil-project/.github#1825.
+- **Agents deciding by themselves to take a task out of a group.** For now
+  every such case stops for the human, so its reasons can be studied and
+  turned into criteria later (§5.5).
+- **Changes to the release lock.** A batch is one PR on the lock's one PR
+  path; nothing in #1664 changes.
+- **Groups in ad-hoc epics.** An ad-hoc epic holds standalone work by
+  definition.
+
+### 2.3 Anti-goals
+
+- A group that can be broken without anyone noticing: a task of a group
+  shipped alone, by an extraction, an unbatch or a separate PR.
+- A rule that lives only in skill prose where the tooling could check it.
+- Size limits justified by human review. Vergil takes humans out of code
+  review, so a PR's size is not a correctness concern (§4).
+
+## 3. Current state
+
+Data, from the research (§2–§7 of
+[research/2026-11-25-batch-prs-in-practice.md](research/2026-11-25-batch-prs-in-practice.md))
+and the code:
+
+- **Hard rules** (`vergil-tooling`, `lib/pr_workflow/batch_rules.py`,
+  `check_hard_rules`), enforced at `batch-start`, `report-ready`,
+  `batch-check` and `vrg-submit-pr`: 2 to 8 issues (`MAX_BATCH = 8`), no
+  duplicates, all in the PR's repo, tasks only, a buildable parent, trusted
+  authors, not operational, not blocked by an open deployment task, one
+  shared parent epic. `check_commit_per_issue` enforces one commit per
+  issue in the listed order, each subject ending in its issue's ref.
+- **Guidelines** (`vergil-claude-plugin`, `skills/issue-implement/SKILL.md`,
+  "What to batch"): batch only small issues (about 150 lines and 6 files);
+  never batch a security-labelled issue, design work, a cross-repo contract
+  or a documentation review; a cap of 4 (8 when every item is tiny).
+- **`epic-implement`** batches only tasks on the runnable frontier, which
+  are independent of each other by construction. Nothing records that
+  tasks must ship together, and nothing stops one of them being submitted
+  alone.
+- **Batch stops** let the human extract an issue from a batch
+  (`vrg-pr-workflow batch-extract`) or unbatch it.
+- **In practice:** 44 real batches merged or open, at most 4 issues, none
+  merged wrongly; four fixes to a non-last commit after the PR opened, each
+  correct. The hard paths rest on that small sample (research §5, §6).
+
+## 4. The principle behind it
+
+The two ways of getting batching wrong are not symmetric:
+
+- **Under-batching is a correctness failure.** Tasks that must ship
+  together, submitted apart, let a release carry partial work.
+- **Over-batching is only a throughput cost.** A batch is built serially
+  on one branch, so parallel development becomes serial, and it gets one
+  CI run instead of several. Nothing breaks.
+
+So a release group is the **minimum** that must ship together, and the
+tooling enforces only that minimum. Anything above it is a throughput
+judgment, left to `epic-implement` as batching is today.
+
+PR size used to be limited because a human had to read the change. Vergil's
+founding question is whether humans can be taken out of code development
+and review entirely; under it, size limits no longer guard correctness.
+The "small" guideline and the guideline caps go (§5.2).
+
+## 5. Design
+
+### 5.1 Release groups in the plan and on the tasks
+
+- **In the plan.** The delivery table gives each task that must ship with
+  others a **release group ID** (for example `G1`), and the plan lists each
+  group's members in build order: a dependency chain is listed from the
+  bottom up, so where A builds on B and B on C, the order is C, B, A. A task
+  with no group is **standalone** and ships alone, as every task does today.
+  Planning marks only the exceptions.
+- **The plan's group rules**, which `epic-create`'s plan stage and its
+  pushback rounds hold the plan to:
+  - every member is a code task in one repo (no deployment or validation
+    task, no documentation review, no task in another repo or org);
+  - a group sits wholly between deployments: no member is blocked by a
+    deployment task that another member blocks;
+  - a group has at least 2 members and at most the hard ceiling (§5.2);
+  - each group exists only in a development epic.
+- **On each task.** `file-tasks` writes a `Release group: <id>` line into
+  each member's body, alone on its line, next to its `Plan task:` key. A
+  split task (13 into 13a and 13b) carries its group onto every sub-task.
+- **The group tool.** A new tool (name left to the builder; §7) owns the
+  `Release group:` lines: it lists an epic's groups and members (read
+  through the trust layer), and is the only writer of the lines after
+  filing (§5.5). Filing writes them through it, or through
+  `vrg-issue-create`, which the builder chooses.
+
+### 5.2 The hard rules, updated
+
+The batch hard rules gain the group rules, enforced at every stage that
+checks a batch (`batch-start`, `report-ready`, `batch-check`,
+`vrg-submit-pr`):
+
+- **Whole groups only.** A PR that holds any member of a group holds every
+  member of it. A single-issue PR of a grouped task is refused, naming the
+  group and its missing members.
+- **Other tasks may come along.** A batch may hold several whole groups and
+  standalone tasks: over-batching is allowed (§4).
+- **Order.** Members of a group appear in the batch in the group's build
+  order. A `Blocked-by` between two members is satisfied by commit order
+  within the batch.
+- **Same epic, same repo** as today. A group line on a task whose parent is
+  not a development epic is refused.
+- **Reads fail closed,** like every batch rule today: a group line that
+  cannot be read, or one read from an untrusted body, refuses.
+- **Size.** `MAX_BATCH = 8` becomes a high safety ceiling (about 20; the
+  value is the builder's), kept only to refuse a runaway list. The skill
+  guidelines on size ("small", about 150 lines and 6 files, the caps of 4
+  and 8) are removed.
+
+### 5.3 Building a group
+
+- **When a group is runnable.** A group can be built once every blocker
+  *outside* the group is closed (a deployment task among them). Blockers
+  between members do not count. `vrg-epic-audit` reports each group as
+  runnable or blocked, with what blocks it, as it reports tasks.
+- **`epic-implement`** dispatches a runnable group as one batch, its
+  members in build order, and may add other runnable tasks or groups to the
+  batch on its own throughput judgment. The rule that a batch takes only
+  tasks on the runnable frontier gives way, for group members, to the
+  group's own runnability.
+- **`issue-implement`** builds each member on top of the ones before it, as
+  batch mode does today, with one commit per member and its merge review.
+- **Security issues may be batched.** The existing safeguards stay: a
+  security finding is a batch stop, `batch-extract` refuses while a
+  security details file exists, and public text names security items only
+  as counts.
+
+### 5.4 Review after a rewrite
+
+Any change to a commit of a batch (a fold into it, a rebase that changes
+its patch) makes that commit **and every later commit** due for a fresh
+merge review before handoff, or before pr-watch pushes the fix after
+submit. Today only the changed commit's issue is reviewed again
+(research §6). The merge-review records name the commits as they are after
+autosquash, not the fixup commits folded away.
+
+### 5.5 Changing a group
+
+- A task cannot leave a group without the human's approval. A batch stop
+  that would take a grouped task out of its batch (extraction, unbatching)
+  is refused by the tooling while the task's `Release group:` line names
+  the batch's group.
+- The agent stops for the human with the reason it found (for example: the
+  fourth member turns out to depend on a feature planned later in the
+  epic). The human decides.
+- On approval, the group tool rewrites the affected `Release group:` lines
+  and posts a comment on the epic recording the change and its reason.
+  Then the extraction or unbatch the human ruled proceeds.
+- The comments are the record from which criteria for these decisions are
+  later derived, so that agents can eventually make them alone. That later
+  step is not part of this epic.
+- Adding a task to a group, or merging two groups, goes through the same
+  approval and record.
+
+### 5.6 Detecting a broken invariant
+
+`vrg-epic-audit` flags a group whose closed members were closed by
+different PRs, or a member closed while another is still open, naming the
+group, its members and their PRs. Hoshin's daily review reads the audit,
+so a broken group reaches the human within a day. The audit never repairs
+it.
+
+### 5.7 Hardening the batch mechanism
+
+Before groups are enforced, every edge case below gets an automated test
+in `vergil-tooling` against real git repositories, and each gap a test
+exposes is fixed:
+
+- a fix folded into a middle commit of a chain of three or more;
+- a fold that conflicts with a later commit;
+- a long-lived batch rebased onto a `develop` that has moved;
+- the fresh review of every later commit after a rewrite (§5.4);
+- a rebase after merge review (vergil-claude-plugin#1140);
+- a fix pushed after submit through pr-watch, with `batch-check`;
+- merge-review records after autosquash and after a later clean rebase;
+- a collapsed batch and an extracted member under the group rules;
+- the group rules themselves (§5.2), each refusal and each read failure.
+
+Then **one live run**: a validation task drives a deliberately awkward
+batch through a fixture repo with the real skills: a chain of about six
+tasks in one group, a forced fix to the second commit, a rebase onto a
+`develop` that moved, and a fix after submit, ending merged as one PR with
+one commit per task. It runs against released Vergil, so it is blocked by
+the release that ships the hardened mechanism.
+
+### 5.8 Documentation
+
+The batching guidelines are rewritten around the principle of §4, as the
+way work that must ship together is released, not an optional saving:
+`issue-implement`'s "What to batch" and batch stops, `epic-implement`'s
+batching section, `epic-create`'s plan and `file-tasks` steps (release
+groups), the plugin's site docs, and the tooling's `git-workflow.md` and
+`standards/github-issues.md`.
+
+## 6. Approaches
+
+**For the coordination problem** (decided before this design, recorded in
+the direction notes):
+
+- **Release blocks and PR sets.** A merged PR places a block on the
+  release until other work lands. A new coordination protocol, with races
+  between epics to surface and resolve. Rejected: it lets unreleasable work
+  into `develop` and coordinates around it.
+- **Batching as the unit of release.** Chosen: it keeps `develop`
+  releasable at every merge and reuses a mechanism that works, at the cost
+  of bigger PRs, which no longer matter (§4).
+
+**For where "ship together" is decided:**
+
+- **A. The plan declares groups, and the tooling enforces them.** Chosen:
+  the invariant becomes a hard rule.
+- **B. The plan declares groups, and only the skills follow them.**
+  Rejected: one slip breaks the invariant silently.
+- **C. `epic-implement` decides at run time.** Rejected: groups would be
+  decided after their tasks are filed and partly built.
+
+**For changing a group:**
+
+- **An explicit, human-approved, recorded edit.** Chosen (§5.5).
+- **Extraction removes the task from its group automatically.** Rejected:
+  a quick unbatch could ship partial work, with the ruling its only record.
+
+**For the hardening bar:**
+
+- **Automated tests only.** Rejected: the riskiest paths are skill-driven.
+- **Automated tests plus one live run.** Chosen (§5.7).
+
+## 7. Constraints
+
+- A PR closes only issues in its own repo (the placement law), so a group
+  is one repo's.
+- Every read of a task body goes through the trust layer and fails closed.
+- Every rule the tooling can check is checked in the tooling, not in skill
+  prose.
+- A deployment needs a merge and a release, so it can never sit inside a
+  group.
+- The fixture run's live check runs against released Vergil.
+
+## 8. Left to the builder
+
+- The group tool's name and command shape, and whether filing writes the
+  lines through it or through `vrg-issue-create`.
+- The exact hard ceiling (about 20).
+- The group ID format (`G1`, or another short form) and how the plan's
+  delivery table shows it.
+- How `vrg-epic-audit` presents groups in its JSON and text output.
+- Which fixture repo hosts the live run, and the exact shape of the awkward
+  batch, within §5.7.
+- How the tasks split between `vergil-tooling` and `vergil-claude-plugin`,
+  and their order, provided the hardening (§5.7) lands before the group
+  rules are enforced.
