@@ -237,7 +237,7 @@ a task of epic vergil-project/.github#1672 that does not yet exist (see
 - **Task 2's `vergil-project/vergil-tooling#5275` blocker** is the release
   lock's phase 2 release gate: refactoring `lib/release_lock/` while #1664
   still changes it would collide, and the three epics are built in series.
-- **Advisories.** Two advisories track the planning issue
+- **Advisories.** Four advisories track the planning issue
   (`vrg-security-record list` names them). Before `Tasks filed: yes`,
   retarget each from vergil-project/.github#1678 to the task or tasks that
   fix it, chosen from each advisory's own notes, one after another. All the
