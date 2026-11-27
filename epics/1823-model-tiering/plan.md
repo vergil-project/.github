@@ -67,10 +67,11 @@ are to it.
 
 1. **A near-miss task description.** `epic-implement` writes `Task 6b
    #4931` (a short ref) or adds a trailing word. Expected: the hook's
-   anchored forms do not match it, so it is not a task run and passes; the
-   epic-implement text says to use the table forms exactly (Task 3,
-   `test_short_ref_is_not_a_task_run`,
-   `test_trailing_word_is_not_a_task_run`).
+   anchored forms do not match it, but its first word is `Task` or
+   `Batch`, followed by a space, so the hook refuses it whatever its `subagent_type`, naming the forms;
+   the dispatch never runs on an inheriting agent type (Task 3,
+   `test_short_ref_refused_as_malformed`,
+   `test_trailing_word_refused_as_malformed`).
 2. **A writer that claims `green` falsely.** The writer returns `green`
    with an uncommitted edit, or with `vrg-validate` red at `HEAD`.
    Expected: the driver's own check (clean tree, the commits on the branch,
@@ -209,16 +210,41 @@ commands are enforced by a hook, not by its prose alone.
 `guard-writer-commands.sh` is a PreToolUse hook on Bash, built like the
 other gates (`hook_input_read gated`, the managed-repo check). When the
 hook input's top-level `agent_type` is exactly `vergil:implementer`, it
-exits 2 with a one-line stderr reason (`vergil:implementer may not run
-<command>`) for a command that runs, as a command word anywhere in the
-line (at its start or after `;`, `&&`, `||`, `|`, `(` or `$(`), any of:
-`vrg-gh`, `vrg-issue-create`, `vrg-pr-workflow`, `vrg-submit-pr`,
-`vrg-finalize-pr`, `vrg-ruling`, `vrg-security-record`, or `vrg-git
-push`. Any other `agent_type`, or none (the main session), exits 0.
+allows only a known set of `vrg-` tools and refuses every other, so a
+`vrg-` tool added later is refused until it is listed. It finds each
+command word anywhere in the line (at its start or after `;`, `&&`, `||`,
+`|`, `(` or `$(`). Quoted text is not a command: single-quoted spans and
+the literal text of double-quoted spans are skipped, as
+`strip_quoted_segments` in `hooks/scripts/lib/command-match.sh` skips
+them, except that a `$(…)` or backtick substitution inside a
+double-quoted span is read as a command, since the shell runs it. The
+gate exits 2 with a one-line stderr reason (`vergil:implementer may not run
+<command>`) for any of:
+
+- a `vrg-` command word other than `vrg-commit`, `vrg-container-run`,
+  `vrg-issue-read` and `vrg-git`;
+- `vrg-git` whose subcommand, found past its global options (`-C <dir>`,
+  `-c <name>=<value>`), is not one of `status`, `diff`, `log`, `show`,
+  `add`, `rm`, `mv`, `restore`, `rev-parse`, `ls-files`, `grep`, `blame`
+  and `merge-base`;
+- a `bash -c`, `sh -c` or `env` command word, which would run a command
+  the gate cannot read.
+
+Any other `agent_type`, or none (the main session), exits 0. The gate
+cannot read a script the writer writes and then runs; that gap is known
+and stated on the hooks page, and the writer's prose rules cover it.
 
 **The model map** (`docs/site/docs/agents/models.md`), from §3, §4, §6, §7:
 
 - the pinning facts of §3, with the two doc links and their check date;
+- the fact the writer's command gate rests on, with its link and check
+  date (2026-11-27): a subagent's tool calls fire PreToolUse with the
+  `agent_id` and `agent_type` common input fields, `agent_type` being the
+  subagent's type (<https://code.claude.com/docs/en/hooks>, "Hook
+  locations" and "Common input fields"). The value the gate matches is
+  the one a plugin subagent reports, as the same page's SubagentStart
+  section gives it, and as `capture-merge-review-result.sh` already
+  matches for `vergil:merge-reviewer`;
 - an **agents table**: Agent | Model | Reason, one row per file in
   `agents/` plus `paad:paad-delegate` (`opus`, by the dispatch);
 - a **skills table**: Skill | Where it runs | Model there | Validation
@@ -248,12 +274,22 @@ entries for the two new agents, and links to the model map.
   `test_agent_missing_from_map_fails`, `test_map_row_without_agent_fails`,
   `test_pinned_agents_pass`; and in `guard-writer-commands.test.sh`, with
   a realistic PreToolUse payload in a scratch managed repo:
-  `test_each_command_refused_for_implementer`,
+  `test_unlisted_vrg_tool_refused_for_implementer` (`vrg-gh`,
+  `vrg-merge-review-close`, `vrg-intake-create`, `vrg-epic-move`,
+  `vrg-pr-workflow`),
   `test_chained_command_refused_for_implementer` (`vrg-git status &&
   vrg-gh issue comment …`, `x=$(vrg-pr-workflow status)`),
-  `test_git_push_refused_for_implementer`,
+  `test_quoted_command_substitution_refused_for_implementer`
+  (`echo "$(vrg-gh issue list)"`),
+  `test_commit_message_naming_a_tool_allowed` (`vrg-commit --message
+  "do not run vrg-gh; …"`),
+  `test_git_push_refused_for_implementer` (`vrg-git push`,
+  `vrg-git -C <dir> push`, `vrg-git -c x=y push`),
+  `test_wrappers_refused_for_implementer` (`bash -c '…'`, `sh -c '…'`,
+  `env vrg-gh …`),
   `test_ordinary_commands_allowed_for_implementer` (`vrg-commit`,
-  `vrg-container-run -- vrg-validate`, `vrg-git log`),
+  `vrg-container-run -- vrg-validate`, `vrg-git log`,
+  `vrg-git -C <dir> status`, `vrg-issue-read <ref>`, `ls`),
   `test_other_agent_type_allowed`, `test_no_agent_type_allowed`,
   `test_unmanaged_repo_noop`. Add the gate to `hook-input.test.sh`'s
   malformed-input suite.
@@ -312,7 +348,13 @@ Then exit 2 with a one-line stderr reason when:
   must be dispatched as vergil:task-runner, not <type>`;
 - `subagent_type` is `vergil:task-runner` and `model` is present and
   non-empty: `vergil:task-runner must not be dispatched with a model; its
-  pin is in the agent definition`.
+  pin is in the agent definition`;
+- it is not a task run but the description matches `^(Task|Batch)[ ]`
+  (its first word is `Task` or `Batch`, followed by a space), whatever its
+  `subagent_type` (absent included): `description
+  '<description>' starts like a task run but matches none of the task-run
+  forms; use one of: Task <id> <owner>/<repo>#<N>, Task
+  <owner>/<repo>#<N>, Batch <ids> #<N>…, Batch #<N>…`.
 
 Everything else exits 0.
 
@@ -342,8 +384,13 @@ the forms are matched exactly, since the dispatch hook keys on them.
   `test_missing_subagent_type_refused_for_task_run`,
   `test_writer_dispatch_naming_task_allowed` (`Write
   vergil-project/vergil-tooling#4931 (Task 6b)` as `vergil:implementer`),
-  `test_short_ref_is_not_a_task_run` (`Task 6b #4931`, as
-  `general-purpose`, allowed), `test_trailing_word_is_not_a_task_run`,
+  `test_short_ref_refused_as_malformed` (`Task 6b #4931`, refused both as
+  `general-purpose` and as `vergil:task-runner`),
+  `test_trailing_word_refused_as_malformed`,
+  `test_task_word_mid_description_allowed` (`Run Task 6b checks` as
+  `general-purpose`, allowed: only a first word `Task` or `Batch`
+  counts), `test_tasks_word_allowed` (`Tasks overview` as
+  `general-purpose`, allowed),
   `test_task_runner_with_model_refused`,
   `test_task_runner_with_empty_model_allowed`,
   `test_unmanaged_repo_noop`, `test_pr_watch_reentry_form_allowed_as_task_runner`
@@ -368,11 +415,7 @@ The human-run path).
 
 - Modify: `skills/issue-implement/SKILL.md`: "Execute efficiently — trust
   and escalate" (the sub-agents paragraph), the implementation step, Batch
-  mode, and a new section `## The writer`;
-  `docs/paad-review-doctrine.md` (§1.5: the `issue-implement` row of the
-  state-directory table and the `issue-implement` directory bullet name
-  the `driver-work` marker as one of its entries, written and removed only
-  by the driver, so it is not an "other entry")
+  mode, and a new section `## The writer`
 
 **Interfaces:**
 
@@ -414,11 +457,15 @@ The human-run path).
   batch fold) stays with the driver, which finishes or aborts it as its
   rebase rules say. Uncommitted work from the driver's own exceptions, a
   security item's fix included, stays with the driver, which finishes it.
-  Before it starts such work, the driver writes a marker file,
-  `build/.vergil-state/issue-implement/<N>/driver-work`, naming the
-  exception (a security fix or a rebase), and removes it once that work is
-  committed; on resume the marker alone decides that a dirty tree is the
-  driver's, never a pending security details file or any other inference.
+  Before it starts such work, the driver writes a marker file in the task
+  worktree's own git directory, at the path `vrg-git -C <worktree>
+  rev-parse --git-path vergil-driver-work` prints, naming the exception (a
+  security fix or a rebase), and removes it once that work is committed.
+  The marker is never tracked, sits outside every state directory (so
+  doctrine §1.5's rules never see it), and goes with the worktree; the
+  writer never touches it. On resume the marker alone decides that a dirty
+  tree is the driver's, never a pending security details file or any
+  other inference.
   Only the rest is the writer's
   interrupted work: dispatch the writer to finish it, naming the dirty
   state.
@@ -458,7 +505,10 @@ conflicts).
 it has a writer. Only an `issue-implement` driver has one (itself, and
 `pr-watch` when that driver runs it). With a writer, in this order: the
 driver first makes every security-item fix itself and commits it (in a
-batch, as a fixup of the issue's first commit); then step 1's file edits
+batch, as a fixup of the issue's first commit), then runs
+`vrg-container-run -- vrg-validate` itself to green at `HEAD`, fixing any
+failure inside its own security change, so the writer never starts from
+a tree its security fixes turned red; then step 1's file edits
 for every non-security defect and every ruling that calls for a code
 change, and step 2's validation over the whole tree, go to the writer as
 `issue-implement#the-writer` says, with the reviewer's findings (by ID and
@@ -467,8 +517,10 @@ checks the result there as well, its green `vrg-validate` at `HEAD`
 covering the security fixes too, then does every filing step 1 calls for,
 then builds the check (step 3). A validate failure that the driver's
 security fix causes is the driver's to fix, inside that security change,
-never the writer's. With no non-security edit to make, the driver runs
-step 2's validation itself after its security fixes. Without a writer,
+never the writer's; the driver's own green run before the writer's
+dispatch is what keeps it there. With no non-security edit to make, that
+green run is step 2's validation, and the writer is not dispatched.
+Without a writer,
 the caller's session does steps 1 and 2, as today.
 
 **pr-watch.** Under an `issue-implement` driver, the code of a fix for
@@ -574,7 +626,10 @@ Spec §8.
      with the single instruction to run `vrg-pr-workflow status` in this
      repo and report the output; its transcript shows the call refused
      with Task 2's writer-gate message. A call that runs is FAILURE: the
-     hook input carries no `agent_type` for the writer's calls.
+     hook input carries no `agent_type` for the writer's calls, or not the
+     value the gate matches. The FAILURE result names a follow-up issue
+     that changes how the gate identifies the writer, and until it lands
+     the model map records the gate's enforcement as not met.
   If the transcript layout differs from the paths above, find the same
   fields where it keeps them and record where; if a model cannot be read
   at all, the outcome is FAILURE, never a guess.

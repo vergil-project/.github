@@ -277,7 +277,11 @@ any token without spaces. The hook refuses a task run unless its
 dispatch that carries a per-invocation `model`, which would outrank the
 agent's pin (§3). A description that only names a task among other words,
 as the driver's dispatches of the writer or reviewer may, is not a task
-run. Its tests cover each of the four forms, an ID that is not digits
+run. A description whose first word is `Task` or `Batch`, followed by a
+space, but which matches none
+of the four forms is refused as a malformed task run, whatever its
+`subagent_type`, so a near-miss never runs on an inheriting agent type.
+Its tests cover each of the four forms, an ID that is not digits
 (`D2`), a writer dispatch whose description names the task, and a
 task-runner dispatch with `model` set.
 
