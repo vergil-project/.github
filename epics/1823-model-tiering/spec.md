@@ -167,8 +167,9 @@ Notes:
   It never suppresses a gate, never submits, pushes or posts on GitHub, never
   creates issues and never runs merge review. It returns one of two
   results: `green` (with its commits), or `stuck` (what it tried and what
-  still fails). It returns `stuck` once three validate runs in a row fail
-  with no fewer failures than the run before them. Both carry `notes`: any
+  still fails). It returns `stuck` once five `vrg-validate` runs in one
+  dispatch have all exited non-zero, judged by the exit code alone. Both
+  carry `notes`: any
   deviation from the issue and why,
   and any concern it noticed (a gap in the issue, a defect outside the
   change), which the driver screens and handles as follow-ups, as it does a
@@ -196,10 +197,12 @@ Notes:
 - **merge-review's fix step.** `merge-review`'s "Fix and check" steps 1 and
   2 (fix every defect and carry out every ruling, then validate to green)
   take the writer as an input from the caller. When the caller has a
-  writer, those steps hand the edits to `vergil:implementer`, with the
-  reviewer's findings and the rulings in its prompt, and the driver then
-  runs the check. When it has none, the caller's session makes the fix, as
-  today.
+  writer, those steps hand only the file edits of step 1, and step 2's
+  validation, to `vergil:implementer`, with the reviewer's findings and the
+  rulings in its prompt, and the driver then runs the check. Every filing
+  step 1 calls for (issues and security records) stays with the driver,
+  as does every security-item fix (below). When the caller has no writer,
+  the caller's session makes the fix, as today.
 - **Security fixes.** The driver makes the fix for a security item itself
   and never passes the item's details to the writer.
 - **Rebase conflicts.** The driver resolves every conflict of a stopped
@@ -213,17 +216,24 @@ Notes:
   dispatches (the implementation, a merge-review fix, a CI fix) gets one.
   A second `stuck` on the same dispatch stops the run for the human, as a
   problem the run cannot resolve does today.
-- **Other helpers.** `issue-implement`, `issue-deploy` and `issue-validate`
-  today invite ad-hoc subagents (research fan-out, parallel sub-tasks,
-  isolated exploration, a fresh subagent per acceptance check). Each of the
-  three skills is changed to say that changes to the task's tracked files
-  in its worktree (code, docs and config) go only to `vergil:implementer`,
-  never to an ad-hoc helper and never in the driver itself, and that every
-  other helper it dispatches carries an explicit per-invocation `model`,
-  named in the skill text. Every other file stays with the driver and never
-  goes to the writer: files under `build/.vergil-state/` (security details
-  and merge review's working files included), scratch files that feed a
-  tool's input, and every file an operational task writes. The one
+- **The writer rule.** `issue-implement` alone is changed to say that
+  changes to the task's tracked files in its worktree (code, docs and
+  config) go only to `vergil:implementer`, never to an ad-hoc helper and
+  never in the driver itself, with its two exceptions stated in the same
+  place: the driver makes security fixes itself, and resolves rebase
+  conflicts itself (both above). Every other file stays with the driver and
+  never goes to the writer: files under `build/.vergil-state/` (security
+  details and merge review's working files included) and scratch files
+  that feed a tool's input. `issue-deploy` and `issue-validate` have no
+  worktree and edit no tracked files, so they do not carry the rule.
+- **Helpers.** Every helper any skill dispatches carries an explicit
+  per-invocation `model`, named in the skill text. `issue-implement`,
+  `issue-deploy` and `issue-validate` invite ad-hoc subagents today
+  (research fan-out, parallel sub-tasks, isolated exploration, a fresh
+  subagent per acceptance check), as do `epic-implement` ("use sub-agents
+  wherever they make this efficient") and `pr-watch` ("sub-agents remain
+  fine elsewhere"). The task that makes this change greps `skills/` for
+  every other skill that does and changes each the same way. The one
   exception to the explicit `model` is `issue-validate`'s subagent that
   loads a skill to check it: it runs on the validation alias the model map
   gives the skill under test (§6), passed per invocation, so the check sees
@@ -237,9 +247,9 @@ Notes:
 - `vergil:merge-reviewer` moves from `model: opus` to `model: sonnet`.
 - Design-review rounds dispatch `paad:paad-delegate` with a
   per-invocation `model: opus`. The pin is stated in the paad review
-  doctrine (`docs/paad-review-doctrine.md`, §1.9 and §2.2's dispatch step),
-  which `epic-create` links to and does not restate. The paad fork is not
-  changed. Its nested
+  doctrine (`docs/paad-review-doctrine.md`, §1.9 and §2.2's dispatch step)
+  and in `epic-create`'s own dispatch sentence (its round step 1), which
+  restates the dispatch. The paad fork is not changed. Its nested
   `paad-analyst` agents inherit Opus from it.
 - `vergil:bootstrap` stays `model: haiku`.
 
@@ -249,11 +259,19 @@ Plugin CI gains a check that fails when any file in `agents/` lacks a
 `model:` frontmatter field, and on any agent whose `model:` is `inherit`
 unless the model map page names that agent with the reason.
 
-The plugin also gains a PreToolUse hook on the Agent tool. It refuses a
-dispatch whose `description` has the task or batch form of
-`epic-implement`'s task descriptions unless its `subagent_type` is
-`vergil:task-runner`, so a task run can never fall back to an inheriting
-agent type and run on the session's model.
+The plugin also gains a PreToolUse hook on the Agent tool, so a task run
+can never fall back to an inheriting agent type or a model other than its
+pin. A dispatch is a task run when its whole `description` matches one of
+the four forms in `epic-implement`'s task-description table (one task, a
+batch, and each with no plan task ID), anchored at both ends, with `<id>`
+any token without spaces. The hook refuses a task run unless its
+`subagent_type` is `vergil:task-runner`, and refuses a `vergil:task-runner`
+dispatch that carries a per-invocation `model`, which would outrank the
+agent's pin (§3). A description that only names a task among other words,
+as the driver's dispatches of the writer or reviewer may, is not a task
+run. Its tests cover each of the four forms, an ID that is not digits
+(`D2`), a writer dispatch whose description names the task, and a
+task-runner dispatch with `model` set.
 
 ## 6. The model map
 
@@ -262,8 +280,12 @@ agent runs on: the §4 table, the reason for each entry, the pinning facts in
 §3, and how to change a pin (edit the agent definition's `model:`, or the
 dispatch's `model` parameter) or revert one. It also gives every skill a
 **validation alias**, the model alias `issue-validate` checks it on (§5.3):
-the skill's own model, or `opus`, the session's default, for a skill that
-runs on the session model. Every later change to a pin
+the smallest model the skill runs on in any production path, or `opus`,
+the session's default, for a skill that runs only on the session model. So
+`merge-review`, `pr-watch` and `issue-implement`, which run on Sonnet under
+the `vergil:task-runner` driver and on the session model elsewhere, take
+`sonnet`. For each skill that runs in more than one place, the page lists
+every place and the model it runs on there. Every later change to a pin
 updates this page in the same PR.
 
 The model map is the single source for models. The existing agents page
@@ -300,7 +322,9 @@ After the plugin release, a validation task runs one real implementation
 task through `epic-implement` and reads the session transcripts to confirm
 that the driver ran on Sonnet, the writer on Haiku and the merge reviewer on
 Sonnet. It also reads the transcript of one `epic-create` design-review
-round and confirms that `paad:paad-delegate` ran on Opus. The escalation's
+round and confirms that its Agent call dispatching `paad:paad-delegate`
+carried `model: "opus"`, since an unpinned delegate would also run on the
+session's Opus. The escalation's
 per-invocation `model: sonnet` is hard to trigger on demand, so the model
 map records it as not verified. The weekly usage over the following weeks is the human's own signal,
 and no tooling records it in this epic.
