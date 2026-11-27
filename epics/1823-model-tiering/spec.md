@@ -20,7 +20,7 @@ the expensive model is needed where the thinking happens, and much less where
 a well-specified plan is carried out. This epic sets the model **by design**
 for every piece of the fleet that can carry one. Opus stays where the big
 thinking is (`epic-create` and its design reviews). Sonnet drives most of
-the work. Haiku writes the code.
+the work. Haiku writes the changes, code and prose alike.
 
 The constraint is a good one: a fixed budget forces efficient use, which is
 worth having for its own sake. This is a first pass, judged by judgment
@@ -105,7 +105,7 @@ part. These assignments are judgment, not measurement.
 | `issue-implement` driver | subagent, no pin today | the long procedure | **Sonnet** (new `vergil:task-runner`) |
 | code writer | new | writing code | **Haiku** (new `vergil:implementer`) |
 | `merge-review` | inside the driver | rulings, the fix loop | Sonnet (driver) |
-| `vergil:merge-reviewer` | subagent, pinned `opus` | is this good enough to merge | **Sonnet**; **Opus** for docs PRs, passed by the dispatch |
+| `vergil:merge-reviewer` | subagent, pinned `opus` | is this good enough to merge | **Sonnet** |
 | `pr-watch` | inside the driver | diagnosing CI failures | Sonnet (driver) |
 | `issue-deploy`, `issue-validate` | subagent, no pin today | preconditions, judging an outcome | **Sonnet** (`vergil:task-runner`) |
 | `epic-retrospective`, `hoshin`, `epic-review`, `summarize`, `fixture-run`, `deprecation-triage`, `intake-capture` | human session | various | session model |
@@ -121,13 +121,10 @@ Notes:
   `model:`, which lasts one turn (§3).
 - **The merge reviewer moves from Opus to Sonnet.** That is the one change
   in this pass that lowers a model on purpose. It stays a tier above the
-  Haiku writer whose work it reviews.
-- **`merge-review` is shared.** `epic-create`, `epic-retrospective` and
-  `hoshin` also run it, on their docs PRs, whose specs, plans,
-  retrospectives and logbook entries are written on Opus. Under those three
-  callers the skill dispatches `vergil:merge-reviewer` with a per-invocation
-  `model: opus`, so docs PRs keep an Opus review. Under `issue-implement`
-  and `pr-watch` it relies on the agent's `sonnet` pin.
+  Haiku writer whose work it reviews. It runs on Sonnet for every PR, the
+  docs PRs of `epic-create`, `epic-retrospective` and `hoshin` included,
+  with no exception by caller or by change class: a spec and plan reach
+  merge review only after their Opus design review and the human's own.
 - **`epic-implement`'s own session** mostly waits on the subagents it
   dispatches, so it costs little on any model. It is not pinned. The model
   map notes that the human may run it on Sonnet with `/model`.
@@ -162,7 +159,8 @@ Notes:
   routed skill under the Agent prompt contract. The skills carry the
   procedure.
 - **`vergil:implementer`**, a new agent pinned `model: haiku`. Its job: in a
-  given worktree, carry out a given change, commit it in small `vrg-commit`
+  given worktree, carry out a given change (any file change the task makes,
+  prose and docs included), commit it in small `vrg-commit`
   commits, and validate with `vrg-container-run -- vrg-validate` until green.
   It never suppresses a gate, never submits, pushes or posts on GitHub, never
   creates issues and never runs merge review. It returns one of two
@@ -181,12 +179,24 @@ Notes:
   tree, a green validate) before merge review. A fabricated `green` must
   not reach merge review.
 - **Fixes.** Code fixes asked for by merge review's fix step, and by
-  pr-watch's fixes for failing CI, review comments and conflicts, go through
-  the same writer. Only the code goes to the writer. The driver still
-  diagnoses the problem and runs every check and push. The hand-off to the
-  writer lives in `issue-implement` and `pr-watch` only, not in the shared
-  `merge-review` skill: under the docs-PR callers (§4), merge review's fix
-  step stays in the caller's session, as today.
+  pr-watch's fixes for failing CI and review comments, go through the same
+  writer (conflicts are below). Only the code goes to the writer. The driver still
+  diagnoses the problem and runs every check and push.
+- **merge-review's fix step.** `merge-review`'s "Fix and check" steps 1 and
+  2 (fix every defect and carry out every ruling, then validate to green)
+  take the writer as an input from the caller. When the caller has a
+  writer (`issue-implement`, and `pr-watch` when it runs merge review on a
+  fix), those steps hand the edits to `vergil:implementer`, with the
+  reviewer's findings and the rulings in its prompt, and the driver then
+  runs the check. When it has none (the docs PRs of `epic-create`,
+  `epic-retrospective` and `hoshin`), the caller's session makes the fix,
+  as today.
+- **Rebase conflicts.** The driver resolves the conflicting hunks of a
+  stopped `vrg-git rebase` itself and continues the rebase. This is the one
+  exception to the writer rule, since resolving a conflict is merge
+  mechanics, not new code. A resolution that needs new logic makes the
+  driver abort the rebase and send that change to the writer as an
+  ordinary fix.
 - **Escalation.** If the writer returns `stuck`, the driver dispatches it
   once more with a per-invocation `model: sonnet`, passing on what the
   first attempt found. A second `stuck` stops the run for the human, as a
@@ -194,19 +204,20 @@ Notes:
 - **Other helpers.** `issue-implement`, `issue-deploy` and `issue-validate`
   today invite ad-hoc subagents (research fan-out, parallel sub-tasks,
   isolated exploration, a fresh subagent per acceptance check). Each of the
-  three skills is changed to say that code changes go only to
+  three skills is changed to say that file changes go only to
   `vergil:implementer`, never to an ad-hoc helper and never in the driver
   itself, and that every other helper it dispatches carries an explicit
-  per-invocation `model`, named in the skill text.
+  per-invocation `model`, named in the skill text. The one exception is
+  `issue-validate`'s subagent that loads a skill to check it: it runs on
+  the model the model map gives the skill under test, passed per
+  invocation, so the check sees the skill as it runs in production.
 - **The human-run path.** When the human runs `/issue-implement` in a
   session, the skill dispatches the writer just the same, so the code is
   always written on Haiku whatever the session's model.
 
 ### 5.4 Other pins
 
-- `vergil:merge-reviewer` moves from `model: opus` to `model: sonnet`, and
-  `merge-review` passes a per-invocation `model: opus` when it runs for a
-  docs PR (§4).
+- `vergil:merge-reviewer` moves from `model: opus` to `model: sonnet`.
 - `epic-create`'s design-review rounds dispatch `paad:paad-delegate` with a
   per-invocation `model: opus`. The paad fork is not changed. Its nested
   `paad-analyst` agents inherit Opus from it.
@@ -215,8 +226,8 @@ Notes:
 ### 5.5 The guard
 
 Plugin CI gains a check that fails when any file in `agents/` lacks a
-`model:` frontmatter field. `inherit` counts as a choice, but only where the
-model map records why.
+`model:` frontmatter field, and on any agent whose `model:` is `inherit`
+unless the model map page names that agent with the reason.
 
 ## 6. The model map
 
@@ -229,6 +240,12 @@ updates this page in the same PR.
 The model map is the single source for models. The existing agents page
 (`docs/site/docs/agents/index.md`) drops its per-agent `**Model**:` lines
 and links to the model map instead.
+
+Dispatching task runs as `vergil:task-runner` changes the agent type a task
+row shows, so three places that say rows show `general-purpose` are updated
+with it: the "Agent row labels" section of `docs/site/docs/hooks/index.md`,
+the header comment of `hooks/register.tsx`, and
+`skills/epic-implement/SKILL.md`.
 
 ## 7. Wave 2: the roadmap
 
@@ -253,7 +270,10 @@ planning item when this epic closes:
 After the plugin release, a validation task runs one real implementation
 task through `epic-implement` and reads the session transcripts to confirm
 that the driver ran on Sonnet, the writer on Haiku and the merge reviewer on
-Sonnet. The weekly usage over the following weeks is the human's own signal,
+Sonnet. It also reads the transcript of one `epic-create` design-review
+round and confirms that `paad:paad-delegate` ran on Opus. The escalation's
+per-invocation `model: sonnet` is hard to trigger on demand, so the model
+map records it as not verified. The weekly usage over the following weeks is the human's own signal,
 and no tooling records it in this epic.
 
 ## 9. Left to the builder
