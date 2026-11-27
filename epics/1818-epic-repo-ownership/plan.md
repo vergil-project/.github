@@ -76,10 +76,10 @@ are to it. References to the release lock (#1664) are to
 - Every read of a `Coordinated release:` line goes through the trust layer
   (`vrg-issue-read`'s library path, `lib/trust.py`) and fails closed on
   untrusted content, as `Blocked-by:` reads do (§5.4).
-- A repo's share of a coordinated group is either exactly one task that is
-  in no release group, which counts as an implicit one-member group, or
-  exactly one release group of #1672 (#1672 spec §5.9), read only through
-  #1672's group tool list command. A share of several tasks must be one
+- A repo's share of a coordinated group is either exactly one standalone
+  task (in no release group), referenced by its task ref, or exactly one
+  release group of #1672, referenced by its epic and group ID (#1672 spec
+  §5.9 allows both), read only through #1672's group tool list command. A share of several tasks must be one
   release group. No task here parses group records itself.
 - A share in another org is filed under the primary epic's proxy epic
   there, and its release group, when it has several tasks, lives on that
@@ -201,7 +201,8 @@ a task of epic vergil-project/.github#1672 that does not yet exist (see
 - **Built in series (§6).** This epic's tasks are filed only once the
   batch epic's (vergil-project/.github#1672) plan is published and its tasks
   are filed, and its spec still records release groups with the §5.9
-  interface and allows a group on a proxy epic for the proxy's own-org
+  interface, allows a share to be one standalone task referenced by its
+  task ref, and allows a group on a proxy epic for the proxy's own-org
   tasks (its group tool and record check accepting a proxy epic on those
   terms, and `groups_of` returning a proxy task's groups from its proxy).
   If it does not, this spec's group source is revised first, in a new spec
@@ -613,8 +614,9 @@ Spec §3 (the five places), §5.4.
   `find_group` lists the primary epic's tasks and its proxies' tasks as
   `vrg-epic-audit` does (`epic_audit` / `proxies`), reading each task's
   line through the trust layer. `check_group` accepts a repo's share when
-  it is exactly one task in no release group (an implicit one-member
-  group), or exactly one release group of #1672, read from the share's own
+  it is exactly one standalone task, one the group tool's list command
+  does not return (#1672 §5.9's ref-only share), or exactly one release
+  group of #1672, read from the share's own
   epic: the primary epic for its own-org shares, the proxy epic for a share
   in another org. It refuses any other share (several tasks that are not
   one group, a partial group, a task in a group with members outside the
@@ -639,11 +641,11 @@ Spec §3 (the five places), §5.4.
   - `test_check_group_two_prs_in_one_repo_refused`.
   - `test_check_group_partial_release_group_refused`.
   - `test_check_group_one_member_group_accepted`,
-    `test_check_group_single_ungrouped_task_accepted`,
-    `test_check_group_several_ungrouped_tasks_refused`.
+    `test_check_group_standalone_task_accepted`,
+    `test_check_group_several_standalone_tasks_refused`.
   - `test_check_group_proxy_share_reads_group_on_proxy` (a share of two
     tasks under a proxy epic, one release group on the proxy: accepted),
-    `test_check_group_proxy_single_ungrouped_task_accepted`.
+    `test_check_group_proxy_standalone_task_accepted`.
   - `test_coordinated_task_blocked_by_lined_task_refused`.
   - `test_batch_rules_text_names_coordinated_release`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
