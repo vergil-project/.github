@@ -23,7 +23,7 @@ organization.
 | `SECURITY.md` | Vulnerability reporting policy |
 | `SUPPORT.md` | Why there is no support, and where critique goes |
 | `epics/<N>-<slug>/` | Each epic's spec, plan and retrospective (`epics/archive/` is a record of abandoned attempts) |
-| `docs/` | Older specs and plans (`docs/specs/`, `docs/plans/`) and security snapshots (`docs/security/`) |
+| `docs/` | Older specs and plans (`docs/specs/`, `docs/plans/`), security snapshots (`docs/security/`) and the [retire procedure](docs/retire-a-repo.md) |
 | `.github/workflows/ci.yml` | CI for this repo |
 | `.github/workflows/ops.yml` | Daily GitHub config audit and agent merge audit |
 | `.github/workflows/epic-rollup.yml` | Closes an epic when its last task closes |
@@ -61,3 +61,4 @@ mistake.
 
 - [Org profile README](profile/README.md)
 - [Contributing (or rather, not)](CONTRIBUTING.md)
+- [Retire a repo](docs/retire-a-repo.md)
