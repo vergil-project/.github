@@ -197,12 +197,16 @@ two epics can race for one repo.
   ownership module joins the push guard's allowed sites
   (`test_branch_push_guard.py`). This is one task, blocked by #1664's Task
   17; #1664's own plan is unchanged.
-- **Transport: each repo through its own main clone.** The tool reads and
-  writes a repo's ownership refs from that repo's main clone, the
-  convention `epic-implement` already uses for task repos, across orgs
-  included. Every
-  repo of a group must have a main clone; a missing one stops the
-  operation, naming the repo, before anything is taken.
+- **Transport: through the release lock's scratch transport.** The tool
+  reads and writes a repo's ownership refs as the release lock reads and
+  writes its own, through a scratch repository whose `origin` is the repo,
+  across orgs included, so no operation needs a clone to move a ref. Only
+  `take` needs main clones: the run submits each PR from its repo's main
+  clone (§5.5 step 1), the convention `epic-implement` already uses for
+  task repos, so `take` checks that every repo of the group has one, and a
+  missing one stops it, naming the repo, before anything is taken.
+  `status` for named repos, `give-up` and `break` need no clone, so they
+  work on the physical host and in CI.
 
 ### 5.2 The ownership tool
 
@@ -303,7 +307,9 @@ open child gating its epic's rollup.
   the group by reading those lines across the primary epic's tasks and its
   proxies' tasks, as `vrg-epic-audit` lists them, never from the plan's
   text or the task's body, so a re-batch keeps them in step; the run and
-  `status` show the group so found. The line is read through the trust
+  the tool's read-only `group` command show the group so found, while
+  `status` shows the group its ownership record carries, as taken, so it
+  stays a ref read with no issue reads. The line is read through the trust
   layer wherever it is read (the run, `issue-implement`, `vrg-submit-pr`,
   `vrg-epic-audit`), as `Blocked-by:` lines are, and untrusted content
   fails closed.
@@ -358,7 +364,11 @@ the human invokes it.
 
 A resumed run first asks whether it can pick the task up. It can only while
 no PR of the group has been submitted: steps 1 and 2 are then re-run from
-the start, and nothing has shipped. Once any PR of the group has been
+the start, and nothing has shipped. A resumed run on another host, or one
+whose run directory was lost, has a new run identity (§5.2), so `take`
+reports its repos held by another run of this same task, and the run stops
+for the human, who breaks each of those repos before the task is run
+again. Once any PR of the group has been
 submitted, a resumed run does not continue. It reports what it finds (the
 repos owned and by which run, each PR's state, open, merged or released,
 and the ownership history) and stops for the human, with ownership left as
@@ -507,5 +517,6 @@ the other operational kinds.
 
 One epic, in phases, since neither half is useful alone: first the
 ownership ref, the tool and `vrg-release`'s checks; then the task kind, its
-run skill and the skill changes; then visibility (`vrg-repo-status`,
-hoshin and the audit).
+run skill and the skill changes, with visibility (`vrg-repo-status`,
+hoshin and the audit), which ships in that phase's tooling and plugin
+releases rather than releases of its own; then the live run.

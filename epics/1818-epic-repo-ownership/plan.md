@@ -21,9 +21,11 @@ ownership ref (`refs/vergil/repo-owner`) and its history on them, adds
 `vrg-release` check ownership twice. Phase 2 adds the `coordinated-release`
 operational kind, its `Coordinated release:` lines, the runnability rules
 in `vrg-epic-audit`, the submit guard, and the plugin's run skill and skill
-changes. Phase 3 shows ownership in `vrg-repo-status`, `vrg-queue hoshin`,
-hoshin's daily review and the daily agent audit. A live validation runs one
-coordinated release across two fixture repos.
+changes, and shows ownership in `vrg-repo-status`, `vrg-queue hoshin`,
+the daily agent audit (Task 10) and hoshin's daily review (Task 15), so
+visibility ships in Phase 2's tooling and plugin releases (Tasks 11 and
+16) rather than releases of its own. Phase 3 is a live validation that
+runs one coordinated release across two fixture repos.
 
 **Tech Stack:** Python 3 (vergil-tooling, pytest), git refs pushed through
 the release lock's scratch-repository transport, Markdown skills
@@ -65,8 +67,10 @@ are to it. References to the release lock (#1664) are to
 - `vrg-repo-owner take` exit codes: `0` taken; `3` held by another task;
   `4` held by another run of this task, or by this task with another group;
   `5` a ref unreadable; `1` any other failure (a missing main clone, a
-  transport error, a failed give-back); `2` usage. `--json` carries the
-  same kind as `held_by`: `"task"`, `"run"` or `"unreadable"`. The run
+  transport error, a failed give-back); `2` usage. With several holds,
+  the code is `3` only when every hold is by another task, and otherwise
+  that of the first hold of another kind. `--json` lists every hold, each
+  with its kind as `held_by`: `"task"`, `"run"` or `"unreadable"`. The run
   waits only on `3` (§5.2, §5.5).
 - The wait's retry interval is `OWNERSHIP_RETRY_SECS = 300`, in
   `lib/repo_owner/model.py` and nowhere else (§5.5, §7).
@@ -154,9 +158,9 @@ a task of epic vergil-project/.github#1672 that does not yet exist (see
 | 12 | `vergil-claude-plugin` | task | The run skill `issue-coordinated-release` | 11 |
 | 13 | `vergil-claude-plugin` | task | `epic-implement` and `issue-implement`: hand-off at report-ready, re-entry, dispatch of the new kind | 11 |
 | 14 | `vergil-claude-plugin` | task | `epic-create`: the planning rule and the filing of coordinated release tasks and their lines | 11, `#1672/epic-create-groups` |
-| **Phase 3** | | | | |
 | 15 | `vergil-claude-plugin` | task | Hoshin's daily review lists owned repos and flags stale ownership | 11 |
 | 16 | `vergil-claude-plugin` | deployment | A plugin release carries Tasks 12–15; every running session reloads its plugins | 12, 13, 14, 15 |
+| **Phase 3** | | | | |
 | 17 | `vergil-tooling` | validation | A live coordinated release across two fixture repos | 11, 16 |
 | 18 | fixtures | fixture run | One run on `python-lib` against the Task 11 release | 11 |
 | doc-review | `vergil-tooling` | task | `Documentation review: epic-repo-ownership` | 17, 18 |
@@ -263,10 +267,15 @@ Spec §5.1.
   under `refs/vergil/release-lock*` and `refs/vergil/repo-owner*`, never
   `refs/heads/*`; `lib/repo_owner/` pushes only through `ref_store`, so
   it gets no entry)
-- Modify: `tests/vergil_tooling/release_lock_stubs.py` and the
-  `origin_url` patch in `test_release_lock_arming.py` (retargeted to
-  `ref_store.transport.origin_url`, so the lock refs still go to the local
-  bare repo)
+- Modify: `tests/vergil_tooling/release_lock_stubs.py`, the
+  `origin_url` patch in `test_release_lock_arming.py`, and the
+  `origin_url` patches in `test_release_lock_refs.py` (its
+  `_REAL_ORIGIN_URL` and `test_transport_failure_raises_not_returns_none`),
+  all retargeted to `ref_store.transport.origin_url`, so the lock refs
+  still go to the local bare repo and no test reaches the network.
+  `lib/release_lock/holder.py`, `reclaim.py` and `sweeps.py` keep calling
+  through `release_lock.refs`, whose re-exports cover them, and are not
+  modified
 - Test: `tests/vergil_tooling/test_ref_store.py`,
   `test_repo_owner_refs.py`, `test_repo_owner_model.py`, and the existing
   `test_release_lock_*.py` passing with their assertions unchanged (only
@@ -429,7 +438,7 @@ Spec §5.1 (transport), §5.2, §5.6 (staleness).
   @dataclass(frozen=True)
   class TakeResult:
       taken: tuple[str, ...]      # repos now owned by this run
-      held: Held | None           # the first hold met; None on success
+      held: tuple[Held, ...]      # every hold, in repo order; () on success
       given_back: tuple[str, ...]
 
   def take(*, epic: str, task: str, repos: Sequence[str], run: RunIdentity) -> TakeResult: ...
@@ -438,7 +447,12 @@ Spec §5.1 (transport), §5.2, §5.6 (staleness).
 
   `take` walks the repos sorted; a record naming this task, this group and
   this run is adopted; on the first other hold it gives back, by CAS, every
-  repo whose record is bound to *run*, and returns the hold. A give-back
+  repo whose record is bound to *run*, then reads the refs of the repos
+  it has not reached, writing nothing, and returns every hold, so the run's
+  comment names each holder at once (spec §5.2). The exit code is 3 only
+  when every hold is by another task; otherwise it is the code of the
+  first hold of another kind, so the run never waits while any repo is
+  held by its own task's other run or unreadable. A give-back
   that fails raises `GiveBackError` naming each repo still held. A
   successful `take` writes the repos it took to `<run_dir>/taken.json`
   (`run.dir` of *run*), replacing any earlier copy. `give_up` with *repos*
@@ -496,6 +510,8 @@ Spec §5.1 (transport), §5.2, §5.6 (staleness).
   - `test_rerun_other_host_exit_4_gives_back_nothing_foreign`.
   - `test_same_task_other_group_is_held_by_run_kind`.
   - `test_held_by_other_task_exit_3_json_names_epic_task_run`.
+  - `test_two_repos_held_by_two_tasks_both_named_nothing_written_after_first`.
+  - `test_hold_by_other_task_and_by_own_run_exits_4_not_3`.
   - `test_unreadable_ref_exit_5`.
   - `test_missing_main_clone_takes_nothing_exit_1`.
   - `test_clone_found_across_orgs_under_one_projects_root` (clones laid out
@@ -968,7 +984,9 @@ Spec §5.7.
   order; a step outside the tooling is its own human-attested task; most
   epics need none); plan pushback holds each group to the smallest set of
   repos, one PR per repo, with dependent same-repo work in one release
-  group; `file-tasks` files the coordinated release task first, then
+  group; `file-tasks` files the coordinated release task first, in the
+  primary epic's home (`<org>/.github`) under the primary epic, since it
+  has no PR and may span orgs (spec §5.4), then
   writes each member's `Coordinated release: <ref>` line, never a
   `Blocked-by:` from it to its own group.
 
@@ -976,8 +994,6 @@ Spec §5.7.
 - [ ] **Step 2: Validate; commit.**
 
 ---
-
-## Phase 3: visibility and the live run
 
 ### Task 15: Hoshin shows ownership (vergil-claude-plugin)
 
@@ -996,6 +1012,8 @@ Spec §5.6.
 ### Task 16: Release the plugin (deployment)
 
 As "Operational tasks" above.
+
+## Phase 3: the live run
 
 ### Task 17: A live coordinated release (validation)
 
