@@ -155,7 +155,14 @@ The "small" guideline and the guideline caps go (§5.2).
     so that the task can be named as a group, as a coordinated release
     names each repo's share (§5.9);
   - no member's plan entry leaves a design question open;
-  - each group exists only in a development epic.
+  - each group exists only in a development epic, or in a **proxy epic**
+    of one (`Epic (proxy): <name>`, labelled `epic` + `proxy`, whose
+    `Primary:` link names a development epic) for the proxy's own-org
+    tasks. A proxy is a development epic's stand-in in a foreign org, from
+    which that org's tasks are driven, so its groups follow every rule
+    here: the members are tasks of the proxy, all in one repo, and the
+    record lives on the proxy. A group in an ad-hoc epic, a management
+    epic or a queue epic (intake, planning, deferred) is refused.
 - **The group record is the only source of membership.** A group's
   membership lives in one place: a log of **group records** on the epic,
   each a trusted comment the group tool posts. Nothing about a group is
@@ -224,8 +231,10 @@ easily broken:
 - **Order.** Members of a group appear in the batch in the group's build
   order. A `Blocked-by` between two members is satisfied by commit order
   within the batch.
-- **Same epic, same repo** as today. A group record on an epic that is not
-  a development epic is refused.
+- **Same epic, same repo** as today. A group record on an epic that is
+  neither a development epic nor a proxy of one (§5.1) is refused, and so
+  is one on a proxy whose `Primary:` link is broken or names an epic that
+  is not a development epic.
 - **Reads fail closed,** like every batch rule today: a group record that
   cannot be read, or an untrusted or edited one, refuses.
 - **Size.** `MAX_BATCH = 8` becomes a high safety ceiling (about 20; the
@@ -478,6 +487,10 @@ repo's share. What it may rely on:
   a one-member group (§5.1).
 - **A group is referenced as its epic and its group ID** (§5.1), never by
   its members.
+- **A share in another org is a group on that org's proxy.** A share filed
+  in another org lives under the primary epic's proxy there (§5.1), so its
+  group is recorded on the proxy and referenced by the proxy and its group
+  ID. Group IDs are per epic, so the proxy's IDs are its own.
 - **The group tool's list command is the supported read path.** It reads
   through the trust layer and fails closed, and returns the group's latest
   record. No other tool parses the group records.

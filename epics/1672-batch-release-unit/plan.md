@@ -43,8 +43,18 @@ are to it.
 - A group ID matches `G[1-9][0-9]*` (`G1`, `G2`, …) and is never reused
   within an epic, a dissolved group's included (§5.1). The plan's delivery
   table shows it in a **Group** column; a standalone task's cell is `—`.
+- **A group's epic** is a development epic, or a proxy epic of one for
+  the proxy's own-org tasks (§5.1). Its `epics.task_epic` kind is
+  `development`, or `proxy` with `epic_audit.proxy_link_problems(epic)`
+  empty and its `Primary:` link naming an epic whose kind is
+  `development`. Every other kind (ad-hoc, a standing management kind, the
+  intake, planning and deferred queues) is not a group's epic. A proxy's
+  members are its own tasks, all in one repo, and its group IDs are its
+  own. Where this plan says "development epic" for a group, it means a
+  group's epic in this sense.
 - A group record is a trusted comment on the epic (the chain's head, as
-  `epics.task_epic` resolves it). Its first line is exactly one of:
+  `epics.task_epic` resolves it, a proxy for a proxy task). Its first line
+  is exactly one of:
 
   ```text
   release-group <id> rev <n>: <owner>/<repo>#<N> [<owner>/<repo>#<N> …]
@@ -74,12 +84,12 @@ are to it.
   stderr, metadata only (§5.1, §5.2).
 - Every group read fails closed, scoped to the group: an unreadable epic,
   a malformed, edited or skipped record, a conflict, or a record on an
-  epic whose `task_epic` kind is not `development` refuses, naming the
-  epic and group (§5.2, §7). A failure confined to one group refuses only
-  reads of that group, so a task outside it, standalone tasks included,
-  is unaffected. A failure that names no group (an unreadable epic, a
+  epic that is not a group's epic (above) refuses, naming the epic and
+  group (§5.2, §7). A failure confined to one group refuses only reads of
+  that group, so a task outside it, standalone tasks included, is
+  unaffected. A failure that names no group (an unreadable epic, a
   malformed record with no readable group ID, a record on an epic that is
-  not a development epic) refuses every read on the epic.
+  not a group's epic) refuses every read on the epic.
 - **Recovery stays in the group tool.** A conflict, an edited record and a
   skipped record are each superseded the same way: `vrg-release-group set`
   or `dissolve` with `--resolve-conflict` posts a record at one past the
@@ -321,7 +331,14 @@ Spec §5.1, §5.9.
   - `test_unscoped_failure_refuses_every_read`: a malformed record with no
     readable group ID → `groups_of` raises for every task of the epic.
   - `test_member_in_two_live_groups_refuses`.
-  - `test_record_on_non_development_epic_refuses` (an ad-hoc epic).
+  - `test_record_on_ad_hoc_epic_refuses`,
+    `test_record_on_management_epic_refuses` and
+    `test_record_on_queue_epic_refuses` (a planning epic).
+  - `test_group_on_proxy_epic_reads`: a record on a proxy whose `Primary:`
+    link names a development epic; `groups_of` for a proxy task returns
+    its group from the proxy epic.
+  - `test_record_on_proxy_with_broken_link_refuses` (a proxy whose
+    `Primary:` link has problems, or names an ad-hoc epic).
   - `test_groups_of_resolves_continuation_to_head` (Review Focus 3).
   - `test_dissolved_id_stays_used`: `ids_used` holds a dissolved group's ID.
   - `test_cli_list_json_and_plain`, `test_cli_list_read_failure_exits_1`.
@@ -330,8 +347,9 @@ Spec §5.1, §5.9.
   tests/vergil_tooling/test_vrg_release_group.py` → FAIL.
 - [ ] **Step 3: Implement** as the Global Constraints state the grammar,
   the latest-record rule and the trust rules. `read_log` reads the epic
-  once; `groups_of` resolves the epic with `epics.task_epic` and refuses
-  when its kind is not `development` and the log holds any record.
+  once; `groups_of` resolves the epic with `epics.task_epic` (a proxy
+  task's epic is its proxy) and refuses when the epic is not a group's
+  epic (Global Constraints) and the log holds any record.
 - [ ] **Step 4: Pass, validate, commit.**
 
 ### Task 3: Release the group record (deployment)
@@ -686,6 +704,7 @@ clean; when a group can change).
 
 - Consumes: `record.read_log`, `record.Group` (Task 2);
   `batch_rules.MAX_BATCH`; `epics.task_epic`, `epics.blockers_of`;
+  `epic_audit.proxy_link_problems` (a proxy's links);
   `batch_marker.read_marker`; `github_transport.list_relay_branches` and
   the relay and local workflow-state readers; GitHub's
   `closedByPullRequestsReferences`.
@@ -697,7 +716,7 @@ clean; when a group can change).
       group: str
       rule: Literal["open code task", "one repo", "not operational",
                     "not a documentation review", "dependency path",
-                    "size", "development epic", "same epic"]
+                    "size", "group's epic", "same epic"]
       detail: str
 
   def check_group_rules(epic: epics.IssueRef, group: str,
@@ -721,14 +740,17 @@ The rules, as §5.1 gives them: each member open, a task (not an epic), in
 one repo, under `epic` (the same epic), not labelled `validation` or
 `deployment`, not a documentation review (its title starts
 `Documentation review:` or its body carries `Plan task: doc-review`); 1 to
-`MAX_BATCH` members; the epic's kind `development`; no dependency path from
+`MAX_BATCH` members; the epic a group's epic (Global Constraints: a
+development epic, or a proxy of one with sound links); no dependency path from
 one member to another through an open task outside the group (`Blocked-by`
 lines and native links, followed transitively, across epics and repos; a
 closed task cannot wait, so a path through one does not count). The
 design-question rule stays a planning judgment and is not checked.
 
 - [ ] **Step 1: Write the failing tests:** one per rule, each refused with
-  its rule's name (`test_rule_<rule>_refused`, eight tests);
+  its rule's name (`test_rule_<rule>_refused`, eight tests; the group's
+  epic rule is tested with an ad-hoc and a management epic);
+  `test_proxy_epic_group_valid` (a proxy's own-org tasks in one repo);
   `test_dependency_path_through_open_deployment`;
   `test_dependency_path_through_closed_task_ignored`;
   `test_dependency_path_across_epics`; `test_one_member_group_valid`;
@@ -867,6 +889,8 @@ Behaviour:
   the rules that need an open member, since none is open (above).
 
 - [ ] **Step 1: Write the failing tests:** `test_set_new_group_rev_1`;
+  `test_set_on_proxy_epic_posts_on_proxy`;
+  `test_set_on_ad_hoc_or_management_epic_refused`;
   `test_set_retry_posts_nothing`; `test_set_dissolved_id_refused`;
   `test_set_rule_break_refused`; `test_removal_without_reason_refused`;
   `test_dissolve_records_no_members`; `test_incoming_task_with_holder_refused`
@@ -1018,8 +1042,9 @@ Spec §5.6.
   def group_findings(org: str) -> list[GroupFinding]
   ```
 
-  It checks the live groups of every development epic in the org's home
-  that is open, or closed within `GROUP_AUDIT_CLOSED_DAYS` (an epic closes
+  It checks the live groups of every group's epic (Global Constraints:
+  every development epic and every proxy epic) in the org's home that is
+  open, or closed within `GROUP_AUDIT_CLOSED_DAYS` (an epic closes
   as soon as its last task does, so a split found after the merge is often
   on a closed epic).
 - `split`: members closed by different merged PRs (each member's merged
@@ -1043,7 +1068,7 @@ Spec §5.6.
   `test_edited_record_flagged`; `test_skipped_record_flagged`;
   `test_conflict_flagged_unreadable`;
   `test_audit_flags_member_moved_out_of_epic` (Review Focus 4);
-  `test_dissolved_group_not_checked`;
+  `test_dissolved_group_not_checked`; `test_proxy_epic_groups_checked`;
   `test_closed_epic_within_window_checked`.
 - [ ] **Step 2–4:** fail, implement, pass, validate, commit.
 
