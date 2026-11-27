@@ -537,6 +537,17 @@ the direction notes):
 - A deployment needs a merge and a release, so it can never sit inside a
   group.
 - The fixture run's live check runs against released Vergil.
+- **One driver per epic.** An epic is driven by one `epic-implement`
+  session at a time, in one place (a local host or a cloud session), and
+  the human keeps it so; no tooling locks it. Group changes come only from
+  that driver or from the epic's planning run, so the batch markers that
+  decide whether a group's batch has started (§5.5) are in that driver's
+  main clone, and the group tool reads them there, locally, by design. If
+  two drivers ever ran one epic, the whole-group rule on every PR path
+  (§5.2) would still refuse a batch that is not its whole group.
+  Coordinating epics that run in different places is the epic ownership
+  follow-on's (vergil-project/.github#1678); two epics never share a
+  group, since a group's members are all in its own epic (§5.1).
 - **No group check at release time, by design.** `vrg-release` trusts the
   layers before it: the group rules on every write of a record (§5.5), the
   freeze, the move and transfer refusals (§5.1), the whole-group rule on

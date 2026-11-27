@@ -19,8 +19,10 @@ releasable from that moment.
 `vrg-release-group list`, which the epic ownership follow-on
 (vergil-project/.github#1678) builds on. Phase 2 hardens the batch
 mechanism: the merge-review gate chains each batch commit's record to the
-commits before it, every edge case of spec §5.7 gets a real-git test, and
-one live run drives an awkward chain batch through a fixture. Phase 3
+commits before it, every edge case of spec §5.7 gets a real-git test, a
+middle commit can be re-reviewed before handoff (in the tooling and the
+skills, with a read-only gate probe), and one live run drives an awkward
+chain batch through a fixture. Phase 3
 enforces groups: the group rules, the whole-group rule on every PR path,
 the group tool's write commands, the guards around them and the audit,
 then the skill changes, the last of which (epic-create's plan and
@@ -77,6 +79,16 @@ are to it.
   command without the rule that enforces what it writes (§8).
 - The live run (Task 8) uses an ordinary chain batch with no group record;
   epic-create's group writing (Task 20) is blocked by it (§5.7).
+- **One driver per epic** (§7). An epic is driven by one `epic-implement`
+  session at a time, in one place (local or cloud), and the human keeps it
+  so; no tooling locks it. Group changes come only from that driver or the
+  epic's planning run, so the batch markers that matter are in that
+  driver's main clone, and Task 12's "Started" check reads them locally by
+  design. If two drivers ever ran one epic, the whole-group rule on every
+  PR path (Task 11) would still refuse a batch that is not its whole group.
+- Every repo a group's members live in has its main clone at
+  `~/dev/projects/<owner>/<repo>` on the host that plans or drives the
+  epic; the group tool's write commands run from it (Task 12, Task 20).
 - Every vergil-tooling and vergil-claude-plugin task is test-first where it
   changes behaviour, ends with `vrg-container-run -- vrg-validate` green,
   and commits with `vrg-commit`.
@@ -132,8 +144,11 @@ until Task 20 ships.
 | 4 | `vergil-tooling` | task | The merge-review gate chains each batch commit's record to the commits before it | 2 |
 | 5 | `vergil-tooling` | task | Real-git batch fixture and the fold, conflict and rebase tests | 4 |
 | 6 | `vergil-tooling` | task | Batch review-record tests: autosquash, clean rebase, a fix after submit through push mode | 5 |
-| 7 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 4–6 (the release gate) | 4, 5, 6 |
-| 8 | `vergil-fixture-python-lib` | validation | The live run: an awkward six-task chain batch through the real skills | 7 |
+| 6a | `vergil-tooling` | task | A merge-review record for a middle batch commit; the read-only gate probe `batch-gates` | 4, 5 |
+| 6b | `vergil-claude-plugin` | task | `merge-review` and `issue-implement`: re-review after a rewrite and a clean rebase before handoff | 6a |
+| 7 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 4–6a (the release gate) | 4, 5, 6, 6a |
+| 7a | `vergil-claude-plugin` | deployment | A plugin release carries Task 6b; every running session reloads its plugins | 6b, 7 |
+| 8 | `vergil-fixture-python-lib` | validation | The live run: an awkward six-task chain batch through the real skills | 7, 7a |
 | **Phase 3** | | | | |
 | 9 | `vergil-tooling` | task | The ceiling: `MAX_BATCH = 20` | — |
 | 10 | `vergil-tooling` | task | The group rules and the holder check (`lib/release_groups/rules.py`) | 2 |
@@ -160,6 +175,8 @@ until Task 20 ships.
   blocked on the rest (§8, §5.9). Nothing in this epic waits for it.
 - **Task 7** ships the hardened mechanism the live run needs: the run uses
   released Vergil (§7).
+- **Task 7a** ships the skills that make re-review after a rewrite
+  possible before handoff, which the live run drives.
 - **Task 8** is the live run, with its own shape (§5.7): it files its own
   chain of change tasks in the fixture when it runs and drives them as one
   batch, so nothing makes the chain runnable before the run starts it.
@@ -302,15 +319,20 @@ Spec §5.4.
   `_merge_review_reasons`)
 - Modify: `src/vergil_tooling/lib/merge_review/record.py` (`Record` gains
   `at: str`, the comment's `createdAt`; the record line does not change)
+- Modify: `src/vergil_tooling/lib/rulings/approvals.py` (`Approval` gains
+  `at: str`, the time of the human's approving reply)
 - Test: `tests/vergil_tooling/test_agent_gates.py`,
-  `tests/vergil_tooling/test_merge_review_record.py`
+  `tests/vergil_tooling/test_merge_review_record.py`,
+  `tests/vergil_tooling/test_rulings_approvals.py`
 
 **Interfaces:**
 
 - Produces: `record.Record.at: str` (ISO 8601, from the comment stream's
   `at`). The stored format is unchanged, so no record migrates.
+- Produces: `rulings.approvals.Approval.at: str`, the approving reply's
+  time, never the request's.
 - Consumes: `rulings.approvals.verified_approvals` (an exemption's
-  coverage time is its approving comment's time).
+  coverage time is its approving reply's time).
 
 The chain, computed at check time from what the records already hold, with
 no git object other than the branch's own commits needed:
@@ -342,7 +364,9 @@ every commit, as today.
   - `test_chain_fix_to_last_commit_needs_only_last`.
   - `test_chain_records_in_build_order_pass` (the no-migration case:
     records written before this task, in build order, pass unchanged).
-  - `test_chain_exemption_counts_at_its_approval_time`.
+  - `test_chain_exemption_counts_at_its_approval_time`: an exemption
+    requested before an earlier commit's re-review and approved after it
+    covers its commit; one approved before that re-review does not.
   - `test_whole_change_record_still_covers_every_commit`.
 - [ ] **Step 2: Run them and see them fail.**
 - [ ] **Step 3: Implement** the chain in `_merge_review_reasons`'
@@ -375,7 +399,7 @@ Spec §5.7 (the first four cases, and #1140).
 - [ ] **Step 1: Write the tests:**
   - `test_fold_into_middle_of_chain_of_four`: fixup to commit 2 of 4,
     autosquash → `check_commit_per_issue` passes and the gate (Task 4)
-    refuses commits 3 and 4 until each is re-reviewed.
+    refuses commits 3 and 4 (their re-review is Task 6a's).
   - `test_fold_conflicting_with_later_commit`: the fixup touches a line
     commit 3 changes → `autosquash` raises, the branch is unchanged, and
     `check_commit_per_issue` refuses the unfolded `fixup!` commit by name.
@@ -419,12 +443,104 @@ Spec §5.7 (records after autosquash and rebase; a fix after submit with
     passes on the folded branch, and refuses one with an unfolded `fixup!`.
 - [ ] **Step 2–4:** as Task 5.
 
+### Task 6a: A record for a middle batch commit, and the gate probe (vergil-tooling)
+
+Spec §5.4 (the gate enforces re-review before handoff, so re-review must
+be possible before handoff).
+
+Today `record.batch_member_change` refuses unless the issue under review is
+the last one on the branch ("… must be the last issue on the branch"), so
+after a fold into commit k nothing can record a fresh review of issue k, or
+of any later issue but the last, while later commits sit on the branch.
+And no command evaluates the gate before report-ready:
+`vrg-submit-pr --dry-run` returns before the gates run.
+
+**Files:**
+
+- Modify: `src/vergil_tooling/lib/merge_review/record.py`
+  (`batch_member_change`, `covered_change`)
+- Modify: `src/vergil_tooling/bin/vrg_pr_workflow.py` (a new
+  `batch-gates` subcommand)
+- Modify: `src/vergil_tooling/lib/agent_gates.py` (expose the merge-review
+  evaluation the probe reuses, unchanged in behaviour)
+- Test: `tests/vergil_tooling/test_batch_mechanics.py`,
+  `tests/vergil_tooling/test_merge_review_record.py`,
+  `tests/vergil_tooling/test_vrg_pr_workflow.py`
+
+**Interfaces:**
+
+- Produces: `batch_member_change` (and `covered_change`) give the change
+  for issue k as issue k's own commit, wherever it sits in the batch, its
+  fixups to that commit folded; later issues' commits are not part of it.
+- Produces: `vrg-pr-workflow batch-gates [--json]`, run in a batch's
+  worktree before or after report-ready. It reads the batch from the
+  clone's markers and the branch, and evaluates the gate's merge-review
+  check exactly as `vrg-submit-pr` would, commit by commit. It writes
+  nothing. JSON: `{"branch": "<name>", "head": "<sha>", "commits":
+  [{"issue": "<ref>", "sha": "<sha>", "covered": bool, "reason": str |
+  null}]}`; exit 0 when every commit is covered, 1 when any is not or on a
+  read failure (stderr names it), 2 on usage.
+
+- [ ] **Step 1: Write the failing tests** (real git through `batch_repo`;
+  the record path itself is not stubbed, only GitHub reads):
+  - `test_member_record_for_middle_commit_with_later_commits`: a batch of
+    four, a fold into commit 2 → a record for issue 2 is written, and its
+    fingerprint is commit 2's.
+  - `test_rereview_restores_coverage_after_middle_fold`: then records for
+    3 and 4 → the gate passes every commit (completes Task 5's
+    `test_fold_into_middle_of_chain_of_four`).
+  - `test_member_change_excludes_later_commits`.
+  - `test_batch_gates_reports_uncovered_after_fold` and
+    `test_batch_gates_all_covered_exits_0`.
+  - `test_batch_gates_before_report_ready`: no handoff state needed.
+  - `test_batch_gates_matches_submit_gate`: the probe and
+    `vrg-submit-pr`'s gate give the same verdict per commit.
+  - `test_batch_gates_writes_nothing` and
+    `test_batch_gates_read_failure_exits_1`.
+- [ ] **Step 2–4:** fail, implement, pass, validate, commit.
+
+### Task 6b: Re-review after a rewrite in the skills (vergil-claude-plugin)
+
+Spec §5.4, §5.7.
+
+**Files:** Modify `skills/merge-review/SKILL.md` ("In a batch"),
+`skills/issue-implement/SKILL.md` (its batch sections), and their pages
+under `docs/site/docs/skills/`.
+
+The changes:
+
+- **merge-review, "In a batch":** a run may review issue k while later
+  issues' commits sit on the branch, after a fold into k's commit; its
+  fixups are folded into k's own commit only.
+- **issue-implement:** a fix to a finished issue's commit in a running
+  batch is folded into that commit (`fixup!` and autosquash), and that
+  issue and every later one are merge-reviewed again before handoff;
+  `vrg-pr-workflow batch-gates` confirms coverage before report-ready. A
+  clean rebase of the batch branch onto `origin/develop` before handoff is
+  allowed and voids no record; a rebase that conflicts is a batch stop.
+  The rules "never reopening a finished issue" and "a batch never rebases
+  onto `develop` before handoff" are rewritten to match.
+- The batch size wording ("up to 8") is left for Task 19a, which changes
+  it once the ceiling ships (Task 9).
+
+- [ ] **Step 1–2:** as Task 19a.
+
 ### Task 7: Release the hardened mechanism (deployment)
 
 - Precondition: `vrg-release-record check` exits 0 for each of
-  `vergil-project/vergil-tooling#<Task 4>`, `#<Task 5>` and `#<Task 6>`.
+  `vergil-project/vergil-tooling#<Task 4>`, `#<Task 5>`, `#<Task 6>` and
+  `#<Task 6a>`.
 - Procedure: those checks, alone.
 - Acceptance: every check passes; the result names the release version.
+
+### Task 7a: Release the re-review skills (deployment)
+
+- Precondition: `vrg-release-record check
+  vergil-project/vergil-claude-plugin#<Task 6b>` exits 0, and Task 7 is
+  closed.
+- Procedure: that check.
+- Human-run steps: `/reload-plugins` in each running Claude Code session.
+- Acceptance: the check passes, and the human has confirmed the reloads.
 
 ### Task 8: The live run (validation)
 
@@ -437,8 +553,10 @@ batch PR lands.
   its own chain of change tasks (Appendix A), so the chain is never
   runnable before this run starts it as a batch.
 - **Preconditions** (machine probes): `vrg-release-record check
-  vergil-project/vergil-tooling#<Task 4>`, `#<Task 5>` and `#<Task 6>`
-  each exit 0; the fixture's managed files match the released
+  vergil-project/vergil-tooling#<Task 4>`, `#<Task 5>`, `#<Task 6>` and
+  `#<Task 6a>`, and `vrg-release-record check
+  vergil-project/vergil-claude-plugin#<Task 6b>`, each exit 0; Task 7a is
+  closed (the sessions have reloaded); the fixture's managed files match the released
   vergil-tooling, as the `fixture-run` skill's preconditions check it; no
   open PR into the fixture's `develop`.
 - **Procedure:**
@@ -454,27 +572,30 @@ batch PR lands.
      of 8.4 (each committed and merge-reviewed).
   4. **The forced fix to the second commit.** Fold the fix Appendix A
      gives for 8.2 into its commit (`fixup!` and autosquash). Confirm the
-     gate refuses commits 3 and 4: `vrg-submit-pr --dry-run` reports both
-     as uncovered. Re-run merge review on 8.2, 8.3 and 8.4, and confirm the
-     dry run then reports them covered.
+     gate refuses commits 3 and 4: `vrg-pr-workflow batch-gates --json`
+     reports both as uncovered. Re-run merge review on 8.2, 8.3 and 8.4,
+     and confirm `batch-gates` then reports every commit covered.
   5. **`develop` moves.** Implement 8.0 as its own single-issue PR and
      watch it to the merge. Then rebase the batch branch onto the new
-     `origin/develop` (a clean rebase) and confirm the dry run still
+     `origin/develop` (a clean rebase) and confirm `batch-gates` still
      reports 8.1–8.4 covered.
   6. Finish 8.5 and 8.6, hand off the batch (`report-ready`) and submit it
-     with `vrg-submit-pr`.
-  7. **The fix after submit.** At once, while the PR's checks run, fold the
-     after-submit fix of Appendix A into 8.4's commit through `pr-watch`'s
-     fix path: merge review of the whole branch, `vrg-pr-workflow
-     batch-check`, and the push with `vrg-submit-pr --push`. Watch the PR
-     to the merge with `vrg-pr-await`.
+     with `vrg-submit-pr`. 8.4's commit carries the planned CI-only
+     failure (Appendix A), so the PR's CI fails and submit reports the PR
+     not merged.
+  7. **The fix after submit.** Through `pr-watch`'s ordinary fix path, fold
+     the after-submit fix of Appendix A into 8.4's commit: merge review of
+     the whole branch, `vrg-pr-workflow batch-check`, and the push with
+     `vrg-submit-pr --push`, then `vrg-finalize-pr`. Watch the PR to the
+     merge with `vrg-pr-await`.
 - **Acceptance:** one merged PR closes 8.1–8.6, rebase-merged, with exactly
   six commits on `develop`, one per task in order, each subject ending in
-  its issue's ref; step 4's refusal and recovery were seen; step 5's
-  rebase kept the records; the PR's timeline shows step 7's push before
-  the merge. If the PR merged before step 7's push, the outcome is
-  `FAILURE` ("the fix after submit was not exercised"), and a re-run files
-  a fresh chain whose keys end `-r2`.
+  its issue's ref; step 4's refusal and recovery were seen in
+  `batch-gates`' output; step 5's rebase kept the records; the PR's CI
+  failed on the planned failure and passed after step 7's push, which the
+  PR's timeline shows before the merge. If the PR merged without step 7's
+  push, the outcome is `FAILURE` ("the fix after submit was not
+  exercised"), and a re-run files a fresh chain whose keys end `-r2`.
 
 ---
 
@@ -486,7 +607,12 @@ Spec §5.2 (size).
 
 **Files:** Modify `src/vergil_tooling/lib/pr_workflow/batch_rules.py`
 (`MAX_BATCH = 20`, the module and `check_hard_rules` docstrings say "2 to
-20"); Test `tests/vergil_tooling/pr_workflow/test_batch_rules.py`.
+20"); every other statement of the old limit in vergil-tooling: the
+`vrg-pr-workflow` help ("a batch PR of 2 to 8 same-epic issues",
+`src/vergil_tooling/bin/vrg_pr_workflow.py`), the
+`src/vergil_tooling/bin/vrg_submit_pr.py` module docstring, and
+`docs/specs/worktree-convention.md`; Test
+`tests/vergil_tooling/pr_workflow/test_batch_rules.py`.
 
 - [ ] **Step 1:** `test_twenty_issues_allowed`, `test_twenty_one_refused`
   (the refusal names the ceiling), and the existing count tests updated.
@@ -645,7 +771,11 @@ Behaviour:
   membership, post nothing (safe to retry).
 - A new ID must be unused (`ids_used`); a dissolved ID is refused.
 - Check the requested membership with `check_group_rules`; refuse on any
-  break.
+  break. The rules that need an open member (open, and the dependency
+  path) are checked only against the members that are open, as the audit
+  does (Task 17); the structural rules (a task, one repo, the same
+  development epic, not operational, not a documentation review, the size)
+  apply to every member.
 - A **removal** (any member of the latest record not in the new one,
   `dissolve` included) needs a non-empty `--reason`, written as the
   record's `Reason:` line.
@@ -657,6 +787,8 @@ Behaviour:
   refused, naming the batch and saying it stops for the human, unless
   `--at-batch-stop` is given (the skills pass it only after the human has
   ruled a group change at a batch stop). The frozen rule still applies.
+  The markers read are this clone's: with one driver per epic (Global
+  Constraints), that is where the epic's batches run.
 - A **conflict** in the log refuses unless `--resolve-conflict` is given;
   with it, the record is posted at one past the highest revision. The flag
   is refused when there is no conflict.
@@ -664,7 +796,8 @@ Behaviour:
   batch markers are local; refuse elsewhere.
 - Changing a group in a closed epic is allowed only as a repair (a removal,
   or `dissolve`), which is how a broken group is brought in line with what
-  shipped (§5.6).
+  shipped (§5.6). A repair whose remaining members are all closed passes
+  the rules that need an open member, since none is open (above).
 
 - [ ] **Step 1: Write the failing tests:** `test_set_new_group_rev_1`;
   `test_set_retry_posts_nothing`; `test_set_dissolved_id_refused`;
@@ -676,7 +809,8 @@ Behaviour:
   `test_set_refuses_on_conflict_without_resolve` (Review Focus 1) and
   `test_resolve_conflict_posts_next_rev`;
   `test_split_is_one_record` (13 replaced by 13a and 13b, with a reason);
-  `test_repair_in_closed_epic_allowed_only_as_removal`;
+  `test_repair_in_closed_epic_allowed_only_as_removal` (a removal that
+  keeps closed, shipped members is posted); `test_open_rules_skip_closed_members`;
   `test_run_outside_members_clone_refused`.
 - [ ] **Step 2–4:** fail, implement, pass, validate, commit.
 
@@ -850,8 +984,11 @@ Spec §5.2 (the guidelines), §5.3, §5.4, §5.5, §5.8.
 **Files:** Modify `skills/issue-implement/SKILL.md` ("What to batch",
 "Starting a batch", "Batch stops", "A batch left with one issue",
 "Handing off a batch", "A change too big for one PR"),
-`skills/pr-watch/SKILL.md` (a fix to a batch commit), and their pages
-under `docs/site/docs/skills/`.
+`skills/pr-watch/SKILL.md` (a fix to a batch commit),
+`skills/merge-review/SKILL.md` ("In a batch": "up to 8 same-epic issues"
+becomes the tooling's ceiling), and their pages under
+`docs/site/docs/skills/`. Task 6b's re-review rules are kept as they
+shipped.
 
 The changes:
 
@@ -901,7 +1038,10 @@ runnable group as one batch, members in build order; for group members,
 the group's own runnability replaces the runnable-frontier rule; other
 runnable tasks or groups may join on throughput judgment; a one-member
 group goes to the single-issue path; never dispatch a member alone; a
-group the audit cannot read stops for the human.
+group the audit cannot read stops for the human. The skill states the
+one-driver assumption (Global Constraints): one `epic-implement` session
+drives an epic at a time, in one place, and running a second on the same
+epic is unsupported.
 
 - [ ] **Step 1–2:** as Task 19a.
 
@@ -926,7 +1066,9 @@ The changes:
   `Blocked-by:` refs are complete, record the group with
   `vrg-release-group set --epic <home>#<N> --group <id> --member … --reason
   "planned"`, members from the keyed listing's key-to-ref map, in build
-  order. A re-entry re-runs it; an identical record posts nothing. A
+  order, run from the members' repo main clone,
+  `~/dev/projects/<owner>/<repo>` (Global Constraints); a missing clone is
+  the tool's ordinary refusal. A re-entry re-runs it; an identical record posts nothing. A
   refusal stops the stage for the human. `Tasks filed: yes` is posted only
   after every group is recorded.
 
@@ -945,7 +1087,9 @@ The changes:
 Spec §5.8.
 
 **Files:** Modify `docs/site/docs/guides/git-workflow.md` (batches as the
-unit of release; release groups; review after a rewrite; the ceiling) and
+unit of release; release groups; review after a rewrite and
+`batch-gates`; the ceiling; one `epic-implement` driver per epic, which
+the "Started" check relies on) and
 `docs/site/docs/standards/github-issues.md` (a group is recorded on the
 epic, never in a task body; moving a grouped task); add the
 `vrg-release-group` command to the site's command reference, wherever the
@@ -977,12 +1121,20 @@ under vergil-project/.github#1672. `<pkg>` is the fixture's package under
 | 8.1 | `Live run chain 1: add step_1` | Adds `src/<pkg>/chain.py` with `def step_1() -> int: return 1` and `tests/test_chain.py::test_step_1`. |
 | 8.2 | `Live run chain 2: add step_2` | Adds `def step_2() -> int: return step_1() + 1` with a one-line docstring, and its test. |
 | 8.3 | `Live run chain 3: add step_3` | Adds `step_3` (`step_2() + 1`) and its test. |
-| 8.4 | `Live run chain 4: add step_4` | Adds `step_4` (`step_3() + 1`) and its test. |
+| 8.4 | `Live run chain 4: add step_4` | Adds `step_4` (`step_3() + 1`) and its test, and the planned CI-only failure (below). |
 | 8.5 | `Live run chain 5: add step_5` | Adds `step_5` (`step_4() + 1`) and its test. |
 | 8.6 | `Live run chain 6: add step_6` | Adds `step_6` (`step_5() + 1`) and its test. |
 
 - **The fix to 8.2** (Task 8, step 4): `step_2`'s docstring becomes "Return
   the second step, built on `step_1`." No later commit touches that line,
   so the fold is clean.
-- **The fix after submit to 8.4** (step 7): `step_4` gains the docstring
-  "Return the fourth step." No later commit touches that line.
+- **The planned CI-only failure in 8.4** (step 6): a deliberate failure
+  that the fixture's CI reports and that the local `vrg-container-run --
+  vrg-validate` does not, so 8.4 validates and hands off locally but the
+  PR's CI fails. 8.4's issue body states it as the run's planned failure
+  and its removal as the after-submit fix, so merge review judges it in
+  scope. The builder chooses the mechanism, touching no line a later
+  commit touches.
+- **The fix after submit to 8.4** (step 7): the planned failure is removed,
+  and `step_4` gains the docstring "Return the fourth step." No later
+  commit touches either line.
