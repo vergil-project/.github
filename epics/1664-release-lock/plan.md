@@ -1687,3 +1687,101 @@ Filed by `fixture-run` as above, one trio per fixture, each blocked by Task
 - **Retrospective** (`.github`, `--kind retrospective`,
   `Plan task: retrospective`): `epic-retrospective`, once every other task is
   closed.
+
+## Evolution during execution
+
+### 2026-11-25 to 2026-11-26: Tasks 2, 5, 7 and 8, and a flaky-test follow-up
+
+**What changed:**
+
+- **Task 2** (vergil-project/vergil-tooling#5246, PR
+  vergil-project/vergil-tooling#5284): the removal log is written by a new
+  leaf module, `src/vergil_tooling/lib/worktree_log.py`, which
+  `worktrees.log_removal` calls. The PR names the incident,
+  vergil-project/vergil-tooling#5187, on an `Incident: …` line in its
+  notes instead of the `Ref …` line the task asks for.
+- **Task 5** (vergil-project/vergil-tooling#5249, PR
+  vergil-project/vergil-tooling#5288): `pr_path.arm` takes an optional
+  `head=` argument that the plan's interface does not name. Submit keeps
+  its own pre-push gate step and provenance step before it arms, so both
+  checks run twice: once in submit and again in `arm`, at the PR's head.
+  `mechanized_pr` still called `auto_merge._enable` directly until Task 7.
+- **Tasks 7 and 8** (vergil-project/vergil-tooling#5251, PR
+  vergil-project/vergil-tooling#5292; vergil-project/vergil-tooling#5252,
+  PR vergil-project/vergil-tooling#5290) ran in parallel. Task 8 merged
+  first, with a `wait_until_merged(…, strategy="merge")` call, and Task 7
+  removes that argument. Task 7's run rebased onto Task 8 and dropped the
+  argument from update-deps' wait before its PR merged.
+- **A follow-up outside the epic:** five tests in
+  `tests/vergil_tooling/test_github.py` fail intermittently under xdist.
+  On the human's ruling it was filed as vergil-project/vergil-tooling#5299,
+  under vergil-tooling's ad-hoc epic, not this one.
+
+**Why:**
+
+- Task 2: the leaf module keeps `managed_worktree` out of `worktrees`'
+  import graph, so `test_no_deferred_vergil_tooling_imports`, which
+  forbids a deferred vergil-tooling import in any module the release's
+  last stages reach, still holds. The `Incident:` line is there because
+  the PR tooling links only the task, and report-ready refuses an
+  issue-linkage keyword in its notes.
+- Task 5: the `head=` argument keeps submit's pin to the reported head; a
+  PR whose current head differs is refused.
+- Tasks 7 and 8: whichever of the two landed second had to drop the
+  argument, as Task 8's PR notes said.
+- The follow-up: the five tests failed the first CI runs of several of
+  this epic's PRs and passed on a rerun. Both Task 2's and Task 5's runs
+  proposed it, and the one issue covers both.
+
+### 2026-11-27: Tasks 10 and 14, added tasks F1 and F2, Task 16's scope changes
+
+**What changed:**
+
+- **Task 10** (vergil-project/vergil-tooling#5260, PR
+  vergil-project/vergil-tooling#5313): the plan says to remove
+  `recheck_gates`. It was renamed `gates_at_head` instead and kept in
+  `lib/finalize_watch.py`, where `pr_path.arm` calls it.
+- **Task 14** (vergil-project/vergil-tooling#5256, PR
+  vergil-project/vergil-tooling#5303): `vrg-git` judges a push only when it
+  goes to a configured remote whose every push URL is origin's GitHub
+  repository. A push to a URL or path typed in place of a remote name is
+  refused.
+- **Added task F1:** vergil-project/vergil-claude-plugin#1427 (PR
+  vergil-project/vergil-claude-plugin#1428), a doc fix to
+  `issue-implement`'s rebase section, which still described a plain
+  force-push to an open PR. Its PR also carried Task 16's live step 2.
+- **Added task F2:** vergil-project/vergil-fixture-python-lib#105 (PR
+  vergil-project/vergil-fixture-python-lib#106) downgraded one dependency
+  in the fixture's `uv.lock` (`pytest-xdist`, 3.8.0 to 3.7.0), so that a
+  standalone `vrg-update-deps` run had a pending update for Task 16
+  step 3.
+- **Task 16's scope changes** (vergil-project/vergil-tooling#5262), both
+  posted by the human on the task:
+  - Step 3 accepts a standalone `vrg-update-deps` run in any
+    vergil-project repo with a pending update, one created on purpose
+    included, and a repo-config sync PR opened by the sync job as the
+    automation App from an `ops.yml` run the human dispatched by hand.
+  - By ruling F3, step 2's live `vrg-submit-pr --push` item moves to
+    Task 32 (vergil-project/vergil-tooling#5276), which gains it by a
+    scope change of its own. Step 2 is met by its other three items, on
+    PR vergil-project/vergil-claude-plugin#1428.
+
+The human rulings F1, F2 and F3 are recorded on vergil-project/.github#1664.
+
+**Why:**
+
+- Task 10: the one PR path's `arm` judges a head with the same gate check,
+  as the spec's "the re-checks move into the one PR path" reads.
+- Task 14: the wrapper refuses a push it cannot tie to origin's
+  repository rather than judge it, failing closed as the task asks.
+- F1: a validation task cannot carry a PR, since `report-ready` and
+  `vrg-submit-pr` refuse an operational task, so step 2's live agent PR
+  needed a development task.
+- F2: vergil-tooling had no pending dependency update after the release's
+  own update-deps stage ran.
+- Task 16 step 3: for the same reason, and because no scheduled sync PR
+  had opened since 2.1.351 was installed. Both runs are on 2.1.353 or
+  later.
+- F3: the carrier PR merged by auto-merge about 90 seconds after it
+  opened, before any reviewed fix could be pushed, and no real change was
+  left to push after submit.
