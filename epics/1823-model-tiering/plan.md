@@ -75,17 +75,22 @@ are to it.
    with an uncommitted edit, or with `vrg-validate` red at `HEAD`.
    Expected: the driver's own check (clean tree, the commits on the branch,
    its own green validate) catches it before merge review, and the driver
-   re-dispatches the writer rather than fixing it itself (Task 4a, the
-   "Check the writer's result" step).
+   re-dispatches the writer once on Sonnet rather than fixing it itself; a
+   second failure of either kind stops the run for the human (Task 4a, the
+   "Check the writer's result" and "Escalation" steps).
 3. **An interrupted writer on resume.** A re-dispatched run finds the
    worktree dirty with the writer's uncommitted work. Expected: the driver
    does not finish or discard it itself; it dispatches the writer to finish
    it, naming the dirty state (Task 4a).
-4. **Batch commit shape.** In a batch, the writer's commits for the
+4. **An interrupted rebase on resume.** A re-dispatched run finds a
+   `vrg-git rebase` stopped mid-way (a conflict or a batch fold).
+   Expected: the driver finishes or aborts it itself under its rebase
+   rules and never hands it to the writer (Task 4a, "Resume").
+5. **Batch commit shape.** In a batch, the writer's commits for the
    second issue are not fixups of that issue's first commit. Expected: the
    driver's check reads `vrg-git log` and re-dispatches the writer to
    correct the shape (Task 4a).
-5. **A double `stuck` on a merge-review fix.** Expected: the run stops for
+6. **A double `stuck` on a merge-review fix.** Expected: the run stops for
    the human; the driver never falls back to writing the fix itself (Task
    4b).
 
@@ -185,7 +190,10 @@ every `agents/*.md`:
 - its value is `haiku`, `sonnet`, `opus` or `inherit`;
 - `inherit` passes only if `docs/site/docs/agents/models.md` has an agents
   table row whose first cell is `` `vergil:<name>` ``, whose model cell is
-  `inherit` and whose reason cell is not empty.
+  `inherit` and whose reason cell is not empty;
+- every `agents/*.md` has an agents-table row in the model map whose first
+  cell is `` `vergil:<name>` `` and whose Model cell equals its `model:`
+  value, and every `vergil:` row names an existing agent file.
 
 Also add `check_agent_tools implementer "Read, Edit, Write, Glob, Grep,
 Bash"`, so the writer can never gain Agent.
@@ -218,7 +226,9 @@ entries for the two new agents, and links to the model map.
   `test_unknown_model_value_fails` (`gpt-5`),
   `test_inherit_without_map_row_fails`,
   `test_inherit_with_map_row_and_reason_passes`,
-  `test_inherit_with_empty_reason_fails`, `test_pinned_agents_pass`.
+  `test_inherit_with_empty_reason_fails`, `test_map_model_mismatch_fails`,
+  `test_agent_missing_from_map_fails`, `test_map_row_without_agent_fails`,
+  `test_pinned_agents_pass`.
 - [ ] **Step 2:** run `vrg-container-run -- bash
   hooks/tests/agent-models.test.sh`; expected: FAIL (no
   `check_agent_models`).
@@ -277,7 +287,12 @@ Everything else exits 0.
 
 **The skill.** In `epic-implement`, every task-run dispatch (a re-dispatch
 included) passes `subagent_type: "vergil:task-runner"` and never `model`.
-The sentence that says the mod labels the row "instead of
+The main session no longer runs `pr-watch` on a task's PR itself: when the
+human reports that a task's PR did not merge or asks for it to be fixed,
+and when a reported-ready task with an open PR has no run watching it, it
+dispatches a task run (in a task-run form, as `vergil:task-runner`) whose
+prompt routes it to `pr-watch` on that PR under an `issue-implement`
+driver, so the writer and the Sonnet pin apply. The sentence that says the mod labels the row "instead of
 `general-purpose`" says `vergil:task-runner`, and the table's intro says
 the forms are matched exactly, since the dispatch hook keys on them.
 
@@ -296,7 +311,8 @@ the forms are matched exactly, since the dispatch hook keys on them.
   `general-purpose`, allowed), `test_trailing_word_is_not_a_task_run`,
   `test_task_runner_with_model_refused`,
   `test_task_runner_with_empty_model_allowed`,
-  `test_unmanaged_repo_noop`. Add the gate to `hook-input.test.sh`'s
+  `test_unmanaged_repo_noop`, `test_pr_watch_reentry_form_allowed_as_task_runner`
+  (a re-entry's task-run description as `vergil:task-runner`). Add the gate to `hook-input.test.sh`'s
   malformed-input suite.
 - [ ] **Step 2:** run both test files; expected: FAIL (no script).
 - [ ] **Step 3:** implement the script, register it, change the skill, the
@@ -341,14 +357,23 @@ The human-run path).
   well formed; `vrg-git -C <worktree> status --porcelain` is empty; the
   commits it names are on the branch beyond the base and, in a batch,
   follow the fixup convention; and the driver's own `vrg-container-run --
-  vrg-validate` is green at `HEAD`. A failed check re-dispatches the
-  writer with what failed; the driver never patches it. A fabricated
-  `green` never reaches merge review.
-- **Escalation.** On `stuck`, re-dispatch once with `model: "sonnet"`,
-  passing the first attempt's `Tried:` line. One retry per dispatch (the
-  implementation, each merge-review fix, each CI fix). A second `stuck`
-  stops the run for the human as an unresolvable problem does today.
-- **Resume.** A dirty worktree on a re-dispatch is the writer's
+  vrg-validate` is green at `HEAD`. The driver never patches a failed
+  check; it is a failure of the writer, handled by the escalation below. A
+  fabricated `green` never reaches merge review.
+- **Escalation.** A writer failure is a `stuck` result or a `green` that
+  fails the check. On the first, re-dispatch once with `model: "sonnet"`,
+  passing the first attempt's `Tried:` line or what the check found. One
+  budget per dispatch (the implementation, each merge-review fix, each CI
+  fix), shared by both kinds. A second failure of either kind stops the run
+  for the human as an unresolvable problem does today.
+- **Resume.** A dirty worktree on a re-dispatch is sorted before anything
+  is dispatched. A `vrg-git rebase` in progress (a conflict resolution or a
+  batch fold) stays with the driver, which finishes or aborts it as its
+  rebase rules say. Uncommitted work from the driver's own exceptions, a
+  security item's fix included, stays with the driver, which finishes it;
+  the driver identifies that work from its run state under
+  `build/.vergil-state/` (such as a pending security details file) before
+  any writer dispatch. Only the rest is the writer's
   interrupted work: dispatch the writer to finish it, naming the dirty
   state.
 - **Notes.** The writer's `Notes:` are screened and handled as follow-ups,
@@ -398,8 +423,10 @@ writer, the caller's session does steps 1 and 2, as today.
 failing CI or a review comment goes to the writer; the driver still
 diagnoses, checks and pushes. A stopped rebase's conflicts are resolved by
 the driver itself, logic included, and merge review gates the result.
-Run standalone or by `epic-create`, `epic-retrospective` or `hoshin`,
-`pr-watch` has no writer and fixes in the session. Line 73's helper
+`epic-implement` never runs `pr-watch` on a task's PR in its own session:
+it dispatches a task run for it (Task 3). Run standalone or by
+`epic-create`, `epic-retrospective` or `hoshin`, `pr-watch` has no writer
+and fixes in the session. Line 73's helper
 sentence takes the helper model rule.
 
 - [ ] **Step 1:** edit both skills; each "who fixes" statement names the
@@ -479,7 +506,11 @@ Spec §8.
      "sonnet"`), the merge reviewer's all Sonnet.
   3. In the design-review session's transcript, the Agent `tool_use`
      dispatching `paad:paad-delegate` has `input.model == "opus"`.
-  4. In a scratch managed repo session, an Agent call with description
+  4. If the attested task's PR needed a fix after submit, the
+     `epic-implement` session's transcript shows it dispatched as a task
+     run (`input.subagent_type == "vergil:task-runner"`), not run in the
+     main session; otherwise record that no re-entry occurred.
+  5. In a scratch managed repo session, an Agent call with description
      `Task vergil-project/vergil-tooling#1` as `general-purpose` is refused
      with Task 3's message (dispatch nothing else).
   If the transcript layout differs from the paths above, find the same
