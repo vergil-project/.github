@@ -40,8 +40,9 @@ weekly usage, and then decides whether to iterate.
    and agent runs on, why, and how to change it (§6).
 4. **A wave-2 roadmap**: the skills worth splitting next, each recorded as a
    follow-on planning item (§7).
-5. **A guard** that keeps the pins from drifting: plugin CI fails on an
-   agent definition with no `model:` (§5.5).
+5. **Guards** that keep the pins from drifting: plugin CI fails on an
+   agent definition with no `model:`, and a hook refuses a task run
+   dispatched as any agent type but `vergil:task-runner` (§5.5).
 
 ### 2.2 Non-goals
 
@@ -159,58 +160,74 @@ Notes:
   routed skill under the Agent prompt contract. The skills carry the
   procedure.
 - **`vergil:implementer`**, a new agent pinned `model: haiku`. Its job: in a
-  given worktree, carry out a given change (any file change the task makes,
-  prose and docs included), commit it in small `vrg-commit`
-  commits, and validate with `vrg-container-run -- vrg-validate` until green.
+  given worktree, carry out a given change (any change to the task's
+  tracked files, code, docs and config alike, §5.3), commit it in small
+  `vrg-commit` commits, and validate with `vrg-container-run -- vrg-validate`
+  until green.
   It never suppresses a gate, never submits, pushes or posts on GitHub, never
   creates issues and never runs merge review. It returns one of two
   results: `green` (with its commits), or `stuck` (what it tried and what
-  still fails). Both carry `notes`: any deviation from the issue and why,
+  still fails). It returns `stuck` once three validate runs in a row fail
+  with no fewer failures than the run before them. Both carry `notes`: any
+  deviation from the issue and why,
   and any concern it noticed (a gap in the issue, a defect outside the
   change), which the driver screens and handles as follow-ups, as it does a
   concern any sub-agent reports today.
 
 ### 5.3 The driver's use of the writer
 
-- **Implement.** The driver dispatches the writer with the issue's body
-  (read through the trust layer), the worktree path and the commit
-  conventions (a batch's first commit for each issue, then fixups of it).
+- **Implement.** The driver dispatches the writer with the issue as
+  `vrg-issue-read` prints it (the body and the trusted comments, whose scope
+  changes are binding), any rulings the run is carrying out, the worktree
+  path and the commit conventions (a batch's first commit for each issue, then fixups of it).
   The driver checks the result for itself (the branch's commits, a clean
   tree, a green validate) before merge review. A fabricated `green` must
   not reach merge review.
 - **Fixes.** Code fixes asked for by merge review's fix step, and by
   pr-watch's fixes for failing CI and review comments, go through the same
-  writer (conflicts are below). Only the code goes to the writer. The driver still
-  diagnoses the problem and runs every check and push.
+  writer (conflicts and security fixes are below). Only the code goes to the
+  writer. The driver still diagnoses the problem and runs every check and
+  push.
+- **Who has a writer.** A caller has a writer only under an
+  `issue-implement` driver: `issue-implement` itself, and `pr-watch` when
+  that driver runs it. `pr-watch` run by the docs-PR skills (`epic-create`,
+  `epic-retrospective`, `hoshin`), or started by the human, has none and
+  makes its fixes in the session, as today.
 - **merge-review's fix step.** `merge-review`'s "Fix and check" steps 1 and
   2 (fix every defect and carry out every ruling, then validate to green)
   take the writer as an input from the caller. When the caller has a
-  writer (`issue-implement`, and `pr-watch` when it runs merge review on a
-  fix), those steps hand the edits to `vergil:implementer`, with the
+  writer, those steps hand the edits to `vergil:implementer`, with the
   reviewer's findings and the rulings in its prompt, and the driver then
-  runs the check. When it has none (the docs PRs of `epic-create`,
-  `epic-retrospective` and `hoshin`), the caller's session makes the fix,
-  as today.
-- **Rebase conflicts.** The driver resolves the conflicting hunks of a
-  stopped `vrg-git rebase` itself and continues the rebase. This is the one
-  exception to the writer rule, since resolving a conflict is merge
-  mechanics, not new code. A resolution that needs new logic makes the
-  driver abort the rebase and send that change to the writer as an
-  ordinary fix.
+  runs the check. When it has none, the caller's session makes the fix, as
+  today.
+- **Security fixes.** The driver makes the fix for a security item itself
+  and never passes the item's details to the writer.
+- **Rebase conflicts.** The driver resolves every conflict of a stopped
+  `vrg-git rebase` itself, a resolution that needs new logic included, and
+  continues the rebase. This is an exception to the writer rule, since a
+  conflict can only be resolved inside the stopped rebase. Merge review
+  gates the resolved conflict as it gates any fix.
 - **Escalation.** If the writer returns `stuck`, the driver dispatches it
   once more with a per-invocation `model: sonnet`, passing on what the
-  first attempt found. A second `stuck` stops the run for the human, as a
+  first attempt found. The retry is per writer dispatch: each of a run's
+  dispatches (the implementation, a merge-review fix, a CI fix) gets one.
+  A second `stuck` on the same dispatch stops the run for the human, as a
   problem the run cannot resolve does today.
 - **Other helpers.** `issue-implement`, `issue-deploy` and `issue-validate`
   today invite ad-hoc subagents (research fan-out, parallel sub-tasks,
   isolated exploration, a fresh subagent per acceptance check). Each of the
-  three skills is changed to say that file changes go only to
-  `vergil:implementer`, never to an ad-hoc helper and never in the driver
-  itself, and that every other helper it dispatches carries an explicit
-  per-invocation `model`, named in the skill text. The one exception is
-  `issue-validate`'s subagent that loads a skill to check it: it runs on
-  the model the model map gives the skill under test, passed per
-  invocation, so the check sees the skill as it runs in production.
+  three skills is changed to say that changes to the task's tracked files
+  in its worktree (code, docs and config) go only to `vergil:implementer`,
+  never to an ad-hoc helper and never in the driver itself, and that every
+  other helper it dispatches carries an explicit per-invocation `model`,
+  named in the skill text. Every other file stays with the driver and never
+  goes to the writer: files under `build/.vergil-state/` (security details
+  and merge review's working files included), scratch files that feed a
+  tool's input, and every file an operational task writes. The one
+  exception to the explicit `model` is `issue-validate`'s subagent that
+  loads a skill to check it: it runs on the validation alias the model map
+  gives the skill under test (§6), passed per invocation, so the check sees
+  the skill as it runs in production.
 - **The human-run path.** When the human runs `/issue-implement` in a
   session, the skill dispatches the writer just the same, so the code is
   always written on Haiku whatever the session's model.
@@ -218,23 +235,35 @@ Notes:
 ### 5.4 Other pins
 
 - `vergil:merge-reviewer` moves from `model: opus` to `model: sonnet`.
-- `epic-create`'s design-review rounds dispatch `paad:paad-delegate` with a
-  per-invocation `model: opus`. The paad fork is not changed. Its nested
+- Design-review rounds dispatch `paad:paad-delegate` with a
+  per-invocation `model: opus`. The pin is stated in the paad review
+  doctrine (`docs/paad-review-doctrine.md`, §1.9 and §2.2's dispatch step),
+  which `epic-create` links to and does not restate. The paad fork is not
+  changed. Its nested
   `paad-analyst` agents inherit Opus from it.
 - `vergil:bootstrap` stays `model: haiku`.
 
-### 5.5 The guard
+### 5.5 The guards
 
 Plugin CI gains a check that fails when any file in `agents/` lacks a
 `model:` frontmatter field, and on any agent whose `model:` is `inherit`
 unless the model map page names that agent with the reason.
+
+The plugin also gains a PreToolUse hook on the Agent tool. It refuses a
+dispatch whose `description` has the task or batch form of
+`epic-implement`'s task descriptions unless its `subagent_type` is
+`vergil:task-runner`, so a task run can never fall back to an inheriting
+agent type and run on the session's model.
 
 ## 6. The model map
 
 The plugin's site docs gain one page that records the model each skill and
 agent runs on: the §4 table, the reason for each entry, the pinning facts in
 §3, and how to change a pin (edit the agent definition's `model:`, or the
-dispatch's `model` parameter) or revert one. Every later change to a pin
+dispatch's `model` parameter) or revert one. It also gives every skill a
+**validation alias**, the model alias `issue-validate` checks it on (§5.3):
+the skill's own model, or `opus`, the session's default, for a skill that
+runs on the session model. Every later change to a pin
 updates this page in the same PR.
 
 The model map is the single source for models. The existing agents page
