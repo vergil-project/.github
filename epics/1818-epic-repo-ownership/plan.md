@@ -140,7 +140,7 @@ a task of epic vergil-project/.github#1672 that does not yet exist (see
 | 6 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 2, 3, 4 and 5 (the release gate) | 2, 3, 4, 5 |
 | **Phase 2** | | | | |
 | 7 | `vergil-tooling` | task | The `coordinated-release` kind in every place that lists the kinds; `lib/coordinated_release.py` reads the group; `vrg-issue-create` refuses a link to the task's own group | 3, `#1672/group-list` |
-| 8 | `vergil-tooling` | task | `vrg-epic-audit`: a coordinated release task runnable at report-ready of its group; a same-group `Blocked-by:` met at report-ready; the refused link reported | 7 |
+| 8 | `vergil-tooling` | task | `vrg-epic-audit`: a coordinated release task runnable at report-ready of its group, and in its window while it owns the repos; a same-group `Blocked-by:` met at report-ready; the refused link reported | 7 |
 | 9 | `vergil-tooling` | task | `vrg-submit-pr` submits a PR with a coordinated member only while its task owns the repo | 7, `#1672/whole-group-rule` |
 | 10 | `vergil-tooling` | task | Visibility: owner in `vrg-repo-status`, owned repos in `vrg-queue hoshin`, stale and unreadable ownership in the daily agent audit | 3 |
 | 11 | `vergil-tooling` | deployment | A vergil-tooling release carries Tasks 7–10 (the release gate) | 6, 7, 8, 9, 10 |
@@ -251,10 +251,15 @@ Spec §5.1.
 - Produces, `vergil_refs.transport` (moved from `release_lock.refs`,
   re-exported there so callers keep working): `scratch(repo, error)`,
   `list_remote`, `remote_sha`, `fetch`, `read_file`, `build`, `write_ref`,
-  each with its current signature; the error classes become
-  `vergil_refs.RefReadError` / `RefWriteError`, and `release_lock.model`
-  keeps its names as subclasses, so `except ReleaseLockError` still catches
-  them.
+  each with its current signature. The error classes move with them:
+  `vergil_refs` defines `RefError` and its subclasses `RefReadError` /
+  `RefWriteError`, which the moved functions raise. `release_lock.model`
+  re-exports those two classes under its own names (aliases, not
+  subclasses), and `ReleaseLockError` subclasses `vergil_refs.RefError`,
+  so every existing `except RefReadError`, `except RefWriteError` and
+  `except ReleaseLockError` in the release lock and its callers still
+  catches what the moved functions raise. `repo_owner` adds subclasses only
+  for its own parse errors.
 - Produces, `vergil_refs.history`:
 
   ```python
@@ -299,13 +304,17 @@ Spec §5.1.
   `take_owner(repo, rec) -> str | None` (create-only),
   `delete_owner(repo, *, expected: str) -> bool` (CAS).
 - Produces, `repo_owner.history`: `append(repo, *, action:
-  Literal["take", "give-up", "break"], record: str, actor: str, at: str,
+  Literal["take", "give-up", "break", "break-not-applied"], record: str, actor: str, at: str,
   reason: str) -> None` (`record` the record's file text as read, even
   unparsed) and `read_history(repo)`.
 
 - [ ] **Step 1: Failing tests:**
   - `test_release_lock_tests_pass_unchanged` (the existing release-lock
     suites, run as the refactor's guard).
+  - `test_unreadable_lock_still_held_after_move` (a fetch failure in the
+    moved transport still makes `read_lock` report the lock held).
+  - `test_release_lock_error_names_catch_moved_errors` (each release-lock
+    `except` class catches what `vergil_refs` raises).
   - `test_appended_history_refuses_unknown_action`,
     `test_appended_history_concurrent_both_kept`.
   - `test_take_owner_create_only_second_returns_none`.
@@ -382,8 +391,12 @@ Spec §5.1 (transport), §5.2, §5.6 (staleness).
   `take` walks the repos sorted; a record naming this task, this group and
   this run is adopted; on the first other hold it gives back, by CAS, every
   repo whose record is bound to *run*, and returns the hold. A give-back
-  that fails raises `GiveBackError` naming each repo still held. `give_up`
-  with *repos* `None` gives up the group the first record names; it raises
+  that fails raises `GiveBackError` naming each repo still held. A
+  successful `take` writes the repos it took to `<run_dir>/taken.json`
+  (`run.dir` of *run*), replacing any earlier copy. `give_up` with *repos*
+  `None` gives up the repos `taken.json` lists, raising `RunDirError` when
+  it is absent, and checks each record against *run* as for named repos;
+  it raises
   `NotBoundError` naming the bound run (and `vrg-repo-owner break`) for a
   record bound to another run, and `ForeignOwnerError` for one naming
   another task. Each take and give-up appends a history entry with
@@ -430,6 +443,8 @@ Spec §5.1 (transport), §5.2, §5.6 (staleness).
   - `test_give_up_refuses_other_run_and_names_break`.
   - `test_give_up_refuses_foreign_task`.
   - `test_give_up_unowned_counts_as_given_up`.
+  - `test_give_up_no_repo_reads_taken_json`,
+    `test_give_up_no_repo_without_taken_json_fails`.
   - `test_every_take_and_give_up_in_history_with_actor`.
   - `test_stale_when_task_closed`, `test_stale_when_epic_closed`,
     `test_issue_read_failure_raises`.
@@ -454,8 +469,11 @@ Spec §5.2 (`break`).
   record's file text (parsed or not) and the reason; comment on the owning
   task, when the record parses, with
   `Ownership of <repo> broken by <identity>: <reason>`; delete the ref by
-  CAS. A CAS mismatch re-reads and reports what is there now, deleting
-  nothing. An unreadable ref is broken like any other, with no comment.
+  CAS. A CAS mismatch deletes nothing: it re-reads the ref, appends a
+  `break-not-applied` entry with what is there now, posts a follow-up
+  comment on the task saying the break did not apply and naming what is
+  there now, and reports it. An unreadable ref is broken like any other,
+  with no comment.
 - Produces: `breaking.break_owner(repo: str, *, reason: str, actor: str)
   -> None`.
 
@@ -463,7 +481,8 @@ Spec §5.2 (`break`).
   (each of `is_agent` and `any_agent_signal`),
   `test_break_records_history_then_comments_then_deletes`,
   `test_break_unreadable_ref_records_raw_text_no_comment`,
-  `test_break_cas_mismatch_deletes_nothing`,
+  `test_break_cas_mismatch_deletes_nothing` (and records
+  `break-not-applied` in the history and on the task),
   `test_break_requires_reason`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
@@ -569,9 +588,9 @@ Spec §3 (the five places), §5.4.
   `find_group` lists the primary epic's tasks and its proxies' tasks as
   `vrg-epic-audit` does (`epic_audit` / `proxies`), reading each task's
   line through the trust layer. `check_group` refuses a group whose
-  members in one repo are not exactly one release group of #1672 (or one
-  standalone task), naming the repo and the difference, so each repo has
-  one PR (§5.4).
+  members in one repo are not exactly one release group of #1672 (a share
+  of one task is a one-member group, #1672 spec §5.1), naming the repo and
+  the difference, so each repo has one PR (§5.4).
 - Produces: `vrg-issue-create --kind coordinated-release` refuses a
   `--blocked-by` naming a task that carries a `Coordinated release:` line,
   naming it. In `file-tasks`' order (the coordinated release task first,
@@ -590,6 +609,8 @@ Spec §3 (the five places), §5.4.
   - `test_untrusted_line_fails_closed`.
   - `test_check_group_two_prs_in_one_repo_refused`.
   - `test_check_group_partial_release_group_refused`.
+  - `test_check_group_one_member_group_accepted`,
+    `test_check_group_task_in_no_release_group_refused`.
   - `test_coordinated_task_blocked_by_lined_task_refused`.
   - `test_batch_rules_text_names_coordinated_release`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
@@ -608,22 +629,26 @@ Spec §5.4 (report-ready hand-off, same-group `Blocked-by:`, runnable).
 
 **Interfaces:**
 
-- Consumes: Task 7's `coordinated_release.find_group`, `line_of`.
+- Consumes: Task 7's `coordinated_release.find_group`, `line_of`; Task 2's
+  `repo_owner.refs.read_owner`.
 - Produces, `reported.py`: `reported_ready(repo: str, issue: str) ->
   WorkflowState | None`: the relay state whose `issues` (or `issue`) names
-  the task and whose `status` is report-ready and not submitted; `None`
-  otherwise. It lists and fetches `refs/vergil/pr-workflow/*` from a
+  the task and whose `status` is report-ready, submitted or not (the
+  state's `submitted` field says which); `None` otherwise. It lists and fetches `refs/vergil/pr-workflow/*` from a
   scratch repository (Task 2's `vergil_refs.transport.scratch`), so it
   needs no clone and runs in the CI audit too, and it applies the relay's
   trusted-author rule (`trust.require_trusted_commit`, as
   `GitHubTransport.read` does). A read failure raises.
 - Produces, the audit rules:
+  - a member is **met** when it is reported ready, submitted or closed;
   - a coordinated release task is runnable when every member of its group
-    is reported ready (or closed) and every blocker outside its group is
-    closed; otherwise blocked, naming the members not reported;
+    is met and every blocker outside its group is closed; otherwise
+    blocked, naming the members not met. While Task 2's `read_owner` shows
+    any repo of its group owned by this task, it is listed `in-window`
+    instead, never blocked, and `epic-implement` dispatches it as runnable,
+    so a resumed run always reaches Task 12's gate;
   - a task blocked by a task of its own group (both lines name the same
-    coordinated release task) counts that blocker met once it is reported
-    ready;
+    coordinated release task) counts that blocker met once it is met;
   - a `Blocked-by:` from a coordinated release task to a member of its own
     group is reported as a drift finding, `coordinated-self-block`, and
     the task is listed `stopped`, never runnable.
@@ -636,7 +661,10 @@ Spec §5.4 (report-ready hand-off, same-group `Blocked-by:`, runnable).
   `test_other_group_blocker_still_needs_close`,
   `test_self_block_reported_and_stopped`,
   `test_reported_ready_untrusted_relay_raises`,
-  `test_reported_ready_submitted_is_none`.
+  `test_coordinated_task_not_blocked_after_member_submitted`,
+  `test_coordinated_task_in_window_while_owned`,
+  `test_same_group_blocker_met_once_submitted`,
+  `test_reported_ready_submitted_carries_submitted`.
 - [ ] **Step 2–4: fail, implement, pass, validate, commit.**
 
 ### Task 9: The submit guard (vergil-tooling)
@@ -725,9 +753,12 @@ The skill, in order (each a section):
    `vrg-issue-read`; `run_dir` from the Global Constraints. Read the group
    (`vrg-epic-audit`, which lists its members and their report-ready
    state). If any member's PR is submitted (the relay state's `submitted`,
-   or an open or merged PR), report the repos owned and by which run
-   (`vrg-repo-owner status --json`), each PR's state and the ownership
-   history, and stop for the human, changing nothing.
+   or an open or merged PR): when `<run_dir>/handoff.json` exists, its
+   `run` equals this run's identity (`vrg-repo-owner`'s `run.current`, all
+   four fields), and every repo of the group is owned by that run, go on
+   at step 6 (§5.5, the planned hand-off). Otherwise report the repos owned
+   and by which run (`vrg-repo-owner status --json`), each PR's state and
+   the ownership history, and stop for the human, changing nothing.
 2. **Preconditions** (§5.5 step 1): every member reported ready, none
    submitted, each with a frozen worktree at its recorded head in its
    repo's main clone (`vrg-pr-workflow status` in it). A failure stops
@@ -744,13 +775,22 @@ The skill, in order (each a section):
    cannot be fixed forward stops for the human, ownership held.
 5. **Release** (§5.5 step 4): hand the human the paste-ready
    `vrg-release --epic <epic ref> --task <task ref>` for each repo, in the
-   task's `Release order` where it has one, as human-run steps.
+   task's `Release order` where it has one, as human-run steps. Once every
+   member's PR has merged, write `<run_dir>/handoff.json` (the run's
+   identity and the time), post a comment on the task naming the commands
+   handed over, and end the run `waiting: releases`, recording no outcome.
+   The next run is a resumed run that continues at step 6 (step 1).
 6. **Confirm** (§5.5 step 5): `vrg-release-record check` on every member,
    exit 0 for each.
 7. **Give up and close** (§5.5 step 6): read the group again and compare it
    with `group.json`; a difference stops for the human, ownership held.
-   Otherwise `vrg-repo-owner give-up`, then record `Outcome: SUCCESS` with
-   the results template and close the task.
+   Otherwise `vrg-repo-owner give-up` with a `--repo` for each repo in
+   `group.json`, then record `Outcome: SUCCESS` with the results template
+   and close the task.
+
+A step 6 that finds a release missing (`vrg-release-record check` exit 3)
+ends the run `waiting: releases` again, naming the repos still to release;
+any other failure stops for the human, ownership held.
 
 - [ ] **Step 1: Write the skill** to the outline above, with each command
   as it is run and each stop's exact report.
@@ -770,7 +810,11 @@ Spec §5.4 (hand-off at report-ready, re-entry), §5.7 (dispatch).
   task's gate passed; on re-entry a reported-ready task carrying the line
   is handed off and shown under its coordinated release task's state,
   never submitted, read from the line; the runnable frontier comes from
-  `vrg-epic-audit`, Task 8's rules)
+  `vrg-epic-audit`, Task 8's rules, a task `in-window` included; a run of
+  `issue-coordinated-release` that ends `waiting: releases` is a human-run
+  stop: the gate shows the human the commands its comment names, and once the human
+  says the releases are done, the task is dispatched again, as a
+  deployment's `waiting: human-run steps` is)
 
 - [ ] **Step 1: Edit both skills**; each rule cites the spec section.
 - [ ] **Step 2: Validate; commit.**
@@ -827,9 +871,13 @@ As "Operational tasks" above.
   `develop` (human-attested, since a release of either ships whatever is
   there).
 - **Procedure:**
-  1. File, under this epic, a coordinated release task (`--kind
-     coordinated-release`) and one task in each fixture (a one-line change
-     to its README), each member carrying the task's line.
+  1. Create a probe development epic in `vergil-project/.github`
+     (`vrg-epic-create --title "Epic: coordinated release probe"`), never
+     this epic, so `epic-implement` driving vergil-project/.github#1818
+     never sees the probe's tasks. File under the probe epic a coordinated
+     release task (`--kind coordinated-release`) and one task in each
+     fixture (a one-line change to its README), each member carrying the
+     task's line.
   2. Implement both members to report-ready; check that `vrg-epic-audit`
      shows the coordinated task blocked until the second is reported, then
      runnable.
@@ -837,11 +885,18 @@ As "Operational tasks" above.
      (Task 9's guard).
   4. Run `issue-coordinated-release`. While ownership is held, the human
      runs a plain `vrg-release` in one fixture and sees it refused, naming
-     the owner; then runs the two commands the run hands over.
+     the owner; then runs the two commands the run hands over. The run ends
+     `waiting: releases`; once both releases are done, run
+     `issue-coordinated-release` again and check that it goes on at
+     Confirm.
   5. After the run, check `vrg-repo-owner status` shows both unowned, and
      the history of each holds one `take` and one `give-up` by the run.
+  6. Check that the probe epic is closed (the epic rollup closes it once
+     every child is closed); if it is still open with every child closed,
+     close it by hand.
 - **Acceptance:** each check above as stated; the task closed with
-  `Outcome: SUCCESS`; both members closed and released.
+  `Outcome: SUCCESS`; both members closed and released; the probe epic
+  closed.
 
 ### Task 18: Fixture run
 

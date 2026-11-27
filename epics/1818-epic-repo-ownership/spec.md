@@ -238,13 +238,15 @@ four operations:
   other caller, naming the bound run and pointing to `break`, by the same
   rule `take` applies when it adopts. Every give-up is recorded in the
   history with its caller. With
-  no `--repo`, it gives up every repo of the task's group. A repo already
+  no `--repo`, it gives up every repo the calling run recorded taking. A repo already
   unowned counts as given up.
 - **`break --repo <owner>/<repo> --reason "<why>"`.** The human's escape
   hatch, for a lost session or abandoned work: human only, refused under
   every agent identity and signal, as `vrg-release` is. It records the old
   record and the reason in the history, comments on the owning task, then
-  deletes the ref.
+  deletes the ref. A break whose delete loses its compare-and-swap records
+  that it did not apply, in the history and on the task, naming what is
+  there now.
 
 The user agent may run `take`, `status` and `give-up`; it never breaks
 ownership.
@@ -326,7 +328,7 @@ open child gating its epic's rollup.
 - **A `Blocked-by:` link between two tasks of one group is met at
   report-ready.** A task blocked by a task of its own group (a plugin task
   that uses a new tooling command, say) becomes runnable once its blocker
-  is recorded report-ready, not once it closes. `vrg-epic-audit`'s frontier
+  is recorded report-ready (or submitted), not once it closes. `vrg-epic-audit`'s frontier
   applies this rule, reading both tasks' `Coordinated release:` lines; no
   skill decides it.
 - **On re-entry, a group's reported-ready task is handed off.**
@@ -337,7 +339,10 @@ open child gating its epic's rollup.
   reads the line, not a refusal from `vrg-submit-pr`.
 - **The coordinated release task is runnable** once every batch of its
   group is recorded report-ready, read from the tooling's records (the
-  report-ready relay), not from the batches' open or closed state.
+  report-ready relay), not from the batches' open or closed state. A
+  batch once submitted, or closed, still counts as met, and while the task
+  owns the group's repos `vrg-epic-audit` reports it in its window, never
+  blocked, so a resumed run always reaches the run's own gate.
   `vrg-epic-audit` reports it runnable or blocked on that rule.
 - **Downstream work that needs the group released** is blocked by the
   coordinated release task, not by the batches.
@@ -360,6 +365,13 @@ it is. Failures inside the window are too varied to enumerate; each is an
 exception the human and the agent resolve together, using the tools as the
 case needs (a break, a release, an emergency patch), and this design does
 not script them.
+
+One state past submission is planned, not a failure: the hand-off of step
+4. The run records that it has handed the releases to the human, bound to
+its run identity, and ends with a named outcome (waiting on releases) that
+`epic-implement` treats as a human-run stop, as it does a deployment's.
+A resumed run that finds that record, bound to its own run, goes on at step
+5; every other resumed run past submission stops as above.
 
 1. **Preconditions.** Every task of the group is implemented and recorded
    report-ready, none has been submitted, and each has a local, frozen
@@ -395,7 +407,8 @@ not script them.
 4. **Release each repo.** For now, hand the human the paste-ready
    `vrg-release --epic <epic ref> --task <task ref>` command for each repo, as a human-run
    step, stating any release order the group names; the human carries the
-   order out, and the tooling does not check it. Later, when agents run
+   order out, and the tooling does not check it. The run then records the
+   hand-off and ends, waiting on the releases, as above. Later, when agents run
    releases, this step changes, and so does step 5, whose release records
    count today only when the human role wrote them.
 5. **Confirm the releases** with `vrg-release-record check` on every task
