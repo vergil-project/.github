@@ -58,17 +58,33 @@ are to it.
 - **The latest record wins:** a group's membership is the record with the
   highest revision. The log is valid only when that revision is held by
   exactly one record and that record is also the latest one posted for the
-  group. Anything else (two records at the top revision, a higher revision
-  posted before a lower one) is a **conflict**, and every read of that
-  group refuses until a record at a higher revision supersedes it (§5.1).
+  group, and when the group's revisions run from 1 to the top with none
+  missing. Anything else (two records at the top revision, a higher
+  revision posted before a lower one, a missing revision) is a
+  **conflict**, and every read of that group refuses until a record at a
+  higher revision supersedes it (§5.1).
 - Records are trusted only from the `human` and `agents` roles
   (`trust.read_comment_stream`, `roles=frozenset({Role.HUMAN,
   Role.AGENTS})`). A trusted record that has been edited (`edited=True`)
-  refuses every read of its group; an untrusted comment is ignored and
-  reported on stderr, metadata only (§5.1, §5.2).
-- Every group read fails closed: an unreadable epic, a malformed or edited
-  record, a conflict, or a record on an epic whose `task_epic` kind is not
-  `development` refuses, naming the epic and group (§5.2, §7).
+  refuses every read of its group. A comment whose first line starts
+  `release-group` and that the stream skipped because an identity outside
+  those roles edited it is treated the same way: it refuses every read of
+  the group its first line names, or of the whole epic when no group can
+  be read from it. Any other untrusted comment is ignored and reported on
+  stderr, metadata only (§5.1, §5.2).
+- Every group read fails closed, scoped to the group: an unreadable epic,
+  a malformed, edited or skipped record, a conflict, or a record on an
+  epic whose `task_epic` kind is not `development` refuses, naming the
+  epic and group (§5.2, §7). A failure confined to one group refuses only
+  reads of that group, so a task outside it, standalone tasks included,
+  is unaffected. A failure that names no group (an unreadable epic, a
+  malformed record with no readable group ID, a record on an epic that is
+  not a development epic) refuses every read on the epic.
+- **Recovery stays in the group tool.** A conflict, an edited record and a
+  skipped record are each superseded the same way: `vrg-release-group set`
+  or `dissolve` with `--resolve-conflict` posts a record at one past the
+  highest revision the group has ever held, any edited or skipped record
+  included (Task 12). The bad record stays in the log.
 - Nothing about a group is written into a task body, and no code parses a
   task body for group membership (§5.1).
 - `MAX_BATCH = 20` (the hard ceiling of §5.2; the spec leaves the value to
@@ -152,7 +168,7 @@ until Task 20 ships.
 | **Phase 3** | | | | |
 | 9 | `vergil-tooling` | task | The ceiling: `MAX_BATCH = 20` | — |
 | 10 | `vergil-tooling` | task | The group rules and the holder check (`lib/release_groups/rules.py`) | 2 |
-| 11 | `vergil-tooling` | task | The whole-group rule on every PR path and stage | 2, 9 |
+| 11 | `vergil-tooling` | task | The whole-group rule on every PR path and stage | 2, 5, 9 |
 | 12 | `vergil-tooling` | task | `vrg-release-group set` and `dissolve` | 10, 11 |
 | 13 | `vergil-tooling` | task | `vrg-gh pr edit` keeps a develop PR's closing lines | — |
 | 14 | `vergil-tooling` | task | Move, route and transfer of a grouped task refused | 2 |
@@ -250,17 +266,26 @@ Spec §5.1, §5.9.
   @dataclass(frozen=True)
   class GroupLog:
       epic: epics.IssueRef
-      groups: Mapping[str, Group]   # every group ever recorded, dissolved included
-      ids_used: frozenset[str]
+      groups: Mapping[str, Group]   # every readable group ever recorded, dissolved included
+      broken: Mapping[str, GroupRecordError]   # groups whose reads refuse, by ID
+      epic_error: GroupRecordError | None      # a failure that names no group
+      ids_used: frozenset[str]                 # broken groups' IDs included
+      top_rev: Mapping[str, int]               # highest revision each group has held, bad records included
 
   def parse_record(body: str) -> ParsedRecord | None
       # None when the first line does not start RECORD_PREFIX; GroupRecordError when it does but is malformed
   def render_record(group: str, rev: int, members: Sequence[epics.IssueRef], *,
                     dissolved: bool = False, reason: str | None = None) -> str
   def read_log(epic: epics.IssueRef, *, authors: TrustedAuthors | None = None) -> GroupLog
+      # raises only on a read failure; a bad record goes into broken or epic_error
   def groups_of(task: epics.IssueRef, *, authors: TrustedAuthors | None = None) -> list[Group]
-      # the live (not dissolved) groups of task's epic (epics.task_epic) holding task
+      # the live (not dissolved) groups of task's epic (epics.task_epic) holding task;
+      # raises GroupRecordError when epic_error is set, or when a broken group
+      # may hold task (its last readable revision does, or none is readable)
   ```
+
+  `read_log` takes the skipped comments from the stream's `skipped` list,
+  and scopes each failure as the Global Constraints say.
 
 - Produces: `vrg-release-group list --epic <owner>/<repo>#<N> [--group <id>]
   [--json]`. Exit 0 on a read, 1 on any refusal or read failure (stderr
@@ -282,8 +307,19 @@ Spec §5.1, §5.9.
     reads cleanly.
   - `test_out_of_order_revision_refuses`: rev 3 posted after rev 4 → raises.
   - `test_edited_record_refuses`: the top record has `edited=True` → raises.
+  - `test_untrusted_edit_of_trusted_record_refuses`: a trusted `G1` record
+    the stream skipped for an outsider's edit → reading `G1` raises,
+    naming the comment ID; a skipped record whose group cannot be read →
+    every read on the epic raises.
+  - `test_revision_gap_refuses`: records rev 1 and rev 3 → raises.
   - `test_untrusted_record_ignored_and_reported`: an outsider's
     `release-group G1 rev 9: …` changes nothing and is reported on stderr.
+  - `test_conflict_in_other_group_does_not_block`: `G2` in conflict →
+    `groups_of` for a `G1` member reads cleanly.
+  - `test_standalone_task_unaffected_by_broken_group`: `G1` broken →
+    `groups_of` for a task in no group returns `[]`.
+  - `test_unscoped_failure_refuses_every_read`: a malformed record with no
+    readable group ID → `groups_of` raises for every task of the epic.
   - `test_member_in_two_live_groups_refuses`.
   - `test_record_on_non_development_epic_refuses` (an ad-hoc epic).
   - `test_groups_of_resolves_continuation_to_head` (Review Focus 3).
@@ -472,14 +508,20 @@ And no command evaluates the gate before report-ready:
 - Produces: `batch_member_change` (and `covered_change`) give the change
   for issue k as issue k's own commit, wherever it sits in the batch, its
   fixups to that commit folded; later issues' commits are not part of it.
+  Its fold base is that commit's parent, the first issue's included: the
+  marker's `base_sha` is no longer used to find any issue's change, so a
+  clean rebase onto a moved `develop` changes no issue's change and leaves
+  the markers as they are.
 - Produces: `vrg-pr-workflow batch-gates [--json]`, run in a batch's
-  worktree before or after report-ready. It reads the batch from the
-  clone's markers and the branch, and evaluates the gate's merge-review
-  check exactly as `vrg-submit-pr` would, commit by commit. It writes
-  nothing. JSON: `{"branch": "<name>", "head": "<sha>", "commits":
-  [{"issue": "<ref>", "sha": "<sha>", "covered": bool, "reason": str |
-  null}]}`; exit 0 when every commit is covered, 1 when any is not or on a
-  read failure (stderr names it), 2 on usage.
+  worktree before report-ready. It reads the batch's issues from the
+  clone's markers, takes the base from a freshly fetched `origin/develop`
+  as `vrg-submit-pr` does, and evaluates the gate's merge-review check
+  exactly as `vrg-submit-pr` would, commit by commit. After report-ready
+  (no markers left) it refuses with exit 1, saying the probe runs only
+  before handoff. It writes nothing. JSON: `{"branch": "<name>", "head":
+  "<sha>", "commits": [{"issue": "<ref>", "sha": "<sha>", "covered": bool,
+  "reason": str | null}]}`; exit 0 when every commit is covered, 1 when
+  any is not or on a read failure (stderr names it), 2 on usage.
 
 - [ ] **Step 1: Write the failing tests** (real git through `batch_repo`;
   the record path itself is not stubbed, only GitHub reads):
@@ -493,6 +535,13 @@ And no command evaluates the gate before report-ready:
   - `test_batch_gates_reports_uncovered_after_fold` and
     `test_batch_gates_all_covered_exits_0`.
   - `test_batch_gates_before_report_ready`: no handoff state needed.
+  - `test_batch_gates_after_report_ready_refuses`: no markers → exit 1,
+    naming the reason.
+  - `test_member_record_for_first_commit_after_rebase`: a batch rebased
+    onto a moved `develop`, then a fold into commit 1 → a record for issue
+    1 is written, and its change holds only commit 1.
+  - `test_batch_gates_after_rebase_onto_moved_develop`: every commit still
+    reported covered; `develop`'s new commit is not part of the batch.
   - `test_batch_gates_matches_submit_gate`: the probe and
     `vrg-submit-pr`'s gate give the same verdict per commit.
   - `test_batch_gates_writes_nothing` and
@@ -517,7 +566,8 @@ The changes:
   issue and every later one are merge-reviewed again before handoff;
   `vrg-pr-workflow batch-gates` confirms coverage before report-ready. A
   clean rebase of the batch branch onto `origin/develop` before handoff is
-  allowed and voids no record; a rebase that conflicts is a batch stop.
+  allowed, voids no record and leaves the markers as they are; a rebase
+  that conflicts is a batch stop.
   The rules "never reopening a finished issue" and "a batch never rebases
   onto `develop` before handoff" are rewritten to match.
 - The batch size wording ("up to 8") is left for Task 19a, which changes
@@ -560,11 +610,13 @@ batch PR lands.
   vergil-tooling, as the `fixture-run` skill's preconditions check it; no
   open PR into the fixture's `develop`.
 - **Procedure:**
-  1. File the seven tasks of Appendix A under vergil-project/.github#1672
-     with `vrg-issue-create --epic vergil-project/.github#1672 --repo
+  1. File the six chain tasks of Appendix A, 8.1 to 8.6, under
+     vergil-project/.github#1672 with `vrg-issue-create --epic
+     vergil-project/.github#1672 --repo
      vergil-project/vergil-fixture-python-lib --title … --body-file …`,
-     in the order 8.0, 8.1, …, 8.6, each 8.k (k ≥ 2) with `--blocked-by`
-     8.(k−1). Record their refs in a progress comment on this task.
+     in order, each 8.k (k ≥ 2) with `--blocked-by` 8.(k−1). Record their
+     refs in a progress comment on this task. 8.0 is not filed yet: it is
+     filed at step 5, so no driver can merge it before the batch starts.
   2. Start the batch at once, from the fixture's main clone:
      `vrg-pr-workflow batch-start --issue <8.1> … --issue <8.6>`, so the
      markers route any dispatch of a member to this batch.
@@ -575,8 +627,10 @@ batch PR lands.
      gate refuses commits 3 and 4: `vrg-pr-workflow batch-gates --json`
      reports both as uncovered. Re-run merge review on 8.2, 8.3 and 8.4,
      and confirm `batch-gates` then reports every commit covered.
-  5. **`develop` moves.** Implement 8.0 as its own single-issue PR and
-     watch it to the merge. Then rebase the batch branch onto the new
+  5. **`develop` moves.** File 8.0 as step 1 files the others (no
+     `--blocked-by`), record its ref in a progress comment on this task,
+     then implement it as its own single-issue PR and watch it to the
+     merge. Then rebase the batch branch onto the new
      `origin/develop` (a clean rebase) and confirm `batch-gates` still
      reports 8.1–8.4 covered.
   6. Finish 8.5 and 8.6, hand off the batch (`report-ready`) and submit it
@@ -715,8 +769,12 @@ Spec §5.2.
   ```
 
   The message names each group, its epic, and its missing members (or the
-  members out of order). At `arm` and `push_to_open_pr`, *closing* is the
-  union of GitHub's closing references and the body's `Closes` lines, and
+  members out of order). At `arm` and `push_to_open_pr`, *closing* is a
+  superset of every issue GitHub will close at the merge: every entry of
+  the PR's `closingIssuesReferences`, `counted` and `uncounted` alike and
+  in any repo, plus every issue the body names with a closing keyword (the
+  whole autoclose family, `AUTOCLOSE_RE`, not only `Closes`). An
+  untrusted reference is used here only to refuse, never to allow.
   *order* is the batch's commit order when the PR is a batch.
 
 - [ ] **Step 1: Write the failing tests:**
@@ -728,6 +786,11 @@ Spec §5.2.
     test);
   - `test_arm_applies_rule_without_agent_involvement` (a human PR);
   - `test_arm_reads_github_closing_refs_not_body_only` (Review Focus 2);
+  - `test_uncounted_fixes_reference_counts_for_rule`,
+    `test_cross_repo_closing_reference_counts_for_rule` and
+    `test_untrusted_body_reference_counts_for_rule`: a group member named
+    only in each such way is in *closing*, so a PR holding part of a group
+    that way is refused;
   - `test_whole_group_and_standalone_allowed`;
   - `test_interleaved_groups_keep_own_order` (Review Focus 5);
   - `test_group_order_violation_refused`;
@@ -789,9 +852,13 @@ Behaviour:
   ruled a group change at a batch stop). The frozen rule still applies.
   The markers read are this clone's: with one driver per epic (Global
   Constraints), that is where the epic's batches run.
-- A **conflict** in the log refuses unless `--resolve-conflict` is given;
-  with it, the record is posted at one past the highest revision. The flag
-  is refused when there is no conflict.
+- A **conflict**, an **edited** record or a **skipped** record in the
+  group (Global Constraints) refuses unless `--resolve-conflict` is given;
+  with it, the record is posted at one past the highest revision the group
+  has ever held (`top_rev`, the bad records included). The flag is refused
+  when the group reads cleanly. A failure that names no group is not
+  resolved this way: the refusal names the comment and says the human must
+  look at it.
 - Run from the main clone of the members' repo (its `origin`), since
   batch markers are local; refuse elsewhere.
 - Changing a group in a closed epic is allowed only as a repair (a removal,
@@ -808,6 +875,10 @@ Behaviour:
   `test_at_batch_stop_allows_marker_only`;
   `test_set_refuses_on_conflict_without_resolve` (Review Focus 1) and
   `test_resolve_conflict_posts_next_rev`;
+  `test_set_supersedes_edited_record` and
+  `test_set_supersedes_skipped_record` (each posted above the bad
+  record's revision, after which the group reads cleanly);
+  `test_resolve_conflict_refused_on_clean_group`;
   `test_split_is_one_record` (13 replaced by 13a and 13b, with a reason);
   `test_repair_in_closed_epic_allowed_only_as_removal` (a removal that
   keeps closed, shipped members is posted); `test_open_rules_skip_closed_members`;
@@ -824,18 +895,22 @@ beside the `pr update-branch` one); Test `tests/vergil_tooling/test_vrg_gh.py`.
 **Interfaces:**
 
 - Consumes: the `linkage` module's line parser (`Closes` and `Ref` lines,
-  plain or in `- <label>:` form).
+  plain or in `- <label>:` form) and the autoclose pattern
+  (`AUTOCLOSE_RE`: `Fixes`, `Resolves` and the rest of the family).
 - Produces: `_closing_line_refusal(args: list[str]) -> str | None`.
 
 `pr edit` with `--body`, `-b`, `--body-file` or `-F` on a PR whose base is
 `develop` reads the current body (`gh pr view --json body,baseRefName`) and
-refuses when the multiset of `Closes`/`Ref` lines differs. Any other base,
+refuses when the multiset of `Ref` lines and closing-keyword references
+(the whole autoclose family) differs. Any other base,
 and any edit that leaves the body alone, passes. A read failure refuses.
 The guard applies to every identity.
 
 - [ ] **Step 1:** `test_pr_edit_adding_closes_line_refused`,
   `test_pr_edit_removing_ref_line_refused`,
   `test_pr_edit_changing_ref_target_refused`,
+  `test_pr_edit_adding_fixes_line_refused`,
+  `test_pr_edit_adding_resolves_line_refused`,
   `test_pr_edit_prose_only_allowed`, `test_pr_edit_non_develop_allowed`,
   `test_pr_edit_title_only_allowed`, `test_pr_edit_read_failure_refused`.
 - [ ] **Step 2–4:** fail, implement, pass, validate, commit.
@@ -951,8 +1026,9 @@ Spec §5.6.
   `closedByPullRequestsReferences`). `closed unmerged`: a closed member
   that no merged PR closes. `rule`: a group with an open member that
   breaks `check_group_rules` (the dependency-path rule above all, since
-  `Blocked-by` lines change without any group write). `edited`, and
-  `unreadable` for a log that cannot be read or holds a conflict. An open
+  `Blocked-by` lines change without any group write). `edited`, for an
+  edited or a skipped record (Global Constraints), and `unreadable` for a
+  log that cannot be read or holds a conflict. An open
   member whose closing PR merged together with the others is drift, closed
   by the drift-close pass; `_close` runs the group check after that pass.
 - Plain `vrg-epic-audit` prints the findings in a `Release groups` section
@@ -964,7 +1040,8 @@ Spec §5.6.
   1, and its report names both PRs); `test_member_closed_unmerged_flagged`;
   `test_open_member_with_merged_pr_is_drift_not_break`;
   `test_dependency_path_from_blocked_by_edit_fails_audit`;
-  `test_edited_record_flagged`; `test_conflict_flagged_unreadable`;
+  `test_edited_record_flagged`; `test_skipped_record_flagged`;
+  `test_conflict_flagged_unreadable`;
   `test_audit_flags_member_moved_out_of_epic` (Review Focus 4);
   `test_dissolved_group_not_checked`;
   `test_closed_epic_within_window_checked`.
@@ -1008,15 +1085,22 @@ The changes:
   ruling would send out; offer `continue`, any of `extract`, `handoff` or
   `unbatch` that moves only whole groups and standalone tasks, or a group
   change (`vrg-release-group set … --at-batch-stop --reason …`) followed by
-  the action the human rules. The stop's reason names what was found (the
-  fourth member depends on a feature planned later, say). A stop that
-  would split a group is never offered.
+  the action the human rules. No command adds an issue to a running batch,
+  so a group change at a batch stop that adds a member (a split included)
+  is always followed by `unbatch`, never by joining the running batch. The
+  stop's reason names what was found (the fourth member depends on a
+  feature planned later, say). A stop that would split a group is never
+  offered.
 - **Unbatch** removes the markers, then starts each whole group afresh as a
   batch (`batch-start`), sends a one-member group to the single-issue path,
-  and leaves each standalone task to its own PR.
+  and leaves each standalone task to its own PR. The members' finished
+  commits stay on the branch for the fresh batch, each merge-reviewed
+  again as the chained gate requires.
 - **A change too big for one PR:** splitting a grouped task is one recorded
   group change, the sub-tasks added and the original removed with its
-  reason; the sub-tasks ship in one batch.
+  reason. Before `batch-start` the sub-tasks join the group's batch when
+  it starts; after it, the split is a batch stop, followed by `unbatch` as
+  above, and the fresh batch holds the sub-tasks.
 - **The batch-stop reason** "depends on another task's work being merged
   first" no longer applies to a dependency on another member of the same
   group, which commit order satisfies.
