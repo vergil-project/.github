@@ -49,8 +49,7 @@ research of 2026-11-25 and the direction notes recorded before this design.
   order and merges as one PR, instead of one merge-and-wait round trip per
   task.
 - A group changes only by an explicit edit recorded on the epic with its
-  reason; an edit that removes a member needs the human's verified
-  approval.
+  reason.
 - The batch mechanism is hardened before it carries releases: every edge
   case the research lists has an automated test, the gaps those tests
   expose are fixed, and one live run of a deliberately awkward batch
@@ -68,9 +67,9 @@ research of 2026-11-25 and the direction notes recorded before this design.
 - **Parallel batch builds** (building a batch's tasks in parallel on local
   branches, then combining them into one branch). A throughput
   optimization, captured as planning issue vergil-project/.github#1825.
-- **Agents deciding by themselves to take a task out of a group.** For now
-  every such case stops for the human, so its reasons can be studied and
-  turned into criteria later (§5.5).
+- **An approval protocol for group changes.** Every change is recorded on
+  the epic with its reason, and no change waits on a human approval; a
+  wrong change is found by what it breaks and fixed forward (§5.5).
 - **Changes to the release lock.** A batch is one PR on the lock's one PR
   path; nothing in #1664 changes.
 - **Groups in ad-hoc epics.** An ad-hoc epic holds standalone work by
@@ -167,9 +166,9 @@ The "small" guideline and the guideline caps go (§5.2).
     `release-group G1 rev 3: <ref> <ref> <ref>`, giving the group's ID, a
     revision number and its full membership, in build order, as fully
     qualified issue refs. It is a snapshot, never a delta, so no history is
-    replayed to read it. The lines after it carry the change's reason and
-    its approval, if it needs one (§5.5), and the parser reads none of
-    them for membership.
+    replayed to read it. The lines after it carry the change's reason, a
+    `Reason:` line that a record removing a member must have (§5.5), and
+    the parser reads none of them for membership.
   - **The latest record wins.** A group's membership is its latest trusted
     record, the highest revision. A record comment that has been edited
     since it was posted is refused, so a record can only be superseded by
@@ -191,7 +190,7 @@ The "small" guideline and the guideline caps go (§5.2).
   until a recorded change (§5.5) has removed it.
 - **A split task.** Splitting a grouped task (13 into 13a and 13b) is one
   recorded change: the sub-tasks are added and the original removed, with
-  the human's verified approval (§5.5). A split already stops for the
+  its reason (§5.5). A split already stops for the
   human, since `issue-implement` proposes it.
 
 ### 5.2 The hard rules, updated
@@ -205,17 +204,21 @@ easily broken:
 - **Whole groups only.** A PR that holds any member of a group holds every
   member of it. A single-issue PR of a grouped task is refused, naming the
   group and its missing members. The check runs whether or not the PR is a
-  batch, on each path: `report-ready`, `vrg-submit-pr` in each of its modes
+  batch, at `report-ready`, at `batch-check`, and on the one PR path of
+  epic vergil-project/.github#1664 (`vergil-tooling`, `lib/pr_path.py`):
+  in `arm` and in `push_to_open_pr`, for every PR into `develop`, whether
+  or not an agent was involved in it. So every mode of `vrg-submit-pr`
   (template, `--all`/`--select`, named-branch through the local and relay
-  paths, the CLI emergency mode, and push) and `batch-check`. No path
-  skips it because the PR holds one issue. The rule finds a PR's groups
-  by looking up each issue it closes in the group records of that issue's
-  epic.
+  paths, the CLI emergency mode, and push) and every re-arm passes it. No
+  path skips it because the PR holds one issue. The rule finds a PR's
+  groups by looking up each issue it closes in the group records of that
+  issue's epic.
 - **The PR's closing lines stay as checked.** Which issues a PR closes is
   read from its body, so `vrg-gh pr edit` refuses any body change that
   adds, removes or changes a `Closes` or `Ref` line of a PR into
-  `develop`. The finalize watch re-runs the whole-group rule on the PR's
-  current body before the merge.
+  `develop`. Auto-merge is pinned to the head `arm` judged, so the check
+  at arm and at push covers every change the tooling makes; the finalize
+  watch only watches, and checks nothing again.
 - **Other tasks may come along.** A batch may hold several whole groups and
   standalone tasks: over-batching is allowed (§4).
 - **Order.** Members of a group appear in the batch in the group's build
@@ -224,8 +227,7 @@ easily broken:
 - **Same epic, same repo** as today. A group record on an epic that is not
   a development epic is refused.
 - **Reads fail closed,** like every batch rule today: a group record that
-  cannot be read, an untrusted or edited one, or one that drops a member
-  without its verified approval (§5.5), refuses.
+  cannot be read, or an untrusted or edited one, refuses.
 - **Size.** `MAX_BATCH = 8` becomes a high safety ceiling (about 20; the
   value is the builder's), kept only to refuse a runaway list. The skill
   guidelines on size ("small", about 150 lines and 6 files, the caps of 4
@@ -250,7 +252,9 @@ easily broken:
   members in build order, and may add other runnable tasks or groups to the
   batch on its own throughput judgment. The rule that a batch takes only
   tasks on the runnable frontier gives way, for group members, to the
-  group's own runnability.
+  group's own runnability. A one-member group on its own is not a batch:
+  it takes the single-issue PR path (`batch-start` takes at least two
+  issues, and that rule stays), where the whole-group rule sees it whole.
 - **`issue-implement`** builds each member on top of the ones before it, as
   batch mode does today, with one commit per member and its merge review.
 - **Security issues may be batched.** The existing safeguards stay: a
@@ -277,13 +281,19 @@ batch, so a changed earlier commit voids the records of all later ones and
 `vrg-submit-pr` and push refuse until they are reviewed again. A clean
 rebase changes no commit's own diff, so it voids nothing, as today.
 
+Records written before this ships need no migration. Each record already
+names the head it judged, so the gate computes the chain at check time
+from what the records store, and the stored format does not change. If
+the builder finds that infeasible, the batches open at rollout are named
+in the release notes as needing a fresh merge review.
+
 ### 5.5 Changing a group
 
-- A task cannot leave a group without the human's approval (below). A
-  batch stop (extraction, handing off what is done, unbatching) is refused
-  by the tooling only when it would split a group: leave part of a group
-  in the batch, or send part of one out. Moving whole groups is allowed,
-  needs no group change and is not recorded as one.
+- A task leaves a group only by a recorded change (below). A batch stop
+  (extraction, handing off what is done, unbatching) is refused by the
+  tooling only when it would split a group: leave part of a group in the
+  batch, or send part of one out. Moving whole groups is allowed, needs no
+  group change and is not recorded as one.
 - **The check comes before anything is discarded.** Extraction discards
   the stopped issue's work (a hard reset of the batch branch), so the
   group check runs first, as a read-only check the skill calls before the
@@ -294,37 +304,28 @@ rebase changes no commit's own diff, so it voids nothing, as today.
   whole groups and standalone tasks; or a group change (below) followed by
   the action the human rules. This holds whether the stopped task is
   grouped or standalone. `unbatch` removes the batch's markers, then
-  starts each whole group afresh as a batch of its own (`batch-start`)
-  and leaves each standalone task to its own PR.
+  starts each whole group afresh as a batch of its own (`batch-start`),
+  sends a one-member group to the single-issue PR path (§5.3), and leaves
+  each standalone task to its own PR.
   `issue-implement`'s batch stops offer the choices in that form.
-- The agent stops for the human with the reason it found (for example: the
+- At a batch stop the agent gives the reason it found (for example: the
   fourth member turns out to depend on a feature planned later in the
-  epic). The human decides.
-- On approval, the group tool posts a new group record on the epic
-  (§5.1): the group's full membership after the change, its reason and its
-  approval.
-  Then the extraction, handoff or unbatch the human ruled proceeds.
-- The comments are the record from which criteria for these decisions are
-  later derived, so that agents can eventually make them alone. That later
-  step is not part of this epic.
-- **Only a removal needs the human's approval.** Taking a task out of a
-  group, splitting a group, dissolving it, or removing a member closed
-  without a merge can let a release carry partial work, so each needs the
-  human's approval. Adding a task to a group, or merging two groups, only
-  makes a group larger, which costs throughput and never correctness (§4):
-  the agent may make it alone while membership is open (below), and the
-  group tool still records it, with its reason.
-- **The approval is verified by the tooling.** A change that removes a
-  member is made only on a verified human approval naming the change (the
-  group, and its members before and after), checked as merge-review
-  exemptions are (`rulings.approvals.verified_approvals`); the group tool
-  refuses without one. A group record that drops a member from the
-  previous record is accepted only with its verified approval: the
-  whole-group rule (§5.2) refuses to read membership from one that lacks
-  it, and the audit flags it (§5.6). A record that only adds members needs
-  none. A group's first record has no earlier record, so it drops nothing
-  and needs no approval; every later record that drops a member needs one,
-  one written by a re-entry into `file-tasks` included.
+  epic), and the human rules the stop, as at every batch stop.
+- A change is made with the group tool, which posts a new group record on
+  the epic (§5.1): the group's full membership after the change, and its
+  reason. Then the extraction, handoff or unbatch the human ruled
+  proceeds.
+- **No change needs an approval.** Adding a task, merging two groups,
+  taking a task out, splitting a group, dissolving it, or removing a
+  member closed without a merge is the agent's call while membership is
+  open (below), and the group tool records each one. A record that removes
+  a member must carry a `Reason:` line, and the group tool refuses one
+  without it. A removal can let a release carry partial work; that risk is
+  accepted, and a wrong removal is found by what it breaks and fixed
+  forward with the human.
+- **The reasons are the data.** The `Reason:` lines in an epic's group
+  records say why each group had to change, so that the human can study
+  what planning missed and improve it.
 - **Every write is checked.** The group tool refuses a record that breaks
   a group rule (§5.1), checked against the tasks as they are. On an
   addition, or a merge of two groups, each incoming task must also be
@@ -332,7 +333,7 @@ rebase changes no commit's own diff, so it voids nothing, as today.
   marker. So an addition can never itself make a broken group.
 - **When a group can change.** Membership is open while the group is
   planned (`plan`, `file-tasks`) and until its batch starts
-  (`batch-start`); within that window the agent may add members alone.
+  (`batch-start`); within that window the agent may change it alone.
   Once the batch has started, any change stops for the human: a task found
   during implementation to belong in the group means the batch is unbatched
   and started again with the new membership, at the human's ruling. Such a
@@ -352,8 +353,8 @@ rebase changes no commit's own diff, so it voids nothing, as today.
 - **A group ends only by a recorded change.** A group that shrinks to one
   member stays a group: nothing dissolves it by itself, so a group named
   outside its epic (§5.9) never drops out of view. Dissolving a group is a
-  removal, made with the human's verified approval (above): its record
-  says the group is dissolved and lists no members. Its tasks are then
+  removal, recorded with its reason (above): its record says the group is
+  dissolved and lists no members. Its tasks are then
   standalone.
 - **Closing a member never changes the group.** Membership is the latest
   group record (§5.1), so a member closed without a merge (as not planned,
@@ -370,18 +371,25 @@ member closed with no merged PR closing it, naming the group, its members
 and their PRs. An open member whose closing PR merged with the others is
 drift, which the sweep's drift-close pass closes, not a break; the group
 check runs after that pass in the same run. It also flags a group record
-that has been edited since it was posted, and one that drops a member
-without its verified approval (§5.5). The audit never repairs either.
+that has been edited since it was posted.
+
+It also checks the dependency-path rule (§5.1) for every group on every
+run, since `Blocked-by` lines change without any group write (an edit in
+the web UI, `vrg-gh issue edit`, `issue-implement`'s collision step). A
+group that waits on an outside task waiting on the group is flagged as
+breaking a group rule, not reported as blocked. The audit repairs none of
+these.
 
 The flag is a failure, not a report line. `vrg-epic-audit --close`, the
 mode the daily `ops-epic-sweep` runs, checks every group in the org and
-exits non-zero while any group is broken; a group it cannot read fails it
-the same way. The sweep's `report` job already posts each run's result to
+exits non-zero while any group is broken or breaks a group rule; a group
+it cannot read fails it the same way. The sweep's `report` job already posts each run's result to
 the org's operations queue, which hoshin's daily review reads, so a broken
 group reaches the human within a day. The sweep stays failed until the
 group is repaired: merged work cannot be unmerged, so the repair is a
-group change the human approves and records (§5.5), bringing the group's
-record in line with what shipped. A test proves that a broken group fails
+recorded group change (§5.5), made with the human, that brings the group's
+record in line with what shipped, or a change to the `Blocked-by` lines
+that removes the path. A test proves that a broken group fails
 the sweep.
 
 The sweep is detection, not a release gate: `vrg-release` runs no group
@@ -407,9 +415,13 @@ exposes is fixed:
 - a single-issue PR of a grouped task, refused on every path of §5.2;
 - a group change refused while a handed-off batch or an open PR holds a
   member (§5.5);
-- a removal refused without a verified approval, and a group record that
-  drops a member without one refused by the whole-group rule and flagged
-  by the audit (§5.5);
+- a removal refused without a `Reason:` line (§5.5);
+- a one-member group sent to the single-issue PR path on dispatch and on
+  unbatch (§5.3, §5.5);
+- a dependency path through a non-member made by a `Blocked-by` edit,
+  failing the audit (§5.6);
+- a batch whose records were written before the chained check, judged
+  correctly by it (§5.4);
 - an edited group record refused by the whole-group rule and flagged by
   the audit, and a retried write that posts nothing twice (§5.1);
 - each refusal of the group tool's write check: a broken group rule, a
@@ -418,8 +430,9 @@ exposes is fixed:
 - a change after `batch-start` that stops for the human (§5.5);
 - a move, an intake route and a transfer of a grouped task, each refused
   (§5.1);
-- a `vrg-gh pr edit` that changes a closing line refused, and the finalize
-  watch's re-run of the whole-group rule (§5.2).
+- a `vrg-gh pr edit` that changes a closing line refused, and the
+  whole-group rule run by `pr_path.arm` and `push_to_open_pr` on a PR no
+  agent was involved in (§5.2).
 
 Then **one live run**: a validation task drives a deliberately awkward
 batch through a fixture repo with the real skills: a dependency chain of
@@ -500,8 +513,11 @@ the direction notes):
 
 **For changing a group:**
 
-- **An explicit, recorded edit, human-approved when it removes a member.**
-  Chosen (§5.5).
+- **An explicit edit, recorded with its reason.** Chosen (§5.5).
+- **A removal only on a human approval the tooling verifies.** Rejected:
+  the approval exchange needs a protocol of its own, with edge cases of
+  its own, to guard against a mistake that is cheaper to find and fix
+  forward.
 - **Extraction removes the task from its group automatically.** Rejected:
   a quick unbatch could ship partial work, with the ruling its only record.
 
@@ -526,7 +542,8 @@ the direction notes):
   freeze, the move and transfer refusals (§5.1), the whole-group rule on
   every PR path and the closing-line guard (§5.2), and the daily sweep
   (§5.6). The accepted gap: a break made outside the tooling (a human's
-  change in the web UI) or caused by a tooling bug can land between one
+  change in the web UI, a PR body edited there after it was armed among
+  them) or caused by a tooling bug can land between one
   sweep and the next, and ship in a release cut before the sweep reports
   it. While humans cut releases, the human reads that report in hoshin's
   daily review. Agent-run releases (the epic ownership follow-on,
@@ -536,9 +553,9 @@ the direction notes):
 
 - The group tool's name and command shape.
 - The exact hard ceiling (about 20).
-- How a batch commit's record chains the fingerprints of the commits before
-  it, or otherwise voids later records when an earlier commit changes
-  (§5.4).
+- How the gate computes a batch commit's chain from the records, or
+  otherwise voids later records when an earlier commit changes, within
+  §5.4's no-migration rule.
 - The group ID format (`G1`, or another short form) and how the plan's
   delivery table shows it.
 - The exact grammar of a group record's first line, within §5.1.
